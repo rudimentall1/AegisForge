@@ -52,18 +52,42 @@ class Worker:
 
         self.agent = AGENTS[role]()
 
+    @staticmethod
+    def _is_agent_failure(task):
+        if not isinstance(task, Task):
+            return False
+
+        status = str(getattr(task, "status", "") or "").lower()
+
+        if status.endswith("_failed"):
+            return True
+
+        result = getattr(task, "result", None)
+
+        if isinstance(result, dict):
+            if result.get("error"):
+                return True
+
+            if result.get("error_type"):
+                return True
+
+            if result.get("agent_error"):
+                return True
+
+        return False
+
     def run_once(self):
+        print(
+            f"[DEBUG] checking queue role={self.role}",
+            flush=True
+        )
+
         task_row = self.queue.claim(
             self.worker_id,
             role=self.role,
         )
 
         if not task_row:
-            print(
-                f"[{self.worker_id}] "
-                f"NO AVAILABLE TASKS FOR ROLE={self.role}",
-                flush=True,
-            )
             return False
 
         task_id = task_row[0]
@@ -80,7 +104,9 @@ class Worker:
             parent_result = None
 
             if parent_task_id:
-                parent_result = self.queue.get_result(parent_task_id)
+                parent_result = self.queue.get_result(
+                    parent_task_id
+                )
 
                 if parent_result is None:
                     raise RuntimeError(
@@ -119,26 +145,77 @@ class Worker:
             print(
                 f"[{self.worker_id}] DEBUG AFTER AGENT:",
                 type(result),
+                "status=",
+                getattr(result, "status", "NO_STATUS"),
                 "task.result=",
                 getattr(result, "result", "NO_RESULT"),
                 flush=True,
             )
 
-            # Agents may return the Task object itself.
-            # Persist only its serializable result payload.
+            # Agent returned a Task.
             if isinstance(result, Task):
-                result = result.result
 
-            task.result = result
+                # IMPORTANT:
+                # Do not convert agent failure into success.
+                if self._is_agent_failure(result):
+                    error_result = result.result
+
+                    self.memory.save_task(result)
+
+                    self.queue.fail(
+                        task_id,
+                        result=error_result,
+                    )
+
+                    print(
+                        f"[{self.worker_id}] "
+                        f"AGENT FAILED {task_id}: "
+                        f"status={result.status}",
+                        flush=True,
+                    )
+
+                    return False
+
+                result_value = result.result
+                result.status = SUCCESS_STATUSES[self.role]
+                result_value = result.result
+
+                task = result
+
+            else:
+                result_value = result
+                task.result = result_value
+                task.status = SUCCESS_STATUSES[self.role]
+
+            # Defensive final validation.
+            if isinstance(result_value, dict):
+                if (
+                    result_value.get("error")
+                    or result_value.get("error_type")
+                ):
+                    self.memory.save_task(task)
+
+                    self.queue.fail(
+                        task_id,
+                        result=result_value,
+                    )
+
+                    print(
+                        f"[{self.worker_id}] "
+                        f"RESULT VALIDATION FAILED {task_id}",
+                        flush=True,
+                    )
+
+                    return False
+
+            task.result = result_value
             task.status = SUCCESS_STATUSES[self.role]
 
-            # Persist in Memory.
             self.memory.save_task(task)
 
-            # Persist in Queue for the next pipeline stage.
             self.queue.finish(
                 task_id,
-                result=result,
+                result=result_value,
             )
 
             print(
@@ -204,7 +281,34 @@ def main():
         flush=True,
     )
 
-    worker.run_once()
+    idle_cycles = 0
+
+    while True:
+        try:
+            worked = worker.run_once()
+
+            if worked:
+                idle_cycles = 0
+            else:
+                idle_cycles += 1
+
+                # Report idle state only once per minute.
+                if idle_cycles % 12 == 0:
+                    print(
+                        f"[{worker.worker_id}] "
+                        f"IDLE ROLE={role}",
+                        flush=True,
+                    )
+
+            import time
+            time.sleep(5)
+
+        except KeyboardInterrupt:
+            print(
+                f"[{worker.worker_id}] STOPPED",
+                flush=True,
+            )
+            break
 
 
 if __name__ == "__main__":

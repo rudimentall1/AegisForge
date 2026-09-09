@@ -13,6 +13,7 @@ from agents.analyst.agent import Analyst
 from agents.developer.agent import Developer
 from agents.security_checker.agent import SecurityChecker
 from agents.opportunity_hunter.agent import OpportunityHunter
+from model_research.agent import ModelResearcher
 
 
 WORKFLOW_ID = "web3-security-pipeline-v1"
@@ -23,6 +24,7 @@ AGENTS = {
     "developer": Developer,
     "security_checker": SecurityChecker,
     "opportunity_hunter": OpportunityHunter,
+    "model_researcher": ModelResearcher,
 }
 
 SUCCESS_STATUSES = {
@@ -31,6 +33,7 @@ SUCCESS_STATUSES = {
     "developer": "developed",
     "security_checker": "security_checked",
     "opportunity_hunter": "opportunities_found",
+    "model_researcher": "model_researched",
 }
 
 

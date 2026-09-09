@@ -65,7 +65,14 @@ WORKFLOW = {
         ),
     ],
 
-    "security_checker": [],
+    "security_checker": [
+        (
+            "model_researcher",
+            "Turn the defensive security findings into a reproducible model research plan, benchmark plan, runtime policy and regression gates",
+        ),
+    ],
+
+    "model_researcher": [],
     "opportunity_hunter": [],
 }
 
@@ -334,8 +341,8 @@ class MasterOrchestrator:
 
         print(
             "[MASTER] Workflow: "
-            "researcher -> analyst -> "
-            "developer/security_checker/opportunity_hunter",
+            "researcher -> analyst -> developer -> security_checker -> model_researcher "
+            "+ opportunity_hunter",
             flush=True,
         )
 

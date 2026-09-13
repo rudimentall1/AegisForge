@@ -43,6 +43,26 @@ class TaskQueue:
                 "ALTER TABLE queue ADD COLUMN result TEXT"
             )
 
+        if "planner_decision" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN planner_decision TEXT"
+            )
+
+        if "planner_decided_at" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN planner_decided_at TEXT"
+            )
+
+        if "information_gain" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN information_gain REAL"
+            )
+
+        if "fingerprint" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN fingerprint TEXT"
+            )
+
         self.db.commit()
 
     # ---------------------------------------------------------
@@ -96,7 +116,11 @@ class TaskQueue:
                 status,
                 role,
                 parent_task_id,
-                result
+                result,
+                planner_decision,
+                planner_decided_at,
+                information_gain,
+                fingerprint
             FROM queue
             ORDER BY created_at
             """
@@ -143,6 +167,49 @@ class TaskQueue:
             return row[0]
 
     # ---------------------------------------------------------
+    # MASTER PLANNER STATE
+    # ---------------------------------------------------------
+
+    def mark_planner_decision(
+        self,
+        task_id,
+        decision,
+        information_gain=0.0,
+        fingerprint=None,
+    ):
+        self.db.execute(
+            """
+            UPDATE queue
+            SET
+                planner_decision = ?,
+                planner_decided_at = ?,
+                information_gain = ?,
+                fingerprint = ?
+            WHERE id = ?
+            """,
+            (
+                decision,
+                datetime.now(timezone.utc).isoformat(),
+                float(information_gain),
+                fingerprint,
+                task_id,
+            ),
+        )
+        self.db.commit()
+
+    def planner_processed(self, task_id):
+        row = self.db.execute(
+            """
+            SELECT planner_decision
+            FROM queue
+            WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+
+        return bool(row and row[0])
+
+    # ---------------------------------------------------------
     # PENDING
     # ---------------------------------------------------------
 
@@ -180,6 +247,7 @@ class TaskQueue:
             """
         ).fetchall()
 
+    # ---------------------------------------------------------
     # ---------------------------------------------------------
     # CLAIM
     # ---------------------------------------------------------

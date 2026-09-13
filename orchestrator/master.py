@@ -969,6 +969,45 @@ class AutonomousPlanner:
         tasks = self._load_tasks()
         self._planning_tasks = tasks
 
+        # ---------------------------------------------------------
+        # DAG INTEGRITY GUARD
+        # ---------------------------------------------------------
+        # Active tasks must never depend on a missing parent.
+        # Historical failed orphan tasks remain preserved for audit.
+        active_orphans = self.queue.active_orphans()
+
+        if active_orphans:
+            print(
+                f"[MASTER] DAG INTEGRITY ERROR: "
+                f"{len(active_orphans)} active orphan task(s) detected",
+                flush=True,
+            )
+
+            for orphan in active_orphans:
+                (
+                    task_id,
+                    description,
+                    status,
+                    role,
+                    parent_task_id,
+                ) = orphan
+
+                print(
+                    f"[MASTER] ORPHAN "
+                    f"task={task_id} "
+                    f"role={role} "
+                    f"status={status} "
+                    f"missing_parent={parent_task_id}",
+                    flush=True,
+                )
+
+            return {
+                "created": 0,
+                "decisions": [],
+                "state": "DAG_ERROR",
+                "active_orphans": len(active_orphans),
+            }
+
         if not tasks:
             return {
                 "created": 0,

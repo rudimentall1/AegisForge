@@ -248,6 +248,35 @@ class TaskQueue:
         ).fetchall()
 
     # ---------------------------------------------------------
+    # DAG INTEGRITY
+    # ---------------------------------------------------------
+
+    def active_orphans(self):
+        """
+        Return active tasks whose parent_task_id points to a
+        non-existent task.
+
+        Historical failed orphan tasks are intentionally excluded.
+        They remain in the database for auditability.
+        """
+        return self.db.execute(
+            """
+            SELECT
+                q.id,
+                q.description,
+                q.status,
+                q.role,
+                q.parent_task_id
+            FROM queue q
+            LEFT JOIN queue p
+                ON p.id = q.parent_task_id
+            WHERE q.parent_task_id IS NOT NULL
+              AND p.id IS NULL
+              AND q.status IN ('pending', 'running')
+            ORDER BY q.created_at
+            """
+        ).fetchall()
+
     # ---------------------------------------------------------
     # CLAIM
     # ---------------------------------------------------------

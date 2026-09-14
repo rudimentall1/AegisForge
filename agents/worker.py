@@ -80,6 +80,17 @@ class Worker:
         return False
 
     def run_once(self):
+        recovered = self.queue.recover_stale_running(
+            stale_minutes=10
+        )
+
+        for task_id in recovered:
+            print(
+                f"[{self.worker_id}] "
+                f"RECOVERED STALE TASK {task_id}",
+                flush=True,
+            )
+
         print(
             f"[DEBUG] checking queue role={self.role}",
             flush=True

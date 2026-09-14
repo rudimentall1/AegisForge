@@ -385,6 +385,95 @@ class TaskQueue:
             raise
 
     # ---------------------------------------------------------
+    # WORKER RECOVERY
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _worker_pid(worker):
+        if not worker:
+            return None
+
+        try:
+            return int(str(worker).rsplit("-", 1)[-1])
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _worker_alive(cls, worker):
+        pid = cls._worker_pid(worker)
+
+        if pid is None or pid <= 0:
+            return False
+
+        try:
+            import os
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+
+    def recover_stale_running(self, stale_minutes=10):
+        """
+        Requeue running tasks whose worker process no longer exists.
+
+        A live worker is never requeued just because the task is old.
+        """
+        from datetime import timedelta
+
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            minutes=stale_minutes
+        )
+
+        rows = self.db.execute(
+            """
+            SELECT id, worker, started_at
+            FROM queue
+            WHERE status = 'running'
+              AND started_at IS NOT NULL
+            ORDER BY started_at
+            """
+        ).fetchall()
+
+        recovered = []
+
+        for task_id, worker, started_at in rows:
+            try:
+                started = datetime.fromisoformat(started_at)
+            except (TypeError, ValueError):
+                continue
+
+            if started > cutoff:
+                continue
+
+            if self._worker_alive(worker):
+                continue
+
+            updated = self.db.execute(
+                """
+                UPDATE queue
+                SET
+                    status = 'pending',
+                    worker = NULL,
+                    started_at = NULL
+                WHERE id = ?
+                  AND status = 'running'
+                """,
+                (task_id,),
+            ).rowcount
+
+            if updated == 1:
+                recovered.append(task_id)
+
+        if recovered:
+            self.db.commit()
+
+        return recovered
+
+    # ---------------------------------------------------------
     # FINISH
     # ---------------------------------------------------------
 

@@ -206,6 +206,7 @@ class AutonomousPlanner:
 
         return min(1.0, score)
 
+    @staticmethod
     def _items(result, keys):
         if not isinstance(result, dict):
             return []
@@ -285,18 +286,84 @@ class AutonomousPlanner:
         return targets[:10]
 
     @classmethod
-    def extract_security_findings(cls, result):
-        return cls._items(
-            result,
-            (
-                "security_findings",
-                "vulnerabilities",
-                "findings",
-                "technical_review",
-            ),
-        )[:10]
+    def extract_security_findings(self, result):
+        """
+        Extract concrete security findings from the current result.
 
-    @classmethod
+        Supports:
+        - legacy top-level findings
+        - nested security_reviews[].findings
+        - security_summary counters
+        - defensive list/dict result shapes
+        """
+        findings = []
+
+        def add_finding(item, repository=None):
+            if isinstance(item, str):
+                findings.append({
+                    "repository": repository,
+                    "finding": item,
+                })
+                return
+
+            if not isinstance(item, dict):
+                return
+
+            finding = dict(item)
+
+            if repository and "repository" not in finding:
+                finding["repository"] = repository
+
+            findings.append(finding)
+
+        if isinstance(result, list):
+            for item in result:
+                add_finding(item)
+
+        elif isinstance(result, dict):
+            # Legacy/direct findings.
+            direct = result.get("security_findings")
+            if isinstance(direct, list):
+                for item in direct:
+                    add_finding(item)
+
+            findings_field = result.get("findings")
+            if isinstance(findings_field, list):
+                for item in findings_field:
+                    add_finding(item)
+
+            # Current SecurityChecker structure.
+            security_reviews = result.get("security_reviews", [])
+
+            if isinstance(security_reviews, list):
+                for review in security_reviews:
+                    if not isinstance(review, dict):
+                        continue
+
+                    repository = (
+                        review.get("name")
+                        or review.get("repository")
+                    )
+
+                    review_findings = review.get("findings", [])
+
+                    if isinstance(review_findings, list):
+                        for item in review_findings:
+                            add_finding(
+                                item,
+                                repository=repository,
+                            )
+
+            # Defensive support for nested result objects.
+            nested = result.get("security_review")
+            if isinstance(nested, dict):
+                nested_findings = nested.get("findings", [])
+                if isinstance(nested_findings, list):
+                    for item in nested_findings:
+                        add_finding(item)
+
+        return findings
+
     def extract_opportunities(cls, result):
         return cls._items(
             result,
@@ -1030,13 +1097,36 @@ class AutonomousPlanner:
             if not self.successful(task):
                 continue
 
-            # Persistent decision prevents repeated processing.
-            if task["planner_decision"]:
-                continue
+            # A persistent planner decision is considered processed only
+            # when:
+            #   - it is terminal (COMPLETE / ABORT), or
+            #   - an actual child task already exists.
+            #
+            # Non-terminal decisions without a child are retryable. This
+            # prevents a failed/duplicate/max-limit creation attempt from
+            # permanently orphaning the planning state.
+            existing_decision = task["planner_decision"]
+            child_count = len(
+                children.get(task["id"], [])
+            )
 
-            # A completed task without a persistent planner decision
-            # must always be evaluated by Master, even if it already has
-            # children created by an earlier planner version.
+            if existing_decision:
+                if existing_decision in {
+                    "COMPLETE",
+                    "ABORT",
+                } or child_count > 0:
+                    continue
+
+                print(
+                    f"[MASTER] RETRY STALE DECISION "
+                    f"task={task['id']} "
+                    f"decision={existing_decision} "
+                    f"reason=no_child",
+                    flush=True,
+                )
+
+            # A completed task without a terminal decision or an existing
+            # child must be evaluated by Master.
             decision = self.choose_next(task)
 
             # Backward compatibility: choose_next() may return either
@@ -1130,7 +1220,7 @@ class AutonomousPlanner:
                 [],
             ):
 
-                if len(tasks) + created >= MAX_TASKS_PER_GOAL:
+                if created >= MAX_TASKS_PER_GOAL:
                     break
 
                 child_fp = self.fingerprint(

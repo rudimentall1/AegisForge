@@ -702,11 +702,313 @@ class Developer:
             "file_read_errors": file_errors,
         }
 
+    def _validate_security_finding(self, finding, repository):
+        """
+        Validate one SecurityChecker finding against the affected source file.
+
+        This is intentionally defensive:
+        presence of the reported pattern is evidence that the finding is
+        reproducible at the source level, not proof of an exploitable bug.
+        """
+        name = finding.get("repository") or repository.get("name")
+        file_path = finding.get("file")
+        rule = finding.get("rule")
+        severity = finding.get("severity")
+        description = finding.get("description")
+
+        if not name or not file_path:
+            return {
+                "repository": name,
+                "file": file_path,
+                "rule": rule,
+                "severity": severity,
+                "status": "INVALID_FINDING_REFERENCE",
+                "description": description,
+            }
+
+        owner, repo = self._repo_parts(name)
+
+        if not owner:
+            return {
+                "repository": name,
+                "file": file_path,
+                "rule": rule,
+                "severity": severity,
+                "status": "INVALID_REPOSITORY",
+                "description": description,
+            }
+
+        metadata = self._get(
+            f"{self.github.BASE_URL}/repos/{owner}/{repo}"
+        ) or {}
+
+        branch = (
+            metadata.get("default_branch")
+            or repository.get("default_branch")
+            or "main"
+        )
+
+        content = self._get_file(
+            owner,
+            repo,
+            file_path,
+        )
+
+        if content is None:
+            return {
+                "repository": name,
+                "file": file_path,
+                "rule": rule,
+                "severity": severity,
+                "status": "FILE_UNAVAILABLE",
+                "description": description,
+                "branch": branch,
+            }
+
+        content_lower = content.lower()
+
+        pattern_map = {
+            "tx_origin": "tx.origin",
+            "delegatecall": "delegatecall(",
+            "low_level_call": ".call",
+            "selfdestruct": "selfdestruct(",
+            "assembly": "assembly {",
+            "unchecked": "unchecked {",
+            "ecrecover": "ecrecover(",
+            "block_timestamp": "block.timestamp",
+            "blockhash": "blockhash(",
+            "transfer_send": ".transfer(",
+        }
+
+        pattern = pattern_map.get(rule)
+
+        if pattern:
+            present = pattern.lower() in content_lower
+        else:
+            present = False
+
+        context = None
+
+        if present:
+            index = content_lower.find(pattern.lower())
+            if index >= 0:
+                start = max(0, index - 500)
+                end = min(
+                    len(content),
+                    index + len(pattern) + 1000,
+                )
+                context = content[start:end]
+
+        if present:
+            status = "CONFIRMED_SOURCE_PATTERN"
+        else:
+            status = "PATTERN_NOT_REPRODUCED"
+
+        return {
+            "repository": name,
+            "file": file_path,
+            "rule": rule,
+            "severity": severity,
+            "description": description,
+            "branch": branch,
+            "validation_status": status,
+            "pattern": pattern,
+            "source_pattern_present": present,
+            "source_context": context,
+            "manual_exploit_confirmation_required": True,
+            "validation_note": (
+                "Source-level pattern confirmation is not proof of exploitability."
+            ),
+        }
+
+    def _security_validation_run(self, task, parent):
+        security_reviews = parent.get("security_reviews", [])
+
+        if not isinstance(security_reviews, list) or not security_reviews:
+            raise RuntimeError(
+                "Security-driven Developer run requires security_reviews"
+            )
+
+        repositories = {
+            repo.get("name"): repo
+            for repo in parent.get("repositories", [])
+            if isinstance(repo, dict) and repo.get("name")
+        }
+
+        findings = []
+
+        for review in security_reviews:
+            if not isinstance(review, dict):
+                continue
+
+            repository = (
+                review.get("name")
+                or review.get("repository")
+            )
+
+            for finding in review.get("findings", []):
+                if not isinstance(finding, dict):
+                    continue
+
+                severity = str(
+                    finding.get("severity", "")
+                ).upper()
+
+                if severity not in {"CRITICAL", "HIGH", "MEDIUM"}:
+                    continue
+
+                item = dict(finding)
+
+                if repository and "repository" not in item:
+                    item["repository"] = repository
+
+                findings.append(item)
+
+        if not findings:
+            return {
+                **parent,
+                "agent": self.name,
+                "task": task.description,
+                "parent_agent": parent.get("agent"),
+                "parent_task": parent.get("task"),
+                "security_validation": [],
+                "developer_summary": {
+                    "mode": "security_finding_validation",
+                    "findings_received": 0,
+                    "findings_validated": 0,
+                },
+                "reviewed_by": self.name,
+                "review_type": "security_finding_validation",
+            }
+
+        # Keep the first pass bounded. Prioritize higher-severity findings.
+        priority = {
+            "CRITICAL": 0,
+            "HIGH": 1,
+            "MEDIUM": 2,
+        }
+
+        findings.sort(
+            key=lambda item: (
+                priority.get(
+                    str(item.get("severity", "")).upper(),
+                    99,
+                ),
+                item.get("repository", ""),
+                item.get("file", ""),
+            )
+        )
+
+        selected = findings[:20]
+        validations = []
+        errors = []
+
+        print(
+            f"[Developer] SECURITY VALIDATION "
+            f"OF {len(selected)} FINDINGS",
+            flush=True,
+        )
+
+        for index, finding in enumerate(selected, 1):
+            repository = repositories.get(
+                finding.get("repository"),
+                {
+                    "name": finding.get("repository")
+                },
+            )
+
+            print(
+                f"[Developer] SECURITY FINDING "
+                f"[{index}/{len(selected)}] "
+                f"{finding.get('repository')}:"
+                f"{finding.get('file')} "
+                f"rule={finding.get('rule')} "
+                f"severity={finding.get('severity')}",
+                flush=True,
+            )
+
+            try:
+                validations.append(
+                    self._validate_security_finding(
+                        finding,
+                        repository,
+                    )
+                )
+            except Exception as exc:
+                error = {
+                    "repository": finding.get("repository"),
+                    "file": finding.get("file"),
+                    "rule": finding.get("rule"),
+                    "severity": finding.get("severity"),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+
+                errors.append(error)
+
+                print(
+                    f"[Developer] SECURITY VALIDATION ERROR "
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+
+        confirmed = sum(
+            item.get("validation_status")
+            == "CONFIRMED_SOURCE_PATTERN"
+            for item in validations
+        )
+
+        not_reproduced = sum(
+            item.get("validation_status")
+            == "PATTERN_NOT_REPRODUCED"
+            for item in validations
+        )
+
+        return {
+            **parent,
+            "agent": self.name,
+            "task": task.description,
+            "parent_agent": parent.get("agent"),
+            "parent_task": parent.get("task"),
+            "security_validation": validations,
+            "security_validation_errors": errors,
+            "developer_summary": {
+                "mode": "security_finding_validation",
+                "findings_received": len(findings),
+                "findings_selected": len(selected),
+                "findings_validated": len(validations),
+                "confirmed_source_patterns": confirmed,
+                "patterns_not_reproduced": not_reproduced,
+                "validation_errors": len(errors),
+            },
+            "reviewed_by": self.name,
+            "review_type": "security_finding_validation",
+            "manual_exploit_confirmation_required": True,
+        }
+
     def run(self, task: Task) -> Task:
         task.status = "developing"
 
         try:
             parent = task.result or {}
+
+            # Security-driven refinement:
+            # when SecurityChecker supplied concrete findings, validate those
+            # findings directly instead of repeating a generic repository scan.
+            if parent.get("security_reviews"):
+                task.result = self._security_validation_run(
+                    task,
+                    parent,
+                )
+
+                task.status = "developed"
+
+                print(
+                    "[Developer] SECURITY VALIDATION COMPLETE",
+                    flush=True,
+                )
+
+                return task
 
             repositories = parent.get(
                 "repositories",
@@ -828,6 +1130,10 @@ class Developer:
 
             task.result = {
                 **parent,
+                "agent": self.name,
+                "task": task.description,
+                "parent_agent": parent.get("agent"),
+                "parent_task": parent.get("task"),
                 "technical_review": technical,
                 "developer_summary": {
                     "repositories_received": len(

@@ -777,6 +777,10 @@ class SecurityChecker:
 
             task.result = {
                 **parent,
+                "agent": self.name,
+                "task": task.description,
+                "parent_agent": parent.get("agent"),
+                "parent_task": parent.get("task"),
                 "security_reviews": security_reviews,
                 "security_summary": {
                     "repositories_received": total,

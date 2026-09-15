@@ -2,6 +2,10 @@ from shared.task import Task
 from shared.github_client import GitHubClient
 
 
+class PipelineContractError(RuntimeError):
+    """Raised when an upstream pipeline contract is missing."""
+
+
 class SecurityChecker:
     name = "security_checker"
 
@@ -653,7 +657,7 @@ class SecurityChecker:
             )
 
             if not technical_reviews:
-                raise RuntimeError(
+                raise PipelineContractError(
                     "Security Checker received no "
                     "technical_review from Developer"
                 )

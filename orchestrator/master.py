@@ -568,20 +568,63 @@ class AutonomousPlanner:
                     max(gain, 0.70),
                 )
 
-            return (
-                "VERIFY",
-                "security_checker",
-                (
-                    "Verify and deepen the following security findings. "
-                    f"Findings: {self.format_items(security_findings[:10])}. "
-                    f"Previous result: {self.compact_context(result)}"
-                ),
-                (
-                    "The result contains concrete security findings that "
-                    "require verification before the branch can terminate."
-                ),
-                max(gain, 0.70),
+            # SecurityChecker consumes Developer's technical_review.
+            # Never create Analyst/Researcher -> SecurityChecker directly.
+            if role == "developer" and isinstance(result, dict):
+                technical_review = result.get("technical_review")
+
+                if technical_review:
+                    return (
+                        "VERIFY",
+                        "security_checker",
+                        (
+                            "Verify and deepen the following security findings "
+                            "using the completed Developer technical review. "
+                            f"Findings: {self.format_items(security_findings[:10])}. "
+                            f"Technical review: "
+                            f"{self.compact_context(technical_review)}"
+                        ),
+                        (
+                            "The Developer produced a technical_review and "
+                            "concrete security findings. Security Checker is "
+                            "now contractually ready to validate them."
+                        ),
+                        max(gain, 0.70),
+                    )
+
+            # Findings from Analyst or another upstream role must first
+            # pass through Developer so SecurityChecker receives the
+            # required technical_review contract.
+            repositories = (
+                result.get("repositories", [])
+                if isinstance(result, dict)
+                else []
             )
+
+            if repositories:
+                return (
+                    "REFINE",
+                    "developer",
+                    (
+                        "Perform a focused technical investigation of the "
+                        "repositories associated with the security findings. "
+                        "Inspect repository structure, implementation quality, "
+                        "security-sensitive components, and technical feasibility. "
+                        f"Security findings: "
+                        f"{self.format_items(security_findings[:10])}. "
+                        f"Repositories: "
+                        f"{self.format_items(repositories[:10])}. "
+                        f"Previous evidence: {self.compact_context(result)}"
+                    ),
+                    (
+                        "Security findings were produced before a Developer "
+                        "technical review existed. Developer must establish "
+                        "the technical evidence contract before SecurityChecker "
+                        "can run."
+                    ),
+                    max(gain, 0.70),
+                )
+
 
         # -------------------------------------------------
         # Research hypotheses / experiments
@@ -1050,7 +1093,23 @@ class AutonomousPlanner:
             or ""
         )
 
-        if error_type == "orphaned_dag_branch":
+        if error_type in {
+            "orphaned_dag_branch",
+            "PipelineContractError",
+        }:
+            return False
+
+        # Historical SecurityChecker contract failures were stored as
+        # RuntimeError before PipelineContractError existed. They are
+        # deterministic pipeline failures, not transient infrastructure
+        # failures, so they must not be retried.
+        error_text = str(result.get("error") or "")
+
+        if (
+            error_type == "RuntimeError"
+            and "Security Checker received no technical_review from Developer"
+            in error_text
+        ):
             return False
 
         if error_type in {

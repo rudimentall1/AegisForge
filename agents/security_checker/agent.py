@@ -718,6 +718,56 @@ class SecurityChecker:
                         flush=True,
                     )
 
+            # Data-integrity gate:
+            # a SecurityChecker task is successful only when every
+            # technical review was inspected successfully.
+            if len(security_reviews) != total or errors:
+                failed_names = [
+                    item.get("name")
+                    for item in errors
+                    if item.get("name")
+                ]
+
+                task.status = "security_check_failed"
+
+                task.result = {
+                    **parent,
+                    "agent": self.name,
+                    "task": task.description,
+                    "parent_agent": parent.get("agent"),
+                    "parent_task": parent.get("task"),
+                    "security_reviews": security_reviews,
+                    "security_checker_errors": errors,
+                    "security_integrity": {
+                        "expected_repositories": total,
+                        "checked_repositories": len(
+                            security_reviews
+                        ),
+                        "inspection_errors": len(errors),
+                        "complete": False,
+                        "failed_repositories": failed_names,
+                    },
+                    "error_type": "PartialSecurityInspectionFailure",
+                    "error": (
+                        "SecurityChecker integrity gate failed: "
+                        f"{len(security_reviews)}/{total} "
+                        "repositories inspected"
+                    ),
+                    "checked_by": self.name,
+                    "security_analysis_type": (
+                        "static_source_pattern_analysis"
+                    ),
+                }
+
+                print(
+                    "[SecurityChecker] INTEGRITY FAILURE: "
+                    f"{len(security_reviews)}/{total} repositories checked; "
+                    f"errors={len(errors)}",
+                    flush=True,
+                )
+
+                return task
+
             if not security_reviews:
                 raise RuntimeError(
                     "Security Checker could not "

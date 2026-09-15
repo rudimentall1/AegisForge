@@ -1058,6 +1058,53 @@ class Developer:
                         flush=True,
                     )
 
+            # Data-integrity gate:
+            # a Developer task is successful only when every input
+            # repository produced a technical review.
+            if len(technical) != total or errors:
+                failed_names = [
+                    item.get("name")
+                    for item in errors
+                    if item.get("name")
+                ]
+
+                task.status = "development_failed"
+
+                task.result = {
+                    **parent,
+                    "agent": self.name,
+                    "task": task.description,
+                    "parent_agent": parent.get("agent"),
+                    "parent_task": parent.get("task"),
+                    "technical_review": technical,
+                    "developer_errors": errors,
+                    "developer_integrity": {
+                        "expected_repositories": total,
+                        "inspected_repositories": len(technical),
+                        "inspection_errors": len(errors),
+                        "complete": False,
+                        "failed_repositories": failed_names,
+                    },
+                    "error_type": "PartialInspectionFailure",
+                    "error": (
+                        "Developer integrity gate failed: "
+                        f"{len(technical)}/{total} repositories inspected"
+                    ),
+                    "reviewed_by": self.name,
+                    "review_type": (
+                        "github_recursive_git_tree_inspection"
+                    ),
+                }
+
+                print(
+                    "[Developer] INTEGRITY FAILURE: "
+                    f"{len(technical)}/{total} repositories inspected; "
+                    f"errors={len(errors)}",
+                    flush=True,
+                )
+
+                return task
+
             if not technical:
                 raise RuntimeError(
                     "Developer could not inspect "

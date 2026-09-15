@@ -155,17 +155,12 @@ class SecurityChecker:
         self.github = GitHubClient()
 
     def _get(self, url, params=None):
-        response = self.github.session.get(
+        return self.github.get_json(
             url,
             params=params,
+            cache_ttl=3600,
             timeout=30,
         )
-
-        if response.status_code == 404:
-            return None
-
-        response.raise_for_status()
-        return response.json()
 
     def _get_tree(self, owner, repo, branch):
         url = (
@@ -185,17 +180,11 @@ class SecurityChecker:
         )
 
         try:
-            response = self.github.session.get(
+            data = self.github.get_json(
                 url,
+                cache_ttl=3600,
                 timeout=20,
             )
-
-            if response.status_code == 404:
-                return None
-
-            response.raise_for_status()
-
-            data = response.json()
 
             if not isinstance(data, dict):
                 return None

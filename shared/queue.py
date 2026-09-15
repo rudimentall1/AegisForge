@@ -63,6 +63,14 @@ class TaskQueue:
                 "ALTER TABLE queue ADD COLUMN fingerprint TEXT"
             )
 
+        if "retry_count" not in columns:
+            self.db.execute(
+                """
+                ALTER TABLE queue
+                ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0
+                """
+            )
+
         self.db.commit()
 
     # ---------------------------------------------------------
@@ -116,6 +124,7 @@ class TaskQueue:
                 status,
                 role,
                 parent_task_id,
+                finished_at,
                 result,
                 planner_decision,
                 planner_decided_at,
@@ -472,6 +481,99 @@ class TaskQueue:
             self.db.commit()
 
         return recovered
+
+    # ---------------------------------------------------------
+    # FAILURE RECOVERY
+    # ---------------------------------------------------------
+
+    def retry_count(self, task_id):
+        row = self.db.execute(
+            """
+            SELECT retry_count
+            FROM queue
+            WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+
+        if not row:
+            return 0
+
+        return int(row[0] or 0)
+
+    def requeue_failed(self, task_id, max_retries=3):
+        """
+        Requeue one failed task for another attempt.
+
+        The parent task must still be completed. The previous failure
+        result remains stored for auditability until the worker produces
+        a new result.
+        """
+        row = self.db.execute(
+            """
+            SELECT status, retry_count, parent_task_id
+            FROM queue
+            WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+
+        if not row:
+            return False
+
+        status, retry_count, parent_task_id = row
+
+        if status != "failed":
+            return False
+
+        retry_count = int(retry_count or 0)
+
+        if retry_count >= max_retries:
+            return False
+
+        if parent_task_id:
+            parent = self.db.execute(
+                """
+                SELECT status, result
+                FROM queue
+                WHERE id = ?
+                """,
+                (parent_task_id,),
+            ).fetchone()
+
+            if not parent:
+                return False
+
+            parent_status, parent_result = parent
+
+            if (
+                parent_status != "completed"
+                or parent_result is None
+            ):
+                return False
+
+        updated = self.db.execute(
+            """
+            UPDATE queue
+            SET
+                status = 'pending',
+                worker = NULL,
+                started_at = NULL,
+                finished_at = NULL,
+                retry_count = retry_count + 1
+            WHERE id = ?
+              AND status = 'failed'
+            """,
+            (task_id,),
+        ).rowcount
+
+        if updated != 1:
+            self.db.rollback()
+            return False
+
+        self.db.commit()
+
+        return True
 
     # ---------------------------------------------------------
     # FINISH

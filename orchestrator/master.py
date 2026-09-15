@@ -28,6 +28,10 @@ DECISIONS = {
 MAX_TASKS_PER_GOAL = 50
 STAGNATION_LIMIT = 3
 
+MAX_FAILED_RECOVERIES_PER_CYCLE = 3
+MAX_RETRIES_PER_TASK = 3
+FAILED_RETRY_COOLDOWN_SECONDS = 60
+
 
 class AutonomousPlanner:
 
@@ -847,6 +851,7 @@ class AutonomousPlanner:
                 status,
                 role,
                 parent_task_id,
+                finished_at,
                 raw_result,
                 planner_decision,
                 planner_decided_at,
@@ -860,6 +865,7 @@ class AutonomousPlanner:
                 "status": status,
                 "role": role,
                 "parent_task_id": parent_task_id,
+                "finished_at": finished_at,
                 "result": self.parse_result(raw_result),
                 "planner_decision": planner_decision,
                 "planner_decided_at": planner_decided_at,
@@ -1029,12 +1035,121 @@ class AutonomousPlanner:
         )
 
     # =========================================================
+    # FAILURE RECOVERY
+    # =========================================================
+
+    @staticmethod
+    def retryable_failure(task):
+        result = task.get("result")
+
+        if not isinstance(result, dict):
+            return False
+
+        error_type = str(
+            result.get("error_type")
+            or ""
+        )
+
+        if error_type == "orphaned_dag_branch":
+            return False
+
+        if error_type in {
+            "PartialInspectionFailure",
+            "PartialSecurityInspectionFailure",
+            "RuntimeError",
+            "TimeoutError",
+            "ConnectionError",
+        }:
+            return True
+
+        return False
+
+    def recover_failed_tasks(self, tasks):
+        """
+        Recover bounded transient failures without touching permanent
+        DAG-corruption failures.
+
+        Recovery requeues the failed task itself, preserving its parent
+        relationship and previous failure result for auditability.
+        """
+
+        from datetime import datetime, timezone
+
+        recovered = []
+
+        failed_tasks = [
+            task
+            for task in tasks.values()
+            if task.get("status") == "failed"
+            and self.retryable_failure(task)
+        ]
+
+        failed_tasks.sort(
+            key=lambda item: item.get("finished_at") or "",
+            reverse=True,
+        )
+
+        now = datetime.now(timezone.utc)
+
+        for task in failed_tasks:
+            if len(recovered) >= MAX_FAILED_RECOVERIES_PER_CYCLE:
+                break
+
+            task_id = task["id"]
+
+            retry_count = self.queue.retry_count(task_id)
+
+            if retry_count >= MAX_RETRIES_PER_TASK:
+                continue
+
+            finished_at = task.get("finished_at")
+
+            if finished_at:
+                try:
+                    finished = datetime.fromisoformat(
+                        finished_at
+                    )
+
+                    elapsed = (
+                        now - finished
+                    ).total_seconds()
+
+                    if elapsed < FAILED_RETRY_COOLDOWN_SECONDS:
+                        continue
+
+                except (TypeError, ValueError):
+                    pass
+
+            if self.queue.requeue_failed(
+                task_id,
+                max_retries=MAX_RETRIES_PER_TASK,
+            ):
+                recovered.append(task_id)
+
+                print(
+                    f"[MASTER] RECOVERED FAILED TASK "
+                    f"task={task_id} "
+                    f"role={task.get('role')} "
+                    f"retry={retry_count + 1}/"
+                    f"{MAX_RETRIES_PER_TASK}",
+                    flush=True,
+                )
+
+        return recovered
+
+    # =========================================================
     # PLANNER
     # =========================================================
 
     def plan(self):
         tasks = self._load_tasks()
         self._planning_tasks = tasks
+
+        recovered = self.recover_failed_tasks(tasks)
+
+        if recovered:
+            tasks = self._load_tasks()
+            self._planning_tasks = tasks
 
         # ---------------------------------------------------------
         # DAG INTEGRITY GUARD
@@ -1258,6 +1373,7 @@ class AutonomousPlanner:
         return {
             "created": created,
             "decisions": decisions,
+            "recovered": recovered,
             "state": "OK",
         }
 
@@ -1364,6 +1480,13 @@ class MasterOrchestrator:
                     print(
                         f"[MASTER] PLANNER "
                         f"created={result['created']}",
+                        flush=True,
+                    )
+
+                if result.get("recovered"):
+                    print(
+                        f"[MASTER] RECOVERY "
+                        f"count={len(result['recovered'])}",
                         flush=True,
                     )
 

@@ -1,10 +1,25 @@
+import agents.developer.agent as developer_module
+import agents.security_checker.agent as security_module
+
 from agents.developer.agent import Developer
 from agents.security_checker.agent import SecurityChecker
 from agents.worker import Worker
 from shared.task import Task
 
 
-def test_developer_rejects_partial_inspection():
+class FakeGitHubClient:
+    """GitHub API stub for unit tests that do not exercise GitHub itself."""
+
+    pass
+
+
+def test_developer_rejects_partial_inspection(monkeypatch):
+    monkeypatch.setattr(
+        developer_module,
+        "GitHubClient",
+        FakeGitHubClient,
+    )
+
     developer = Developer()
 
     task = Task(
@@ -50,7 +65,13 @@ def test_developer_rejects_partial_inspection():
     assert integrity["complete"] is False
 
 
-def test_security_checker_rejects_partial_inspection():
+def test_security_checker_rejects_partial_inspection(monkeypatch):
+    monkeypatch.setattr(
+        security_module,
+        "GitHubClient",
+        FakeGitHubClient,
+    )
+
     security = SecurityChecker()
 
     task = Task(
@@ -106,7 +127,13 @@ def test_security_checker_rejects_partial_inspection():
     assert integrity["complete"] is False
 
 
-def test_worker_routes_failed_agent_to_queue_fail():
+def test_worker_routes_failed_agent_to_queue_fail(monkeypatch):
+    monkeypatch.setattr(
+        developer_module,
+        "GitHubClient",
+        FakeGitHubClient,
+    )
+
     class FakeQueue:
         def __init__(self):
             self.failed = []

@@ -1426,6 +1426,7 @@ class MasterOrchestrator:
                 role,
                 _,
                 _,
+                _,
                 planner_decision,
                 _,
                 _,

@@ -1,5 +1,6 @@
 import agents.developer.agent as developer_module
 import agents.security_checker.agent as security_module
+import agents.worker as worker_module
 
 from agents.developer.agent import Developer
 from agents.security_checker.agent import SecurityChecker
@@ -185,9 +186,12 @@ def test_worker_routes_failed_agent_to_queue_fail(monkeypatch):
             }
             return task
 
+    # Worker() normally opens the production SQLite database.
+    # This unit test must remain completely isolated from the live DB.
+    monkeypatch.setattr(worker_module, "TaskQueue", FakeQueue)
+    monkeypatch.setattr(worker_module, "Memory", FakeMemory)
+
     worker = Worker("developer")
-    worker.queue = FakeQueue()
-    worker.memory = FakeMemory()
     worker.agent = FakeAgent()
 
     worked = worker.run_once()

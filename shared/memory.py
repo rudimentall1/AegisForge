@@ -10,7 +10,12 @@ class Memory:
     def __init__(self):
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-        self.db = sqlite3.connect(DB_PATH)
+        self.db = sqlite3.connect(
+            DB_PATH,
+            timeout=30,
+            check_same_thread=False,
+        )
+        self.db.execute("PRAGMA busy_timeout=30000")
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 task_id TEXT PRIMARY KEY,

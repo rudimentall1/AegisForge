@@ -241,11 +241,51 @@ class EvidenceLedger:
         return count
 
     def contradiction_stats(self):
-        try:
-            row = self.db.execute("SELECT COUNT(*) FROM evidence_contradictions").fetchone()
-        except Exception:
-            return {"contradictions": 0}
+        row = self.db.execute(
+            "SELECT COUNT(*) FROM evidence_contradictions"
+        ).fetchone()
         return {"contradictions": row[0]}
+
+    def evidence_quality(self, atom_id):
+        """Return explainable evidence quality without pretending it is probability."""
+        row = self.db.execute(
+            """SELECT kind, value, confirmation_count, independent_role_count,
+                      first_seen, last_seen, latest_task_id, latest_role
+               FROM evidence_ledger WHERE atom_id = ?""",
+            (atom_id,),
+        ).fetchone()
+        if row is None:
+            return None
+
+        contradiction_count = self.db.execute(
+            """SELECT COUNT(*) FROM evidence_contradictions
+               WHERE atom_id = ? OR other_atom_id = ?""",
+            (atom_id, atom_id),
+        ).fetchone()[0]
+
+        independent_roles = row[3]
+        if contradiction_count:
+            state = "CONTESTED"
+        elif independent_roles >= 3:
+            state = "MULTI_SOURCE"
+        elif independent_roles >= 2:
+            state = "CORROBORATED"
+        else:
+            state = "UNCONFIRMED"
+
+        return {
+            "atom_id": atom_id,
+            "kind": row[0],
+            "value": row[1],
+            "confirmation_count": row[2],
+            "independent_role_count": independent_roles,
+            "contradiction_count": contradiction_count,
+            "state": state,
+            "first_seen": row[4],
+            "last_seen": row[5],
+            "latest_task_id": row[6],
+            "latest_role": row[7],
+        }
 
     def stats(self):
         row = self.db.execute(

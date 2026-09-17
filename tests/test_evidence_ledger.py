@@ -73,3 +73,26 @@ def test_severity_change_is_not_a_contradiction():
     b = {"finding:" + __import__("json").dumps({"repository":"repo-a","file":"x.py","rule":"r1","status":"POTENTIAL_RISK","severity":"HIGH"}, sort_keys=True, separators=(",", ":"))}
     ledger.record("task-1", "security_checker", a)
     assert (ledger.record("task-2", "security_checker", b) is not None and ledger.last_contradiction_count == 0)
+
+
+def test_evidence_quality_is_explainable_and_bounded():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    atom = "finding:issue-1"
+    ledger.record("task-1", "researcher", {atom})
+    atom_id = ledger.atom_id(atom)
+    assert ledger.evidence_quality(atom_id)["state"] == "UNCONFIRMED"
+    ledger.record("task-2", "security_checker", {atom})
+    assert ledger.evidence_quality(atom_id)["state"] == "CORROBORATED"
+    assert ledger.evidence_quality(atom_id)["independent_role_count"] == 2
+
+
+def test_evidence_quality_marks_contradicted_atoms():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    a = {"finding:" + __import__("json").dumps({"repository":"repo-a","file":"x.py","rule":"r1","description":"issue","status":"POTENTIAL_RISK"}, sort_keys=True, separators=(",", ":"))}
+    b = {"finding:" + __import__("json").dumps({"repository":"repo-a","file":"x.py","rule":"r1","description":"issue","status":"SAFE"}, sort_keys=True, separators=(",", ":"))}
+    ledger.record("task-1", "security_checker", a)
+    ledger.record("task-2", "analyst", b)
+    assert ledger.evidence_quality(ledger.atom_id(next(iter(a))))["state"] == "CONTESTED"
+    assert ledger.evidence_quality(ledger.atom_id(next(iter(b))))["state"] == "CONTESTED"

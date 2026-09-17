@@ -1,4 +1,5 @@
 import json
+import json
 import sqlite3
 from pathlib import Path
 
@@ -40,8 +41,9 @@ class Memory:
                 task.status,
                 json.dumps(
                     task.result,
-                    ensure_ascii=False
-                ),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )[:8192],
                 task.created_at,
             ),
         )

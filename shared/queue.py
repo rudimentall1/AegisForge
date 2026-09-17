@@ -2,6 +2,8 @@ import json
 import sqlite3
 import uuid
 from datetime import datetime, timezone
+
+from shared.result_codec import encode, decode
 from pathlib import Path
 
 
@@ -289,10 +291,7 @@ class TaskQueue:
         if not row or row[0] is None:
             return None
 
-        try:
-            return json.loads(row[0])
-        except json.JSONDecodeError:
-            return row[0]
+        return decode(row[0])
 
     # ---------------------------------------------------------
     # MASTER PLANNER STATE
@@ -707,10 +706,7 @@ class TaskQueue:
 
         # Validate JSON serializability before touching the DB.
         try:
-            result_json = json.dumps(
-                result,
-                ensure_ascii=False,
-            )
+            result_json = encode(result)
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 f"Cannot complete task {task_id}: "
@@ -754,10 +750,7 @@ class TaskQueue:
 
         if result is not None:
             try:
-                result_json = json.dumps(
-                    result,
-                    ensure_ascii=False,
-                )
+                result_json = encode(result)
             except (TypeError, ValueError) as exc:
                 raise ValueError(
                     f"Cannot fail task {task_id}: "

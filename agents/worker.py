@@ -4,6 +4,11 @@ import os
 import sys
 import traceback
 
+try:
+    import resource
+except ImportError:
+    resource = None
+
 from shared.queue import TaskQueue
 from shared.task import Task
 from shared.memory import Memory
@@ -39,6 +44,8 @@ SUCCESS_STATUSES = {
 
 class Worker:
     def __init__(self, role: str):
+        self._apply_memory_guard()
+
         if role not in AGENTS:
             raise ValueError(
                 f"Unknown role: {role}. "
@@ -54,6 +61,22 @@ class Worker:
         self.memory = Memory()
 
         self.agent = AGENTS[role]()
+
+    @staticmethod
+    def _apply_memory_guard():
+        """Bound a single agent process so one task cannot consume the host."""
+        if resource is None or not hasattr(resource, "RLIMIT_AS"):
+            return
+        limit = 3 * 1024 * 1024 * 1024
+        try:
+            soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+            if hard == resource.RLIM_INFINITY or hard > limit:
+                hard = limit
+            if soft == resource.RLIM_INFINITY or soft > hard:
+                soft = hard
+            resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
+        except (OSError, ValueError):
+            pass
 
     @staticmethod
     def _is_agent_failure(task):

@@ -13,6 +13,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from shared.queue import TaskQueue
+from shared.result_codec import decode as decode_result
 
 
 DECISIONS = {
@@ -50,10 +51,7 @@ class AutonomousPlanner:
         if isinstance(raw, (dict, list)):
             return raw
 
-        try:
-            return json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
-            return raw
+        return decode_result(raw)
 
     @staticmethod
     def compact_context(result, limit=3500):

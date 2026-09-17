@@ -1,4 +1,6 @@
 import hashlib
+import hashlib
+import json
 from datetime import datetime, timezone
 
 
@@ -36,6 +38,23 @@ class EvidenceLedger:
             CREATE INDEX IF NOT EXISTS idx_evidence_last_seen
             ON evidence_ledger(last_seen)
         """)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS evidence_contradictions (
+                atom_id TEXT NOT NULL,
+                other_atom_id TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                first_task_id TEXT NOT NULL,
+                latest_task_id TEXT NOT NULL,
+                latest_role TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                PRIMARY KEY (atom_id, other_atom_id)
+            )
+        """)
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_evidence_contradictions_last_seen
+            ON evidence_contradictions(last_seen)
+        """)
         self.db.commit()
 
     @staticmethod
@@ -56,7 +75,7 @@ class EvidenceLedger:
         inserted = 0
         confirmed = 0
 
-        for atom in sorted(set(atoms)):
+        for atom in sorted(set(atoms or ())):
             atom = str(atom).strip()
             if not atom:
                 continue
@@ -124,7 +143,11 @@ class EvidenceLedger:
             task_id, role, contradictions, observed_at=now
         )
         self.last_contradiction_count = contradiction_count
-        return {"inserted": inserted, "confirmed": confirmed}
+        return {
+            "inserted": inserted,
+            "confirmed": confirmed,
+            "contradictions": contradiction_count,
+        }
 
     @staticmethod
     def _finding_identity(finding):
@@ -155,7 +178,7 @@ class EvidenceLedger:
             if kind != "finding":
                 continue
             try:
-                finding = __import__("json").loads(value)
+                finding = json.loads(value)
             except Exception:
                 continue
             identity = self._finding_identity(finding)
@@ -183,7 +206,7 @@ class EvidenceLedger:
                 if existing_id == atom_id:
                     continue
                 try:
-                    old = __import__("json").loads(value)
+                    old = json.loads(value)
                 except Exception:
                     continue
                 old_identity = self._finding_identity(old)
@@ -202,19 +225,6 @@ class EvidenceLedger:
         if not contradictions:
             return 0
         now = observed_at or datetime.now(timezone.utc).isoformat()
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS evidence_contradictions (
-                atom_id TEXT NOT NULL,
-                other_atom_id TEXT NOT NULL,
-                first_seen TEXT NOT NULL,
-                last_seen TEXT NOT NULL,
-                first_task_id TEXT NOT NULL,
-                latest_task_id TEXT NOT NULL,
-                latest_role TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                PRIMARY KEY (atom_id, other_atom_id)
-            )
-        """)
         count = 0
         for item in contradictions:
             a, b = item["atom_id"], item["other_atom_id"]

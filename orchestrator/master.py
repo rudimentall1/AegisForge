@@ -531,6 +531,33 @@ class AutonomousPlanner:
         novel = current - previous
         return len(novel) / len(current), len(novel), len(current)
 
+    def evidence_quality_summary(self, result):
+        """Summarize explainable ledger quality for the current result."""
+        summary = {
+            "atoms": 0,
+            "unconfirmed": 0,
+            "corroborated": 0,
+            "multi_source": 0,
+            "contested": 0,
+        }
+        for atom in self.evidence_atoms(result):
+            quality = self.evidence_ledger.evidence_quality(
+                self.evidence_ledger.atom_id(atom)
+            )
+            if not quality:
+                continue
+            summary["atoms"] += 1
+            state = quality["state"]
+            if state == "CONTESTED":
+                summary["contested"] += 1
+            elif state == "MULTI_SOURCE":
+                summary["multi_source"] += 1
+            elif state == "CORROBORATED":
+                summary["corroborated"] += 1
+            else:
+                summary["unconfirmed"] += 1
+        return summary
+
     # =========================================================
     # AUTONOMOUS DECISION ENGINE
     # =========================================================
@@ -944,6 +971,31 @@ class AutonomousPlanner:
                 ),
                 0.0,
             )
+
+        quality = self.evidence_quality_summary(task.get("result"))
+        if quality["contested"]:
+            findings = self.extract_security_findings(task.get("result"))
+            if findings and task.get("role") == "developer" and isinstance(task.get("result"), dict):
+                technical_review = task["result"].get("technical_review")
+                if technical_review:
+                    return (
+                        "VERIFY",
+                        "security_checker",
+                        (
+                            "Resolve the contested security evidence using an "
+                            "independent verification pass. Compare the "
+                            "conflicting security statuses, inspect the affected "
+                            "implementation, and return a reasoned disposition. "
+                            f"Findings: {self.format_items(findings[:10])}. "
+                            f"Technical review: {self.compact_context(technical_review)}"
+                        ),
+                        (
+                            "The evidence ledger marks at least one current security "
+                            "finding as CONTESTED. The planner must resolve the "
+                            "conflict instead of treating corroboration as proof."
+                        ),
+                        0.85,
+                    )
 
         decision = self._choose_next_raw(task)
 

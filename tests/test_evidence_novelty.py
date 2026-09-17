@@ -54,3 +54,36 @@ def test_new_status_counts_as_new_evidence():
     assert ratio == 0.5
 
 # end
+
+
+def test_contested_developer_is_forced_to_independent_verification():
+    import sqlite3
+    from shared.evidence_ledger import EvidenceLedger
+
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    risky = {"finding:" + __import__("json").dumps({
+        "repository": "repo-a", "file": "x.py", "rule": "r1",
+        "description": "issue", "status": "POTENTIAL_RISK"
+    }, sort_keys=True, separators=(",", ":"))}
+    safe = {"finding:" + __import__("json").dumps({
+        "repository": "repo-a", "file": "x.py", "rule": "r1",
+        "description": "issue", "status": "SAFE"
+    }, sort_keys=True, separators=(",", ":"))}
+    ledger.record("task-1", "security_checker", risky)
+    ledger.record("task-2", "analyst", safe)
+
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    planner.evidence_ledger = ledger
+    current = task({
+        "findings": [__import__("json").loads(next(iter(safe))[len("finding:"):])],
+        "technical_review": {"validated": True},
+    }, role="developer") | {"id": "current", "parent_task_id": "ancestor"}
+    ancestor = task({
+        "findings": [__import__("json").loads(next(iter(risky))[len("finding:"):])],
+    }, role="security_checker") | {"id": "ancestor"}
+    planner._planning_tasks = {"ancestor": ancestor, "current": current}
+
+    decision = planner.choose_next(current)
+    assert decision[0] == "VERIFY"
+    assert decision[1] == "security_checker"

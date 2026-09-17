@@ -17,6 +17,7 @@ class TaskQueue:
             timeout=30,
             check_same_thread=False,
         )
+        self.db.execute("PRAGMA busy_timeout=30000")
 
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS queue (
@@ -71,6 +72,27 @@ class TaskQueue:
                 """
             )
 
+        self.db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_queue_parent_task_id
+            ON queue(parent_task_id)
+            """
+        )
+
+        self.db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_queue_status_planner_decision
+            ON queue(status, planner_decision)
+            """
+        )
+
+        self.db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_queue_role
+            ON queue(role)
+            """
+        )
+
         self.db.commit()
 
     # ---------------------------------------------------------
@@ -115,6 +137,12 @@ class TaskQueue:
     # READ
     # ---------------------------------------------------------
 
+    def has_tasks(self):
+        row = self.db.execute(
+            "SELECT 1 FROM queue LIMIT 1"
+        ).fetchone()
+        return row is not None
+
     def all_tasks(self):
         return self.db.execute(
             """
@@ -134,6 +162,97 @@ class TaskQueue:
             ORDER BY created_at
             """
         ).fetchall()
+
+    def planning_tasks(self):
+        """
+        Load only tasks that can change planner state this cycle.
+
+        Completed tasks that already have a child or a terminal planner
+        decision are not candidates and their large result payloads never
+        need to be read again.
+        """
+        return self.db.execute(
+            """
+            SELECT
+                q.id,
+                q.description,
+                q.status,
+                q.role,
+                q.parent_task_id,
+                q.finished_at,
+                q.result,
+                q.planner_decision,
+                q.planner_decided_at,
+                q.information_gain,
+                q.fingerprint
+            FROM queue q
+            WHERE q.status = 'failed'
+
+            UNION ALL
+
+            SELECT
+                q.id,
+                q.description,
+                q.status,
+                q.role,
+                q.parent_task_id,
+                q.finished_at,
+                q.result,
+                q.planner_decision,
+                q.planner_decided_at,
+                q.information_gain,
+                q.fingerprint
+            FROM queue q
+            WHERE q.status = 'completed'
+              AND q.planner_decision IS NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM queue c
+                  WHERE c.parent_task_id = q.id
+              )
+
+            UNION ALL
+
+            SELECT
+                q.id,
+                q.description,
+                q.status,
+                q.role,
+                q.parent_task_id,
+                q.finished_at,
+                q.result,
+                q.planner_decision,
+                q.planner_decided_at,
+                q.information_gain,
+                q.fingerprint
+            FROM queue q
+            WHERE q.status = 'completed'
+              AND q.planner_decision IN (
+                  'CONTINUE', 'REFINE', 'VERIFY', 'BRANCH', 'ESCALATE'
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM queue c
+                  WHERE c.parent_task_id = q.id
+              )
+            """
+        ).fetchall()
+
+    def summary(self):
+        statuses = self.db.execute(
+            "SELECT status, COUNT(*) FROM queue GROUP BY status"
+        ).fetchall()
+        roles = self.db.execute(
+            "SELECT role, COUNT(*) FROM queue WHERE role IS NOT NULL GROUP BY role"
+        ).fetchall()
+        decisions = self.db.execute(
+            "SELECT planner_decision, COUNT(*) FROM queue "
+            "WHERE planner_decision IS NOT NULL GROUP BY planner_decision"
+        ).fetchall()
+        total = self.db.execute(
+            "SELECT COUNT(*) FROM queue"
+        ).fetchone()[0]
+        return total, statuses, roles, decisions
 
     def get(self, task_id):
         row = self.db.execute(

@@ -828,6 +828,56 @@ class AutonomousPlanner:
         decision_name, next_role, description, reason, gain = decision
         current_role = task.get("role")
 
+        # SecurityChecker -> Developer -> SecurityChecker can otherwise
+        # become an infinite verification loop when both agents reproduce
+        # the same findings. Stop only when a later SecurityChecker sees
+        # the exact same normalized finding set as an earlier checker.
+        if current_role == "security_checker":
+            history = self.branch_history(
+                task,
+                getattr(self, "_planning_tasks", {}),
+            )
+            current_findings = self.extract_security_findings(
+                task.get("result")
+            )
+
+            if current_findings:
+                current_signature = json.dumps(
+                    current_findings,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                )
+
+                for ancestor in history[1:]:
+                    if ancestor.get("role") != "security_checker":
+                        continue
+
+                    ancestor_findings = self.extract_security_findings(
+                        ancestor.get("result")
+                    )
+
+                    ancestor_signature = json.dumps(
+                        ancestor_findings,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    )
+
+                    if ancestor_findings and ancestor_signature == current_signature:
+                        return (
+                            "COMPLETE",
+                            None,
+                            None,
+                            (
+                                "Security findings are unchanged after a "
+                                "second independent verification pass. "
+                                "Further Developer/SecurityChecker cycling "
+                                "would repeat the same evidence."
+                            ),
+                            0.0,
+                        )
+
         if (
             current_role
             and next_role
@@ -883,7 +933,7 @@ class AutonomousPlanner:
         return decision
 
     def _load_tasks(self):
-        rows = self.queue.all_tasks()
+        rows = self.queue.planning_tasks()
 
         tasks = {}
 
@@ -952,18 +1002,18 @@ class AutonomousPlanner:
     # BRANCH HISTORY
     # =========================================================
 
-    def branch_history(self, task, tasks):
+    def branch_history(self, task, tasks, max_depth=4):
         """
-        Return the ancestor chain for the current task.
+        Return a bounded recent ancestor chain for the current task.
 
-        The newest task is first. This lets the Master understand
-        what has already happened in the current research branch instead
-        of making decisions from the current result alone.
+        Planner guards only need recent branch context. Walking an
+        unbounded historical chain becomes prohibitively expensive when
+        old autonomous branches are very deep.
         """
         history = []
         current = task
 
-        while current:
+        while current and len(history) < max_depth:
             history.append(current)
 
             parent_id = current.get("parent_task_id")
@@ -972,6 +1022,39 @@ class AutonomousPlanner:
                 break
 
             current = tasks.get(parent_id)
+
+            if current is None:
+                row = self.queue.get(parent_id)
+                if row is None:
+                    break
+
+                (
+                    task_id,
+                    description,
+                    status,
+                    worker,
+                    created_at,
+                    started_at,
+                    finished_at,
+                    role,
+                    parent_task_id,
+                    raw_result,
+                ) = row
+
+                current = {
+                    "id": task_id,
+                    "description": description,
+                    "status": status,
+                    "role": role,
+                    "parent_task_id": parent_task_id,
+                    "finished_at": finished_at,
+                    "result": self.parse_result(raw_result),
+                    "planner_decision": None,
+                    "planner_decided_at": None,
+                    "information_gain": None,
+                    "fingerprint": None,
+                }
+                tasks[parent_id] = current
 
         return history
 
@@ -1265,7 +1348,7 @@ class AutonomousPlanner:
         created = 0
         decisions = []
 
-        for task in tasks.values():
+        for task in list(tasks.values()):
 
             # Only successful tasks can produce a new decision.
             if not self.successful(task):
@@ -1444,9 +1527,7 @@ class MasterOrchestrator:
         self.planner = AutonomousPlanner(self.queue)
 
     def bootstrap(self):
-        rows = self.queue.all_tasks()
-
-        if rows:
+        if self.queue.has_tasks():
             return False
 
         task_id = self.queue.add(
@@ -1464,61 +1545,25 @@ class MasterOrchestrator:
         return True
 
     def show_state(self):
-        rows = self.queue.all_tasks()
-
-        if not rows:
-            print(
-                "[MASTER] STATE empty",
-                flush=True,
-            )
-            return
-
-        statuses = Counter()
-        roles = Counter()
-        decisions = Counter()
-
-        for row in rows:
-            (
-                _,
-                _,
-                status,
-                role,
-                _,
-                _,
-                _,
-                planner_decision,
-                _,
-                _,
-                _,
-            ) = row
-
-            statuses[status] += 1
-
-            if role:
-                roles[role] += 1
-
-            if planner_decision:
-                decisions[planner_decision] += 1
+        total, status_rows, role_rows, decision_rows = self.queue.summary()
 
         status_text = " ".join(
             f"{k}={v}"
-            for k, v in sorted(statuses.items())
+            for k, v in sorted(status_rows)
         )
-
         role_text = " ".join(
             f"{k}={v}"
-            for k, v in sorted(roles.items())
+            for k, v in sorted(role_rows)
         )
-
         decision_text = " ".join(
             f"{k}={v}"
-            for k, v in sorted(decisions.items())
+            for k, v in sorted(decision_rows)
         )
 
         print(
             f"[MASTER] STATE "
             f"{status_text} "
-            f"total={len(rows)} "
+            f"total={total} "
             f"roles=[{role_text}] "
             f"decisions=[{decision_text}]",
             flush=True,

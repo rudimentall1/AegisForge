@@ -95,3 +95,31 @@ def test_historical_security_checker_contract_runtime_error_is_not_retryable():
     }
 
     assert planner.retryable_failure(task) is False
+
+
+def test_repeated_security_verification_of_same_findings_terminates():
+    planner = AutonomousPlanner()
+
+    finding = {
+        "rule": "delegatecall",
+        "severity": "HIGH",
+        "file": "contracts/Wallet.sol",
+    }
+
+    previous = {
+        "role": "security_checker",
+        "result": {"findings": [finding]},
+        "parent_task_id": None,
+    }
+    current = {
+        "role": "security_checker",
+        "result": {"findings": [finding]},
+        "parent_task_id": "previous",
+    }
+
+    planner._planning_tasks = {"previous": previous}
+
+    decision = planner.choose_next(current)
+
+    assert decision[0] == "COMPLETE"
+    assert decision[1] is None

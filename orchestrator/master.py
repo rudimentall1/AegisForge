@@ -14,6 +14,7 @@ if PROJECT_ROOT not in sys.path:
 
 from shared.queue import TaskQueue
 from shared.result_codec import decode as decode_result
+from shared.evidence_ledger import EvidenceLedger
 
 
 DECISIONS = {
@@ -38,6 +39,7 @@ class AutonomousPlanner:
 
     def __init__(self, queue=None):
         self.queue = queue or TaskQueue()
+        self.evidence_ledger = EvidenceLedger(self.queue.db)
 
     # =========================================================
     # RESULT NORMALIZATION
@@ -1507,6 +1509,29 @@ class AutonomousPlanner:
 
             # A completed task without a terminal decision or an existing
             # child must be evaluated by Master.
+            # Persist normalized evidence once before planner routing.
+            # Existing terminal decisions are skipped above, so historical
+            # tasks do not get replayed into the ledger every cycle.
+            try:
+                ledger_result = self.evidence_ledger.record(
+                    task["id"],
+                    task.get("role"),
+                    self.evidence_atoms(task.get("result")),
+                    observed_at=task.get("finished_at"),
+                )
+                if ledger_result["inserted"] or ledger_result["confirmed"]:
+                    print(
+                        f"[MASTER] EVIDENCE LEDGER task={task['id']} "
+                        f"new={ledger_result['inserted']} "
+                        f"confirmed={ledger_result['confirmed']}",
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(
+                    f"[MASTER] EVIDENCE LEDGER ERROR task={task['id']}: {exc}",
+                    flush=True,
+                )
+
             decision = self.choose_next(task)
 
             # Backward compatibility: choose_next() may return either

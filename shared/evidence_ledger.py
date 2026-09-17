@@ -1,10 +1,9 @@
 import hashlib
-import hashlib
 from datetime import datetime, timezone
 
 
 class EvidenceLedger:
-    """Persistent normalized evidence with bounded provenance per observation."""
+    """Persistent normalized evidence with bounded provenance."""
 
     def __init__(self, db):
         self.db = db
@@ -22,21 +21,20 @@ class EvidenceLedger:
             )
         """)
         self.db.execute("""
-            CREATE TABLE IF NOT EXISTS evidence_observations (
+            CREATE TABLE IF NOT EXISTS evidence_provenance (
                 atom_id TEXT NOT NULL,
-                task_id TEXT NOT NULL,
-                role TEXT,
-                observed_at TEXT NOT NULL,
-                PRIMARY KEY (atom_id, task_id)
+                role TEXT NOT NULL,
+                first_task_id TEXT NOT NULL,
+                latest_task_id TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                observation_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (atom_id, role)
             )
         """)
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_evidence_last_seen
             ON evidence_ledger(last_seen)
-        """)
-        self.db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_evidence_observation_task
-            ON evidence_observations(task_id)
         """)
         self.db.commit()
 
@@ -52,7 +50,8 @@ class EvidenceLedger:
     def record(self, task_id, role, atoms, observed_at=None):
         if not task_id or not atoms:
             return {"inserted": 0, "confirmed": 0}
-
+        if not role:
+            role = "unknown"
         now = observed_at or datetime.now(timezone.utc).isoformat()
         inserted = 0
         confirmed = 0
@@ -61,45 +60,62 @@ class EvidenceLedger:
             atom = str(atom).strip()
             if not atom:
                 continue
-
             atom_id = self.atom_id(atom)
             kind, value = self.split_atom(atom)
-            exists = self.db.execute(
-                "SELECT 1 FROM evidence_ledger WHERE atom_id = ?",
+            row = self.db.execute(
+                "SELECT confirmation_count FROM evidence_ledger WHERE atom_id = ?",
                 (atom_id,),
             ).fetchone()
+            provenance = self.db.execute(
+                "SELECT observation_count FROM evidence_provenance "
+                "WHERE atom_id = ? AND role = ?",
+                (atom_id, role),
+            ).fetchone()
 
-            inserted_observation = self.db.execute(
-                "INSERT OR IGNORE INTO evidence_observations "
-                "(atom_id, task_id, role, observed_at) VALUES (?, ?, ?, ?)",
-                (atom_id, task_id, role, now),
-            ).rowcount
-
-            if exists:
-                if inserted_observation:
-                    confirmed += 1
-                self.db.execute(
-                    """UPDATE evidence_ledger
-                       SET last_seen = ?, latest_task_id = ?, latest_role = ?,
-                           confirmation_count = confirmation_count + ?,
-                           independent_role_count = (
-                               SELECT COUNT(DISTINCT role)
-                               FROM evidence_observations
-                               WHERE atom_id = ? AND role IS NOT NULL
-                           )
-                       WHERE atom_id = ?""",
-                    (now, task_id, role, int(bool(inserted_observation)), atom_id, atom_id),
-                )
-            else:
+            if row is None:
                 inserted += 1
                 self.db.execute(
                     """INSERT INTO evidence_ledger
                        (atom_id, kind, value, first_seen, last_seen,
                         confirmation_count, independent_role_count,
                         latest_task_id, latest_role)
-                       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)""",
-                    (atom_id, kind, value, now, now,
-                     1 if role else 0, task_id, role),
+                       VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)""",
+                    (atom_id, kind, value, now, now, task_id, role),
+                )
+            elif provenance is None:
+                confirmed += 1
+                self.db.execute(
+                    """UPDATE evidence_ledger
+                       SET last_seen = ?, latest_task_id = ?, latest_role = ?,
+                           confirmation_count = confirmation_count + 1,
+                           independent_role_count = independent_role_count + 1
+                       WHERE atom_id = ?""",
+                    (now, task_id, role, atom_id),
+                )
+            else:
+                self.db.execute(
+                    """UPDATE evidence_ledger
+                       SET last_seen = ?, latest_task_id = ?, latest_role = ?,
+                           confirmation_count = confirmation_count + 1
+                       WHERE atom_id = ?""",
+                    (now, task_id, role, atom_id),
+                )
+
+            if provenance is None:
+                self.db.execute(
+                    """INSERT INTO evidence_provenance
+                       (atom_id, role, first_task_id, latest_task_id,
+                        first_seen, last_seen, observation_count)
+                       VALUES (?, ?, ?, ?, ?, ?, 1)""",
+                    (atom_id, role, task_id, task_id, now, now),
+                )
+            else:
+                self.db.execute(
+                    """UPDATE evidence_provenance
+                       SET latest_task_id = ?, last_seen = ?,
+                           observation_count = observation_count + 1
+                       WHERE atom_id = ? AND role = ?""",
+                    (task_id, now, atom_id, role),
                 )
 
         self.db.commit()

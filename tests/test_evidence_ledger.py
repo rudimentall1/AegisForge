@@ -41,3 +41,33 @@ def test_provenance_stays_bounded_by_roles():
         ledger.record(f"task-{i}", "researcher", {"finding:issue-1"})
     assert db.execute("SELECT COUNT(*) FROM evidence_provenance").fetchone()[0] == 1
     assert db.execute("SELECT observation_count FROM evidence_provenance").fetchone()[0] == 100
+
+
+
+def test_contradictory_security_status_is_recorded():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    first = {
+        "finding:" + __import__("json").dumps({
+            "repository": "repo-a", "file": "x.py", "rule": "r1",
+            "description": "issue", "status": "POTENTIAL_RISK"
+        }, sort_keys=True, separators=(",", ":"))
+    }
+    second = {
+        "finding:" + __import__("json").dumps({
+            "repository": "repo-a", "file": "x.py", "rule": "r1",
+            "description": "issue", "status": "SAFE"
+        }, sort_keys=True, separators=(",", ":"))
+    }
+    assert (ledger.record("task-1", "security_checker", first) is not None and ledger.last_contradiction_count == 0)
+    assert (ledger.record("task-2", "analyst", second) is not None and ledger.last_contradiction_count == 1)
+    assert ledger.contradiction_stats() == {"contradictions": 1}
+
+
+def test_severity_change_is_not_a_contradiction():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    a = {"finding:" + __import__("json").dumps({"repository":"repo-a","file":"x.py","rule":"r1","status":"POTENTIAL_RISK","severity":"LOW"}, sort_keys=True, separators=(",", ":"))}
+    b = {"finding:" + __import__("json").dumps({"repository":"repo-a","file":"x.py","rule":"r1","status":"POTENTIAL_RISK","severity":"HIGH"}, sort_keys=True, separators=(",", ":"))}
+    ledger.record("task-1", "security_checker", a)
+    assert (ledger.record("task-2", "security_checker", b) is not None and ledger.last_contradiction_count == 0)

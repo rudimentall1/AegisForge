@@ -66,7 +66,7 @@ class EvidenceLedger:
         kind, sep, value = str(atom).partition(":")
         return kind if sep else "unknown", value if sep else str(atom)
 
-    def record(self, task_id, role, atoms, observed_at=None):
+    def record(self, task_id, role, atoms, observed_at=None, commit=True):
         if not task_id or not atoms:
             return {"inserted": 0, "confirmed": 0}
         if not role:
@@ -137,10 +137,11 @@ class EvidenceLedger:
                     (task_id, now, atom_id, role),
                 )
 
-        self.db.commit()
+        if commit:
+            self.db.commit()
         contradictions = self.detect_contradictions(atoms)
         contradiction_count = self.record_contradictions(
-            task_id, role, contradictions, observed_at=now
+            task_id, role, contradictions, observed_at=now, commit=commit
         )
         self.last_contradiction_count = contradiction_count
         return {
@@ -221,7 +222,7 @@ class EvidenceLedger:
                         })
         return conflicts
 
-    def record_contradictions(self, task_id, role, contradictions, observed_at=None):
+    def record_contradictions(self, task_id, role, contradictions, observed_at=None, commit=True):
         if not contradictions:
             return 0
         now = observed_at or datetime.now(timezone.utc).isoformat()
@@ -237,7 +238,8 @@ class EvidenceLedger:
                     latest_role=excluded.latest_role, reason=excluded.reason
             """, (a, b, now, now, task_id, task_id, role or "unknown", item["reason"]))
             count += 1
-        self.db.commit()
+        if commit:
+            self.db.commit()
         return count
 
     def contradiction_stats(self):

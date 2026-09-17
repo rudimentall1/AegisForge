@@ -82,9 +82,14 @@ def test_evidence_quality_is_explainable_and_bounded():
     ledger.record("task-1", "researcher", {atom})
     atom_id = ledger.atom_id(atom)
     assert ledger.evidence_quality(atom_id)["state"] == "UNCONFIRMED"
+    assert ledger.evidence_quality(atom_id)["quality_score"] == 25
     ledger.record("task-2", "security_checker", {atom})
     assert ledger.evidence_quality(atom_id)["state"] == "CORROBORATED"
+    assert ledger.evidence_quality(atom_id)["quality_score"] == 60
     assert ledger.evidence_quality(atom_id)["independent_role_count"] == 2
+    ledger.record("task-3", "developer", {atom})
+    assert ledger.evidence_quality(atom_id)["state"] == "MULTI_SOURCE"
+    assert ledger.evidence_quality(atom_id)["quality_score"] == 85
 
 
 def test_evidence_quality_marks_contradicted_atoms():

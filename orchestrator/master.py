@@ -539,7 +539,9 @@ class AutonomousPlanner:
             "corroborated": 0,
             "multi_source": 0,
             "contested": 0,
+            "quality_score": None,
         }
+        quality_scores = []
         for atom in self.evidence_atoms(result):
             quality = self.evidence_ledger.evidence_quality(
                 self.evidence_ledger.atom_id(atom)
@@ -547,6 +549,7 @@ class AutonomousPlanner:
             if not quality:
                 continue
             summary["atoms"] += 1
+            quality_scores.append(quality["quality_score"])
             state = quality["state"]
             if state == "CONTESTED":
                 summary["contested"] += 1
@@ -556,6 +559,9 @@ class AutonomousPlanner:
                 summary["corroborated"] += 1
             else:
                 summary["unconfirmed"] += 1
+
+        if quality_scores:
+            summary["quality_score"] = min(quality_scores)
         return summary
 
     # =========================================================

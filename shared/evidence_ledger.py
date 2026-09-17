@@ -268,12 +268,16 @@ class EvidenceLedger:
         independent_roles = row[3]
         if contradiction_count:
             state = "CONTESTED"
+            quality_score = 15
         elif independent_roles >= 3:
             state = "MULTI_SOURCE"
+            quality_score = 85
         elif independent_roles >= 2:
             state = "CORROBORATED"
+            quality_score = 60
         else:
             state = "UNCONFIRMED"
+            quality_score = 25
 
         return {
             "atom_id": atom_id,
@@ -283,6 +287,10 @@ class EvidenceLedger:
             "independent_role_count": independent_roles,
             "contradiction_count": contradiction_count,
             "state": state,
+            # Ordinal evidence-strength index, not a probability.
+            # It is derived only from independent-role corroboration and
+            # contradiction state so planner behavior remains explainable.
+            "quality_score": quality_score,
             "first_seen": row[4],
             "last_seen": row[5],
             "latest_task_id": row[6],

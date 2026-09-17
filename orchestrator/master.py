@@ -366,6 +366,7 @@ class AutonomousPlanner:
 
         return findings
 
+    @classmethod
     def extract_opportunities(cls, result):
         return cls._items(
             result,
@@ -429,6 +430,104 @@ class AutonomousPlanner:
             text = text[:limit] + "\n...[truncated]"
 
         return text
+
+    # =========================================================
+    # EVIDENCE NOVELTY
+    # =========================================================
+
+    @classmethod
+    def evidence_signature(cls, result):
+        """Build a stable, compact signature for decision-relevant evidence."""
+        payload = {
+            "targets": cls.extract_targets(result),
+            "findings": cls.extract_security_findings(result),
+            "opportunities": cls.extract_opportunities(result),
+            "hypotheses": cls.extract_hypotheses(result),
+        }
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+            separators=(",", ":"),
+        )
+
+    @classmethod
+    def evidence_atoms(cls, result):
+        """Return normalized evidence atoms used to measure information gain."""
+        atoms = set()
+
+        def add(prefix, value):
+            if value is None:
+                return
+            if isinstance(value, dict):
+                value = json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                    separators=(",", ":"),
+                )
+            elif isinstance(value, (list, tuple, set)):
+                value = json.dumps(
+                    list(value),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                    separators=(",", ":"),
+                )
+            else:
+                value = str(value).strip()
+            if value:
+                atoms.add(f"{prefix}:{value}")
+
+        # extract_targets() intentionally includes findings/opportunities for
+        # planner routing, but evidence atoms must keep those categories
+        # separate or the same finding is counted multiple times.
+        if isinstance(result, dict):
+            for key in ("repositories", "projects", "targets", "contracts", "addresses", "entities"):
+                value = result.get(key)
+                if isinstance(value, list):
+                    for item in value[:20]:
+                        add("target", item)
+                elif value:
+                    add("target", value)
+
+        for item in cls.extract_security_findings(result):
+            add("finding", item)
+        for item in cls.extract_opportunities(result):
+            add("opportunity", item)
+        for item in cls.extract_hypotheses(result):
+            add("hypothesis", item)
+
+        if isinstance(result, dict):
+            for key in ("evidence", "sources", "citations", "repositories"):
+                value = result.get(key)
+                if isinstance(value, list):
+                    for item in value[:20]:
+                        add(key, item)
+                elif value:
+                    add(key, value)
+
+            for key in ("status", "severity", "verdict"):
+                if result.get(key) is not None:
+                    add(key, result[key])
+
+        return atoms
+
+    @classmethod
+    def novelty_against_history(cls, task, history):
+        """Measure the fraction of current evidence not seen in ancestors."""
+        current = cls.evidence_atoms(task.get("result"))
+        if not current:
+            return 0.0, 0, 0
+
+        previous = set()
+        for ancestor in history[1:]:
+            previous.update(cls.evidence_atoms(ancestor.get("result")))
+
+        novel = current - previous
+        return len(novel) / len(current), len(novel), len(current)
 
     # =========================================================
     # AUTONOMOUS DECISION ENGINE
@@ -817,6 +916,32 @@ class AutonomousPlanner:
         actual result. This outer gate prevents immediate same-role
         transitions from creating autonomous branch stagnation.
         """
+
+        history = self.branch_history(
+            task,
+            getattr(self, "_planning_tasks", {}),
+        )
+
+        novelty, novel_count, atom_count = self.novelty_against_history(
+            task,
+            history,
+        )
+
+        # A useful result must add evidence before the branch is allowed to
+        # continue. Exact repeats are not progress, even when the raw result
+        # has a high structural information_gain score.
+        if atom_count and novelty == 0.0 and len(history) > 1:
+            return (
+                "COMPLETE",
+                None,
+                None,
+                (
+                    "The result contains no evidence atoms that are new "
+                    "relative to its branch history. Further autonomous work "
+                    "would repeat existing evidence."
+                ),
+                0.0,
+            )
 
         decision = self._choose_next_raw(task)
 

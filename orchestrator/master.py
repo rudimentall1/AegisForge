@@ -943,6 +943,83 @@ class AutonomousPlanner:
             0.0,
         )
 
+    def coverage_summary(self, result):
+        """Summarize explicit inspection coverage without storing new history."""
+        summary = {
+            "expected": 0,
+            "completed": 0,
+            "failed": 0,
+            "complete": True,
+        }
+        if not isinstance(result, dict):
+            return summary
+
+        candidates = (
+            result.get("developer_integrity"),
+            result.get("security_integrity"),
+        )
+        integrity = next((item for item in candidates if isinstance(item, dict)), None)
+        if integrity:
+            expected = integrity.get("expected_repositories", 0)
+            completed = integrity.get("inspected_repositories")
+            if completed is None:
+                completed = integrity.get("checked_repositories", 0)
+            failed = integrity.get("inspection_errors", 0)
+            summary.update({
+                "expected": int(expected or 0),
+                "completed": int(completed or 0),
+                "failed": int(failed or 0),
+                "complete": bool(integrity.get("complete", False)),
+            })
+            return summary
+
+        developer_summary = result.get("developer_summary")
+        security_summary = result.get("security_summary")
+        summary_data = next(
+            (item for item in (developer_summary, security_summary) if isinstance(item, dict)),
+            None,
+        )
+        if summary_data:
+            expected = summary_data.get("repositories_received", 0)
+            completed = summary_data.get("repositories_inspected")
+            if completed is None:
+                completed = summary_data.get("repositories_checked", 0)
+            failed = summary_data.get("inspection_errors", 0)
+            if expected:
+                summary.update({
+                    "expected": int(expected),
+                    "completed": int(completed or 0),
+                    "failed": int(failed or 0),
+                    "complete": int(completed or 0) == int(expected),
+                })
+        return summary
+
+    def _coverage_policy(self, task, coverage):
+        """Do not advance an incomplete inspection as if it were complete."""
+        if coverage["complete"] or coverage["expected"] <= 0:
+            return None
+
+        result = task.get("result")
+        role = task.get("role")
+        failed = coverage["failed"]
+        expected = coverage["expected"]
+        completed = coverage["completed"]
+
+        if role in {"developer", "security_checker"}:
+            return (
+                "COMPLETE",
+                None,
+                None,
+                (
+                    f"Inspection coverage is incomplete: {completed}/{expected} "
+                    f"completed, {failed} failed. The result is explicitly "
+                    "marked incomplete and must not be treated as a complete "
+                    "research or security review."
+                ),
+                0.0,
+            )
+        return None
+
     def _evidence_quality_policy(self, task, quality):
         """Apply bounded quality gates before the general planner policy."""
         result = task.get("result")
@@ -1019,6 +1096,11 @@ class AutonomousPlanner:
                 ),
                 0.0,
             )
+
+        coverage = self.coverage_summary(task.get("result"))
+        coverage_decision = self._coverage_policy(task, coverage)
+        if coverage_decision is not None:
+            return coverage_decision
 
         quality = self.evidence_quality_summary(task.get("result"))
         quality_decision = self._evidence_quality_policy(task, quality)

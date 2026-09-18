@@ -89,6 +89,42 @@ def test_evidence_quality_policy_allows_corroborated_and_multi_source():
         assert planner._evidence_quality_policy(task(result), quality) is None
 
 
+def test_incomplete_developer_coverage_is_not_advanced():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    result = {
+        "security_findings": [{"rule": "r1", "severity": "HIGH"}],
+        "developer_integrity": {
+            "expected_repositories": 3,
+            "inspected_repositories": 2,
+            "inspection_errors": 1,
+            "complete": False,
+        },
+    }
+    decision = planner.choose_next(
+        task(result, role="developer") | {"id": "current"}
+    )
+    assert decision[0] == "COMPLETE"
+    assert "2/3" in decision[3]
+
+
+def test_complete_coverage_does_not_block_planner():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    result = {
+        "security_findings": [{"rule": "r1", "severity": "HIGH"}],
+        "developer_summary": {
+            "repositories_received": 2,
+            "repositories_inspected": 2,
+            "inspection_errors": 0,
+        },
+        "technical_review": [{"name": "repo/a"}, {"name": "repo/b"}],
+    }
+    coverage = planner.coverage_summary(result)
+    assert coverage["complete"] is True
+    assert planner._coverage_policy(
+        task(result, role="developer"), coverage
+    ) is None
+
+
 def test_contested_developer_is_forced_to_independent_verification():
     import sqlite3
     from shared.evidence_ledger import EvidenceLedger

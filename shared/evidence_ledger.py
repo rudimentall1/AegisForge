@@ -68,7 +68,7 @@ class EvidenceLedger:
 
     def record(self, task_id, role, atoms, observed_at=None, commit=True):
         if not task_id or not atoms:
-            return {"inserted": 0, "confirmed": 0}
+            return {"inserted": 0, "confirmed": 0, "contradictions": 0}
         if not role:
             role = "unknown"
         now = observed_at or datetime.now(timezone.utc).isoformat()
@@ -196,9 +196,31 @@ class EvidenceLedger:
         if not findings:
             return []
 
-        existing = self.db.execute(
-            "SELECT atom_id, value FROM evidence_ledger WHERE kind = 'finding'"
-        ).fetchall()
+        # Only compare against identities already present in the ledger.
+        # Keep the lookup bounded by the identities in this observation so a
+        # large historical ledger cannot turn each record into a full scan.
+        identities = {identity for _, identity, _ in findings}
+        existing = []
+        for identity in identities:
+            identity_map = dict(identity)
+            predicates = []
+            params = []
+            for key in ("repository", "file", "rule", "contract", "address", "description"):
+                value = identity_map.get(key)
+                if value is None:
+                    continue
+                predicates.append("value LIKE ?")
+                params.append(
+                    f"%{json.dumps(key)}:{json.dumps(value, ensure_ascii=False)}%"
+                )
+            if not predicates:
+                continue
+            candidates = self.db.execute(
+                "SELECT atom_id, value FROM evidence_ledger "
+                "WHERE kind = 'finding' AND " + " AND ".join(predicates),
+                tuple(params),
+            ).fetchall()
+            existing.extend(candidates)
         opposite = {
             "POTENTIAL_RISK": {"SAFE", "NOT_A_RISK", "FALSE_POSITIVE", "REJECTED"},
             "CONFIRMED": {"SAFE", "NOT_A_RISK", "FALSE_POSITIVE", "REJECTED"},

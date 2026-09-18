@@ -943,6 +943,48 @@ class AutonomousPlanner:
             0.0,
         )
 
+    def _evidence_quality_policy(self, task, quality):
+        """Apply bounded quality gates before the general planner policy."""
+        result = task.get("result")
+        findings = self.extract_security_findings(result)
+        if not findings:
+            return None
+
+        role = task.get("role")
+        if quality["contested"] and role == "developer" and isinstance(result, dict):
+            technical_review = result.get("technical_review")
+            if technical_review:
+                return (
+                    "VERIFY",
+                    "security_checker",
+                    (
+                        "Resolve the contested security evidence using an independent "
+                        "verification pass. Compare the conflicting statuses, inspect "
+                        "the affected implementation, and return a reasoned disposition. "
+                        f"Findings: {self.format_items(findings[:10])}. "
+                        f"Technical review: {self.compact_context(technical_review)}"
+                    ),
+                    "Current security evidence is CONTESTED and requires independent verification.",
+                    0.85,
+                )
+
+        if quality["unconfirmed"] and role in {"analyst", "researcher", "opportunity_hunter"}:
+            repositories = result.get("repositories", []) if isinstance(result, dict) else []
+            if repositories:
+                return (
+                    "REFINE",
+                    "developer",
+                    (
+                        "Establish technical evidence for these unconfirmed security findings. "
+                        f"Findings: {self.format_items(findings[:10])}. "
+                        f"Repositories: {self.format_items(repositories[:10])}."
+                    ),
+                    "Security evidence is UNCONFIRMED, so it requires a technical review before verification.",
+                    0.70,
+                )
+
+        return None
+
     def choose_next(self, task):
         """
         Final decision gate for autonomous transitions.
@@ -979,29 +1021,9 @@ class AutonomousPlanner:
             )
 
         quality = self.evidence_quality_summary(task.get("result"))
-        if quality["contested"]:
-            findings = self.extract_security_findings(task.get("result"))
-            if findings and task.get("role") == "developer" and isinstance(task.get("result"), dict):
-                technical_review = task["result"].get("technical_review")
-                if technical_review:
-                    return (
-                        "VERIFY",
-                        "security_checker",
-                        (
-                            "Resolve the contested security evidence using an "
-                            "independent verification pass. Compare the "
-                            "conflicting security statuses, inspect the affected "
-                            "implementation, and return a reasoned disposition. "
-                            f"Findings: {self.format_items(findings[:10])}. "
-                            f"Technical review: {self.compact_context(technical_review)}"
-                        ),
-                        (
-                            "The evidence ledger marks at least one current security "
-                            "finding as CONTESTED. The planner must resolve the "
-                            "conflict instead of treating corroboration as proof."
-                        ),
-                        0.85,
-                    )
+        quality_decision = self._evidence_quality_policy(task, quality)
+        if quality_decision is not None:
+            return quality_decision
 
         decision = self._choose_next_raw(task)
 

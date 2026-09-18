@@ -56,6 +56,39 @@ def test_new_status_counts_as_new_evidence():
 # end
 
 
+def test_evidence_quality_policy_routes_unconfirmed_security_evidence():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    result = {
+        "security_findings": [{"rule": "r1", "severity": "LOW"}],
+        "repositories": ["org/repo"],
+    }
+    decision = planner._evidence_quality_policy(
+        task(result, role="analyst"),
+        {"unconfirmed": 1, "corroborated": 0, "multi_source": 0, "contested": 0},
+    )
+    assert decision[0:2] == ("REFINE", "developer")
+
+
+def test_evidence_quality_policy_requires_independent_verification_for_contested():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    result = {"security_findings": [{"rule": "r1", "status": "POTENTIAL_RISK"}], "technical_review": {"ok": True}}
+    decision = planner._evidence_quality_policy(
+        task(result, role="developer"),
+        {"unconfirmed": 0, "corroborated": 0, "multi_source": 0, "contested": 1},
+    )
+    assert decision[0:2] == ("VERIFY", "security_checker")
+
+
+def test_evidence_quality_policy_allows_corroborated_and_multi_source():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    result = {"security_findings": [{"rule": "r1", "severity": "LOW"}]}
+    for quality in (
+        {"unconfirmed": 0, "corroborated": 1, "multi_source": 0, "contested": 0},
+        {"unconfirmed": 0, "corroborated": 0, "multi_source": 1, "contested": 0},
+    ):
+        assert planner._evidence_quality_policy(task(result), quality) is None
+
+
 def test_contested_developer_is_forced_to_independent_verification():
     import sqlite3
     from shared.evidence_ledger import EvidenceLedger

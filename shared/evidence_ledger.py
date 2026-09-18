@@ -85,11 +85,17 @@ class EvidenceLedger:
                 "SELECT confirmation_count FROM evidence_ledger WHERE atom_id = ?",
                 (atom_id,),
             ).fetchone()
-            provenance = self.db.execute(
-                "SELECT observation_count FROM evidence_provenance "
+            provenance_row = self.db.execute(
+                "SELECT observation_count, latest_task_id FROM evidence_provenance "
                 "WHERE atom_id = ? AND role = ?",
                 (atom_id, role),
             ).fetchone()
+            provenance = provenance_row
+
+            # A task may be revisited by the planner before its child is
+            # created. Do not count the same task/role observation twice.
+            if provenance_row is not None and provenance_row[1] == task_id:
+                continue
 
             if row is None:
                 inserted += 1

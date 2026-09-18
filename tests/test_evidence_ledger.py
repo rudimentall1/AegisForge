@@ -14,6 +14,19 @@ def test_ledger_inserts_atoms_and_provenance():
     assert db.execute("SELECT COUNT(*) FROM evidence_provenance").fetchone()[0] == 2
 
 
+def test_same_task_is_idempotent_for_ledger_observation():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    atoms = {"target:repo-a"}
+    assert ledger.record("task-1", "researcher", atoms)["inserted"] == 1
+    assert ledger.record("task-1", "researcher", atoms) == {
+        "inserted": 0,
+        "confirmed": 0,
+        "contradictions": 0,
+    }
+    assert ledger.stats() == {"atoms": 1, "confirmations": 1}
+
+
 def test_same_role_reconfirmation_is_aggregated():
     db = sqlite3.connect(":memory:")
     ledger = EvidenceLedger(db)

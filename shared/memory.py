@@ -35,16 +35,23 @@ class Memory:
         self.db.commit()
 
     @staticmethod
-    def _bounded_result(result):
+    def _bounded_text(text):
+        suffix = "\n...[truncated]"
+        raw = str(text).encode("utf-8")
+        if len(raw) <= MAX_RESULT_BYTES:
+            return str(text)
+        keep = max(0, MAX_RESULT_BYTES - len(suffix.encode("utf-8")))
+        return raw[:keep].decode("utf-8", "ignore") + suffix
+
+    @classmethod
+    def _bounded_result(cls, result):
         text = json.dumps(
             result,
             ensure_ascii=False,
             separators=(",", ":"),
             default=str,
         )
-        if len(text) <= MAX_RESULT_BYTES:
-            return text
-        return text[:MAX_RESULT_BYTES] + "\n...[truncated]"
+        return cls._bounded_text(text)
 
     def save_task(self, task):
         self.db.execute(
@@ -75,6 +82,18 @@ class Memory:
         if limit <= 0:
             raise ValueError("limit must be positive")
 
+        rows = self.db.execute(
+            "SELECT task_id, result FROM tasks"
+        ).fetchall()
+        for task_id, result in rows:
+            if result is not None:
+                bounded = self._bounded_text(result)
+                if bounded != result:
+                    self.db.execute(
+                        "UPDATE tasks SET result = ? WHERE task_id = ?",
+                        (bounded, task_id),
+                    )
+
         self.db.execute(
             """
             DELETE FROM tasks
@@ -88,8 +107,7 @@ class Memory:
             (limit,),
         )
         deleted = self.db.execute("SELECT changes()").fetchone()[0]
-        if deleted:
-            self.db.commit()
+        self.db.commit()
         return max(0, int(deleted or 0))
 
     def recent(self, limit=10):

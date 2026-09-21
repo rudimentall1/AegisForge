@@ -54,3 +54,23 @@ def test_memory_task_count_is_bounded(tmp_path, monkeypatch):
     assert newest == str(memory_module.MAX_RETAINED_TASKS + 24)
 
     memory.close()
+
+
+def test_memory_compact_bounds_existing_results(tmp_path, monkeypatch):
+    db_path = tmp_path / "memory.db"
+    monkeypatch.setattr(memory_module, "DB_PATH", db_path)
+    memory = Memory()
+    huge = "x" * 120000
+    memory.db.execute(
+        "INSERT INTO tasks VALUES (?, ?, ?, ?, ?)",
+        ("legacy", "legacy", "completed", huge, "2026-01-01T00:00:00+00:00"),
+    )
+    memory.db.commit()
+
+    memory.compact()
+
+    stored = memory.db.execute(
+        "SELECT result FROM tasks WHERE task_id = 'legacy'"
+    ).fetchone()[0]
+    assert len(stored.encode("utf-8")) <= memory_module.MAX_RESULT_BYTES
+    memory.close()

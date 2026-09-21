@@ -988,11 +988,26 @@ class AutonomousPlanner:
                 )
 
             if role == "opportunity_hunter" and result.get("validation_results"):
+                followup = self.validation_followup(opportunities)
+                if followup:
+                    opportunity, uncertainty, validation_type = followup
+                    opportunity["validation_type"] = validation_type
+                    return (
+                        "REFINE",
+                        "validator",
+                        (
+                            "Run the next highest-information validation experiment for the unresolved uncertainty. "
+                            f"Target: {opportunity.get('name')}. Uncertainty: {uncertainty}. "
+                            f"Validation type: {validation_type}. Use authoritative evidence and update confidence only from observed results."
+                        ),
+                        "Validation resolved some uncertainty but left a decision-relevant uncertainty; continue with a different targeted experiment rather than declaring completion.",
+                        max(gain, 0.55),
+                    )
                 return (
                     "COMPLETE",
                     None,
                     None,
-                    "Commercial opportunities have been refined with executed validation evidence.",
+                    "Commercial opportunities have no remaining decision-relevant uncertainties after executed validation evidence.",
                     max(gain, 0.45),
                 )
 
@@ -1217,6 +1232,28 @@ class AutonomousPlanner:
         return None
 
     # =========================================================
+    @staticmethod
+    def validation_followup(opportunities):
+        """Choose the next bounded experiment from unresolved uncertainty."""
+        if not isinstance(opportunities, list):
+            return None
+        priorities = (("security", "security"), ("technical", "technical"), ("dependency", "dependency"), ("market", "commercial"), ("commercial", "commercial"), ("adoption", "adoption"), ("usage", "adoption"))
+        candidates = []
+        for opportunity in opportunities[:4]:
+            if not isinstance(opportunity, dict):
+                continue
+            uncertainties = [str(x) for x in opportunity.get("uncertainties", [])]
+            for uncertainty in uncertainties[:6]:
+                low = uncertainty.lower()
+                for marker, validation_type in priorities:
+                    if marker in low:
+                        candidates.append((opportunity, uncertainty, validation_type))
+                        break
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (0 if item[2] == "security" else 1, len(item[1]), str(item[0].get("name", ""))))
+        return candidates[0]
+
     # ACTION ECONOMICS
     # =========================================================
 

@@ -89,3 +89,19 @@ def test_failed_validation_reduces_confidence():
     assert update["after"] < update["before"]
     assert opportunity["opportunity_score"] == 50
     assert opportunity["commercial_readiness"] == "EARLY_SIGNAL"
+
+
+def test_planner_selects_next_validation_from_remaining_uncertainty():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    task = {"role": "opportunity_hunter", "result": {"opportunities": [{"name": "acme/project", "opportunity_score": 72, "uncertainties": ["security posture requires further validation"]}], "validation_results": [{"name": "acme/project", "status": "VALIDATED", "validation_type": "technical"}]}}
+    decision = planner._choose_next_raw(task)
+    assert decision[0] == "REFINE"
+    assert decision[1] == "validator"
+    assert "security" in decision[2].lower()
+
+
+def test_planner_completes_when_validation_uncertainty_is_empty():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    task = {"role": "opportunity_hunter", "result": {"opportunities": [{"name": "acme/project", "confidence": 0.9, "uncertainties": []}], "validation_results": [{"name": "acme/project", "status": "VALIDATED"}]}}
+    decision = planner._choose_next_raw(task)
+    assert decision[0] == "COMPLETE"

@@ -156,3 +156,77 @@ def test_contested_developer_is_forced_to_independent_verification():
     decision = planner.choose_next(current)
     assert decision[0] == "VERIFY"
     assert decision[1] == "security_checker"
+
+
+def test_action_cost_is_bounded_and_role_sensitive():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    assert planner.action_cost("researcher") < planner.action_cost("security_checker")
+    assert 0.0 < planner.action_cost("researcher") <= 1.0
+    assert 0.0 < planner.action_cost("security_checker") <= 1.0
+
+
+def test_action_economics_exposes_expected_gain_per_cost():
+    from shared.evidence_ledger import EvidenceLedger
+    import sqlite3
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    planner.evidence_ledger = EvidenceLedger(sqlite3.connect(":memory:"))
+    planner._planning_tasks = {}
+    result = {
+        "repositories": ["org/repo"],
+        "security_findings": [{"rule": "r1", "severity": "HIGH"}],
+    }
+    decision = (
+        "REFINE",
+        "developer",
+        "inspect target",
+        "technical evidence is needed",
+        0.70,
+    )
+    economics = planner.action_economics(
+        task(result, role="analyst") | {"id": "current"},
+        decision,
+    )
+    assert economics["action"] == "developer"
+    assert economics["cost"] == 0.65
+    assert economics["expected_evidence_gain"] > 0.0
+    assert economics["efficiency"] > 0.0
+
+
+def test_choose_next_records_action_economics_in_reason():
+    from shared.evidence_ledger import EvidenceLedger
+    import sqlite3
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    planner.evidence_ledger = EvidenceLedger(sqlite3.connect(":memory:"))
+    planner._planning_tasks = {}
+    result = {"repositories": ["org/repo"], "status": "research_completed"}
+    decision = planner.choose_next(
+        task(result, role="researcher") | {"id": "current"}
+    )
+    assert decision[0] == "CONTINUE"
+    assert "Action economics:" in decision[3]
+    assert "expected_evidence_gain=" in decision[3]
+
+
+def test_select_action_prefers_higher_evidence_per_cost():
+    from shared.evidence_ledger import EvidenceLedger
+    import sqlite3
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    planner.evidence_ledger = EvidenceLedger(sqlite3.connect(":memory:"))
+    planner._planning_tasks = {}
+    current = task(
+        {"repositories": ["org/repo"], "status": "research_completed"},
+        role="researcher",
+    ) | {"id": "current"}
+
+    primary = (
+        "ESCALATE",
+        "model_researcher",
+        "expensive path",
+        "candidate",
+        0.60,
+    )
+    selected, options = planner.select_action(current, primary)
+
+    assert selected[1] == "analyst"
+    assert len(options) >= 2
+    assert options[0]["efficiency"] >= options[1]["efficiency"]

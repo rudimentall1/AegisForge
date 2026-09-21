@@ -1020,6 +1020,187 @@ class AutonomousPlanner:
             )
         return None
 
+    # =========================================================
+    # ACTION ECONOMICS
+    # =========================================================
+
+    @staticmethod
+    def action_cost(role):
+        """Bounded relative execution cost for planner actions."""
+        return {
+            "researcher": 0.25,
+            "analyst": 0.35,
+            "opportunity_hunter": 0.40,
+            "model_researcher": 0.55,
+            "developer": 0.65,
+            "security_checker": 0.75,
+        }.get(role, 0.50)
+
+    def expected_evidence_gain(self, task, decision):
+        """Estimate expected new evidence from a proposed next action."""
+        if not isinstance(decision, tuple) or len(decision) != 5:
+            return 0.0
+
+        decision_name, next_role, _description, _reason, base_gain = decision
+        if decision_name in {"COMPLETE", "ABORT"} or not next_role:
+            return 0.0
+
+        result = task.get("result")
+        history = self.branch_history(
+            task,
+            getattr(self, "_planning_tasks", {}),
+        )
+        novelty, _novel_count, atom_count = self.novelty_against_history(
+            task,
+            history,
+        )
+        quality = self.evidence_quality_summary(result)
+
+        base = max(0.0, min(1.0, float(base_gain or 0.0)))
+        novelty_factor = 0.35 + (0.65 * novelty) if atom_count else 0.75
+
+        quality_factor = 1.0
+        if quality["contested"]:
+            quality_factor += 0.25
+        elif quality["unconfirmed"]:
+            quality_factor += 0.15
+        elif quality["multi_source"]:
+            quality_factor -= 0.10
+        elif quality["corroborated"]:
+            quality_factor -= 0.05
+
+        coverage = self.coverage_summary(result)
+        if coverage["expected"] > 0 and not coverage["complete"]:
+            deficit = max(
+                0,
+                coverage["expected"] - coverage["completed"],
+            )
+            coverage_factor = 1.0 + min(
+                0.40,
+                deficit / max(1, coverage["expected"]),
+            )
+        else:
+            coverage_factor = 1.0
+
+        repeat_penalty = 0.75 if next_role in self.recent_roles(
+            history,
+            limit=4,
+        ) else 1.0
+
+        estimate = (
+            base
+            * novelty_factor
+            * quality_factor
+            * coverage_factor
+            * repeat_penalty
+        )
+        return max(0.0, min(1.0, estimate))
+
+    def action_economics(self, task, decision):
+        """Return explainable cost/gain data for a proposed action."""
+        if not isinstance(decision, tuple) or len(decision) != 5:
+            return {
+                "action": None,
+                "cost": 0.0,
+                "expected_evidence_gain": 0.0,
+                "efficiency": 0.0,
+            }
+
+        _decision_name, next_role, _description, _reason, _gain = decision
+        cost = self.action_cost(next_role)
+        expected = self.expected_evidence_gain(task, decision)
+        efficiency = expected / cost if cost else 0.0
+        return {
+            "action": next_role,
+            "cost": cost,
+            "expected_evidence_gain": round(expected, 4),
+            "efficiency": round(efficiency, 4),
+        }
+
+    def candidate_decisions(self, task, primary):
+        """Generate a small set of contract-safe actions for cost-aware selection."""
+        if not isinstance(primary, tuple) or len(primary) != 5:
+            return []
+
+        decision_name, next_role, description, reason, gain = primary
+        if decision_name in {"COMPLETE", "ABORT"} or not next_role:
+            return [primary]
+
+        candidates = [primary]
+        result = task.get("result")
+        role = task.get("role")
+        findings = self.extract_security_findings(result)
+        opportunities = self.extract_opportunities(result)
+        targets = self.extract_targets(result)
+        repositories = (
+            result.get("repositories", [])
+            if isinstance(result, dict)
+            else []
+        )
+
+        # Only add transitions whose downstream agent contract is already
+        # established by the planner. Do not invent arbitrary role hops.
+        if role in {"researcher", "model_researcher"} and (targets or repositories):
+            candidates.append((
+                "CONTINUE",
+                "analyst",
+                (
+                    "Analyze and prioritize the concrete research targets "
+                    "without repeating prior discovery. "
+                    f"Targets: {self.format_items((repositories or targets)[:10])}"
+                ),
+                "Candidate generated from concrete research targets.",
+                max(0.55, min(0.80, float(gain or 0.0))),
+            ))
+
+        if role == "analyst":
+            if findings and repositories:
+                candidates.append((
+                    "REFINE",
+                    "developer",
+                    (
+                        "Establish implementation-level evidence for the "
+                        "security findings before verification. "
+                        f"Findings: {self.format_items(findings[:10])}. "
+                        f"Repositories: {self.format_items(repositories[:10])}"
+                    ),
+                    "Candidate generated from security findings requiring technical review.",
+                    max(0.60, min(0.75, float(gain or 0.0))),
+                ))
+            elif opportunities:
+                candidates.append((
+                    "REFINE",
+                    "opportunity_hunter",
+                    (
+                        "Independently validate the concrete opportunities "
+                        f"identified by analysis: {self.format_items(opportunities[:10])}"
+                    ),
+                    "Candidate generated from unresolved commercial opportunities.",
+                    max(0.35, min(0.60, float(gain or 0.0))),
+                ))
+
+        unique = {}
+        for candidate in candidates:
+            key = (candidate[0], candidate[1])
+            if key not in unique:
+                unique[key] = candidate
+        return list(unique.values())
+
+    def select_action(self, task, primary):
+        """Select the highest evidence-gain-per-cost action deterministically."""
+        candidates = self.candidate_decisions(task, primary)
+        if not candidates:
+            return primary, []
+
+        scored = []
+        for candidate in candidates:
+            economics = self.action_economics(task, candidate)
+            scored.append((economics["efficiency"], economics["expected_evidence_gain"], candidate, economics))
+
+        scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        selected = scored[0][2]
+        return selected, [item[3] for item in scored]
+
     def _evidence_quality_policy(self, task, quality):
         """Apply bounded quality gates before the general planner policy."""
         result = task.get("result")
@@ -1107,12 +1288,39 @@ class AutonomousPlanner:
         if quality_decision is not None:
             return quality_decision
 
-        decision = self._choose_next_raw(task)
+        primary = self._choose_next_raw(task)
 
-        if not isinstance(decision, tuple) or len(decision) != 5:
-            return decision
+        if not isinstance(primary, tuple) or len(primary) != 5:
+            return primary
 
+        decision, economics_options = self.select_action(task, primary)
         decision_name, next_role, description, reason, gain = decision
+
+        if decision_name not in {"COMPLETE", "ABORT"}:
+            selected_economics = self.action_economics(task, decision)
+            alternatives = [
+                item for item in economics_options
+                if item["action"] != selected_economics["action"]
+            ]
+            comparison = ""
+            if alternatives:
+                comparison = (
+                    " Compared alternatives: "
+                    + ", ".join(
+                        f"{item['action']} efficiency={item['efficiency']:.2f}"
+                        for item in alternatives[:3]
+                    )
+                    + "."
+                )
+            reason = (
+                f"{reason} "
+                f"Action economics: selected={selected_economics['action']}, "
+                f"cost={selected_economics['cost']:.2f}, "
+                f"expected_evidence_gain={selected_economics['expected_evidence_gain']:.2f}, "
+                f"efficiency={selected_economics['efficiency']:.2f}."
+                f"{comparison}"
+            )
+            decision = (decision_name, next_role, description, reason, gain)
         current_role = task.get("role")
 
         # SecurityChecker -> Developer -> SecurityChecker can otherwise

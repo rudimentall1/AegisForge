@@ -10,6 +10,13 @@ from pathlib import Path
 DB_PATH = Path("/opt/agent-farm/data/agent_farm.db")
 
 
+# Retention policy: queue history is a bounded operational cache. EvidenceLedger
+# is the durable research memory. Never let agent-generated descriptions/results
+# make SQLite grow without bound.
+MAX_DESCRIPTION_BYTES = 4096
+MAX_QUEUE_HISTORY = 2000
+
+
 class TaskQueue:
     def __init__(self):
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -108,6 +115,13 @@ class TaskQueue:
         parent_task_id=None,
     ):
         task_id = str(uuid.uuid4())
+
+        if description is None:
+            description = ""
+        description = str(description)
+        encoded_description = description.encode("utf-8")
+        if len(encoded_description) > MAX_DESCRIPTION_BYTES:
+            description = encoded_description[:MAX_DESCRIPTION_BYTES].decode("utf-8", "ignore") + "\n...[truncated]"
 
         self.db.execute(
             """
@@ -387,6 +401,56 @@ class TaskQueue:
             self.db.commit()
 
         return max(0, int(updated or 0))
+
+    def compact_history(self, keep_recent=MAX_QUEUE_HISTORY, limit=1000):
+        """Bound completed/failed queue history without touching live work.
+
+        Recent rows are retained for operational context. Older historical
+        rows are disposable because durable findings live in EvidenceLedger.
+        """
+        keep_recent = int(keep_recent)
+        limit = int(limit)
+        if keep_recent <= 0 or limit <= 0:
+            return 0
+
+        ids = [row[0] for row in self.db.execute(
+            "SELECT id FROM queue WHERE status IN ('completed','failed') "
+            "ORDER BY COALESCE(finished_at,created_at) DESC,id DESC LIMIT ?",
+            (keep_recent,),
+        ).fetchall()]
+        if not ids:
+            return 0
+
+        placeholders = ",".join("?" for _ in ids)
+        candidates = self.db.execute(
+            f"SELECT id FROM queue WHERE status IN ('completed','failed') "
+            f"AND id NOT IN ({placeholders}) LIMIT ?",
+            (*ids, limit),
+        ).fetchall()
+        candidate_ids = [row[0] for row in candidates]
+        if not candidate_ids:
+            return 0
+
+        placeholders = ",".join("?" for _ in candidate_ids)
+        removable = self.db.execute(
+            f"SELECT q.id FROM queue q WHERE q.id IN ({placeholders}) "
+            f"AND NOT EXISTS (SELECT 1 FROM queue child "
+            f"WHERE child.parent_task_id=q.id AND child.id NOT IN ({placeholders}))",
+            (*candidate_ids, *candidate_ids),
+        ).fetchall()
+        removable_ids = [row[0] for row in removable]
+        if not removable_ids:
+            return 0
+
+        placeholders = ",".join("?" for _ in removable_ids)
+        self.db.execute(
+            f"DELETE FROM queue WHERE id IN ({placeholders})",
+            removable_ids,
+        )
+        deleted = int(self.db.execute("SELECT changes()").fetchone()[0] or 0)
+        if deleted:
+            self.db.commit()
+        return deleted
 
     # ---------------------------------------------------------
     # MASTER PLANNER STATE

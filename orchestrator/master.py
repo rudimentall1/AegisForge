@@ -1785,9 +1785,14 @@ class AutonomousPlanner:
                 keep_ancestor_depth=4,
                 limit=500,
             )
-            if compacted:
+            history_compacted = self.queue.compact_history(
+                keep_recent=2000,
+                limit=1000,
+            )
+            if compacted or history_compacted:
                 print(
-                    f"[MASTER] MEMORY COMPACTION raw_results={compacted}",
+                    f"[MASTER] MEMORY COMPACTION raw_results={compacted} "
+                    f"history_rows={history_compacted}",
                     flush=True,
                 )
         except Exception as exc:

@@ -34,6 +34,27 @@ MAX_FAILED_RECOVERIES_PER_CYCLE = 3
 MAX_RETRIES_PER_TASK = 3
 FAILED_RETRY_COOLDOWN_SECONDS = 60
 
+RESEARCH_GOALS = (
+    "Discover promising AI agent and autonomous software technologies, "
+    "analyze technical maturity and security, identify commercial opportunities, "
+    "and propose concrete product directions",
+    "Discover promising energy storage, grid, and distributed-energy technologies, "
+    "analyze technical maturity and security, identify commercial opportunities, "
+    "and propose concrete product directions",
+    "Discover promising robotics, embodied AI, and autonomous-machine technologies, "
+    "analyze technical maturity and security, identify commercial opportunities, "
+    "and propose concrete product directions",
+    "Discover promising cybersecurity and security-automation technologies, "
+    "analyze technical maturity and security, identify commercial opportunities, "
+    "and propose concrete product directions",
+    "Discover promising Web3, blockchain, and decentralized infrastructure technologies, "
+    "analyze technical maturity and security, identify commercial opportunities, "
+    "and propose concrete product directions",
+    "Discover promising privacy, cryptography, confidential-computing, and zero-knowledge technologies, "
+    "analyze technical maturity and security, identify commercial opportunities, "
+    "and propose concrete product directions",
+)
+
 
 class AutonomousPlanner:
 
@@ -646,6 +667,28 @@ class AutonomousPlanner:
                     "Repeating the same analysis would risk stagnation, so "
                     "the next action should extract new technical evidence."
                 ),
+                max(gain, 0.60),
+            )
+
+        if research_items and role == "analyst":
+            repositories = (
+                result.get("repositories", [])
+                if isinstance(result, dict)
+                else []
+            )
+            return (
+                "REFINE",
+                "developer",
+                (
+                    "Perform implementation-level investigation of the "
+                    "highest-priority research targets. Inspect architecture, "
+                    "maturity, dependencies, security-sensitive components, "
+                    "and technical feasibility. Do not repeat the prior "
+                    "prioritization. "
+                    f"Targets: {self.format_items((repositories or research_items)[:10])}. "
+                    f"Analysis: {self.compact_context(result)}"
+                ),
+                "The Analyst has produced concrete research targets; the next step must extract new technical evidence.",
                 max(gain, 0.60),
             )
 
@@ -2070,12 +2113,14 @@ class MasterOrchestrator:
         if self.queue.has_tasks():
             return False
 
+        row = self.queue.db.execute(
+            "SELECT COUNT(*) FROM queue WHERE role = 'researcher' AND parent_task_id IS NULL"
+        ).fetchone()
+        cycle = int(row[0] or 0)
+        goal = RESEARCH_GOALS[cycle % len(RESEARCH_GOALS)]
+
         task_id = self.queue.add(
-            description=(
-                "Discover promising emerging technologies, analyze their "
-                "technical maturity and security, identify commercial "
-                "opportunities, and propose concrete product directions"
-            ),
+            description=goal,
             role="researcher",
         )
 

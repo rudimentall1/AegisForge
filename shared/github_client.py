@@ -15,6 +15,8 @@ load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 class GitHubClient:
     BASE_URL = "https://api.github.com"
+    CACHE_RETENTION_SECONDS = 7 * 24 * 60 * 60
+    MAX_CACHE_ROWS = 500
 
     def __init__(self):
         self.token = os.getenv("GITHUB_TOKEN")
@@ -58,6 +60,29 @@ class GitHubClient:
             )
         """)
 
+        self.db.commit()
+        self._cleanup_cache()
+
+    def _cleanup_cache(self, now=None):
+        now = int(time.time()) if now is None else int(now)
+        cutoff = now - self.CACHE_RETENTION_SECONDS
+
+        self.db.execute(
+            "DELETE FROM github_cache WHERE created_at < ?",
+            (cutoff,),
+        )
+        self.db.execute(
+            """
+            DELETE FROM github_cache
+            WHERE cache_key IN (
+                SELECT cache_key
+                FROM github_cache
+                ORDER BY created_at DESC, cache_key DESC
+                LIMIT -1 OFFSET ?
+            )
+            """,
+            (self.MAX_CACHE_ROWS,),
+        )
         self.db.commit()
 
     def _rate_state(self, resource="core"):
@@ -234,6 +259,7 @@ class GitHubClient:
             ),
         )
         self.db.commit()
+        self._cleanup_cache()
 
     def get_json(
         self,

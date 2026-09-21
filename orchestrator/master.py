@@ -566,6 +566,21 @@ class AutonomousPlanner:
             # discovery. Keep only stable assessment fields in the evidence
             # ledger so later planner decisions can recognize real progress
             # without persisting entire source trees or file contents.
+            value = result.get("validation_results")
+            if isinstance(value, list):
+                for item in value[:20]:
+                    if isinstance(item, dict):
+                        compact = {
+                            field: item.get(field)
+                            for field in (
+                                "name", "experiment", "status", "reproducibility",
+                                "source", "default_branch", "archived",
+                                "stars_observed", "forks_observed",
+                            )
+                            if item.get(field) is not None
+                        }
+                        add("validation", compact or item)
+
             value = result.get("technical_review")
             if isinstance(value, list):
                 for item in value[:20]:
@@ -941,25 +956,55 @@ class AutonomousPlanner:
         opportunities = self.extract_opportunities(result)
 
         if opportunities:
+            if role == "opportunity_hunter" and not result.get("validation_results"):
+                return (
+                    "REFINE",
+                    "validator",
+                    (
+                        "Execute bounded validation experiments for the strongest "
+                        "commercial opportunities. Prefer reproducible technical "
+                        "checks using authoritative repository evidence. Record "
+                        "what was actually observed, what failed, and what remains "
+                        "uncertain. "
+                        f"Opportunities: {self.format_items(opportunities[:10])}."
+                    ),
+                    "A commercial dossier is a hypothesis until a concrete validation experiment is executed.",
+                    max(gain, 0.55),
+                )
+
+            if role == "validator":
+                return (
+                    "REFINE",
+                    "opportunity_hunter",
+                    (
+                        "Synthesize the validation results back into the commercial "
+                        "opportunity dossiers. Update validation status and "
+                        "uncertainties using only observed evidence. "
+                        f"Validation: {self.compact_context(result.get('validation_results'))}."
+                    ),
+                    "Validation produced new evidence; feed it back into the commercial dossier.",
+                    max(gain, 0.50),
+                )
+
+            if role == "opportunity_hunter" and result.get("validation_results"):
+                return (
+                    "COMPLETE",
+                    None,
+                    None,
+                    "Commercial opportunities have been refined with executed validation evidence.",
+                    max(gain, 0.45),
+                )
+
             if role == "opportunity_hunter":
                 return (
                     "REFINE",
                     "analyst",
                     (
-                        "Independently analyze and prioritize the "
-                        "opportunities discovered by the previous "
-                        "Opportunity Hunter. Determine which opportunities "
-                        "are technically credible, commercially meaningful, "
-                        "and worth deeper investigation. "
-                        f"Opportunities: {self.format_items(opportunities[:10])}. "
-                        f"Context: {self.compact_context(result)}"
+                        "Independently analyze and prioritize the opportunities "
+                        "discovered by the previous Opportunity Hunter. "
+                        f"Opportunities: {self.format_items(opportunities[:10])}."
                     ),
-                    (
-                        "The branch already contains an Opportunity Hunter "
-                        "step. Repeating the same role would risk stagnation, "
-                        "so the opportunities should now be independently "
-                        "analyzed and prioritized."
-                    ),
+                    "The opportunity branch requires an independent analytical pass.",
                     max(gain, 0.40),
                 )
 
@@ -971,10 +1016,7 @@ class AutonomousPlanner:
                     f"Opportunities: {self.format_items(opportunities[:10])}. "
                     f"Context: {self.compact_context(result)}"
                 ),
-                (
-                    "The result contains concrete opportunities that can "
-                    "be refined and validated."
-                ),
+                "The result contains concrete opportunities that can be refined and validated.",
                 max(gain, 0.25),
             )
 
@@ -1184,6 +1226,7 @@ class AutonomousPlanner:
             "researcher": 0.25,
             "analyst": 0.35,
             "opportunity_hunter": 0.40,
+            "validator": 0.50,
             "model_researcher": 0.55,
             "developer": 0.65,
             "security_checker": 0.75,

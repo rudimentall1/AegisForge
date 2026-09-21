@@ -18,6 +18,7 @@ from agents.analyst.agent import Analyst
 from agents.developer.agent import Developer
 from agents.security_checker.agent import SecurityChecker
 from agents.opportunity_hunter.agent import OpportunityHunter
+from agents.validator.agent import Validator
 from model_research.agent import ModelResearcher
 
 
@@ -29,6 +30,7 @@ AGENTS = {
     "developer": Developer,
     "security_checker": SecurityChecker,
     "opportunity_hunter": OpportunityHunter,
+    "validator": Validator,
     "model_researcher": ModelResearcher,
 }
 
@@ -38,6 +40,7 @@ SUCCESS_STATUSES = {
     "developer": "developed",
     "security_checker": "security_checked",
     "opportunity_hunter": "opportunities_found",
+    "validator": "validated",
     "model_researcher": "model_researched",
 }
 

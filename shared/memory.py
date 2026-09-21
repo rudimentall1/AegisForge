@@ -1,10 +1,14 @@
 import json
-import json
 import sqlite3
 from pathlib import Path
 
 
 DB_PATH = Path("/opt/agent-farm/data/agent_farm.db")
+
+# Memory is a bounded convenience cache. Durable research evidence belongs in
+# the queue/evidence ledger, not in an ever-growing task-result history.
+MAX_RESULT_BYTES = 8192
+MAX_RETAINED_TASKS = 500
 
 
 class Memory:
@@ -17,6 +21,8 @@ class Memory:
             check_same_thread=False,
         )
         self.db.execute("PRAGMA busy_timeout=30000")
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("PRAGMA wal_autocheckpoint=1000")
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 task_id TEXT PRIMARY KEY,
@@ -27,6 +33,18 @@ class Memory:
             )
         """)
         self.db.commit()
+
+    @staticmethod
+    def _bounded_result(result):
+        text = json.dumps(
+            result,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        )
+        if len(text) <= MAX_RESULT_BYTES:
+            return text
+        return text[:MAX_RESULT_BYTES] + "\n...[truncated]"
 
     def save_task(self, task):
         self.db.execute(
@@ -39,15 +57,40 @@ class Memory:
                 task.task_id,
                 task.description,
                 task.status,
-                json.dumps(
-                    task.result,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )[:8192],
+                self._bounded_result(task.result),
                 task.created_at,
             ),
         )
         self.db.commit()
+        self.compact()
+
+    def compact(self, limit=MAX_RETAINED_TASKS):
+        """Keep only a bounded recent task-memory cache.
+
+        Queue history and the evidence ledger remain the durable sources.
+        This cache is intentionally disposable and must never grow with
+        agent activity.
+        """
+        limit = int(limit)
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+
+        self.db.execute(
+            """
+            DELETE FROM tasks
+            WHERE task_id IN (
+                SELECT task_id
+                FROM tasks
+                ORDER BY created_at DESC, task_id DESC
+                LIMIT -1 OFFSET ?
+            )
+            """,
+            (limit,),
+        )
+        deleted = self.db.execute("SELECT changes()").fetchone()[0]
+        if deleted:
+            self.db.commit()
+        return max(0, int(deleted or 0))
 
     def recent(self, limit=10):
         rows = self.db.execute(
@@ -61,3 +104,6 @@ class Memory:
         ).fetchall()
 
         return rows
+
+    def close(self):
+        self.db.close()

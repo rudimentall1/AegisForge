@@ -174,11 +174,21 @@ class OpportunityHunter:
         if not repo.get("description"):
             uncertainty.append("market/problem context is inferred from technical signals")
 
+        if "test coverage is not established" in uncertainty:
+            validation_type = "technical"
+        elif "security posture requires further validation" in uncertainty:
+            validation_type = "security"
+        elif "market/problem context is inferred from technical signals" in uncertainty:
+            validation_type = "commercial"
+        else:
+            validation_type = "adoption"
+
         return {
             "target_customer": customer,
             "problem_signal": problem,
             "product_thesis": product,
             "validation_experiment": validation,
+            "validation_type": validation_type,
             "business_model": model,
             "commercial_moat": "Provenance-rich evidence graph and accumulated validation history can make the system harder to replace than a one-shot repository scanner.",
             "evidence": evidence,

@@ -7,6 +7,8 @@ class Validator:
     MAX_OPPORTUNITIES = 4
     PROBE_PATHS = ("README.md", "SECURITY.md", "pyproject.toml", "package.json",
                    "Cargo.toml", "go.mod", ".github/workflows")
+    MANIFESTS = ("pyproject.toml", "requirements.txt", "package.json",
+                 "Cargo.toml", "go.mod", "Gemfile", "pom.xml")
 
     def _repo_parts(self, opportunity):
         value = opportunity.get("name") or opportunity.get("repository") or ""
@@ -16,6 +18,19 @@ class Validator:
                 value = url.split("github.com/", 1)[1].split("#", 1)[0].split("?", 1)[0]
         parts = value.strip("/").split("/")
         return (parts[0], parts[1]) if len(parts) == 2 else (None, None)
+
+    def _validation_type(self, opportunity):
+        requested = str(opportunity.get("validation_type") or "").lower()
+        if requested in {"technical", "adoption", "dependency", "security", "commercial"}:
+            return requested
+        uncertainties = " ".join(str(x) for x in opportunity.get("uncertainties", [])).lower()
+        if "security" in uncertainties:
+            return "security"
+        if "test" in uncertainties or "technical" in uncertainties:
+            return "technical"
+        if "market" in uncertainties or "commercial" in uncertainties:
+            return "commercial"
+        return "adoption"
 
     def _validate_repo(self, opportunity, client):
         owner, repo = self._repo_parts(opportunity)
@@ -45,6 +60,50 @@ class Validator:
                        if p in paths or any(x.startswith(p + "/") for x in paths)]
             result["checks"].append({"check": "canonical_files_probe", "passed": bool(matched),
                                      "matched": matched[:8]})
+
+            validation_type = self._validation_type(opportunity)
+            result["validation_type"] = validation_type
+
+            if validation_type == "technical":
+                manifests = [p for p in self.MANIFESTS if p in paths]
+                result["checks"].append({"check": "implementation_manifest", "passed": bool(manifests),
+                                         "matched": manifests[:6]})
+                result["experiment_metric"] = "implementation_evidence"
+                result["experiment_value"] = len(manifests)
+
+            elif validation_type == "adoption":
+                result["checks"].append({
+                    "check": "adoption_signals",
+                    "passed": (result["stars_observed"] > 0 or result["forks_observed"] > 0),
+                })
+                result["experiment_metric"] = "community_signal"
+                result["experiment_value"] = result["stars_observed"] + result["forks_observed"]
+
+            elif validation_type == "dependency":
+                manifests = [p for p in self.MANIFESTS if p in paths]
+                result["checks"].append({"check": "dependency_manifest", "passed": bool(manifests),
+                                         "matched": manifests[:6]})
+                result["experiment_metric"] = "dependency_manifest_count"
+                result["experiment_value"] = len(manifests)
+
+            elif validation_type == "security":
+                security_files = [p for p in ("SECURITY.md", ".github/workflows") if p in paths]
+                result["checks"].append({"check": "security_controls_probe",
+                                         "passed": bool(security_files),
+                                         "matched": security_files})
+                result["experiment_metric"] = "security_control_surfaces"
+                result["experiment_value"] = len(security_files)
+
+            else:
+                description = str(metadata.get("description") or "").strip()
+                topics = metadata.get("topics") or []
+                result["checks"].append({"check": "commercial_signal_probe",
+                                         "passed": bool(description or topics),
+                                         "description_present": bool(description),
+                                         "topic_count": len(topics)})
+                result["experiment_metric"] = "commercial_signal"
+                result["experiment_value"] = len(topics) + (1 if description else 0)
+
             result["source"] = "github_api"
             result["reproducibility"] = "PASS" if matched else "PARTIAL"
             if not matched:

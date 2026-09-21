@@ -573,9 +573,10 @@ class AutonomousPlanner:
                         compact = {
                             field: item.get(field)
                             for field in (
-                                "name", "experiment", "status", "reproducibility",
-                                "source", "default_branch", "archived",
-                                "stars_observed", "forks_observed",
+                                "name", "experiment", "validation_type", "status",
+                                "reproducibility", "source", "default_branch",
+                                "archived", "stars_observed", "forks_observed",
+                                "experiment_metric", "experiment_value",
                             )
                             if item.get(field) is not None
                         }
@@ -961,11 +962,11 @@ class AutonomousPlanner:
                     "REFINE",
                     "validator",
                     (
-                        "Execute bounded validation experiments for the strongest "
-                        "commercial opportunities. Prefer reproducible technical "
-                        "checks using authoritative repository evidence. Record "
-                        "what was actually observed, what failed, and what remains "
-                        "uncertain. "
+                        "Execute the validation experiment selected for each "
+                        "opportunity based on its unresolved uncertainty. Use the "
+                        "requested validation_type (technical, adoption, dependency, "
+                        "security, or commercial), prefer authoritative evidence, "
+                        "and record observed metrics plus remaining uncertainty. "
                         f"Opportunities: {self.format_items(opportunities[:10])}."
                     ),
                     "A commercial dossier is a hypothesis until a concrete validation experiment is executed.",

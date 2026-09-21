@@ -487,6 +487,7 @@ class Developer:
         )
 
         entries = tree.get("tree", [])
+        tree_fallback = bool(tree.get("fallback"))
 
         paths = []
 
@@ -498,13 +499,14 @@ class Developer:
                     paths.append(path)
 
         total_files = len(paths)
-
         selected = self._select_files(paths)
 
         configs = {}
         readmes = {}
         security_files = {}
         file_errors = []
+
+        available_paths = []
 
         for path in selected:
             content = self._get_file(
@@ -517,6 +519,7 @@ class Developer:
                 file_errors.append(path)
                 continue
 
+            available_paths.append(path)
             content = content[: self.MAX_FILE_SIZE]
 
             basename = self._basename(path)
@@ -530,14 +533,19 @@ class Developer:
             elif basename in self.SECURITY_NAMES:
                 security_files[path] = content
 
+        # A fallback inventory is only a set of probes, not evidence that the
+        # files exist. Never infer architecture/security signals from missing
+        # probe paths. This keeps the degraded mode conservative and honest.
+        analysis_paths = available_paths if tree_fallback else paths
+
         lower_paths = [
             path.lower()
-            for path in paths
+            for path in analysis_paths
         ]
 
         solidity_files = [
             path
-            for path in paths
+            for path in analysis_paths
             if path.lower().endswith(".sol")
         ]
 
@@ -552,7 +560,7 @@ class Developer:
 
         test_files = [
             path
-            for path in paths
+            for path in analysis_paths
             if (
                 path.lower().startswith("test/")
                 or path.lower().startswith("tests/")
@@ -565,7 +573,7 @@ class Developer:
 
         ci_files = [
             path
-            for path in paths
+            for path in analysis_paths
             if path.lower().startswith(
                 ".github/workflows/"
             )
@@ -573,7 +581,7 @@ class Developer:
 
         audit_files = [
             path
-            for path in paths
+            for path in analysis_paths
             if (
                 "audit" in path.lower()
                 or "audits" in path.lower()
@@ -582,7 +590,7 @@ class Developer:
 
         source_files = [
             path
-            for path in paths
+            for path in analysis_paths
             if path.lower().endswith(
                 self.PRIORITY_EXTENSIONS
             )
@@ -720,7 +728,8 @@ class Developer:
             "audit_files": len(
                 audit_files
             ),
-            "selected_files": selected,
+            "selected_files": available_paths,
+            "evidence_source": "canonical_raw_fallback" if tree_fallback else "github_api",
             "config_files": list(
                 configs.keys()
             ),

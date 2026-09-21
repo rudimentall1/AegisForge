@@ -34,3 +34,23 @@ def test_research_signal_contains_decision_relevant_metadata():
     assert signal["signal"] == "high"
     assert signal["discovery_query"]
     assert signal["updated"]
+
+
+def test_researcher_rotates_search_profiles():
+    base = Researcher._rotated_query("AI agents autonomous agents", 0, 0)
+    updated = Researcher._rotated_query("AI agents autonomous agents", 1, 0)
+    stars = Researcher._rotated_query("AI agents autonomous agents", 2, 0)
+    assert base == "AI agents autonomous agents"
+    assert updated.endswith("sort:updated")
+    assert stars.endswith("sort:stars")
+    assert len({base, updated, stars}) == 3
+
+
+def test_researcher_parses_bounded_cross_cycle_exclusions():
+    description = (
+        "Discover AI agents\n"
+        "Discovery rotation: 4\n"
+        "Previously discovered repositories to skip: acme/one, acme/two"
+    )
+    assert Researcher._rotation(description) == 4
+    assert Researcher._excluded_repositories(description) == {"acme/one", "acme/two"}

@@ -2396,9 +2396,31 @@ class MasterOrchestrator:
         ).fetchone()
         cycle = int(row[0] or 0)
         goal = RESEARCH_GOALS[cycle % len(RESEARCH_GOALS)]
+        # Cross-cycle novelty: exclude a small bounded set of recently
+        # discovered repository identities so a fresh research branch does
+        # not repeatedly rediscover GitHub's same top results. Evidence is
+        # durable intelligence, while this exclusion list stays tiny.
+        rows = self.queue.db.execute(
+            "SELECT value FROM evidence_ledger "
+            "WHERE kind = 'target' ORDER BY last_seen DESC LIMIT 35"
+        ).fetchall()
+        excluded = []
+        for row in rows:
+            try:
+                item = json.loads(row[0])
+            except Exception:
+                continue
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or item.get("full_name") or item.get("repository")
+            if name and str(name).strip() not in excluded:
+                excluded.append(str(name).strip())
+        description = goal + f"\nDiscovery rotation: {cycle}"
+        if excluded:
+            description += "\nPreviously discovered repositories to skip: " + ",".join(excluded[:35])
 
         task_id = self.queue.add(
-            description=goal,
+            description=description,
             role="researcher",
         )
 

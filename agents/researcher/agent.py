@@ -50,6 +50,47 @@ class Researcher:
         "privacy": "Privacy", "cryptography": "Privacy", "zk": "Privacy",
     }
 
+    MAX_EXCLUDED_REPOSITORIES = 35
+
+    @staticmethod
+    def _rotation(description):
+        marker = "Discovery rotation:"
+        text = str(description or "")
+        for line in text.splitlines():
+            if marker in line:
+                try:
+                    return int(line.split(marker, 1)[1].strip())
+                except ValueError:
+                    break
+        return 0
+
+    @classmethod
+    def _excluded_repositories(cls, description):
+        marker = "Previously discovered repositories to skip:"
+        text = str(description or "")
+        for line in text.splitlines():
+            if marker in line:
+                raw = line.split(marker, 1)[1]
+                return {
+                    item.strip().lower()
+                    for item in raw.split(",")
+                    if item.strip()
+                }
+        return set()
+
+    @staticmethod
+    def _rotated_query(query, rotation, index):
+        profiles = (
+            "",
+            "sort:updated",
+            "sort:stars",
+            "stars:10..10000 sort:stars",
+            "pushed:>=2026-01-01 sort:updated",
+            "stars:<100 sort:updated",
+        )
+        suffix = profiles[(rotation + index) % len(profiles)]
+        return f"{query} {suffix}".strip()
+
     def __init__(self):
         self.github = GitHubClient()
 
@@ -87,20 +128,23 @@ class Researcher:
     def run(self, task: Task) -> Task:
         task.status = "researching"
         queries = self.select_queries(task.description)
+        rotation = self._rotation(task.description)
+        excluded = self._excluded_repositories(task.description)
         try:
             repositories = []
             seen = set()
             signals = []
 
-            for query in queries:
-                print(f"[Researcher] SEARCH: {query}", flush=True)
-                for repo in self.github.search_repositories(query, limit=5):
-                    name = repo.get("name")
-                    if not name or name in seen:
+            for index, query in enumerate(queries):
+                search_query = self._rotated_query(query, rotation, index)
+                print(f"[Researcher] SEARCH: {search_query}", flush=True)
+                for repo in self.github.search_repositories(search_query, limit=5):
+                    name = str(repo.get("name") or "").strip()
+                    if not name or name.lower() in excluded or name.lower() in seen:
                         continue
-                    seen.add(name)
+                    seen.add(name.lower())
                     repositories.append(repo)
-                    signals.append(self._signal(repo, query))
+                    signals.append(self._signal(repo, search_query))
 
             if not repositories:
                 raise RuntimeError("GitHub returned zero repositories for research queries")
@@ -113,6 +157,8 @@ class Researcher:
                 "technology_signals": signals,
                 "count": len(repositories),
                 "queries": queries,
+                "rotation": rotation,
+                "excluded_count": len(excluded),
                 "source": "github",
             }
             task.status = "researched"

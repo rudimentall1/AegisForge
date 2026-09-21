@@ -36,3 +36,28 @@ def test_cache_cleanup_removes_expired_and_excess(tmp_path):
     assert client.db.execute(
         "SELECT 1 FROM github_cache WHERE cache_key = 'expired'"
     ).fetchone() is None
+
+
+def test_cache_put_skips_oversized_payload(tmp_path):
+    client = make_client(tmp_path)
+    huge = {"payload": "x" * (client.MAX_CACHE_ENTRY_BYTES + 100)}
+
+    stored = client._cache_put("huge", huge)
+
+    assert stored is False
+    assert client.db.execute(
+        "SELECT 1 FROM github_cache WHERE cache_key = 'huge'"
+    ).fetchone() is None
+    client.db.close()
+
+
+def test_cache_put_stores_bounded_payload(tmp_path):
+    client = make_client(tmp_path)
+
+    stored = client._cache_put("small", {"ok": True})
+
+    assert stored is True
+    assert client.db.execute(
+        "SELECT data FROM github_cache WHERE cache_key = 'small'"
+    ).fetchone()[0] == '{"ok": true}'
+    client.db.close()

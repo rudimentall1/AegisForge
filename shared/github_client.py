@@ -17,6 +17,7 @@ class GitHubClient:
     BASE_URL = "https://api.github.com"
     CACHE_RETENTION_SECONDS = 7 * 24 * 60 * 60
     MAX_CACHE_ROWS = 500
+    MAX_CACHE_ENTRY_BYTES = 256 * 1024
 
     def __init__(self):
         self.token = os.getenv("GITHUB_TOKEN")
@@ -246,6 +247,11 @@ class GitHubClient:
     def _cache_put(self, cache_key, data):
         import json
 
+        encoded = json.dumps(data, ensure_ascii=False)
+        if len(encoded.encode("utf-8")) > self.MAX_CACHE_ENTRY_BYTES:
+            self._cleanup_cache()
+            return False
+
         self.db.execute(
             """
             INSERT OR REPLACE INTO github_cache
@@ -254,12 +260,13 @@ class GitHubClient:
             """,
             (
                 cache_key,
-                json.dumps(data, ensure_ascii=False),
+                encoded,
                 int(time.time()),
             ),
         )
         self.db.commit()
         self._cleanup_cache()
+        return True
 
     def get_json(
         self,

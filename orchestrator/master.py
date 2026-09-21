@@ -532,6 +532,26 @@ class AutonomousPlanner:
                 elif value:
                     add(key, value)
 
+            # Analyst outputs are new decision evidence even when they refer
+            # to repositories already discovered by Researcher. Keep only the
+            # compact decision fields so the durable ledger does not become a
+            # second copy of full task results.
+            for key in ("analysis", "technology_signals"):
+                value = result.get(key)
+                if isinstance(value, list):
+                    for item in value[:20]:
+                        if isinstance(item, dict):
+                            compact = {
+                                field: item.get(field)
+                                for field in (
+                                    "name", "priority", "stars", "signal",
+                                    "language", "technical_relevance",
+                                    "adoption_signal", "activity_signal",
+                                )
+                                if item.get(field) is not None
+                            }
+                            add(key, compact or item)
+
             for key in ("status", "severity", "verdict"):
                 if result.get(key) is not None:
                     add(key, result[key])

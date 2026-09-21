@@ -104,6 +104,15 @@ class TaskQueue:
 
         self.db.commit()
 
+    @staticmethod
+    def _bounded_description(description):
+        suffix = "\n...[truncated]"
+        raw = str(description).encode("utf-8")
+        if len(raw) <= MAX_DESCRIPTION_BYTES:
+            return str(description)
+        keep = max(0, MAX_DESCRIPTION_BYTES - len(suffix.encode("utf-8")))
+        return raw[:keep].decode("utf-8", "ignore") + suffix
+
     # ---------------------------------------------------------
     # CREATE
     # ---------------------------------------------------------
@@ -118,10 +127,7 @@ class TaskQueue:
 
         if description is None:
             description = ""
-        description = str(description)
-        encoded_description = description.encode("utf-8")
-        if len(encoded_description) > MAX_DESCRIPTION_BYTES:
-            description = encoded_description[:MAX_DESCRIPTION_BYTES].decode("utf-8", "ignore") + "\n...[truncated]"
+        description = self._bounded_description(description)
 
         self.db.execute(
             """
@@ -412,6 +418,18 @@ class TaskQueue:
         limit = int(limit)
         if keep_recent <= 0 or limit <= 0:
             return 0
+
+        rows = self.db.execute(
+            "SELECT id, description FROM queue"
+        ).fetchall()
+        for task_id, description in rows:
+            bounded = self._bounded_description(description)
+            if bounded != description:
+                self.db.execute(
+                    "UPDATE queue SET description = ? WHERE id = ?",
+                    (bounded, task_id),
+                )
+        self.db.commit()
 
         ids = [row[0] for row in self.db.execute(
             "SELECT id FROM queue WHERE status IN ('completed','failed') "

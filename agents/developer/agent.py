@@ -8,7 +8,7 @@ class Developer:
     MAX_TREE_ENTRIES = 2500
     MAX_FILES_TO_READ = 50
     MAX_FILE_SIZE = 30000
-    MAX_REPOSITORIES_PER_RUN = 8
+    MAX_REPOSITORIES_PER_RUN = 4
 
     CONFIG_NAMES = {
         "package.json",

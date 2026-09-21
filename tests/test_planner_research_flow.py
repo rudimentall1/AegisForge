@@ -30,4 +30,4 @@ def test_analysis_is_distinct_evidence_from_repository_discovery():
 
 def test_developer_repository_batch_is_bounded():
     from agents.developer.agent import Developer
-    assert Developer.MAX_REPOSITORIES_PER_RUN == 8
+    assert Developer.MAX_REPOSITORIES_PER_RUN == 4

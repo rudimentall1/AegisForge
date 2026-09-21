@@ -114,3 +114,13 @@ def test_evidence_quality_marks_contradicted_atoms():
     ledger.record("task-2", "analyst", b)
     assert ledger.evidence_quality(ledger.atom_id(next(iter(a))))["state"] == "CONTESTED"
     assert ledger.evidence_quality(ledger.atom_id(next(iter(b))))["state"] == "CONTESTED"
+
+
+def test_oversized_atom_value_is_bounded():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    huge = "x" * (ledger.MAX_ATOM_VALUE_BYTES * 3)
+    result = ledger.record("task-1", "researcher", {"target:" + huge})
+    assert result["inserted"] == 1
+    size = db.execute("SELECT MAX(LENGTH(value)) FROM evidence_ledger").fetchone()[0]
+    assert size <= ledger.MAX_ATOM_VALUE_BYTES

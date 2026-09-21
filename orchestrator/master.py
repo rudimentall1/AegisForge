@@ -510,11 +510,21 @@ class AutonomousPlanner:
         if isinstance(result, dict):
             for key in ("repositories", "projects", "targets", "contracts", "addresses", "entities"):
                 value = result.get(key)
-                if isinstance(value, list):
-                    for item in value[:20]:
+                items = value[:20] if isinstance(value, list) else [value] if value else []
+                for item in items:
+                    # Durable evidence needs identity, not a second copy of
+                    # full GitHub/API payloads or document contents.
+                    if isinstance(item, dict):
+                        compact = {}
+                        for field in (
+                            "name", "full_name", "url", "html_url", "address",
+                            "symbol", "chain", "repository", "contract",
+                        ):
+                            if item.get(field) is not None:
+                                compact[field] = item.get(field)
+                        add("target", compact or item)
+                    else:
                         add("target", item)
-                elif value:
-                    add("target", value)
 
         for item in cls.extract_security_findings(result):
             add("finding", item)

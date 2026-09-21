@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 class EvidenceLedger:
     """Persistent normalized evidence with bounded provenance."""
 
+    MAX_ATOM_VALUE_BYTES = 8192
+
     def __init__(self, db):
         self.db = db
         self.db.execute("""
@@ -78,8 +80,17 @@ class EvidenceLedger:
             atom = str(atom).strip()
             if not atom:
                 continue
-            atom_id = self.atom_id(atom)
             kind, value = self.split_atom(atom)
+            # Evidence is durable intelligence, not a raw-result archive.
+            # Never persist oversized payloads even if a caller bypasses the
+            # planner's normal compaction.
+            encoded = value.encode("utf-8")
+            if len(encoded) > self.MAX_ATOM_VALUE_BYTES:
+                value = encoded[: self.MAX_ATOM_VALUE_BYTES].decode(
+                    "utf-8", errors="ignore"
+                )
+                atom = f"{kind}:{value}"
+            atom_id = self.atom_id(atom)
             row = self.db.execute(
                 "SELECT confirmation_count FROM evidence_ledger WHERE atom_id = ?",
                 (atom_id,),

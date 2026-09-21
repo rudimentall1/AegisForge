@@ -774,6 +774,31 @@ class AutonomousPlanner:
             )
 
         # -------------------------------------------------
+        # Technical review -> commercial opportunity
+        # -------------------------------------------------
+        # A Developer review is already the implementation-level evidence
+        # gate. Do not fall back into Analyst target loops when no explicit
+        # security finding was emitted; the product mission also requires
+        # converting technically credible technologies into opportunities.
+        if role == "developer" and isinstance(result, dict):
+            technical_review = result.get("technical_review")
+            existing_security_findings = self.extract_security_findings(result)
+            if technical_review and not existing_security_findings:
+                return (
+                    "REFINE",
+                    "opportunity_hunter",
+                    (
+                        "Translate the completed technical review into concrete "
+                        "commercial opportunity dossiers. Identify target users, "
+                        "problem signal, product thesis, validation experiment, "
+                        "business model, moat, and uncertainties. "
+                        f"Technical review: {self.compact_context(technical_review)}"
+                    ),
+                    "The Developer produced implementation-level evidence; the next step is commercial opportunity formation, not another generic target loop.",
+                    max(gain, 0.50),
+                )
+
+        # -------------------------------------------------
         # Security findings
         # -------------------------------------------------
 

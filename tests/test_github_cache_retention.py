@@ -61,3 +61,24 @@ def test_cache_put_stores_bounded_payload(tmp_path):
         "SELECT data FROM github_cache WHERE cache_key = 'small'"
     ).fetchone()[0] == '{"ok": true}'
     client.db.close()
+
+
+def test_search_uses_search_rate_bucket(tmp_path):
+    import time
+
+    client = make_client(tmp_path)
+    client.db.execute("""
+        CREATE TABLE github_rate_state (
+            resource TEXT PRIMARY KEY,
+            remaining INTEGER NOT NULL,
+            reset_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            last_status INTEGER
+        )
+    """)
+    now = int(time.time())
+    client.db.execute("INSERT INTO github_rate_state VALUES ('core', 0, ?, ?, 200)", (now + 3600, now))
+    client.db.execute("INSERT INTO github_rate_state VALUES ('search', 5, ?, ?, 200)", (now + 3600, now))
+    client.db.commit()
+    assert client._rate_blocked("core") is True
+    assert client._rate_blocked("search") is False

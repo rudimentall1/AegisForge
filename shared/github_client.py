@@ -274,6 +274,7 @@ class GitHubClient:
         params=None,
         cache_ttl=3600,
         timeout=30,
+        resource=None,
     ):
         import json
 
@@ -297,11 +298,15 @@ class GitHubClient:
             )
             return cached
 
-        if self._rate_blocked("core"):
-            state = self._rate_state("core")
+        # GitHub Search has a separate rate-limit bucket from the Core API.
+        # Do not let heavy repository inspection consume the research search
+        # budget, or vice versa.
+        rate_resource = resource or ("search" if "/search/" in url else "core")
+        if self._rate_blocked(rate_resource):
+            state = self._rate_state(rate_resource)
 
             raise RuntimeError(
-                "GitHub API cooldown active: "
+                f"GitHub API {rate_resource} cooldown active: "
                 f"remaining={state['remaining']}; "
                 f"reset={state['reset_at']}"
             )
@@ -368,6 +373,7 @@ class GitHubClient:
             params=params,
             cache_ttl=cache_ttl,
             timeout=20,
+            resource="search",
         )
 
         if not data:

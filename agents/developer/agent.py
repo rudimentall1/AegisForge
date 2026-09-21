@@ -90,16 +90,40 @@ class Developer:
             timeout=30,
         )
 
+    @staticmethod
+    def _fallback_paths():
+        """Canonical files usable when GitHub Core API is exhausted."""
+        return [
+            "README.md", "SECURITY.md", "package.json", "pyproject.toml",
+            "requirements.txt", "requirements-dev.txt", "Cargo.toml", "go.mod",
+            ".github/workflows/ci.yml", ".github/workflows/test.yml",
+            "src/index.ts", "src/index.js", "src/main.py", "src/main.ts",
+            "src/main.rs", "contracts/Guardian.sol", "contracts/Agent.sol",
+            "tests/test.py", "tests/index.ts", "test/index.ts",
+        ]
+
     def _get_tree(self, owner, repo, branch):
         url = (
             f"{self.github.BASE_URL}/repos/"
             f"{owner}/{repo}/git/trees/{branch}"
         )
 
-        return self._get(
-            url,
-            params={"recursive": "1"},
-        )
+        try:
+            return self._get(url, params={"recursive": "1"})
+        except Exception as exc:
+            print(
+                f"[Developer] TREE FALLBACK {owner}/{repo}: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            return {
+                "truncated": True,
+                "tree": [
+                    {"type": "blob", "path": path}
+                    for path in self._fallback_paths()
+                ],
+                "fallback": True,
+            }
 
     def _get_file(self, owner, repo, path):
         url = (
@@ -121,12 +145,29 @@ class Developer:
 
         except Exception as exc:
             print(
-                f"[Developer] FILE ERROR "
+                f"[Developer] FILE API FALLBACK "
                 f"{owner}/{repo}:{path} "
                 f"{type(exc).__name__}: {exc}",
                 flush=True,
             )
-            return None
+            raw_url = (
+                f"https://raw.githubusercontent.com/"
+                f"{owner}/{repo}/HEAD/{path}"
+            )
+            try:
+                import requests
+                response = requests.get(raw_url, timeout=15)
+                if response.status_code != 200:
+                    return None
+                return response.text[: self.MAX_FILE_SIZE]
+            except Exception as raw_exc:
+                print(
+                    f"[Developer] RAW FILE ERROR "
+                    f"{owner}/{repo}:{path} "
+                    f"{type(raw_exc).__name__}: {raw_exc}",
+                    flush=True,
+                )
+                return None
 
     @staticmethod
     def _decode(data):
@@ -415,7 +456,15 @@ class Developer:
             f"{owner}/{repository}"
         )
 
-        metadata = self._get(metadata_url) or {}
+        try:
+            metadata = self._get(metadata_url) or {}
+        except Exception as exc:
+            print(
+                f"[Developer] METADATA FALLBACK {name}: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            metadata = {}
 
         branch = (
             metadata.get("default_branch")

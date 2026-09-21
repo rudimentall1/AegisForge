@@ -28,6 +28,8 @@ DECISIONS = {
 }
 
 MAX_TASKS_PER_GOAL = 50
+MAX_TASKS_PER_PLAN = 6
+MAX_LIVE_TASKS = 24
 STAGNATION_LIMIT = 3
 
 MAX_FAILED_RECOVERIES_PER_CYCLE = 3
@@ -2177,8 +2179,33 @@ class AutonomousPlanner:
                 "state": "EMPTY",
             }
 
-        # MAX_TASKS_PER_GOAL limits creation of new tasks only.
-        # Existing completed tasks must still be evaluated by Master.
+        # Apply backpressure before evaluating a large completed history.
+        # The planner must not outpace workers and turn validation feedback
+        # into an ever-growing pending queue.
+        live_count = self.queue.db.execute(
+            "SELECT COUNT(*) FROM queue WHERE status NOT IN ('completed', 'failed')"
+        ).fetchone()[0]
+        if live_count >= MAX_LIVE_TASKS:
+            print(
+                f"[MASTER] BACKPRESSURE live_tasks={live_count} "
+                f"limit={MAX_LIVE_TASKS}",
+                flush=True,
+            )
+            return {
+                "created": 0,
+                "decisions": [],
+                "recovered": recovered,
+                "state": "BACKPRESSURE",
+            }
+
+        # MAX_TASKS_PER_GOAL limits creation across one planning pass;
+        # MAX_TASKS_PER_PLAN provides tighter per-cycle control.
+        # Existing completed tasks are still evaluated when capacity exists.
+        creation_budget = min(
+            MAX_TASKS_PER_PLAN,
+            MAX_LIVE_TASKS - live_count,
+            MAX_TASKS_PER_GOAL,
+        )
 
         children = self._children(tasks)
         fingerprints = self._existing_fingerprints(tasks)
@@ -2338,7 +2365,7 @@ class AutonomousPlanner:
                 [],
             ):
 
-                if created >= MAX_TASKS_PER_GOAL:
+                if created >= creation_budget:
                     break
 
                 child_fp = self.fingerprint(

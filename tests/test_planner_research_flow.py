@@ -50,3 +50,27 @@ def test_developer_core_api_fallback_uses_canonical_files(monkeypatch):
     assert "README.md" in paths
     assert "package.json" in paths
     assert ".github/workflows/ci.yml" in paths
+
+
+def test_planner_applies_live_queue_backpressure(tmp_path, monkeypatch):
+    import shared.queue as queue_module
+    from orchestrator.master import MAX_LIVE_TASKS, AutonomousPlanner
+
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = queue_module.TaskQueue()
+    for i in range(MAX_LIVE_TASKS):
+        q.add(f"live-{i}", role="validator")
+    completed = q.add("completed", role="analyst")
+    q.db.execute(
+        "UPDATE queue SET status='completed', result='{}', finished_at=datetime('now') WHERE id=?",
+        (completed,),
+    )
+    q.db.commit()
+
+    planner = AutonomousPlanner(q)
+    result = planner.plan()
+
+    assert result["state"] == "BACKPRESSURE"
+    assert result["created"] == 0
+    assert q.db.execute("SELECT COUNT(*) FROM queue WHERE status='pending'").fetchone()[0] == MAX_LIVE_TASKS
+    q.db.close()

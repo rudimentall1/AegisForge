@@ -2020,7 +2020,7 @@ class AutonomousPlanner:
                 limit=500,
             )
             history_compacted = self.queue.compact_history(
-                keep_recent=2000,
+                keep_recent=500,
                 limit=1000,
             )
             if compacted or history_compacted:

@@ -14,7 +14,7 @@ DB_PATH = Path("/opt/agent-farm/data/agent_farm.db")
 # is the durable research memory. Never let agent-generated descriptions/results
 # make SQLite grow without bound.
 MAX_DESCRIPTION_BYTES = 4096
-MAX_QUEUE_HISTORY = 2000
+MAX_QUEUE_HISTORY = 500
 
 
 class TaskQueue:

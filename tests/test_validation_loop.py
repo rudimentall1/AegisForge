@@ -74,7 +74,7 @@ def test_validation_evidence_is_durable_and_compact():
     assert all(len(atom.encode("utf-8")) < 8192 for atom in atoms)
 
 def test_validation_updates_confidence_and_score():
-    opportunity = {"name": "acme/project", "opportunity_score": 70, "uncertainties": ["test coverage is not established", "market/problem context is inferred from technical signals"]}
+    opportunity = {"name": "acme/project", "opportunity_score": 70, "uncertainties": ["test coverage is not established", "market context is inferred from limited signals"]}
     update = Validator._apply_validation_update(opportunity, {"status": "VALIDATED", "validation_type": "technical", "experiment_metric": "implementation_evidence", "experiment_value": 2})
     assert update["after"] > update["before"]
     assert opportunity["confidence_delta"] == 0.12
@@ -105,3 +105,40 @@ def test_planner_completes_when_validation_uncertainty_is_empty():
     task = {"role": "opportunity_hunter", "result": {"opportunities": [{"name": "acme/project", "confidence": 0.9, "uncertainties": []}], "validation_results": [{"name": "acme/project", "status": "VALIDATED"}]}}
     decision = planner._choose_next_raw(task)
     assert decision[0] == "COMPLETE"
+
+
+def test_planner_prefers_high_information_security_followup():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    opportunities = [
+        {
+            "name": "low-risk/project",
+            "confidence": 0.9,
+            "uncertainties": ["market context is inferred from limited signals"],
+        },
+        {
+            "name": "critical/project",
+            "confidence": 0.4,
+            "uncertainties": ["security posture requires further validation"],
+        },
+    ]
+    selected = planner.validation_followup(opportunities)
+    assert selected[0]["name"] == "critical/project"
+    assert selected[2] == "security"
+
+
+def test_planner_penalizes_repeated_blocked_validation():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    opportunities = [{
+        "name": "acme/project",
+        "confidence": 0.5,
+        "uncertainties": [
+            "security posture requires further validation",
+            "market context is inferred from limited signals",
+        ],
+        "validation_history": [
+            {"type": "security", "status": "BLOCKED"},
+            {"type": "security", "status": "BLOCKED"},
+        ],
+    }]
+    selected = planner.validation_followup(opportunities)
+    assert selected[2] == "commercial"

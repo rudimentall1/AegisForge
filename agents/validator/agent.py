@@ -130,7 +130,24 @@ class Validator:
         uncertainties = [str(x) for x in opportunity.get("uncertainties", [])]
         markers = {"technical": ("test coverage is not established",), "security": ("security posture requires further validation",), "commercial": ("market/problem context is inferred from technical signals",), "adoption": ("adoption",), "dependency": ("dependency",)}.get(validation_type, ())
         if status == "VALIDATED": uncertainties = [u for u in uncertainties if not any(m in u.lower() for m in markers)]
-        opportunity.update(confidence_before=round(before,3), confidence=round(after,3), confidence_delta=round(after-before,3), score_before_validation=score_before, opportunity_score=score_after, uncertainties=uncertainties, validation_evidence={"status":status,"type":validation_type,"metric":validation.get("experiment_metric"),"value":validation.get("experiment_value")})
+        evidence = {
+            "status": status,
+            "type": validation_type,
+            "metric": validation.get("experiment_metric"),
+            "value": validation.get("experiment_value"),
+        }
+        history = list(opportunity.get("validation_history") or [])
+        history.append(evidence)
+        opportunity.update(
+            confidence_before=round(before,3),
+            confidence=round(after,3),
+            confidence_delta=round(after-before,3),
+            score_before_validation=score_before,
+            opportunity_score=score_after,
+            uncertainties=uncertainties,
+            validation_evidence=evidence,
+            validation_history=history[-6:],
+        )
         if status == "VALIDATED": opportunity["commercial_readiness"] = "VALIDATE" if score_after >= 45 else "EARLY_SIGNAL"
         elif status in {"DEFERRED", "BLOCKED"}: opportunity["commercial_readiness"] = "EARLY_SIGNAL"
         return {"before":round(before,3), "after":round(after,3), "delta":round(after-before,3), "score_before":score_before, "score_after":score_after, "uncertainties_remaining":len(uncertainties)}

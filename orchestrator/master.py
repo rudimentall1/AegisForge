@@ -1234,25 +1234,112 @@ class AutonomousPlanner:
     # =========================================================
     @staticmethod
     def validation_followup(opportunities):
-        """Choose the next bounded experiment from unresolved uncertainty."""
+        """Choose the next validation by bounded information gain per cost."""
         if not isinstance(opportunities, list):
             return None
-        priorities = (("security", "security"), ("technical", "technical"), ("dependency", "dependency"), ("market", "commercial"), ("commercial", "commercial"), ("adoption", "adoption"), ("usage", "adoption"))
+
+        type_cost = {
+            "security": 0.50,
+            "technical": 0.65,
+            "dependency": 0.50,
+            "commercial": 0.40,
+            "adoption": 0.50,
+        }
+        marker_types = (
+            ("security", "security"),
+            ("vulnerability", "security"),
+            ("technical", "technical"),
+            ("test", "technical"),
+            ("dependency", "dependency"),
+            ("package", "dependency"),
+            ("market", "commercial"),
+            ("commercial", "commercial"),
+            ("adoption", "adoption"),
+            ("usage", "adoption"),
+        )
         candidates = []
+
         for opportunity in opportunities[:4]:
             if not isinstance(opportunity, dict):
                 continue
-            uncertainties = [str(x) for x in opportunity.get("uncertainties", [])]
-            for uncertainty in uncertainties[:6]:
+            uncertainties = [
+                str(x).strip()
+                for x in (opportunity.get("uncertainties") or [])[:6]
+                if str(x).strip()
+            ]
+            if not uncertainties:
+                continue
+
+            confidence = max(
+                0.0,
+                min(1.0, float(opportunity.get("confidence", 0.5) or 0.5)),
+            )
+            history = [
+                x for x in (opportunity.get("validation_history") or [])[-6:]
+                if isinstance(x, dict)
+            ]
+
+            for uncertainty in uncertainties:
                 low = uncertainty.lower()
-                for marker, validation_type in priorities:
+                validation_type = None
+                for marker, candidate_type in marker_types:
                     if marker in low:
-                        candidates.append((opportunity, uncertainty, validation_type))
+                        validation_type = candidate_type
                         break
+                if not validation_type:
+                    continue
+
+                attempts = [
+                    x for x in history
+                    if str(x.get("type") or "") == validation_type
+                ]
+                blocked = sum(x.get("status") in {"BLOCKED", "DEFERRED"} for x in attempts)
+                validated = sum(x.get("status") == "VALIDATED" for x in attempts)
+
+                # Unresolved high-impact uncertainty is worth more when
+                # confidence is low. Repeating blocked experiments is penalized.
+                criticality = 1.0
+                if validation_type == "security":
+                    criticality = 1.30
+                elif validation_type in {"technical", "dependency"}:
+                    criticality = 1.15
+
+                novelty = 1.0 / (1.0 + len(attempts))
+                failure_penalty = 0.35 ** blocked
+                saturation_penalty = 0.55 if validated else 1.0
+                expected_gain = (
+                    criticality
+                    * (1.0 + (1.0 - confidence))
+                    * novelty
+                    * failure_penalty
+                    * saturation_penalty
+                )
+                cost = type_cost[validation_type]
+                efficiency = expected_gain / max(cost, 0.10)
+
+                candidates.append(
+                    (
+                        efficiency,
+                        expected_gain,
+                        opportunity,
+                        uncertainty,
+                        validation_type,
+                    )
+                )
+
         if not candidates:
             return None
-        candidates.sort(key=lambda item: (0 if item[2] == "security" else 1, len(item[1]), str(item[0].get("name", ""))))
-        return candidates[0]
+
+        candidates.sort(
+            key=lambda item: (
+                -item[0],
+                -item[1],
+                str(item[2].get("name", "")),
+                item[3],
+            )
+        )
+        _, _, opportunity, uncertainty, validation_type = candidates[0]
+        return opportunity, uncertainty, validation_type
 
     # ACTION ECONOMICS
     # =========================================================

@@ -8,6 +8,7 @@ class Developer:
     MAX_TREE_ENTRIES = 2500
     MAX_FILES_TO_READ = 50
     MAX_FILE_SIZE = 30000
+    MAX_REPOSITORIES_PER_RUN = 8
 
     CONFIG_NAMES = {
         "package.json",
@@ -1003,6 +1004,15 @@ class Developer:
                 "repositories",
                 [],
             )
+
+            # A research batch may contain dozens of candidates. A single
+            # Developer pass must stay bounded: inspect the highest-priority
+            # candidates first and leave the rest for later cycles. Keeping
+            # the selected set in the result also prevents raw parent payloads
+            # from being copied into every downstream task.
+            repositories = repositories[: self.MAX_REPOSITORIES_PER_RUN]
+            parent = dict(parent)
+            parent["repositories"] = repositories
 
             if not repositories:
                 raise RuntimeError(

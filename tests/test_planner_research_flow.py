@@ -26,3 +26,8 @@ def test_analysis_is_distinct_evidence_from_repository_discovery():
         "analysis": [{"name": "acme/project", "priority": "HIGH", "stars": 1200}],
     }
     assert AutonomousPlanner.evidence_atoms(analysis) - AutonomousPlanner.evidence_atoms(research)
+
+
+def test_developer_repository_batch_is_bounded():
+    from agents.developer.agent import Developer
+    assert Developer.MAX_REPOSITORIES_PER_RUN == 8

@@ -46,3 +46,16 @@ def test_queue_compaction_bounds_existing_descriptions(tmp_path, monkeypatch):
     ).fetchone()[0]
     assert len(stored.encode("utf-8")) <= queue_module.MAX_DESCRIPTION_BYTES
     q.db.close()
+
+def test_queue_history_compaction_preserves_ancestor_of_retained_child(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("parent", role="researcher")
+    q.db.execute("UPDATE queue SET status='completed', finished_at=? WHERE id=?", ("2025-01-01T00:00:00+00:00", parent))
+    child = q.add("child", role="analyst", parent_task_id=parent)
+    q.db.execute("UPDATE queue SET status='completed', finished_at=? WHERE id=?", ("2026-01-01T00:00:00+00:00", child))
+    q.db.commit()
+    deleted = q.compact_history(keep_recent=1, limit=100)
+    assert deleted == 0
+    assert q.get(parent) is not None
+    assert q.get_result(parent) is None

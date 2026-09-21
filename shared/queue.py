@@ -460,13 +460,32 @@ class TaskQueue:
             return 0
 
         placeholders = ",".join("?" for _ in candidate_ids)
-        removable = self.db.execute(
-            f"SELECT q.id FROM queue q WHERE q.id IN ({placeholders}) "
-            f"AND NOT EXISTS (SELECT 1 FROM queue child "
-            f"WHERE child.parent_task_id=q.id AND child.id NOT IN ({placeholders}))",
-            (*candidate_ids, *candidate_ids),
-        ).fetchall()
-        removable_ids = [row[0] for row in removable]
+        # Never delete an ancestor of a retained/live task. A prior version
+        # could delete a parent in one compaction batch while its child
+        # survived, creating an executable orphan that workers could never claim.
+        protected = set()
+        frontier = [row[0] for row in self.db.execute(
+            f"SELECT id FROM queue WHERE id NOT IN ({placeholders})",
+            candidate_ids,
+        ).fetchall()]
+        while frontier:
+            chunk = frontier[:500]
+            frontier = frontier[500:]
+            ph = ",".join("?" for _ in chunk)
+            parents = [r[0] for r in self.db.execute(
+                f"SELECT parent_task_id FROM queue WHERE id IN ({ph}) "
+                "AND parent_task_id IS NOT NULL",
+                chunk,
+            ).fetchall()]
+            for parent in parents:
+                if parent not in protected:
+                    protected.add(parent)
+                    frontier.append(parent)
+
+        removable_ids = [
+            row for row in candidate_ids
+            if row not in protected
+        ]
         if not removable_ids:
             return 0
 
@@ -590,6 +609,27 @@ class TaskQueue:
             ORDER BY q.created_at
             """
         ).fetchall()
+
+    def repair_active_orphans(self):
+        """Remove pending orphan subtrees created by legacy/partial DAG writes."""
+        roots = [r[0] for r in self.active_orphans()]
+        if not roots:
+            return 0
+        placeholders = ",".join("?" for _ in roots)
+        self.db.execute(
+            f"""WITH RECURSIVE doomed(id) AS (
+                SELECT id FROM queue WHERE id IN ({placeholders}) AND status='pending'
+                UNION ALL
+                SELECT q.id FROM queue q JOIN doomed d ON q.parent_task_id=d.id
+                WHERE q.status='pending'
+            )
+            DELETE FROM queue WHERE id IN doomed""",
+            roots,
+        )
+        deleted = int(self.db.execute("SELECT changes()").fetchone()[0] or 0)
+        if deleted:
+            self.db.commit()
+        return deleted
 
     # ---------------------------------------------------------
     # CLAIM

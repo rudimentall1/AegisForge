@@ -2357,6 +2357,13 @@ class MasterOrchestrator:
 
         while True:
             try:
+                repaired = self.queue.repair_active_orphans()
+                if repaired:
+                    print(
+                        f"[MASTER] REPAIRED ORPHAN TASKS count={repaired}",
+                        flush=True,
+                    )
+
                 self.bootstrap()
 
                 result = self.planner.plan()

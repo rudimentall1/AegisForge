@@ -20,3 +20,13 @@ def test_has_tasks_detects_live_work(tmp_path, monkeypatch):
     q.add("live task", "researcher")
     assert q.has_tasks() is True
     q.db.close()
+
+def test_repair_active_orphans_removes_pending_subtree(tmp_path, monkeypatch):
+    import shared.queue as queue_module
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = queue_module.TaskQueue()
+    root = q.add("missing-parent-child", role="researcher", parent_task_id="missing")
+    child = q.add("grandchild", role="analyst", parent_task_id=root)
+    assert q.repair_active_orphans() == 2
+    assert q.get(root) is None
+    assert q.get(child) is None

@@ -1,16 +1,8 @@
-from agents.master.agent import Master
+from orchestrator.master import MasterOrchestrator
 
 
 def main():
-    master = Master()
-
-    result = master.run(
-        "Discover promising emerging technologies, analyze their technical maturity and security, identify commercial opportunities, and propose concrete product directions"
-    )
-
-    print("\n=== FINAL RESULT ===")
-
-    print(result)
+    MasterOrchestrator().run()
 
 
 if __name__ == "__main__":

@@ -72,3 +72,20 @@ def test_validation_evidence_is_durable_and_compact():
     })
     assert any(atom.startswith("validation:") for atom in atoms)
     assert all(len(atom.encode("utf-8")) < 8192 for atom in atoms)
+
+def test_validation_updates_confidence_and_score():
+    opportunity = {"name": "acme/project", "opportunity_score": 70, "uncertainties": ["test coverage is not established", "market/problem context is inferred from technical signals"]}
+    update = Validator._apply_validation_update(opportunity, {"status": "VALIDATED", "validation_type": "technical", "experiment_metric": "implementation_evidence", "experiment_value": 2})
+    assert update["after"] > update["before"]
+    assert opportunity["confidence_delta"] == 0.12
+    assert opportunity["opportunity_score"] == 82
+    assert "test coverage is not established" not in opportunity["uncertainties"]
+    assert opportunity["commercial_readiness"] == "VALIDATE"
+
+
+def test_failed_validation_reduces_confidence():
+    opportunity = {"name": "acme/project", "opportunity_score": 60, "uncertainties": ["security posture requires further validation"]}
+    update = Validator._apply_validation_update(opportunity, {"status": "BLOCKED", "validation_type": "security", "experiment_metric": "security_control_surfaces", "experiment_value": 0})
+    assert update["after"] < update["before"]
+    assert opportunity["opportunity_score"] == 50
+    assert opportunity["commercial_readiness"] == "EARLY_SIGNAL"

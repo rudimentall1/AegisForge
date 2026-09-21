@@ -114,6 +114,27 @@ class Validator:
                           reason=f"{type(exc).__name__}: {str(exc)[:240]}")
         return result
 
+    @staticmethod
+    def _apply_validation_update(opportunity, validation):
+        status = validation.get("status")
+        validation_type = validation.get("validation_type")
+        before = max(0.0, min(1.0, float(opportunity.get("confidence", opportunity.get("opportunity_score", 0) / 100.0) or 0.0)))
+        if status == "VALIDATED":
+            delta = {"technical": 0.12, "adoption": 0.10, "dependency": 0.10, "security": 0.08, "commercial": 0.08}.get(validation_type, 0.06)
+        elif status == "PARTIAL": delta = 0.02
+        elif status == "DEFERRED": delta = 0.0
+        else: delta = -0.10
+        after = max(0.0, min(1.0, before + delta))
+        score_before = int(opportunity.get("opportunity_score", round(before * 100)))
+        score_after = max(0, min(100, round(after * 100)))
+        uncertainties = [str(x) for x in opportunity.get("uncertainties", [])]
+        markers = {"technical": ("test coverage is not established",), "security": ("security posture requires further validation",), "commercial": ("market/problem context is inferred from technical signals",), "adoption": ("adoption",), "dependency": ("dependency",)}.get(validation_type, ())
+        if status == "VALIDATED": uncertainties = [u for u in uncertainties if not any(m in u.lower() for m in markers)]
+        opportunity.update(confidence_before=round(before,3), confidence=round(after,3), confidence_delta=round(after-before,3), score_before_validation=score_before, opportunity_score=score_after, uncertainties=uncertainties, validation_evidence={"status":status,"type":validation_type,"metric":validation.get("experiment_metric"),"value":validation.get("experiment_value")})
+        if status == "VALIDATED": opportunity["commercial_readiness"] = "VALIDATE" if score_after >= 45 else "EARLY_SIGNAL"
+        elif status in {"DEFERRED", "BLOCKED"}: opportunity["commercial_readiness"] = "EARLY_SIGNAL"
+        return {"before":round(before,3), "after":round(after,3), "delta":round(after-before,3), "score_before":score_before, "score_after":score_after, "uncertainties_remaining":len(uncertainties)}
+
     def run(self, task: Task) -> Task:
         task.status = "validating"
         try:
@@ -127,10 +148,14 @@ class Validator:
                 return task
             client = GitHubClient()
             validations = [self._validate_repo(x, client) for x in opportunities]
+            updates = []
             for opportunity, validation in zip(opportunities, validations):
                 opportunity["validation_status"] = validation.get("status")
                 opportunity["validation_reproducibility"] = validation.get("reproducibility")
+                updates.append(self._apply_validation_update(opportunity, validation))
             result["opportunities"] = opportunities
+            result["validation_updates"] = updates
+            result["validation_confidence"] = round(sum(item["after"] for item in updates) / len(updates), 3) if updates else None
             result["validation_results"] = validations
             result["validation_summary"] = {
                 "experiments": len(validations),

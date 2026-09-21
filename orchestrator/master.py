@@ -696,6 +696,14 @@ class AutonomousPlanner:
                 if isinstance(result, dict)
                 else []
             )
+            if isinstance(result, dict) and result.get("evaluated_by") == "opportunity_hunter":
+                return (
+                    "COMPLETE",
+                    None,
+                    None,
+                    "Opportunity Hunter has completed the commercial refinement pass; retain the resulting opportunity package as the branch output.",
+                    max(gain, 0.40),
+                )
             return (
                 "REFINE",
                 "developer",
@@ -741,6 +749,20 @@ class AutonomousPlanner:
         security_findings = self.extract_security_findings(result)
 
         if security_findings:
+            if role == "security_checker" and self.extract_opportunities(result):
+                return (
+                    "REFINE",
+                    "opportunity_hunter",
+                    (
+                        "Translate the technically verified research into concrete commercial opportunities. "
+                        "Assess the strongest product thesis, target users, deployment friction, and the next validation step. "
+                        f"Opportunities: {self.format_items(self.extract_opportunities(result)[:10])}. "
+                        f"Security context: {self.compact_context(security_findings[:10])}"
+                    ),
+                    "Security verification is complete enough to evaluate the commercial implications of the discovered technology.",
+                    max(gain, 0.45),
+                )
+
             if role == "security_checker":
                 return (
                     "REFINE",
@@ -766,6 +788,18 @@ class AutonomousPlanner:
             # SecurityChecker consumes Developer's technical_review.
             # Never create Analyst/Researcher -> SecurityChecker directly.
             if role == "developer" and isinstance(result, dict):
+                if result.get("opportunities"):
+                    return (
+                        "REFINE",
+                        "opportunity_hunter",
+                        (
+                            "Refine the product hypotheses using the completed technical review. "
+                            f"Opportunities: {self.format_items(result.get('opportunities')[:10])}. "
+                            f"Technical review: {self.compact_context(result.get('technical_review'))}"
+                        ),
+                        "Technical feasibility evidence is available; the next step is commercial validation rather than another generic code pass.",
+                        max(gain, 0.45),
+                    )
                 technical_review = result.get("technical_review")
 
                 if technical_review:

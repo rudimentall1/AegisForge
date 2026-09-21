@@ -1779,6 +1779,23 @@ class AutonomousPlanner:
     # =========================================================
 
     def plan(self):
+        try:
+            compacted = self.queue.compact_completed_results(
+                older_than_days=7,
+                keep_ancestor_depth=4,
+                limit=500,
+            )
+            if compacted:
+                print(
+                    f"[MASTER] MEMORY COMPACTION raw_results={compacted}",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(
+                f"[MASTER] MEMORY COMPACTION ERROR: {exc}",
+                flush=True,
+            )
+
         tasks = self._load_tasks()
         self._planning_tasks = tasks
 

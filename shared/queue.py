@@ -293,6 +293,101 @@ class TaskQueue:
 
         return decode(row[0])
 
+    def compact_completed_results(
+        self,
+        older_than_days=7,
+        keep_ancestor_depth=4,
+        limit=500,
+    ):
+        """
+        Drop raw results that no longer belong to an active planner branch.
+
+        EvidenceLedger is the durable evidence memory. Raw task results are
+        retained only while they can still be needed by a live/pending branch
+        or by the bounded recent planner context. This prevents completed
+        history from becoming unbounded storage.
+        """
+        from datetime import timedelta
+
+        if older_than_days < 0:
+            raise ValueError("older_than_days must be >= 0")
+        if keep_ancestor_depth < 0:
+            raise ValueError("keep_ancestor_depth must be >= 0")
+        if limit <= 0:
+            return 0
+
+        cutoff = (
+            datetime.now(timezone.utc)
+            - timedelta(days=older_than_days)
+        ).isoformat()
+
+        query = """
+            WITH RECURSIVE frontier(id) AS (
+                SELECT q.id
+                FROM queue q
+                WHERE q.status IN ('pending', 'running')
+                   OR (
+                       q.status = 'completed'
+                       AND q.planner_decision IS NULL
+                   )
+                   OR (
+                       q.status = 'completed'
+                       AND q.planner_decision IN (
+                           'CONTINUE', 'REFINE', 'VERIFY',
+                           'BRANCH', 'ESCALATE'
+                       )
+                       AND NOT EXISTS (
+                           SELECT 1
+                           FROM queue c
+                           WHERE c.parent_task_id = q.id
+                       )
+                   )
+            ),
+            ancestors(id, depth) AS (
+                SELECT id, 0
+                FROM frontier
+                UNION
+                SELECT q.parent_task_id, ancestors.depth + 1
+                FROM queue q
+                JOIN ancestors
+                  ON ancestors.id = q.id
+                WHERE q.parent_task_id IS NOT NULL
+                  AND ancestors.depth < ?
+            ),
+            candidates AS (
+                SELECT q.id
+                FROM queue q
+                LEFT JOIN ancestors a
+                  ON a.id = q.id
+                WHERE q.status = 'completed'
+                  AND q.result IS NOT NULL
+                  AND q.finished_at IS NOT NULL
+                  AND q.finished_at < ?
+                  AND a.id IS NULL
+                LIMIT ?
+            )
+            UPDATE queue
+            SET result = NULL
+            WHERE id IN (SELECT id FROM candidates)
+        """
+
+        self.db.execute(
+            query,
+            (
+                int(keep_ancestor_depth),
+                cutoff,
+                int(limit),
+            ),
+        )
+        updated = self.db.execute(
+            "SELECT changes()"
+        ).fetchone()[0]
+
+        if updated:
+            self.db.commit()
+
+        return max(0, int(updated or 0))
+
     # ---------------------------------------------------------
     # MASTER PLANNER STATE
     # ---------------------------------------------------------

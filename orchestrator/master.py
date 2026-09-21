@@ -2071,7 +2071,11 @@ class MasterOrchestrator:
             return False
 
         task_id = self.queue.add(
-            description="Find promising Web3 security projects",
+            description=(
+                "Discover promising emerging technologies, analyze their "
+                "technical maturity and security, identify commercial "
+                "opportunities, and propose concrete product directions"
+            ),
             role="researcher",
         )
 

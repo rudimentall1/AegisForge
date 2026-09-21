@@ -5,7 +5,7 @@ def main():
     master = Master()
 
     result = master.run(
-        "Find promising Web3 security projects, analyze them, evaluate opportunities and suggest development directions"
+        "Discover promising emerging technologies, analyze their technical maturity and security, identify commercial opportunities, and propose concrete product directions"
     )
 
     print("\n=== FINAL RESULT ===")

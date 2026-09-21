@@ -160,8 +160,18 @@ class TaskQueue:
     # ---------------------------------------------------------
 
     def has_tasks(self):
+        """Return whether executable/live work exists.
+
+        Completed history is retained for provenance and analytics, but it
+        must not prevent the autonomous master from starting the next goal.
+        """
         row = self.db.execute(
-            "SELECT 1 FROM queue LIMIT 1"
+            """
+            SELECT 1
+            FROM queue
+            WHERE status NOT IN ('completed', 'failed')
+            LIMIT 1
+            """
         ).fetchone()
         return row is not None
 

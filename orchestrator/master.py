@@ -552,6 +552,27 @@ class AutonomousPlanner:
                             }
                             add(key, compact or item)
 
+            # Technical review is a new information layer above repository
+            # discovery. Keep only stable assessment fields in the evidence
+            # ledger so later planner decisions can recognize real progress
+            # without persisting entire source trees or file contents.
+            value = result.get("technical_review")
+            if isinstance(value, list):
+                for item in value[:20]:
+                    if isinstance(item, dict):
+                        compact = {
+                            field: item.get(field)
+                            for field in (
+                                "name", "technical_maturity",
+                                "technical_maturity_score", "has_tests",
+                                "has_ci", "has_security_policy",
+                                "has_audits", "smart_contract_project",
+                                "risk_flags", "security_signals",
+                            )
+                            if item.get(field) is not None
+                        }
+                        add("technical_review", compact or item)
+
             for key in ("status", "severity", "verdict"):
                 if result.get(key) is not None:
                     add(key, result[key])

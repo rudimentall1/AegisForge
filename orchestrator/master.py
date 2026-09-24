@@ -531,7 +531,24 @@ class AutonomousPlanner:
         for item in cls.extract_security_findings(result):
             add("finding", item)
         for item in cls.extract_opportunities(result):
-            add("opportunity", item)
+            # Opportunity payloads can contain volatile fields such as score,
+            # categories and reasons. Persist a stable identity plus the
+            # decision-relevant thesis/uncertainty instead of hashing the full
+            # dossier on every planner cycle. This prevents repeated workers
+            # from turning one opportunity into hundreds of near-duplicate
+            # evidence atoms.
+            if isinstance(item, dict):
+                compact = {
+                    field: item.get(field)
+                    for field in (
+                        "name", "repository", "url", "target_customer",
+                        "problem_signal", "product_thesis", "validation_type",
+                    )
+                    if item.get(field) is not None
+                }
+                add("opportunity", compact or item)
+            else:
+                add("opportunity", item)
         for item in cls.extract_hypotheses(result):
             add("hypothesis", item)
 

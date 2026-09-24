@@ -46,3 +46,21 @@ def test_has_planner_work_detects_completed_unplanned_task(tmp_path, monkeypatch
     q.mark_planner_decision(task_id, "COMPLETE", 0.0, "test-fingerprint")
     assert q.has_planner_work() is False
     q.db.close()
+
+
+def test_action_outcome_records_bounded_calibration_feedback(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("parent", "researcher")
+    child = q.add("child", "analyst", parent_task_id=parent)
+    q.db.execute("UPDATE queue SET status='completed' WHERE id=?", (child,))
+    q.db.commit()
+    q.mark_planner_decision(parent, "CONTINUE", 0.6, "fp", "analyst", 0.7, 0.35, 2.0)
+    assert q.record_action_outcome(child, 0.5, 0.8, 4, 5) is True
+    assert q.record_action_outcome(child, 0.5, 0.8, 4, 5) is False
+    row = q.db.execute("SELECT expected_evidence_gain, actual_evidence_gain, prediction_error FROM planner_action_outcomes").fetchone()
+    assert row == (0.7, 0.5, -0.19999999999999996)
+    summary = q.action_outcome_summary()
+    assert summary["samples"] == 1
+    assert summary["by_role"]["analyst"]["samples"] == 1
+    q.db.close()

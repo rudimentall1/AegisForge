@@ -2289,6 +2289,23 @@ class AutonomousPlanner:
                     flush=True,
                 )
 
+            # Close the feedback loop: when this completed task was itself
+            # produced by a planner action, measure the actual evidence gain
+            # against that action's expected gain. The bounded outcome ledger
+            # becomes calibration data rather than another unbounded memory.
+            parent_id = task.get("parent_task_id")
+            if parent_id and task.get("result") is not None:
+                try:
+                    history = self.branch_history(task, self._planning_tasks)
+                    novelty, novel_count, atom_count = self.novelty_against_history(task, history)
+                    actual_gain = max(0.0, min(1.0, novelty * min(1.0, novel_count / max(1, atom_count))))
+                    self.queue.record_action_outcome(
+                        task["id"], actual_gain, novelty, novel_count, atom_count,
+                        observed_at=task.get("finished_at"),
+                    )
+                except Exception as exc:
+                    print(f"[MASTER] ACTION OUTCOME ERROR task={task['id']}: {exc}", flush=True)
+
             decision = self.choose_next(task)
 
             # Backward compatibility: choose_next() may return either
@@ -2343,12 +2360,17 @@ class AutonomousPlanner:
                 task["description"],
             )
 
-            # Persist Master decision BEFORE creating children.
+            # Persist Master decision and the calibrated action economics BEFORE creating children.
+            selected_economics = self.action_economics(task, decision) if decision_name not in {"COMPLETE", "ABORT"} else {"action": None, "cost": 0.0, "expected_evidence_gain": 0.0, "efficiency": 0.0}
             self.queue.mark_planner_decision(
                 task["id"],
                 decision_name,
                 gain,
                 task_fp,
+                selected_economics["action"],
+                selected_economics["expected_evidence_gain"],
+                selected_economics["cost"],
+                selected_economics["efficiency"],
             )
 
             record = {

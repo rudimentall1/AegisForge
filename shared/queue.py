@@ -81,6 +81,38 @@ class TaskQueue:
                 """
             )
 
+        for column, sql_type in (
+            ("action_role", "TEXT"),
+            ("expected_evidence_gain", "REAL"),
+            ("action_cost", "REAL"),
+            ("action_efficiency", "REAL"),
+        ):
+            if column not in columns:
+                self.db.execute(
+                    f"ALTER TABLE queue ADD COLUMN {column} {sql_type}"
+                )
+
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS planner_action_outcomes (
+                child_task_id TEXT PRIMARY KEY,
+                parent_task_id TEXT NOT NULL,
+                action_role TEXT,
+                expected_evidence_gain REAL NOT NULL,
+                action_cost REAL NOT NULL,
+                action_efficiency REAL NOT NULL,
+                actual_evidence_gain REAL NOT NULL,
+                novelty REAL NOT NULL,
+                novel_atom_count INTEGER NOT NULL,
+                atom_count INTEGER NOT NULL,
+                prediction_error REAL NOT NULL,
+                observed_at TEXT NOT NULL
+            )
+        """)
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_planner_action_outcomes_observed
+            ON planner_action_outcomes(observed_at)
+        """)
+
         self.db.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_queue_parent_task_id
@@ -529,6 +561,10 @@ class TaskQueue:
         decision,
         information_gain=0.0,
         fingerprint=None,
+        action_role=None,
+        expected_evidence_gain=0.0,
+        action_cost=0.0,
+        action_efficiency=0.0,
     ):
         self.db.execute(
             """
@@ -537,7 +573,11 @@ class TaskQueue:
                 planner_decision = ?,
                 planner_decided_at = ?,
                 information_gain = ?,
-                fingerprint = ?
+                fingerprint = ?,
+                action_role = ?,
+                expected_evidence_gain = ?,
+                action_cost = ?,
+                action_efficiency = ?
             WHERE id = ?
             """,
             (
@@ -545,10 +585,99 @@ class TaskQueue:
                 datetime.now(timezone.utc).isoformat(),
                 float(information_gain),
                 fingerprint,
+                action_role,
+                float(expected_evidence_gain or 0.0),
+                float(action_cost or 0.0),
+                float(action_efficiency or 0.0),
                 task_id,
             ),
         )
         self.db.commit()
+
+    def record_action_outcome(
+        self,
+        child_task_id,
+        actual_evidence_gain,
+        novelty,
+        novel_atom_count,
+        atom_count,
+        observed_at=None,
+        max_rows=200,
+    ):
+        """Record bounded feedback for a planner action once its child completes."""
+        row = self.db.execute(
+            """
+            SELECT p.id, p.action_role, p.expected_evidence_gain,
+                   p.action_cost, p.action_efficiency
+            FROM queue child
+            JOIN queue p ON p.id = child.parent_task_id
+            WHERE child.id = ?
+              AND child.status = 'completed'
+              AND p.action_role IS NOT NULL
+            """,
+            (child_task_id,),
+        ).fetchone()
+        if row is None:
+            return False
+
+        existing = self.db.execute(
+            "SELECT 1 FROM planner_action_outcomes WHERE child_task_id = ?",
+            (child_task_id,),
+        ).fetchone()
+        if existing:
+            return False
+
+        actual = max(0.0, min(1.0, float(actual_evidence_gain)))
+        expected = max(0.0, min(1.0, float(row[2] or 0.0)))
+        now = observed_at or datetime.now(timezone.utc).isoformat()
+        self.db.execute(
+            """
+            INSERT INTO planner_action_outcomes
+            (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+             action_cost, action_efficiency, actual_evidence_gain, novelty,
+             novel_atom_count, atom_count, prediction_error, observed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                child_task_id, row[0], row[1], expected, float(row[3] or 0.0),
+                float(row[4] or 0.0), actual, max(0.0, min(1.0, float(novelty))),
+                int(novel_atom_count), int(atom_count), actual - expected, now,
+            ),
+        )
+        self.db.execute(
+            """
+            DELETE FROM planner_action_outcomes
+            WHERE child_task_id IN (
+                SELECT child_task_id FROM planner_action_outcomes
+                ORDER BY observed_at DESC
+                LIMIT -1 OFFSET ?
+            )
+            """,
+            (int(max_rows),),
+        )
+        self.db.commit()
+        return True
+
+    def action_outcome_summary(self, limit=200):
+        rows = self.db.execute(
+            """
+            SELECT action_role, expected_evidence_gain, actual_evidence_gain,
+                   prediction_error, action_cost
+            FROM planner_action_outcomes
+            ORDER BY observed_at DESC LIMIT ?
+            """,
+            (int(limit),),
+        ).fetchall()
+        if not rows:
+            return {"samples": 0, "mae": 0.0, "bias": 0.0, "by_role": {}}
+        errors=[float(r[3]) for r in rows]
+        by={}
+        for role, expected, actual, error, cost in rows:
+            x=by.setdefault(role or "unknown", {"samples":0,"expected":0.0,"actual":0.0,"cost":0.0})
+            x["samples"]+=1; x["expected"]+=float(expected); x["actual"]+=float(actual); x["cost"]+=float(cost)
+        for x in by.values():
+            n=x["samples"]; x["expected"]=round(x["expected"]/n,4); x["actual"]=round(x["actual"]/n,4); x["cost"]=round(x["cost"]/n,4)
+        return {"samples":len(rows),"mae":round(sum(abs(x) for x in errors)/len(errors),4),"bias":round(sum(errors)/len(errors),4),"by_role":by}
 
     def planner_processed(self, task_id):
         row = self.db.execute(

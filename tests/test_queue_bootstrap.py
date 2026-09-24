@@ -30,3 +30,19 @@ def test_repair_active_orphans_removes_pending_subtree(tmp_path, monkeypatch):
     assert q.repair_active_orphans() == 2
     assert q.get(root) is None
     assert q.get(child) is None
+
+
+def test_has_planner_work_detects_completed_unplanned_task(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    task_id = q.add("completed but not planned", "researcher")
+    q.db.execute(
+        "UPDATE queue SET status='completed', result=? WHERE id=?",
+        ('{"repositories":[{"name":"example/repo"}]}', task_id),
+    )
+    q.db.commit()
+    assert q.has_tasks() is False
+    assert q.has_planner_work() is True
+    q.mark_planner_decision(task_id, "COMPLETE", 0.0, "test-fingerprint")
+    assert q.has_planner_work() is False
+    q.db.close()

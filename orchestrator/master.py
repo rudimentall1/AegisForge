@@ -2415,7 +2415,10 @@ class MasterOrchestrator:
         self.planner = AutonomousPlanner(self.queue)
 
     def bootstrap(self):
-        if self.queue.has_tasks():
+        # Do not inject a new research root while Master still has a completed
+        # task awaiting planning. Workers can finish children faster than the
+        # 15-second Master tick, so "no live tasks" alone is not an idle signal.
+        if self.queue.has_planner_work():
             return False
 
         row = self.queue.db.execute(

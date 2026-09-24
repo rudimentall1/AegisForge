@@ -175,6 +175,26 @@ class TaskQueue:
         ).fetchone()
         return row is not None
 
+    def has_planner_work(self):
+        """Return whether Master still has work to process before bootstrapping.
+
+        A worker can finish a task between Master cycles. Such a task is no
+        longer "live", but it is still actionable until the planner records a
+        decision. Treating it as idle would inject a fresh researcher root and
+        create an artificial discovery loop.
+        """
+        row = self.db.execute(
+            """
+            SELECT 1
+            FROM queue
+            WHERE status NOT IN ('completed', 'failed')
+               OR (status = 'completed' AND result IS NOT NULL
+                   AND planner_decision IS NULL)
+            LIMIT 1
+            """
+        ).fetchone()
+        return row is not None
+
     def all_tasks(self):
         return self.db.execute(
             """

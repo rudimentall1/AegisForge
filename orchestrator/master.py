@@ -1437,24 +1437,40 @@ class AutonomousPlanner:
         return max(0.0, min(1.0, estimate))
 
     def action_economics(self, task, decision):
-        """Return explainable cost/gain data for a proposed action."""
+        """Return explainable cost/gain data with bounded historical calibration."""
+        if isinstance(decision, dict):
+            decision = (
+                decision.get("decision"),
+                decision.get("role"),
+                decision.get("description"),
+                decision.get("reason"),
+                decision.get("information_gain", 0.0),
+            )
         if not isinstance(decision, tuple) or len(decision) != 5:
             return {
                 "action": None,
                 "cost": 0.0,
                 "expected_evidence_gain": 0.0,
                 "efficiency": 0.0,
+                "calibration": {"factor": 1.0, "samples": 0, "raw_ratio": 1.0, "weight": 0.0},
             }
 
         _decision_name, next_role, _description, _reason, _gain = decision
         cost = self.action_cost(next_role)
-        expected = self.expected_evidence_gain(task, decision)
+        raw_expected = self.expected_evidence_gain(task, decision)
+        queue = getattr(self, "queue", None)
+        if queue is None:
+            calibration = {"factor": 1.0, "samples": 0, "raw_ratio": 1.0, "weight": 0.0}
+        else:
+            calibration = queue.action_calibration(next_role)
+        expected = max(0.0, min(1.0, raw_expected * calibration["factor"]))
         efficiency = expected / cost if cost else 0.0
         return {
             "action": next_role,
             "cost": cost,
             "expected_evidence_gain": round(expected, 4),
             "efficiency": round(efficiency, 4),
+            "calibration": calibration,
         }
 
     def candidate_decisions(self, task, primary):
@@ -2299,9 +2315,14 @@ class AutonomousPlanner:
                     history = self.branch_history(task, self._planning_tasks)
                     novelty, novel_count, atom_count = self.novelty_against_history(task, history)
                     actual_gain = max(0.0, min(1.0, novelty * min(1.0, novel_count / max(1, atom_count))))
-                    self.queue.record_action_outcome(
+                    recorded = self.queue.record_action_outcome(
                         task["id"], actual_gain, novelty, novel_count, atom_count,
                         observed_at=task.get("finished_at"),
+                    )
+                    print(
+                        f"[MASTER] ACTION OUTCOME task={task['id']} parent={parent_id} "
+                        f"recorded={recorded} actual={actual_gain:.4f}",
+                        flush=True,
                     )
                 except Exception as exc:
                     print(f"[MASTER] ACTION OUTCOME ERROR task={task['id']}: {exc}", flush=True)

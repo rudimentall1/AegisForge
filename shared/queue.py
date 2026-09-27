@@ -670,14 +670,105 @@ class TaskQueue:
         ).fetchall()
         if not rows:
             return {"samples": 0, "mae": 0.0, "bias": 0.0, "by_role": {}}
-        errors=[float(r[3]) for r in rows]
-        by={}
+
+        errors = [float(r[3]) for r in rows]
+        by = {}
         for role, expected, actual, error, cost in rows:
-            x=by.setdefault(role or "unknown", {"samples":0,"expected":0.0,"actual":0.0,"cost":0.0})
-            x["samples"]+=1; x["expected"]+=float(expected); x["actual"]+=float(actual); x["cost"]+=float(cost)
+            role = role or "unknown"
+            x = by.setdefault(
+                role,
+                {
+                    "samples": 0,
+                    "expected": 0.0,
+                    "actual": 0.0,
+                    "cost": 0.0,
+                    "relative_ratio": 0.0,
+                    "ratio_samples": 0,
+                },
+            )
+            x["samples"] += 1
+            x["expected"] += float(expected)
+            x["actual"] += float(actual)
+            x["cost"] += float(cost)
+            expected_value = float(expected or 0.0)
+            if expected_value > 0.05:
+                ratio = max(0.5, min(1.5, float(actual) / expected_value))
+                x["relative_ratio"] += ratio
+                x["ratio_samples"] += 1
+
         for x in by.values():
-            n=x["samples"]; x["expected"]=round(x["expected"]/n,4); x["actual"]=round(x["actual"]/n,4); x["cost"]=round(x["cost"]/n,4)
-        return {"samples":len(rows),"mae":round(sum(abs(x) for x in errors)/len(errors),4),"bias":round(sum(errors)/len(errors),4),"by_role":by}
+            n = x["samples"]
+            x["expected"] = round(x["expected"] / n, 4)
+            x["actual"] = round(x["actual"] / n, 4)
+            x["cost"] = round(x["cost"] / n, 4)
+            ratio_samples = x.pop("ratio_samples", 0)
+            x["relative_ratio"] = round(x["relative_ratio"] / ratio_samples, 4) if ratio_samples else 1.0
+
+        return {
+            "samples": len(rows),
+            "mae": round(sum(abs(x) for x in errors) / len(errors), 4),
+            "bias": round(sum(errors) / len(errors), 4),
+            "by_role": by,
+        }
+
+    def action_calibration(
+        self,
+        action_role,
+        min_samples=3,
+        full_samples=10,
+        max_adjustment=0.25,
+    ):
+        """Return a conservative multiplicative calibration for one action role."""
+        role = str(action_role or "unknown")
+        rows = self.db.execute(
+            """
+            SELECT expected_evidence_gain, actual_evidence_gain
+            FROM planner_action_outcomes
+            WHERE action_role = ?
+            ORDER BY observed_at DESC
+            LIMIT 200
+            """,
+            (role,),
+        ).fetchall()
+        samples = len(rows)
+        if samples < int(min_samples):
+            return {
+                "factor": 1.0,
+                "samples": samples,
+                "raw_ratio": 1.0,
+                "weight": 0.0,
+            }
+
+        ratios = []
+        for expected, actual in rows:
+            expected_value = float(expected or 0.0)
+            if expected_value <= 0.05:
+                continue
+            ratio = max(0.5, min(1.5, float(actual or 0.0) / expected_value))
+            ratios.append(ratio)
+
+        if not ratios:
+            return {
+                "factor": 1.0,
+                "samples": samples,
+                "raw_ratio": 1.0,
+                "weight": 0.0,
+            }
+
+        raw_ratio = sum(ratios) / len(ratios)
+        ramp = max(1, int(full_samples) - int(min_samples) + 1)
+        weight = min(1.0, max(0.0, samples - int(min_samples) + 1) / ramp)
+        adjustment = max(
+            -float(max_adjustment),
+            min(float(max_adjustment), (raw_ratio - 1.0) * weight),
+        )
+        factor = 1.0 + adjustment
+        return {
+            "factor": round(factor, 4),
+            "samples": samples,
+            "raw_ratio": round(raw_ratio, 4),
+            "weight": round(weight, 4),
+        }
 
     def planner_processed(self, task_id):
         row = self.db.execute(

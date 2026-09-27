@@ -105,12 +105,28 @@ class TaskQueue:
                 novel_atom_count INTEGER NOT NULL,
                 atom_count INTEGER NOT NULL,
                 prediction_error REAL NOT NULL,
-                observed_at TEXT NOT NULL
+                observed_at TEXT NOT NULL,
+                metric_version INTEGER NOT NULL DEFAULT 1
             )
         """)
+
+        outcome_columns = {
+            row[1] for row in self.db.execute(
+                "PRAGMA table_info(planner_action_outcomes)"
+            ).fetchall()
+        }
+        if "metric_version" not in outcome_columns:
+            self.db.execute(
+                "ALTER TABLE planner_action_outcomes "
+                "ADD COLUMN metric_version INTEGER NOT NULL DEFAULT 1"
+            )
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_planner_action_outcomes_observed
             ON planner_action_outcomes(observed_at)
+        """)
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_planner_action_outcomes_role_metric
+            ON planner_action_outcomes(action_role, metric_version, observed_at)
         """)
 
         self.db.execute(
@@ -635,8 +651,8 @@ class TaskQueue:
             INSERT INTO planner_action_outcomes
             (child_task_id, parent_task_id, action_role, expected_evidence_gain,
              action_cost, action_efficiency, actual_evidence_gain, novelty,
-             novel_atom_count, atom_count, prediction_error, observed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
             """,
             (
                 child_task_id, row[0], row[1], expected, float(row[3] or 0.0),
@@ -658,18 +674,25 @@ class TaskQueue:
         self.db.commit()
         return True
 
-    def action_outcome_summary(self, limit=200):
+    def action_outcome_summary(self, limit=200, metric_version=2):
         rows = self.db.execute(
             """
             SELECT action_role, expected_evidence_gain, actual_evidence_gain,
                    prediction_error, action_cost
             FROM planner_action_outcomes
+            WHERE metric_version = ?
             ORDER BY observed_at DESC LIMIT ?
             """,
-            (int(limit),),
+            (int(metric_version), int(limit)),
         ).fetchall()
         if not rows:
-            return {"samples": 0, "mae": 0.0, "bias": 0.0, "by_role": {}}
+            return {
+                "metric_version": int(metric_version),
+                "samples": 0,
+                "mae": 0.0,
+                "bias": 0.0,
+                "by_role": {},
+            }
 
         errors = [float(r[3]) for r in rows]
         by = {}
@@ -692,7 +715,7 @@ class TaskQueue:
             x["cost"] += float(cost)
             expected_value = float(expected or 0.0)
             if expected_value > 0.05:
-                ratio = max(0.5, min(1.5, float(actual) / expected_value))
+                ratio = max(0.0, min(1.5, float(actual) / expected_value))
                 x["relative_ratio"] += ratio
                 x["ratio_samples"] += 1
 
@@ -702,9 +725,14 @@ class TaskQueue:
             x["actual"] = round(x["actual"] / n, 4)
             x["cost"] = round(x["cost"] / n, 4)
             ratio_samples = x.pop("ratio_samples", 0)
-            x["relative_ratio"] = round(x["relative_ratio"] / ratio_samples, 4) if ratio_samples else 1.0
+            x["relative_ratio"] = (
+                round(x["relative_ratio"] / ratio_samples, 4)
+                if ratio_samples
+                else 1.0
+            )
 
         return {
+            "metric_version": int(metric_version),
             "samples": len(rows),
             "mae": round(sum(abs(x) for x in errors) / len(errors), 4),
             "bias": round(sum(errors) / len(errors), 4),
@@ -714,29 +742,64 @@ class TaskQueue:
     def action_calibration(
         self,
         action_role,
+        source_role=None,
         min_samples=3,
         full_samples=10,
         max_adjustment=0.25,
     ):
-        """Return a conservative multiplicative calibration for one action role."""
+        """Return conservative calibration, preferring source->action context."""
         role = str(action_role or "unknown")
-        rows = self.db.execute(
-            """
-            SELECT expected_evidence_gain, actual_evidence_gain
-            FROM planner_action_outcomes
-            WHERE action_role = ?
-            ORDER BY observed_at DESC
-            LIMIT 200
-            """,
-            (role,),
-        ).fetchall()
+        source = str(source_role or "").strip() or None
+        metric_version = 2
+
+        def _rows_for_signature(signature_role=None):
+            if signature_role:
+                return self.db.execute(
+                    """
+                    SELECT o.expected_evidence_gain, o.actual_evidence_gain
+                    FROM planner_action_outcomes o
+                    JOIN queue p ON p.id = o.parent_task_id
+                    WHERE o.action_role = ?
+                      AND p.role = ?
+                      AND o.metric_version = ?
+                    ORDER BY o.observed_at DESC
+                    LIMIT 200
+                    """,
+                    (role, signature_role, metric_version),
+                ).fetchall()
+            return self.db.execute(
+                """
+                SELECT expected_evidence_gain, actual_evidence_gain
+                FROM planner_action_outcomes
+                WHERE action_role = ?
+                  AND metric_version = ?
+                ORDER BY observed_at DESC
+                LIMIT 200
+                """,
+                (role, metric_version),
+            ).fetchall()
+
+        signature_rows = _rows_for_signature(source) if source else []
+        role_rows = _rows_for_signature(None)
+        if source and len(signature_rows) >= int(min_samples):
+            rows = signature_rows
+            scope = "signature"
+        else:
+            rows = role_rows
+            scope = "role"
+
         samples = len(rows)
+        signature_samples = len(signature_rows) if source else 0
+        role_samples = len(role_rows)
         if samples < int(min_samples):
             return {
                 "factor": 1.0,
                 "samples": samples,
                 "raw_ratio": 1.0,
                 "weight": 0.0,
+                "scope": scope,
+                "signature_samples": signature_samples,
+                "role_samples": role_samples,
             }
 
         ratios = []
@@ -744,7 +807,7 @@ class TaskQueue:
             expected_value = float(expected or 0.0)
             if expected_value <= 0.05:
                 continue
-            ratio = max(0.5, min(1.5, float(actual or 0.0) / expected_value))
+            ratio = max(0.0, min(1.5, float(actual or 0.0) / expected_value))
             ratios.append(ratio)
 
         if not ratios:
@@ -753,6 +816,9 @@ class TaskQueue:
                 "samples": samples,
                 "raw_ratio": 1.0,
                 "weight": 0.0,
+                "scope": scope,
+                "signature_samples": signature_samples,
+                "role_samples": role_samples,
             }
 
         raw_ratio = sum(ratios) / len(ratios)
@@ -768,6 +834,9 @@ class TaskQueue:
             "samples": samples,
             "raw_ratio": round(raw_ratio, 4),
             "weight": round(weight, 4),
+            "scope": scope,
+            "signature_samples": signature_samples,
+            "role_samples": role_samples,
         }
 
     def planner_processed(self, task_id):

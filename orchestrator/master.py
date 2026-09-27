@@ -1436,6 +1436,15 @@ class AutonomousPlanner:
         )
         return max(0.0, min(1.0, estimate))
 
+    def realized_evidence_gain(self, task, history):
+        """Measure realized newness; atom density stays diagnostic, not value."""
+        novelty, novel_count, atom_count = self.novelty_against_history(
+            task,
+            history,
+        )
+        actual_gain = max(0.0, min(1.0, float(novelty or 0.0)))
+        return actual_gain, novelty, novel_count, atom_count
+
     def action_economics(self, task, decision):
         """Return explainable cost/gain data with bounded historical calibration."""
         if isinstance(decision, dict):
@@ -1462,7 +1471,10 @@ class AutonomousPlanner:
         if queue is None:
             calibration = {"factor": 1.0, "samples": 0, "raw_ratio": 1.0, "weight": 0.0}
         else:
-            calibration = queue.action_calibration(next_role)
+            calibration = queue.action_calibration(
+                next_role,
+                source_role=task.get("role"),
+            )
         expected = max(0.0, min(1.0, raw_expected * calibration["factor"]))
         efficiency = expected / cost if cost else 0.0
         return {
@@ -2313,8 +2325,10 @@ class AutonomousPlanner:
             if parent_id and task.get("result") is not None:
                 try:
                     history = self.branch_history(task, self._planning_tasks)
-                    novelty, novel_count, atom_count = self.novelty_against_history(task, history)
-                    actual_gain = max(0.0, min(1.0, novelty * min(1.0, novel_count / max(1, atom_count))))
+                    actual_gain, novelty, novel_count, atom_count = self.realized_evidence_gain(
+                        task,
+                        history,
+                    )
                     recorded = self.queue.record_action_outcome(
                         task["id"], actual_gain, novelty, novel_count, atom_count,
                         observed_at=task.get("finished_at"),

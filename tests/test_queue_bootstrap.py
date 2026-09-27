@@ -61,6 +61,7 @@ def test_action_outcome_records_bounded_calibration_feedback(tmp_path, monkeypat
     row = q.db.execute("SELECT expected_evidence_gain, actual_evidence_gain, prediction_error FROM planner_action_outcomes").fetchone()
     assert row == (0.7, 0.5, -0.19999999999999996)
     summary = q.action_outcome_summary()
+    assert summary["metric_version"] == 2
     assert summary["samples"] == 1
     assert summary["by_role"]["analyst"]["samples"] == 1
     q.db.close()
@@ -72,8 +73,8 @@ def _insert_planner_outcome(q, idx, role, expected, actual):
         INSERT INTO planner_action_outcomes
         (child_task_id, parent_task_id, action_role, expected_evidence_gain,
          action_cost, action_efficiency, actual_evidence_gain, novelty,
-         novel_atom_count, atom_count, prediction_error, observed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
         """,
         (
             f"child-{idx}", f"parent-{idx}", role, expected, 0.35,
@@ -144,4 +145,112 @@ def test_planner_applies_calibration_and_accepts_persisted_dict(tmp_path, monkey
     assert economics["action"] == "analyst"
     assert economics["expected_evidence_gain"] == 0.6
     assert economics["calibration"]["factor"] == 0.75
+    q.db.close()
+
+
+def test_action_calibration_prefers_source_to_action_signature(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    analyst_parent = q.add("analyst parent", "analyst")
+    researcher_parent = q.add("researcher parent", "researcher")
+    for idx in range(1, 4):
+        q.db.execute(
+            """
+            INSERT INTO planner_action_outcomes
+            (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+             action_cost, action_efficiency, actual_evidence_gain, novelty,
+             novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+            """,
+            (f"sig-child-a-{idx}", analyst_parent, "developer", 0.8, 0.65, 1.0,
+             0.4, 0.4, 1, 1, -0.4, f"2026-09-27T03:00:{idx:02d}+00:00"),
+        )
+        q.db.execute(
+            """
+            INSERT INTO planner_action_outcomes
+            (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+             action_cost, action_efficiency, actual_evidence_gain, novelty,
+             novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+            """,
+            (f"sig-child-r-{idx}", researcher_parent, "developer", 0.8, 0.65, 1.0,
+             0.8, 0.8, 1, 1, 0.0, f"2026-09-27T03:01:{idx:02d}+00:00"),
+        )
+    q.db.commit()
+    analyst_cal = q.action_calibration("developer", source_role="analyst")
+    researcher_cal = q.action_calibration("developer", source_role="researcher")
+    assert analyst_cal["scope"] == "signature"
+    assert analyst_cal["signature_samples"] == 3
+    assert researcher_cal["scope"] == "signature"
+    assert researcher_cal["signature_samples"] == 3
+    assert analyst_cal["factor"] < researcher_cal["factor"]
+    q.db.close()
+
+
+def test_calibration_ignores_legacy_metric_version(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    q.db.execute(
+        """
+        INSERT INTO planner_action_outcomes
+        (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+         action_cost, action_efficiency, actual_evidence_gain, novelty,
+         novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        """,
+        ("legacy-child", "legacy-parent", "analyst", 0.8, 0.35, 2.0,
+         0.0, 0.0, 0, 10, -0.8, "2026-09-27T00:00:00+00:00"),
+    )
+    q.db.commit()
+    calibration = q.action_calibration("analyst")
+    assert calibration["samples"] == 0
+    assert calibration["factor"] == 1.0
+    q.db.close()
+
+
+def test_realized_evidence_gain_uses_novelty_not_atom_density(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    from orchestrator.master import AutonomousPlanner
+    q = TaskQueue()
+    planner = AutonomousPlanner(q)
+    monkeypatch.setattr(
+        planner,
+        "novelty_against_history",
+        lambda task, history: (0.333, 4, 12),
+    )
+    actual, novelty, novel_count, atom_count = planner.realized_evidence_gain({}, [])
+    assert actual == 0.333
+    assert (novelty, novel_count, atom_count) == (0.333, 4, 12)
+    q.db.close()
+
+
+def test_action_outcome_summary_excludes_legacy_metrics(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    q.db.execute(
+        """
+        INSERT INTO planner_action_outcomes
+        (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+         action_cost, action_efficiency, actual_evidence_gain, novelty,
+         novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("legacy", "legacy-parent", "analyst", 0.8, 0.35, 2.0, 0.0,
+         0.0, 0, 10, -0.8, "2026-09-27T00:00:00+00:00", 1),
+    )
+    q.db.execute(
+        """
+        INSERT INTO planner_action_outcomes
+        (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+         action_cost, action_efficiency, actual_evidence_gain, novelty,
+         novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("current", "current-parent", "analyst", 0.8, 0.35, 2.0, 0.6,
+         0.6, 1, 1, -0.2, "2026-09-27T00:00:01+00:00", 2),
+    )
+    q.db.commit()
+    summary = q.action_outcome_summary()
+    assert summary["samples"] == 1
+    assert summary["by_role"]["analyst"]["actual"] == 0.6
     q.db.close()

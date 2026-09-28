@@ -158,3 +158,20 @@ def test_observations_are_bounded():
         atom = f"capability_decision:{{\"decision\":\"ALLOW\",\"reason\":\"policy_pass\",\"i\":{i}}}"
         ledger.record_observation(f"task-{i}", "researcher", atom)
     assert db.execute("SELECT COUNT(*) FROM evidence_observations").fetchone()[0] == 3
+
+
+def test_record_capability_claim_returns_real_ledger_id():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    claim = ledger.record_capability_claim(
+        "task-1",
+        "developer",
+        "tests_passed",
+        status="PASS",
+    )
+    quality = ledger.evidence_quality(claim["evidence_id"])
+    assert claim["claim_type"] == "tests_passed"
+    assert claim["source"] == "developer"
+    assert quality["kind"] == "capability_evidence"
+    assert quality["state"] == "UNCONFIRMED"
+    assert __import__("json").loads(quality["value"])["claim_type"] == "tests_passed"

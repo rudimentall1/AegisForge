@@ -1,10 +1,15 @@
+import json
 from shared.task import Task
 from shared.github_client import GitHubClient
 from shared.capability_policy import ActionIntent, CapabilityDecision, CapabilityPolicy
+from shared.evidence_ledger import EvidenceLedger
 
 class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
     name = "validator"
+
+    def __init__(self, evidence_ledger=None):
+        self.evidence_ledger = evidence_ledger
     MAX_OPPORTUNITIES = 4
     PROBE_PATHS = ("README.md", "SECURITY.md", "pyproject.toml", "package.json",
                    "Cargo.toml", "go.mod", ".github/workflows")
@@ -187,22 +192,63 @@ class Validator:
             except (TypeError, ValueError, KeyError):
                 checks["policy_still_requires_evidence"] = False
 
-        def claim_passes(value):
+        ledger = self.evidence_ledger
+        if ledger is None:
+            # Validator() is also used directly by unit tests and external
+            # callers. Do not silently treat missing ledger access as proof.
+            checks["ledger_available"] = False
+        else:
+            checks["ledger_available"] = True
+
+        def claim_passes(claim_type, value):
             if not isinstance(value, dict):
                 return False
+            status = value.get("status")
+            source = value.get("source")
+            evidence_id = value.get("evidence_id")
+            if (
+                status not in {"PASS", "PASSED", "VERIFIED"}
+                or not source
+                or not evidence_id
+                or not isinstance(evidence_id, str)
+            ):
+                return False
+            if not CapabilityPolicy().evidence_source_allowed(claim_type, source):
+                return False
+            if ledger is None:
+                return False
+
+            quality = ledger.evidence_quality(evidence_id)
+            if not quality or quality.get("state") == "CONTESTED":
+                return False
+            if quality.get("kind") != "capability_evidence":
+                return False
+            if quality.get("latest_role") != source:
+                return False
+
+            try:
+                recorded = json.loads(quality.get("value") or "{}")
+            except (TypeError, ValueError):
+                return False
             return (
-                value.get("status") in {"PASS", "PASSED", "VERIFIED"}
-                and bool(value.get("source"))
-                and bool(value.get("evidence_id"))
+                recorded.get("claim_type") == claim_type
+                and recorded.get("status") in {"PASS", "PASSED", "VERIFIED"}
             )
 
         checks["required_evidence"] = required_evidence
         checks["evidence_claims_present"] = isinstance(evidence_claims, dict)
+        checks["evidence_ledger_bound"] = {
+            key: claim_passes(key, evidence_claims.get(key))
+            for key in required_evidence
+        }
         checks["missing_evidence"] = [
             key for key in required_evidence
-            if not claim_passes(evidence_claims.get(key))
+            if not checks["evidence_ledger_bound"][key]
         ]
-        checks["evidence_sufficient"] = not checks["missing_evidence"]
+        checks["evidence_sufficient"] = (
+            checks["ledger_available"]
+            and not checks["missing_evidence"]
+        )
 
         verified = (
             checks["parent_decision_present"]

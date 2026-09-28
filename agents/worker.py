@@ -79,7 +79,10 @@ class Worker:
             else None
         )
 
-        self.agent = AGENTS[role]()
+        if role == "validator":
+            self.agent = Validator(evidence_ledger=self.evidence_ledger)
+        else:
+            self.agent = AGENTS[role]()
 
     @staticmethod
     def _apply_memory_guard():

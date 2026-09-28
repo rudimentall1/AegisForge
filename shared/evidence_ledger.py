@@ -180,6 +180,50 @@ class EvidenceLedger:
             "contradictions": contradiction_count,
         }
 
+    def record_capability_claim(
+        self,
+        task_id,
+        role,
+        claim_type,
+        status="PASS",
+        details=None,
+        observed_at=None,
+        commit=True,
+    ):
+        """Record a canonical capability evidence claim and return its ledger id."""
+        allowed_statuses = {"PASS", "PASSED", "VERIFIED", "FAIL", "FAILED", "REJECTED"}
+        status = str(status or "").upper()
+        if status not in allowed_statuses:
+            raise ValueError(f"unsupported capability evidence status: {status}")
+
+        payload = {
+            "claim_type": str(claim_type),
+            "status": status,
+        }
+        if details is not None:
+            payload["details"] = details
+
+        atom = "capability_evidence:" + json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        result = self.record_observation(
+            task_id,
+            role,
+            atom,
+            observed_at=observed_at,
+            commit=commit,
+        )
+        return {
+            "evidence_id": self.atom_id(atom),
+            "claim_type": str(claim_type),
+            "status": status,
+            "source": role,
+            "ledger_result": result,
+        }
+
     def record_observation(self, task_id, role, atom, observed_at=None, commit=True):
         """Record one bounded task-level evidence/audit observation.
 

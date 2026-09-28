@@ -84,6 +84,21 @@ class CapabilityPolicy:
         "release": {"tests_passed", "security_scan_passed", "artifact_integrity"},
     }
 
+    EVIDENCE_SOURCE_ROLES = {
+        "tests_passed": {"developer", "validator"},
+        "security_scan_passed": {"security_checker", "validator"},
+        "rollback_ready": {"developer", "validator"},
+        "rollback_or_recovery_ready": {"developer", "validator"},
+        "artifact_integrity": {"developer", "security_checker", "validator"},
+        "recovery_ready": {"developer", "validator"},
+        "authorization_confirmed": {"validator"},
+        "destination_allowed": {"validator", "security_checker"},
+        "simulation_passed": {"validator", "security_checker"},
+        "financial_authorization": {"validator"},
+        "privilege_scope_verified": {"security_checker", "validator"},
+        "explicit_evidence": {"validator"},
+    }
+
     def __init__(self):
         self.blocked_targets = {
             "unknown_external_endpoint",
@@ -107,6 +122,9 @@ class CapabilityPolicy:
         self.network_allowed = True
         self.shell_allowed = True
         self.filesystem_allowed = True
+
+    def evidence_source_allowed(self, claim_type: str, source_role: str):
+        return source_role in self.EVIDENCE_SOURCE_ROLES.get(claim_type, set())
 
     def required_evidence(self, intent: ActionIntent):
         requirements = set(self.SENSITIVE_EVIDENCE_REQUIREMENTS.get(intent.action, set()))

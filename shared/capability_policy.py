@@ -64,13 +64,36 @@ class CapabilityPolicy:
         "model_researcher": {"model_research", "research"},
     }
 
+    # These actions are consequential even if a caller lies by omission and
+    # leaves the explicit sensitivity flags at their defaults.
+    SENSITIVE_ACTIONS = {
+        "modify_code",
+        "deploy",
+        "publish",
+        "delete",
+        "transfer",
+        "release",
+    }
+
     def __init__(self):
         self.blocked_targets = {
             "unknown_external_endpoint",
             "production_database",
+            "production_environment",
         }
         self.blocked_destinations = {
             "production_database",
+            "production",
+            "production_environment",
+            "production_api",
+            "unauthorized_external_destination",
+        }
+        self.blocked_data_scopes = {
+            "credentials",
+            "private_keys",
+            "secrets",
+            "api_keys",
+            "passwords",
         }
         self.network_allowed = True
         self.shell_allowed = True
@@ -87,6 +110,12 @@ class CapabilityPolicy:
             return {
                 "decision": CapabilityDecision.BLOCK,
                 "reason": "blocked_destination",
+            }
+
+        if intent.data_scope in self.blocked_data_scopes:
+            return {
+                "decision": CapabilityDecision.BLOCK,
+                "reason": "blocked_data_scope",
             }
 
         allowed_actions = self.ROLE_ALLOWED_ACTIONS.get(intent.role, set())
@@ -115,7 +144,9 @@ class CapabilityPolicy:
             }
 
         if (
-            intent.irreversible
+            intent.action in self.SENSITIVE_ACTIONS
+            or not intent.read_only
+            or intent.irreversible
             or intent.financial
             or intent.privileged
             or intent.evidence_required

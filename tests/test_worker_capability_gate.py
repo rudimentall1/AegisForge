@@ -171,3 +171,20 @@ def test_structured_intent_controls_worker_decision():
     assert worker.run_once() is False
     assert worker.agent.calls == 0
     assert worker.queue.failed[0][1]["decision"] == CapabilityDecision.REQUIRE_EVIDENCE.value
+
+
+def test_sensitive_action_cannot_bypass_evidence_by_omitting_flags():
+    worker = build_worker(
+        "perform a deployment",
+        capability_intent={
+            "action": "deploy",
+            "destination": "staging",
+            "read_only": True,
+        },
+    )
+
+    assert worker.run_once() is False
+    assert worker.agent.calls == 0
+    result = worker.queue.failed[0][1]
+    assert result["error_type"] == "CapabilityEvidenceRequired"
+    assert result["decision"] == CapabilityDecision.REQUIRE_EVIDENCE.value

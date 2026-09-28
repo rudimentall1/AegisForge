@@ -301,6 +301,10 @@ class Worker:
                     "decision": capability_decision.value,
                     "intent": intent.to_dict(),
                 }
+                if evidence_required:
+                    capability_result["required_evidence"] = (
+                        self.policy.required_evidence(intent)
+                    )
 
                 if evidence_required:
                     evidence_description = (

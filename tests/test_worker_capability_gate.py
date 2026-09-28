@@ -116,6 +116,12 @@ def test_evidence_required_never_calls_agent_and_routes_to_validator():
     assert result["intent"]["irreversible"] is True
     assert result["error_type"] == "CapabilityEvidenceRequired"
     assert result["decision"] == CapabilityDecision.REQUIRE_EVIDENCE.value
+    assert result["required_evidence"] == [
+        "rollback_or_recovery_ready",
+        "rollback_ready",
+        "security_scan_passed",
+        "tests_passed",
+    ]
     assert result["evidence_request"] == {
         "task_id": "evidence-1",
         "role": "validator",

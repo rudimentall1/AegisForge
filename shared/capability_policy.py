@@ -75,6 +75,15 @@ class CapabilityPolicy:
         "release",
     }
 
+    SENSITIVE_EVIDENCE_REQUIREMENTS = {
+        "modify_code": {"tests_passed"},
+        "deploy": {"tests_passed", "security_scan_passed", "rollback_ready"},
+        "publish": {"tests_passed", "security_scan_passed", "artifact_integrity"},
+        "delete": {"recovery_ready"},
+        "transfer": {"authorization_confirmed", "destination_allowed", "simulation_passed"},
+        "release": {"tests_passed", "security_scan_passed", "artifact_integrity"},
+    }
+
     def __init__(self):
         self.blocked_targets = {
             "unknown_external_endpoint",
@@ -98,6 +107,23 @@ class CapabilityPolicy:
         self.network_allowed = True
         self.shell_allowed = True
         self.filesystem_allowed = True
+
+    def required_evidence(self, intent: ActionIntent):
+        requirements = set(self.SENSITIVE_EVIDENCE_REQUIREMENTS.get(intent.action, set()))
+
+        if intent.financial:
+            requirements.update({"financial_authorization", "destination_allowed"})
+
+        if intent.privileged:
+            requirements.add("privilege_scope_verified")
+
+        if intent.irreversible:
+            requirements.add("rollback_or_recovery_ready")
+
+        if intent.evidence_required and not requirements:
+            requirements.add("explicit_evidence")
+
+        return sorted(requirements)
 
     def check(self, intent: ActionIntent):
         if intent.target in self.blocked_targets:

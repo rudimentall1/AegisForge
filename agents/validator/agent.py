@@ -158,6 +158,13 @@ class Validator:
             parent_result.get("intent", {}) if isinstance(parent_result, dict) else {}
         )
         policy_result = None
+        required_evidence = []
+        evidence_claims = (
+            parent_result.get("evidence_claims", {})
+            if isinstance(parent_result, dict)
+            else {}
+        )
+
         if checks["structured_intent_present"]:
             try:
                 fields = {
@@ -170,22 +177,40 @@ class Validator:
                     )
                     if key in structured_parent_intent
                 }
-                policy_result = CapabilityPolicy().check(ActionIntent(**fields))
+                intent = ActionIntent(**fields)
+                policy = CapabilityPolicy()
+                policy_result = policy.check(intent)
+                required_evidence = policy.required_evidence(intent)
                 checks["policy_still_requires_evidence"] = (
                     policy_result.get("decision") == CapabilityDecision.REQUIRE_EVIDENCE
                 )
             except (TypeError, ValueError, KeyError):
                 checks["policy_still_requires_evidence"] = False
-        else:
-            # Legacy capability records predate structured intent. They are
-            # verified as an auditable blocked decision, not silently promoted.
-            checks["policy_still_requires_evidence"] = False
+
+        def claim_passes(value):
+            if not isinstance(value, dict):
+                return False
+            return (
+                value.get("status") in {"PASS", "PASSED", "VERIFIED"}
+                and bool(value.get("source"))
+                and bool(value.get("evidence_id"))
+            )
+
+        checks["required_evidence"] = required_evidence
+        checks["evidence_claims_present"] = isinstance(evidence_claims, dict)
+        checks["missing_evidence"] = [
+            key for key in required_evidence
+            if not claim_passes(evidence_claims.get(key))
+        ]
+        checks["evidence_sufficient"] = not checks["missing_evidence"]
 
         verified = (
             checks["parent_decision_present"]
             and checks["parent_requested_evidence"]
             and checks["structured_intent_present"]
             and checks["policy_still_requires_evidence"]
+            and checks["evidence_claims_present"]
+            and checks["evidence_sufficient"]
         )
 
         return {
@@ -200,6 +225,7 @@ class Validator:
             "intent": intent_data,
             "checks": checks,
             "policy_result": policy_result,
+            "evidence_claims": evidence_claims,
             "execution_performed": False,
         }
 

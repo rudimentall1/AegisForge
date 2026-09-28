@@ -19,6 +19,8 @@ from shared.capability_policy import (
 )
 
 from shared.action_intent import build_action_intent
+from shared.evidence_ledger import EvidenceLedger
+import hashlib
 
 from agents.researcher.agent import Researcher
 from agents.analyst.agent import Analyst
@@ -71,6 +73,11 @@ class Worker:
         self.memory = Memory()
 
         self.policy = CapabilityPolicy()
+        self.evidence_ledger = (
+            EvidenceLedger(self.queue.db)
+            if hasattr(self.queue, "db")
+            else None
+        )
 
         self.agent = AGENTS[role]()
 
@@ -98,6 +105,61 @@ class Worker:
         decision = self.policy.check(intent)
         return intent, decision
 
+
+    def _record_capability_decision(self, task_id, intent, decision):
+        intent_payload = {
+            "role": intent.role,
+            "action": intent.action,
+            "target": intent.target,
+            "irreversible": intent.irreversible,
+            "requires_network": intent.requires_network,
+            "requires_shell": intent.requires_shell,
+        }
+        canonical_intent = json.dumps(
+            intent_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        intent_hash = hashlib.sha256(
+            canonical_intent.encode("utf-8")
+        ).hexdigest()
+        audit = {
+            "action": intent.action,
+            "decision": decision["decision"].value,
+            "intent_hash": intent_hash,
+            "reason": decision["reason"],
+            "role": intent.role,
+            "target": intent.target,
+        }
+        atom = "capability_decision:" + json.dumps(
+            audit,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        if self.evidence_ledger is None:
+            return
+
+        try:
+            result = self.evidence_ledger.record_observation(
+                task_id,
+                self.role,
+                atom,
+            )
+            print(
+                f"[{self.worker_id}] CAPABILITY EVIDENCE "
+                f"decision={decision['decision'].value} "
+                f"intent_hash={intent_hash[:12]} "
+                f"observations={result['observations']}",
+                flush=True,
+            )
+        except Exception as exc:
+            # Audit failure never turns a BLOCK into ALLOW. The policy
+            # decision remains authoritative and the action path below
+            # still fails closed for terminal decisions.
+            print(
+                f"[{self.worker_id}] CAPABILITY EVIDENCE ERROR: {exc}",
+                flush=True,
+            )
 
     @staticmethod
     def _is_agent_failure(task):
@@ -210,6 +272,11 @@ class Worker:
             )
 
             capability_decision = decision["decision"]
+            self._record_capability_decision(
+                task_id,
+                intent,
+                decision,
+            )
             if capability_decision in {
                 CapabilityDecision.BLOCK,
                 CapabilityDecision.REQUIRE_EVIDENCE,

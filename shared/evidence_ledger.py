@@ -7,6 +7,7 @@ class EvidenceLedger:
     """Persistent normalized evidence with bounded provenance."""
 
     MAX_ATOM_VALUE_BYTES = 8192
+    MAX_OBSERVATIONS = 5000
 
     def __init__(self, db):
         self.db = db
@@ -38,6 +39,19 @@ class EvidenceLedger:
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_evidence_last_seen
             ON evidence_ledger(last_seen)
+        """)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS evidence_observations (
+                atom_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                role TEXT,
+                observed_at TEXT NOT NULL,
+                PRIMARY KEY (atom_id, task_id)
+            )
+        """)
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_evidence_observations_task
+            ON evidence_observations(task_id)
         """)
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS evidence_contradictions (
@@ -165,6 +179,56 @@ class EvidenceLedger:
             "confirmed": confirmed,
             "contradictions": contradiction_count,
         }
+
+    def record_observation(self, task_id, role, atom, observed_at=None, commit=True):
+        """Record one bounded task-level evidence/audit observation.
+
+        The atom is normalized through the persistent ledger, while this
+        observation keeps the task-level audit trail without making the atom
+        identity depend on task IDs or timestamps.
+        """
+        if not task_id or not atom:
+            return {"inserted": 0, "confirmed": 0, "observations": 0}
+
+        role = role or "unknown"
+        now = observed_at or datetime.now(timezone.utc).isoformat()
+        result = self.record(
+            task_id,
+            role,
+            {str(atom)},
+            observed_at=now,
+            commit=False,
+        )
+        normalized_atom = str(atom).strip()
+        kind, value = self.split_atom(normalized_atom)
+        encoded = value.encode("utf-8")
+        if len(encoded) > self.MAX_ATOM_VALUE_BYTES:
+            value = encoded[: self.MAX_ATOM_VALUE_BYTES].decode(
+                "utf-8", errors="ignore"
+            )
+            normalized_atom = f"{kind}:{value}"
+        atom_id = self.atom_id(normalized_atom)
+        self.db.execute(
+            """INSERT OR IGNORE INTO evidence_observations
+               (atom_id, task_id, role, observed_at)
+               VALUES (?, ?, ?, ?)""",
+            (atom_id, task_id, role, now),
+        )
+        self.db.execute(
+            """DELETE FROM evidence_observations
+               WHERE rowid IN (
+                   SELECT rowid FROM evidence_observations
+                   ORDER BY observed_at DESC, rowid DESC
+                   LIMIT -1 OFFSET ?
+               )""",
+            (self.MAX_OBSERVATIONS,),
+        )
+        if commit:
+            self.db.commit()
+        result["observations"] = self.db.execute(
+            "SELECT COUNT(*) FROM evidence_observations"
+        ).fetchone()[0]
+        return result
 
     @staticmethod
     def _finding_identity(finding):

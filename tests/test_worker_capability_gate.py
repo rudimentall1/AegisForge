@@ -1,4 +1,7 @@
+import sqlite3
+
 from shared.capability_policy import CapabilityDecision, CapabilityPolicy
+from shared.evidence_ledger import EvidenceLedger
 from shared.task import Task
 from agents.worker import Worker
 
@@ -49,8 +52,10 @@ def build_worker(description):
     worker.role = "developer"
     worker.worker_id = "test-worker"
     worker.queue = FakeQueue(description)
+    worker.queue.db = sqlite3.connect(":memory:")
     worker.memory = FakeMemory()
     worker.policy = CapabilityPolicy()
+    worker.evidence_ledger = EvidenceLedger(worker.queue.db)
     worker.agent = FakeAgent()
     return worker
 
@@ -79,3 +84,19 @@ def test_allowed_capability_calls_agent_and_finishes():
     assert worker.run_once() is True
     assert worker.agent.calls == 1
     assert len(worker.queue.finished) == 1
+
+
+def test_capability_decision_is_persisted_as_evidence_observation():
+    worker = build_worker("call unknown external endpoint")
+
+    assert worker.run_once() is False
+    row = worker.queue.db.execute(
+        "SELECT task_id, role FROM evidence_observations"
+    ).fetchone()
+    assert row == ("task-1", "developer")
+    atom = worker.queue.db.execute(
+        "SELECT kind, value FROM evidence_ledger"
+    ).fetchone()
+    assert atom[0] == "capability_decision"
+    assert '"decision":"BLOCK"' in atom[1]
+    assert '"reason":"blocked_target"' in atom[1]

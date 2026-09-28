@@ -124,3 +124,37 @@ def test_oversized_atom_value_is_bounded():
     assert result["inserted"] == 1
     size = db.execute("SELECT MAX(LENGTH(value)) FROM evidence_ledger").fetchone()[0]
     assert size <= ledger.MAX_ATOM_VALUE_BYTES
+
+
+def test_record_observation_links_audit_atom_to_task():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    atom = "capability_decision:{\"decision\":\"BLOCK\",\"reason\":\"blocked_target\"}"
+    result = ledger.record_observation("task-1", "developer", atom)
+    assert result["inserted"] == 1
+    assert result["observations"] == 1
+    atom_id = ledger.atom_id(atom)
+    assert db.execute(
+        "SELECT atom_id, task_id, role FROM evidence_observations"
+    ).fetchone() == (atom_id, "task-1", "developer")
+
+
+def test_record_observation_is_idempotent_for_same_task_atom():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    atom = "capability_decision:{\"decision\":\"ALLOW\",\"reason\":\"policy_pass\"}"
+    first = ledger.record_observation("task-1", "researcher", atom)
+    second = ledger.record_observation("task-1", "researcher", atom)
+    assert first["inserted"] == 1
+    assert second["inserted"] == 0
+    assert db.execute("SELECT COUNT(*) FROM evidence_observations").fetchone()[0] == 1
+
+
+def test_observations_are_bounded():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    ledger.MAX_OBSERVATIONS = 3
+    for i in range(5):
+        atom = f"capability_decision:{{\"decision\":\"ALLOW\",\"reason\":\"policy_pass\",\"i\":{i}}}"
+        ledger.record_observation(f"task-{i}", "researcher", atom)
+    assert db.execute("SELECT COUNT(*) FROM evidence_observations").fetchone()[0] == 3

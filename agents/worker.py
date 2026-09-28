@@ -13,6 +13,13 @@ from shared.queue import TaskQueue
 from shared.task import Task
 from shared.memory import Memory
 
+from shared.capability_policy import (
+    CapabilityPolicy,
+    CapabilityDecision,
+)
+
+from shared.action_intent import build_action_intent
+
 from agents.researcher.agent import Researcher
 from agents.analyst.agent import Analyst
 from agents.developer.agent import Developer
@@ -62,6 +69,8 @@ class Worker:
 
         self.queue = TaskQueue()
         self.memory = Memory()
+
+        self.policy = CapabilityPolicy()
 
         self.agent = AGENTS[role]()
 
@@ -179,6 +188,53 @@ class Worker:
                 f"ROLE={self.role} START: {description}",
                 flush=True,
             )
+
+            intent = build_action_intent(
+                self.role,
+                task,
+            )
+
+            decision = self.policy.check(
+                intent
+            )
+
+            print(
+                f"[{self.worker_id}] "
+                f"CAPABILITY CHECK "
+                f"{decision}",
+                flush=True,
+            )
+
+            if (
+                decision["decision"]
+                == CapabilityDecision.BLOCK
+            ):
+
+                blocked_result = {
+                    "error": "capability_blocked",
+                    "reason": decision["reason"],
+                    "intent": {
+                        "role": intent.role,
+                        "action": intent.action,
+                        "target": intent.target,
+                    },
+                }
+
+                self.memory.save_task(task)
+
+                self.queue.fail(
+                    task_id,
+                    result=blocked_result,
+                )
+
+                print(
+                    f"[{self.worker_id}] "
+                    f"BLOCKED BY CAPABILITY POLICY",
+                    flush=True,
+                )
+
+                return False
+
 
             result = self.agent.run(task)
 

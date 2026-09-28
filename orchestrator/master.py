@@ -2042,6 +2042,8 @@ class AutonomousPlanner:
         if error_type in {
             "orphaned_dag_branch",
             "PipelineContractError",
+            "CapabilityBlocked",
+            "CapabilityEvidenceRequired",
         }:
             return False
 

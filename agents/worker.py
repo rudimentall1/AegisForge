@@ -90,6 +90,15 @@ class Worker:
         except (OSError, ValueError):
             pass
 
+    def _capability_decision(self, task):
+        intent = build_action_intent(
+            self.role,
+            task,
+        )
+        decision = self.policy.check(intent)
+        return intent, decision
+
+
     @staticmethod
     def _is_agent_failure(task):
         if not isinstance(task, Task):
@@ -189,13 +198,8 @@ class Worker:
                 flush=True,
             )
 
-            intent = build_action_intent(
-                self.role,
-                task,
-            )
-
-            decision = self.policy.check(
-                intent
+            intent, decision = self._capability_decision(
+                task
             )
 
             print(
@@ -205,14 +209,29 @@ class Worker:
                 flush=True,
             )
 
-            if (
-                decision["decision"]
-                == CapabilityDecision.BLOCK
-            ):
-
-                blocked_result = {
-                    "error": "capability_blocked",
+            capability_decision = decision["decision"]
+            if capability_decision in {
+                CapabilityDecision.BLOCK,
+                CapabilityDecision.REQUIRE_EVIDENCE,
+            }:
+                evidence_required = (
+                    capability_decision
+                    == CapabilityDecision.REQUIRE_EVIDENCE
+                )
+                capability_result = {
+                    "error": (
+                        "capability_evidence_required"
+                        if evidence_required
+                        else "capability_blocked"
+                    ),
+                    "error_type": (
+                        "CapabilityEvidenceRequired"
+                        if evidence_required
+                        else "CapabilityBlocked"
+                    ),
+                    "status": "blocked",
                     "reason": decision["reason"],
+                    "decision": capability_decision.value,
                     "intent": {
                         "role": intent.role,
                         "action": intent.action,
@@ -221,15 +240,15 @@ class Worker:
                 }
 
                 self.memory.save_task(task)
-
                 self.queue.fail(
                     task_id,
-                    result=blocked_result,
+                    result=capability_result,
                 )
 
                 print(
                     f"[{self.worker_id}] "
-                    f"BLOCKED BY CAPABILITY POLICY",
+                    f"CAPABILITY TERMINAL DECISION "
+                    f"decision={capability_decision.value}",
                     flush=True,
                 )
 

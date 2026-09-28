@@ -254,3 +254,12 @@ def test_action_outcome_summary_excludes_legacy_metrics(tmp_path, monkeypatch):
     assert summary["samples"] == 1
     assert summary["by_role"]["analyst"]["actual"] == 0.6
     q.db.close()
+
+
+def test_capability_failures_are_not_retryable():
+    from orchestrator.master import AutonomousPlanner
+
+    for error_type in ("CapabilityBlocked", "CapabilityEvidenceRequired"):
+        assert AutonomousPlanner.retryable_failure({
+            "result": {"error_type": error_type}
+        }) is False

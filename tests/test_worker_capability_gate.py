@@ -11,6 +11,7 @@ class FakeQueue:
         self.description = description
         self.failed = []
         self.finished = []
+        self.added = []
 
     def recover_stale_running(self, stale_minutes=10):
         return []
@@ -20,6 +21,11 @@ class FakeQueue:
 
     def get_result(self, task_id):
         return None
+
+    def add(self, description, role=None, parent_task_id=None):
+        task_id = f"evidence-{len(self.added) + 1}"
+        self.added.append((task_id, description, role, parent_task_id))
+        return task_id
 
     def fail(self, task_id, result=None):
         self.failed.append((task_id, result))
@@ -69,13 +75,21 @@ def test_blocked_capability_never_calls_agent():
     assert worker.queue.failed[0][1]["decision"] == CapabilityDecision.BLOCK.value
 
 
-def test_evidence_required_never_calls_agent():
+def test_evidence_required_never_calls_agent_and_routes_to_validator():
     worker = build_worker("deploy application")
 
     assert worker.run_once() is False
     assert worker.agent.calls == 0
-    assert worker.queue.failed[0][1]["error_type"] == "CapabilityEvidenceRequired"
-    assert worker.queue.failed[0][1]["decision"] == CapabilityDecision.REQUIRE_EVIDENCE.value
+    result = worker.queue.failed[0][1]
+    assert result["error_type"] == "CapabilityEvidenceRequired"
+    assert result["decision"] == CapabilityDecision.REQUIRE_EVIDENCE.value
+    assert result["evidence_request"] == {
+        "task_id": "evidence-1",
+        "role": "validator",
+        "status": "pending",
+    }
+    assert worker.queue.added[0][2:] == ("validator", "task-1")
+    assert "deploy" not in worker.queue.added[0][1].lower()
 
 
 def test_allowed_capability_calls_agent_and_finishes():

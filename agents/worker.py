@@ -306,6 +306,26 @@ class Worker:
                     },
                 }
 
+                if evidence_required:
+                    evidence_description = (
+                        "[CAPABILITY_EVIDENCE_REQUEST] "
+                        f"parent_task_id={task_id}; "
+                        "verify authorization prerequisites without executing the "
+                        "requested action; inspect authority scope, destination "
+                        "constraints, reversibility controls, validation evidence, "
+                        "and rollback readiness using the parent result."
+                    )
+                    evidence_task_id = self.queue.add(
+                        description=evidence_description,
+                        role="validator",
+                        parent_task_id=task_id,
+                    )
+                    capability_result["evidence_request"] = {
+                        "task_id": evidence_task_id,
+                        "role": "validator",
+                        "status": "pending",
+                    }
+
                 self.memory.save_task(task)
                 self.queue.fail(
                     task_id,

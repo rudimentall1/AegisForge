@@ -87,6 +87,11 @@ class TaskQueue:
                 "ALTER TABLE queue ADD COLUMN capability_intent TEXT"
             )
 
+        if "allow_failed_parent" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN allow_failed_parent INTEGER NOT NULL DEFAULT 0"
+            )
+
         for column, sql_type in (
             ("action_role", "TEXT"),
             ("expected_evidence_gain", "REAL"),
@@ -177,6 +182,7 @@ class TaskQueue:
         role=None,
         parent_task_id=None,
         capability_intent=None,
+        allow_failed_parent=False,
     ):
         task_id = str(uuid.uuid4())
 
@@ -206,9 +212,10 @@ class TaskQueue:
                 created_at,
                 role,
                 parent_task_id,
-                capability_intent
+                capability_intent,
+                allow_failed_parent
             )
-            VALUES (?, ?, 'pending', ?, ?, ?, ?)
+            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)
             """,
             (
                 task_id,
@@ -217,6 +224,7 @@ class TaskQueue:
                 role,
                 parent_task_id,
                 intent_json,
+                1 if allow_failed_parent else 0,
             ),
         )
 
@@ -389,7 +397,8 @@ class TaskQueue:
                 role,
                 parent_task_id,
                 result,
-                capability_intent
+                capability_intent,
+                allow_failed_parent
             FROM queue
             WHERE id = ?
             """,
@@ -984,12 +993,14 @@ class TaskQueue:
                         q.role,
                         q.parent_task_id,
                         q.result,
-                        q.capability_intent
+                        q.capability_intent,
+                        q.allow_failed_parent
                     FROM queue q
                     WHERE q.status = 'pending'
                       AND q.role = ?
                       AND (
                           q.parent_task_id IS NULL
+                          OR q.allow_failed_parent = 1
                           OR EXISTS (
                               SELECT 1
                               FROM queue p
@@ -1018,11 +1029,13 @@ class TaskQueue:
                         q.role,
                         q.parent_task_id,
                         q.result,
-                        q.capability_intent
+                        q.capability_intent,
+                        q.allow_failed_parent
                     FROM queue q
                     WHERE q.status = 'pending'
                       AND (
                           q.parent_task_id IS NULL
+                          OR q.allow_failed_parent = 1
                           OR EXISTS (
                               SELECT 1
                               FROM queue p
@@ -1189,7 +1202,7 @@ class TaskQueue:
         """
         row = self.db.execute(
             """
-            SELECT status, retry_count, parent_task_id
+            SELECT status, retry_count, parent_task_id, allow_failed_parent
             FROM queue
             WHERE id = ?
             """,
@@ -1199,7 +1212,7 @@ class TaskQueue:
         if not row:
             return False
 
-        status, retry_count, parent_task_id = row
+        status, retry_count, parent_task_id, allow_failed_parent = row
 
         if status != "failed":
             return False
@@ -1224,10 +1237,16 @@ class TaskQueue:
 
             parent_status, parent_result = parent
 
-            if (
-                parent_status != "completed"
-                or parent_result is None
-            ):
+            parent_ready = (
+                parent_status == "completed"
+                and parent_result is not None
+            )
+            failed_parent_ready = (
+                parent_status == "failed"
+                and bool(allow_failed_parent)
+                and parent_result is not None
+            )
+            if not (parent_ready or failed_parent_ready):
                 return False
 
         updated = self.db.execute(

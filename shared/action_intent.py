@@ -91,8 +91,13 @@ def _explicit_intent(task):
     return {}
 
 
+def default_capability_intent(role: str):
+    """Return a copy of the role's declared baseline capability intent."""
+    return dict(ROLE_DEFAULT_INTENTS.get(role, {}))
+
+
 def build_action_intent(role: str, task):
-    values = dict(ROLE_DEFAULT_INTENTS.get(role, {}))
+    values = default_capability_intent(role)
     explicit = _explicit_intent(task)
 
     for key, value in explicit.items():

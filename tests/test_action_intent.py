@@ -56,3 +56,11 @@ def test_structured_unknown_external_target_blocks():
     )
     decision = CapabilityPolicy().check(build_action_intent("validator", task))
     assert decision["decision"] == CapabilityDecision.BLOCK
+
+
+def test_default_capability_intent_is_structured_per_role():
+    from shared.action_intent import default_capability_intent
+
+    assert default_capability_intent("developer")["action"] == "inspect_code"
+    assert default_capability_intent("security_checker")["action"] == "security_scan"
+    assert default_capability_intent("validator")["action"] == "validate"

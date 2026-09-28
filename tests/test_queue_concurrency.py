@@ -111,3 +111,54 @@ def test_queue_persists_structured_capability_intent(tmp_path, monkeypatch):
     assert row[0] == task_id
     assert row[10] == '{"action":"deploy","destination":"staging","irreversible":true}'
     q.db.close()
+
+
+def test_queue_can_claim_evidence_child_from_failed_capability_parent(tmp_path, monkeypatch):
+    db_path = tmp_path / "failed_parent.db"
+    monkeypatch.setattr(queue_module, "DB_PATH", db_path)
+    q = TaskQueue()
+
+    parent = q.add("blocked action", role="developer")
+    q.claim("worker-1", role="developer")
+    q.fail(parent, {
+        "error_type": "CapabilityEvidenceRequired",
+        "decision": "REQUIRE_EVIDENCE",
+    })
+
+    child = q.add(
+        "verify prerequisites",
+        role="validator",
+        parent_task_id=parent,
+        capability_intent={"action": "verify"},
+        allow_failed_parent=True,
+    )
+
+    claimed = q.claim("worker-2", role="validator")
+    assert claimed[0] == child
+    assert claimed[10] == '{"action":"verify"}'
+    assert claimed[11] == 1
+    q.db.close()
+
+
+def test_requeue_failed_allows_retry_of_capability_evidence_child(tmp_path, monkeypatch):
+    db_path = tmp_path / "failed_parent_retry.db"
+    monkeypatch.setattr(queue_module, "DB_PATH", db_path)
+    q = TaskQueue()
+
+    parent = q.add("blocked action", role="developer")
+    q.claim("worker-1", role="developer")
+    q.fail(parent, {"error_type": "CapabilityEvidenceRequired"})
+
+    child = q.add(
+        "verify prerequisites",
+        role="validator",
+        parent_task_id=parent,
+        capability_intent={"action": "verify"},
+        allow_failed_parent=True,
+    )
+    q.claim("worker-2", role="validator")
+    q.fail(child, {"error_type": "RuntimeError", "error": "temporary"})
+
+    assert q.requeue_failed(child, max_retries=1) is True
+    assert q.db.execute("select status from queue where id=?", (child,)).fetchone()[0] == "pending"
+    q.db.close()

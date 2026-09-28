@@ -15,6 +15,7 @@ if PROJECT_ROOT not in sys.path:
 from shared.queue import TaskQueue
 from shared.result_codec import decode as decode_result
 from shared.evidence_ledger import EvidenceLedger
+from shared.action_intent import default_capability_intent
 
 
 DECISIONS = {
@@ -1902,6 +1903,8 @@ class AutonomousPlanner:
                     role,
                     parent_task_id,
                     raw_result,
+                    capability_intent,
+                    allow_failed_parent,
                 ) = row
 
                 current = {
@@ -1916,6 +1919,8 @@ class AutonomousPlanner:
                     "planner_decided_at": None,
                     "information_gain": None,
                     "fingerprint": None,
+                    "capability_intent": capability_intent,
+                    "allow_failed_parent": bool(allow_failed_parent),
                 }
                 tasks[parent_id] = current
 
@@ -2463,6 +2468,7 @@ class AutonomousPlanner:
                     description=description,
                     role=child_role,
                     parent_task_id=task["id"],
+                    capability_intent=default_capability_intent(child_role),
                 )
 
                 fingerprints.add(child_fp)

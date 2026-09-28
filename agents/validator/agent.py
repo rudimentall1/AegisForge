@@ -1,5 +1,6 @@
 from shared.task import Task
 from shared.github_client import GitHubClient
+from shared.capability_policy import ActionIntent, CapabilityDecision, CapabilityPolicy
 
 class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
@@ -115,6 +116,94 @@ class Validator:
         return result
 
     @staticmethod
+    def _capability_intent(task):
+        import json
+
+        payload = getattr(task, "payload", {}) or {}
+        intent = payload.get("capability_intent")
+        if isinstance(intent, dict):
+            return intent
+        if isinstance(intent, str) and intent.strip():
+            try:
+                parsed = json.loads(intent)
+            except (TypeError, ValueError):
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
+    @classmethod
+    def _is_capability_evidence_request(cls, task):
+        intent = cls._capability_intent(task)
+        return (
+            intent.get("action") == "verify"
+            and intent.get("resource") == "authorization_prerequisites"
+        )
+
+    def _verify_capability_request(self, task):
+        payload = getattr(task, "payload", {}) or {}
+        parent_result = payload.get("parent_result")
+        intent_data = self._capability_intent(task)
+        parent_task_id = payload.get("parent_task_id")
+
+        checks = {
+            "parent_decision_present": isinstance(parent_result, dict),
+            "parent_requested_evidence": isinstance(parent_result, dict)
+            and parent_result.get("error_type") == "CapabilityEvidenceRequired"
+            and parent_result.get("decision") == CapabilityDecision.REQUIRE_EVIDENCE.value,
+            "structured_intent_present": isinstance(parent_result, dict)
+            and isinstance(parent_result.get("intent"), dict),
+        }
+
+        structured_parent_intent = (
+            parent_result.get("intent", {}) if isinstance(parent_result, dict) else {}
+        )
+        policy_result = None
+        if checks["structured_intent_present"]:
+            try:
+                fields = {
+                    key: structured_parent_intent.get(key)
+                    for key in (
+                        "role", "action", "target", "resource", "destination",
+                        "data_scope", "irreversible", "requires_network",
+                        "requires_shell", "requires_filesystem", "financial",
+                        "privileged", "read_only", "evidence_required",
+                    )
+                    if key in structured_parent_intent
+                }
+                policy_result = CapabilityPolicy().check(ActionIntent(**fields))
+                checks["policy_still_requires_evidence"] = (
+                    policy_result.get("decision") == CapabilityDecision.REQUIRE_EVIDENCE
+                )
+            except (TypeError, ValueError, KeyError):
+                checks["policy_still_requires_evidence"] = False
+        else:
+            # Legacy capability records predate structured intent. They are
+            # verified as an auditable blocked decision, not silently promoted.
+            checks["policy_still_requires_evidence"] = False
+
+        verified = (
+            checks["parent_decision_present"]
+            and checks["parent_requested_evidence"]
+            and checks["structured_intent_present"]
+            and checks["policy_still_requires_evidence"]
+        )
+
+        return {
+            "agent": self.name,
+            "validation_mode": "capability_evidence",
+            "status": "VERIFIED" if verified else "INSUFFICIENT_EVIDENCE",
+            "parent_task_id": parent_task_id,
+            "parent_decision": (
+                parent_result.get("decision")
+                if isinstance(parent_result, dict) else None
+            ),
+            "intent": intent_data,
+            "checks": checks,
+            "policy_result": policy_result,
+            "execution_performed": False,
+        }
+
+    @staticmethod
     def _apply_validation_update(opportunity, validation):
         status = validation.get("status")
         validation_type = validation.get("validation_type")
@@ -155,6 +244,11 @@ class Validator:
     def run(self, task: Task) -> Task:
         task.status = "validating"
         try:
+            if self._is_capability_evidence_request(task):
+                task.result = self._verify_capability_request(task)
+                task.status = "validated"
+                return task
+
             result = dict(task.result or {})
             opportunities = [x for x in result.get("opportunities", [])
                              if isinstance(x, dict)][:self.MAX_OPPORTUNITIES]

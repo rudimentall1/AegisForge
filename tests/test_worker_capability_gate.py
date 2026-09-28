@@ -38,9 +38,9 @@ class FakeQueue:
     def get_result(self, task_id):
         return None
 
-    def add(self, description, role=None, parent_task_id=None):
+    def add(self, description, role=None, parent_task_id=None, capability_intent=None, allow_failed_parent=False):
         task_id = f"evidence-{len(self.added) + 1}"
-        self.added.append((task_id, description, role, parent_task_id))
+        self.added.append((task_id, description, role, parent_task_id, capability_intent, bool(allow_failed_parent)))
         return task_id
 
     def fail(self, task_id, result=None):
@@ -121,7 +121,9 @@ def test_evidence_required_never_calls_agent_and_routes_to_validator():
         "role": "validator",
         "status": "pending",
     }
-    assert worker.queue.added[0][2:] == ("validator", "task-1")
+    assert worker.queue.added[0][2:4] == ("validator", "task-1")
+    assert worker.queue.added[0][4]["action"] == "verify"
+    assert worker.queue.added[0][5] is True
     assert "deploy" not in worker.queue.added[0][1].lower()
 
 

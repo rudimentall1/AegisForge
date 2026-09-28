@@ -3,6 +3,7 @@ import uuid
 from shared.task import Task
 from shared.memory import Memory
 from shared.queue import TaskQueue
+from shared.action_intent import default_capability_intent
 
 
 class Master:
@@ -49,6 +50,7 @@ class Master:
             description="Find promising Web3 security projects",
             role="researcher",
             parent_task_id=root_id,
+            capability_intent=default_capability_intent("researcher"),
         )
 
         print(
@@ -67,6 +69,7 @@ class Master:
             ),
             role="analyst",
             parent_task_id=researcher_id,
+            capability_intent=default_capability_intent("analyst"),
         )
 
         print(
@@ -88,6 +91,7 @@ class Master:
             ),
             role="developer",
             parent_task_id=analyst_id,
+            capability_intent=default_capability_intent("developer"),
         )
 
         print(
@@ -110,6 +114,7 @@ class Master:
             ),
             role="security_checker",
             parent_task_id=developer_id,
+            capability_intent=default_capability_intent("security_checker"),
         )
 
         print(
@@ -130,6 +135,7 @@ class Master:
             ),
             role="opportunity_hunter",
             parent_task_id=analyst_id,
+            capability_intent=default_capability_intent("opportunity_hunter"),
         )
 
         print(

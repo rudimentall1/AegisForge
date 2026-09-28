@@ -315,6 +315,15 @@ class Worker:
                         description=evidence_description,
                         role="validator",
                         parent_task_id=task_id,
+                        capability_intent={
+                            "action": "verify",
+                            "resource": "authorization_prerequisites",
+                            "destination": "internal",
+                            "data_scope": "validation_evidence",
+                            "read_only": True,
+                            "evidence_required": False,
+                        },
+                        allow_failed_parent=True,
                     )
                     capability_result["evidence_request"] = {
                         "task_id": evidence_task_id,

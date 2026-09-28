@@ -97,3 +97,17 @@ def test_compact_completed_results_keeps_pending_parent_result(
     assert q.get_result(root) == {"repositories": ["org/root"]}
 
     q.db.close()
+
+
+def test_queue_persists_structured_capability_intent(tmp_path, monkeypatch):
+    db_path = tmp_path / "intent.db"
+    monkeypatch.setattr(queue_module, "DB_PATH", db_path)
+    q = TaskQueue()
+
+    intent = {"action": "deploy", "destination": "staging", "irreversible": True}
+    task_id = q.add("deploy safely", role="developer", capability_intent=intent)
+    row = q.claim("worker-1", role="developer")
+
+    assert row[0] == task_id
+    assert row[10] == '{"action":"deploy","destination":"staging","irreversible":true}'
+    q.db.close()

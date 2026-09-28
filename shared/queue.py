@@ -15,6 +15,7 @@ DB_PATH = Path("/opt/agent-farm/data/agent_farm.db")
 # make SQLite grow without bound.
 MAX_DESCRIPTION_BYTES = 4096
 MAX_QUEUE_HISTORY = 500
+MAX_CAPABILITY_INTENT_BYTES = 2048
 
 
 class TaskQueue:
@@ -79,6 +80,11 @@ class TaskQueue:
                 ALTER TABLE queue
                 ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0
                 """
+            )
+
+        if "capability_intent" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN capability_intent TEXT"
             )
 
         for column, sql_type in (
@@ -170,12 +176,25 @@ class TaskQueue:
         description,
         role=None,
         parent_task_id=None,
+        capability_intent=None,
     ):
         task_id = str(uuid.uuid4())
 
         if description is None:
             description = ""
         description = self._bounded_description(description)
+
+        intent_json = None
+        if capability_intent is not None:
+            if not isinstance(capability_intent, dict):
+                raise TypeError("capability_intent must be a dict or None")
+            intent_json = json.dumps(
+                capability_intent,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if len(intent_json.encode("utf-8")) > MAX_CAPABILITY_INTENT_BYTES:
+                raise ValueError("capability_intent exceeds bounded storage size")
 
         self.db.execute(
             """
@@ -186,9 +205,10 @@ class TaskQueue:
                 status,
                 created_at,
                 role,
-                parent_task_id
+                parent_task_id,
+                capability_intent
             )
-            VALUES (?, ?, 'pending', ?, ?, ?)
+            VALUES (?, ?, 'pending', ?, ?, ?, ?)
             """,
             (
                 task_id,
@@ -196,6 +216,7 @@ class TaskQueue:
                 datetime.now(timezone.utc).isoformat(),
                 role,
                 parent_task_id,
+                intent_json,
             ),
         )
 
@@ -367,7 +388,8 @@ class TaskQueue:
                 finished_at,
                 role,
                 parent_task_id,
-                result
+                result,
+                capability_intent
             FROM queue
             WHERE id = ?
             """,
@@ -961,7 +983,8 @@ class TaskQueue:
                         q.finished_at,
                         q.role,
                         q.parent_task_id,
-                        q.result
+                        q.result,
+                        q.capability_intent
                     FROM queue q
                     WHERE q.status = 'pending'
                       AND q.role = ?
@@ -994,7 +1017,8 @@ class TaskQueue:
                         q.finished_at,
                         q.role,
                         q.parent_task_id,
-                        q.result
+                        q.result,
+                        q.capability_intent
                     FROM queue q
                     WHERE q.status = 'pending'
                       AND (

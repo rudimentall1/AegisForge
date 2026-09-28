@@ -107,14 +107,7 @@ class Worker:
 
 
     def _record_capability_decision(self, task_id, intent, decision):
-        intent_payload = {
-            "role": intent.role,
-            "action": intent.action,
-            "target": intent.target,
-            "irreversible": intent.irreversible,
-            "requires_network": intent.requires_network,
-            "requires_shell": intent.requires_shell,
-        }
+        intent_payload = intent.to_dict()
         canonical_intent = json.dumps(
             intent_payload,
             sort_keys=True,
@@ -126,6 +119,7 @@ class Worker:
         audit = {
             "action": intent.action,
             "decision": decision["decision"].value,
+            "intent": intent_payload,
             "intent_hash": intent_hash,
             "reason": decision["reason"],
             "role": intent.role,
@@ -213,6 +207,11 @@ class Worker:
         task_id = task_row[0]
         description = task_row[1]
         parent_task_id = task_row[8]
+        capability_intent = (
+            task_row[10]
+            if len(task_row) > 10
+            else None
+        )
 
         print(
             f"[{self.worker_id}] "
@@ -249,6 +248,7 @@ class Worker:
                     "workflow_id": WORKFLOW_ID,
                     "parent_task_id": parent_task_id,
                     "parent_result": parent_result,
+                    "capability_intent": capability_intent,
                 },
                 result=parent_result,
                 status="running",
@@ -299,11 +299,7 @@ class Worker:
                     "status": "blocked",
                     "reason": decision["reason"],
                     "decision": capability_decision.value,
-                    "intent": {
-                        "role": intent.role,
-                        "action": intent.action,
-                        "target": intent.target,
-                    },
+                    "intent": intent.to_dict(),
                 }
 
                 if evidence_required:

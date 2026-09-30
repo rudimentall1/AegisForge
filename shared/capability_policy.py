@@ -27,54 +27,29 @@ class ActionIntent:
 
     def to_dict(self):
         return {
-            "role": self.role,
-            "action": self.action,
-            "target": self.target,
-            "resource": self.resource,
-            "destination": self.destination,
-            "data_scope": self.data_scope,
-            "irreversible": self.irreversible,
-            "requires_network": self.requires_network,
-            "requires_shell": self.requires_shell,
-            "requires_filesystem": self.requires_filesystem,
-            "financial": self.financial,
-            "privileged": self.privileged,
-            "read_only": self.read_only,
+            "role": self.role, "action": self.action, "target": self.target,
+            "resource": self.resource, "destination": self.destination,
+            "data_scope": self.data_scope, "irreversible": self.irreversible,
+            "requires_network": self.requires_network, "requires_shell": self.requires_shell,
+            "requires_filesystem": self.requires_filesystem, "financial": self.financial,
+            "privileged": self.privileged, "read_only": self.read_only,
             "evidence_required": self.evidence_required,
         }
 
 
 class CapabilityPolicy:
+    VERSION = "capability-policy-v1"
     ROLE_ALLOWED_ACTIONS = {
         "researcher": {"research", "read_public_docs"},
         "analyst": {"analyze", "inspect_evidence"},
-        "developer": {
-            "inspect_code",
-            "modify_code",
-            "run_tests",
-            "deploy",
-            "publish",
-            "delete",
-            "transfer",
-            "release",
-        },
+        "developer": {"inspect_code", "modify_code", "run_tests", "deploy", "publish", "delete", "transfer", "release"},
         "security_checker": {"security_scan", "inspect_code", "verify"},
         "opportunity_hunter": {"identify_opportunities", "research"},
         "validator": {"validate", "verify"},
         "model_researcher": {"model_research", "research"},
     }
 
-    # These actions are consequential even if a caller lies by omission and
-    # leaves the explicit sensitivity flags at their defaults.
-    SENSITIVE_ACTIONS = {
-        "modify_code",
-        "deploy",
-        "publish",
-        "delete",
-        "transfer",
-        "release",
-    }
-
+    SENSITIVE_ACTIONS = {"modify_code", "deploy", "publish", "delete", "transfer", "release"}
     SENSITIVE_EVIDENCE_REQUIREMENTS = {
         "modify_code": {"tests_passed"},
         "deploy": {"tests_passed", "security_scan_passed", "rollback_ready"},
@@ -100,25 +75,9 @@ class CapabilityPolicy:
     }
 
     def __init__(self):
-        self.blocked_targets = {
-            "unknown_external_endpoint",
-            "production_database",
-            "production_environment",
-        }
-        self.blocked_destinations = {
-            "production_database",
-            "production",
-            "production_environment",
-            "production_api",
-            "unauthorized_external_destination",
-        }
-        self.blocked_data_scopes = {
-            "credentials",
-            "private_keys",
-            "secrets",
-            "api_keys",
-            "passwords",
-        }
+        self.blocked_targets = {"unknown_external_endpoint", "production_database", "production_environment"}
+        self.blocked_destinations = {"production_database", "production", "production_environment", "production_api", "unauthorized_external_destination"}
+        self.blocked_data_scopes = {"credentials", "private_keys", "secrets", "api_keys", "passwords"}
         self.network_allowed = True
         self.shell_allowed = True
         self.filesystem_allowed = True
@@ -128,79 +87,28 @@ class CapabilityPolicy:
 
     def required_evidence(self, intent: ActionIntent):
         requirements = set(self.SENSITIVE_EVIDENCE_REQUIREMENTS.get(intent.action, set()))
-
-        if intent.financial:
-            requirements.update({"financial_authorization", "destination_allowed"})
-
-        if intent.privileged:
-            requirements.add("privilege_scope_verified")
-
-        if intent.irreversible:
-            requirements.add("rollback_or_recovery_ready")
-
-        if intent.evidence_required and not requirements:
-            requirements.add("explicit_evidence")
-
+        if intent.financial: requirements.update({"financial_authorization", "destination_allowed"})
+        if intent.privileged: requirements.add("privilege_scope_verified")
+        if intent.irreversible: requirements.add("rollback_or_recovery_ready")
+        if intent.evidence_required and not requirements: requirements.add("explicit_evidence")
         return sorted(requirements)
 
     def check(self, intent: ActionIntent):
         if intent.target in self.blocked_targets:
-            return {
-                "decision": CapabilityDecision.BLOCK,
-                "reason": "blocked_target",
-            }
-
+            return {"decision": CapabilityDecision.BLOCK, "reason": "blocked_target"}
         if intent.destination in self.blocked_destinations:
-            return {
-                "decision": CapabilityDecision.BLOCK,
-                "reason": "blocked_destination",
-            }
-
+            return {"decision": CapabilityDecision.BLOCK, "reason": "blocked_destination"}
         if intent.data_scope in self.blocked_data_scopes:
-            return {
-                "decision": CapabilityDecision.BLOCK,
-                "reason": "blocked_data_scope",
-            }
-
-        allowed_actions = self.ROLE_ALLOWED_ACTIONS.get(intent.role, set())
-        if intent.action not in allowed_actions:
-            return {
-                "decision": CapabilityDecision.BLOCK,
-                "reason": "action_not_allowed_for_role",
-            }
-
+            return {"decision": CapabilityDecision.BLOCK, "reason": "blocked_data_scope"}
+        if intent.action not in self.ROLE_ALLOWED_ACTIONS.get(intent.role, set()):
+            return {"decision": CapabilityDecision.BLOCK, "reason": "action_not_allowed_for_role"}
         if intent.requires_shell and not self.shell_allowed:
-            return {
-                "decision": CapabilityDecision.BLOCK,
-                "reason": "shell_disabled",
-            }
-
+            return {"decision": CapabilityDecision.BLOCK, "reason": "shell_disabled"}
         if intent.requires_network and not self.network_allowed:
-            return {
-                "decision": CapabilityDecision.BLOCK,
-                "reason": "network_disabled",
-            }
-
+            return {"decision": CapabilityDecision.BLOCK, "reason": "network_disabled"}
         if intent.requires_filesystem and not self.filesystem_allowed:
-            return {
-                "decision": CapabilityDecision.BLOCK,
-                "reason": "filesystem_disabled",
-            }
-
-        if (
-            intent.action in self.SENSITIVE_ACTIONS
-            or not intent.read_only
-            or intent.irreversible
-            or intent.financial
-            or intent.privileged
-            or intent.evidence_required
-        ):
-            return {
-                "decision": CapabilityDecision.REQUIRE_EVIDENCE,
-                "reason": "evidence_required_for_sensitive_action",
-            }
-
-        return {
-            "decision": CapabilityDecision.ALLOW,
-            "reason": "policy_pass",
-        }
+            return {"decision": CapabilityDecision.BLOCK, "reason": "filesystem_disabled"}
+        if (intent.action in self.SENSITIVE_ACTIONS or not intent.read_only or intent.irreversible
+                or intent.financial or intent.privileged or intent.evidence_required):
+            return {"decision": CapabilityDecision.REQUIRE_EVIDENCE, "reason": "evidence_required_for_sensitive_action"}
+        return {"decision": CapabilityDecision.ALLOW, "reason": "policy_pass"}

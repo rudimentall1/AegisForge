@@ -3,6 +3,7 @@ from shared.task import Task
 from shared.github_client import GitHubClient
 from shared.capability_policy import ActionIntent, CapabilityDecision, CapabilityPolicy
 from shared.evidence_ledger import EvidenceLedger
+from shared.capability_grant import issue_capability_grant
 
 class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
@@ -259,6 +260,22 @@ class Validator:
             and checks["evidence_sufficient"]
         )
 
+        capability_grant = None
+        if verified:
+            intent = ActionIntent(**structured_parent_intent)
+            evidence_ids = [
+                value.get("evidence_id")
+                for value in evidence_claims.values()
+                if isinstance(value, dict) and value.get("evidence_id")
+            ]
+            capability_grant = issue_capability_grant(
+                task_id=parent_task_id,
+                intent=intent,
+                policy_version=CapabilityPolicy.VERSION,
+                evidence_ids=evidence_ids,
+                authorized_scope=(intent.destination or intent.resource),
+            ).to_dict()
+
         return {
             "agent": self.name,
             "validation_mode": "capability_evidence",
@@ -272,6 +289,7 @@ class Validator:
             "checks": checks,
             "policy_result": policy_result,
             "evidence_claims": evidence_claims,
+            "capability_grant": capability_grant,
             "execution_performed": False,
         }
 

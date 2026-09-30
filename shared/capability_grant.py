@@ -1,0 +1,115 @@
+import hashlib
+import json
+import secrets
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+
+
+class CapabilityGrantError(ValueError):
+    pass
+
+
+def _canonical(payload):
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def intent_hash(intent):
+    payload = intent.to_dict() if hasattr(intent, "to_dict") else intent
+    return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
+
+
+def evidence_hash(evidence_ids):
+    values = sorted(str(value) for value in (evidence_ids or []))
+    return hashlib.sha256(_canonical(values).encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class CapabilityGrant:
+    grant_id: str
+    task_id: str
+    intent_hash: str
+    policy_version: str
+    evidence_ids: tuple = field(default_factory=tuple)
+    evidence_hash: str = ""
+    authorized_action: str = ""
+    authorized_target: str = ""
+    authorized_scope: str = ""
+    issued_at: str = ""
+    expires_at: str = ""
+    nonce: str = ""
+    status: str = "ACTIVE"
+
+    def to_dict(self):
+        return {
+            "grant_id": self.grant_id,
+            "task_id": self.task_id,
+            "intent_hash": self.intent_hash,
+            "policy_version": self.policy_version,
+            "evidence_ids": list(self.evidence_ids),
+            "evidence_hash": self.evidence_hash,
+            "authorized_action": self.authorized_action,
+            "authorized_target": self.authorized_target,
+            "authorized_scope": self.authorized_scope,
+            "issued_at": self.issued_at,
+            "expires_at": self.expires_at,
+            "nonce": self.nonce,
+            "status": self.status,
+        }
+
+    def canonical(self):
+        return _canonical(self.to_dict())
+
+    def verify_binding(self, intent, evidence_ids):
+        if self.status != "ACTIVE":
+            raise CapabilityGrantError("grant_not_active")
+        if self.intent_hash != intent_hash(intent):
+            raise CapabilityGrantError("intent_hash_mismatch")
+        if self.evidence_hash != evidence_hash(evidence_ids):
+            raise CapabilityGrantError("evidence_hash_mismatch")
+        if tuple(sorted(str(v) for v in evidence_ids)) != tuple(sorted(self.evidence_ids)):
+            raise CapabilityGrantError("evidence_ids_mismatch")
+        if self.authorized_action != intent.action:
+            raise CapabilityGrantError("authorized_action_mismatch")
+        if self.authorized_target != intent.target:
+            raise CapabilityGrantError("authorized_target_mismatch")
+        return True
+
+
+def issue_capability_grant(
+    task_id,
+    intent,
+    policy_version,
+    evidence_ids=(),
+    authorized_scope="",
+    ttl_seconds=300,
+):
+    if ttl_seconds <= 0:
+        raise CapabilityGrantError("invalid_ttl")
+    now = datetime.now(timezone.utc)
+    evidence_ids = tuple(sorted(str(value) for value in (evidence_ids or [])))
+    return CapabilityGrant(
+        grant_id="grant_" + secrets.token_urlsafe(18),
+        task_id=str(task_id),
+        intent_hash=intent_hash(intent),
+        policy_version=str(policy_version),
+        evidence_ids=evidence_ids,
+        evidence_hash=evidence_hash(evidence_ids),
+        authorized_action=intent.action,
+        authorized_target=intent.target,
+        authorized_scope=authorized_scope,
+        issued_at=now.isoformat(),
+        expires_at=(now + timedelta(seconds=ttl_seconds)).isoformat(),
+        nonce=secrets.token_urlsafe(18),
+    )
+
+
+def consume_capability_grant(grant, intent, evidence_ids=(), now=None):
+    grant.verify_binding(intent, evidence_ids)
+    current = now or datetime.now(timezone.utc)
+    try:
+        expires = datetime.fromisoformat(grant.expires_at)
+    except ValueError as exc:
+        raise CapabilityGrantError("invalid_expiry") from exc
+    if current >= expires:
+        raise CapabilityGrantError("grant_expired")
+    return True

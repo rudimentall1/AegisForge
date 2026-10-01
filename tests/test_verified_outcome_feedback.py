@@ -30,20 +30,17 @@ def test_verified_outcome_feedback_updates_originating_planner_action(tmp_path):
     assert queue.record_verified_outcome_feedback(child_id, "PROVEN") is True
 
     row = queue.db.execute(
-        "SELECT action_role, expected_evidence_gain, actual_evidence_gain, "
-        "prediction_error, novelty, novel_atom_count, atom_count "
-        "FROM planner_action_outcomes WHERE child_task_id = ?",
+        "SELECT action_role, status, verifier, outcome_id, receipt_id "
+        "FROM execution_outcome_feedback WHERE execution_task_id = ?",
         (child_id,),
     ).fetchone()
 
     assert row is not None
     assert row[0] == "developer"
-    assert row[1] == 0.6
-    assert row[2] == 1.0
-    assert row[3] == 0.4
-    assert row[4] == 1.0
-    assert row[5:] == (1, 1)
+    assert row[1] == "PROVEN"
+    assert row[2:] == (None, None, None)
 
+    assert queue.action_outcome_summary()["samples"] == 0
     assert queue.record_verified_outcome_feedback(child_id, "PROVEN") is False
 
 

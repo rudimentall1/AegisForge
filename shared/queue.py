@@ -105,6 +105,19 @@ class TaskQueue:
                 )
 
         self.db.execute("""
+            CREATE TABLE IF NOT EXISTS execution_outcome_feedback (
+                execution_task_id TEXT PRIMARY KEY,
+                origin_task_id TEXT,
+                action_role TEXT,
+                status TEXT NOT NULL,
+                verifier TEXT,
+                outcome_id TEXT,
+                receipt_id TEXT,
+                observed_at TEXT NOT NULL
+            )
+        """)
+
+        self.db.execute("""
             CREATE TABLE IF NOT EXISTS planner_action_outcomes (
                 child_task_id TEXT PRIMARY KEY,
                 parent_task_id TEXT NOT NULL,
@@ -710,6 +723,9 @@ class TaskQueue:
         self,
         descendant_task_id,
         status,
+        verifier=None,
+        outcome_id=None,
+        receipt_id=None,
         observed_at=None,
     ):
         """Feed a verified execution outcome back to its originating planner action.
@@ -735,39 +751,30 @@ class TaskQueue:
         if origin is None or str(status).upper() != "PROVEN":
             return False
 
-        # A verified real-world effect is a concrete evidence gain. Keep the
-        # feedback bounded; this is deliberately conservative rather than
-        # claiming that every execution proves an entire research hypothesis.
+        now = observed_at or datetime.now(timezone.utc).isoformat()
         existing = self.db.execute(
-            "SELECT 1 FROM planner_action_outcomes WHERE child_task_id = ?",
+            "SELECT 1 FROM execution_outcome_feedback WHERE execution_task_id = ?",
             (descendant_task_id,),
         ).fetchone()
         if existing:
             return False
 
-        expected_row = self.db.execute(
-            "SELECT expected_evidence_gain, action_cost, action_efficiency "
-            "FROM queue WHERE id = ?",
-            (origin[0],),
-        ).fetchone()
-        if expected_row is None:
-            return False
-
-        expected = max(0.0, min(1.0, float(expected_row[0] or 0.0)))
-        actual = 1.0
-        now = observed_at or datetime.now(timezone.utc).isoformat()
         self.db.execute(
             """
-            INSERT INTO planner_action_outcomes
-            (child_task_id, parent_task_id, action_role, expected_evidence_gain,
-             action_cost, action_efficiency, actual_evidence_gain, novelty,
-             novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+            INSERT INTO execution_outcome_feedback
+            (execution_task_id, origin_task_id, action_role, status,
+             verifier, outcome_id, receipt_id, observed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                descendant_task_id, origin[0], origin[2], expected,
-                float(expected_row[1] or 0.0), float(expected_row[2] or 0.0),
-                actual, 1.0, 1, 1, actual - expected, now,
+                descendant_task_id,
+                origin[0],
+                origin[2],
+                str(status).upper(),
+                verifier,
+                outcome_id,
+                receipt_id,
+                now,
             ),
         )
         self.db.commit()

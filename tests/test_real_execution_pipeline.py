@@ -102,14 +102,21 @@ def test_real_queue_validator_executor_pipeline(tmp_path, monkeypatch):
     execution_result = queue.get_result(execution_id)
 
     assert execution_result["execution_mode"] == "capability_grant"
-    assert execution_result["status"] == "EXECUTED"
+    assert execution_result["status"] == "PROVEN"
     assert execution_result["original_task_id"] == parent_id
     assert not target.exists()
 
     receipt = execution_result["receipt"]
     evidence = execution_result["evidence"]
+    outcome = execution_result["outcome"]
+    outcome_evidence = execution_result["outcome_evidence"]
     assert receipt["status"] == "EXECUTED"
     assert evidence["status"] == "EXECUTED"
+    assert outcome["status"] == "PROVEN"
+    assert outcome["observed_state"] == "ABSENT"
+    assert "filesystem_absence" in outcome["checks"]
+    assert outcome_evidence["status"] == "PROVEN"
+    assert outcome_evidence["verifier"] == "filesystem_independent_v1"
 
     # The grant is single-use even though the handoff remains persisted.
     assert queue.get_result(execution_id)["receipt"]["receipt_id"] == receipt["receipt_id"]

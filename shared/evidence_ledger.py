@@ -257,6 +257,40 @@ class EvidenceLedger:
             "ledger_result": result,
         }
 
+    def record_outcome_verification(
+        self,
+        task_id,
+        role,
+        outcome,
+        observed_at=None,
+        commit=True,
+    ):
+        """Persist independently verified execution outcome evidence."""
+        if outcome is None:
+            raise ValueError("outcome_required")
+        payload = dict(outcome)
+        atom = "outcome_verification:" + json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        result = self.record_observation(
+            task_id,
+            role,
+            atom,
+            observed_at=observed_at,
+            commit=commit,
+        )
+        return {
+            "evidence_id": self.atom_id(atom),
+            "outcome_id": payload.get("outcome_id"),
+            "status": payload.get("status"),
+            "verifier": payload.get("verifier"),
+            "source": role,
+            "ledger_result": result,
+        }
+
     def record_observation(self, task_id, role, atom, observed_at=None, commit=True):
         """Record one bounded task-level evidence/audit observation.
 

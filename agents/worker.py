@@ -25,6 +25,7 @@ from shared.capability_signing import CapabilitySigner, CapabilitySignatureError
 from shared.execution_gate import ExecutionGate
 from shared.executor_registry import ExecutorRegistry, ExecutorRegistryError
 from shared.filesystem_executor import SafeFilesystemExecutor
+from shared.outcome_verifier import FilesystemOutcomeVerifier, OutcomeVerificationError
 from shared.capability_policy import ActionIntent
 import hashlib
 
@@ -294,15 +295,31 @@ class Worker:
         )
         result = registry.execute(signed_grant, intent, evidence_ids=evidence_ids)
         receipt = result["receipt"]
+
+        # Do not treat the executor's self-reported result as proof. The
+        # verifier independently inspects the real execution target.
+        verifier = FilesystemOutcomeVerifier(root)
+        try:
+            outcome = verifier.verify(intent, receipt)
+        except OutcomeVerificationError as exc:
+            raise ExecutorRegistryError(str(exc)) from exc
+
+        outcome_evidence = self.evidence_ledger.record_outcome_verification(
+            task_id=receipt.task_id,
+            role="outcome_verifier",
+            outcome=outcome,
+        )
         return {
             "agent": self.role,
             "execution_mode": "capability_grant",
-            "status": receipt.status,
+            "status": "PROVEN",
             "original_task_id": original_task_id,
             "grant_id": grant.grant_id,
             "executor": result["executor"],
             "receipt": receipt.__dict__,
             "evidence": result["evidence"],
+            "outcome": outcome,
+            "outcome_evidence": outcome_evidence,
         }
 
     def run_once(self):

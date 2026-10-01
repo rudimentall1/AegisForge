@@ -97,9 +97,11 @@ def test_executor_worker_executes_verified_delete(tmp_path, monkeypatch):
     result = worker._execute_granted_task(task)
 
     assert not target.exists()
-    assert result["status"] == "EXECUTED"
+    assert result["status"] == "PROVEN"
     assert result["grant_id"] == grant["grant"]["grant_id"]
     assert result["evidence"]["status"] == "EXECUTED"
+    assert result["outcome"]["status"] == "PROVEN"
+    assert result["outcome_evidence"]["status"] == "PROVEN"
 
 
 def test_executor_rejects_tampered_origin(tmp_path, monkeypatch):
@@ -213,7 +215,9 @@ def test_executor_grant_is_single_use_across_tasks(tmp_path, monkeypatch):
     worker = _executor_worker(db, signer)
 
     first = worker._execute_granted_task(_execution_task(intent, grant))
-    assert first["status"] == "EXECUTED"
+    assert first["status"] == "PROVEN"
+    assert first["outcome"]["status"] == "PROVEN"
+    assert first["outcome_evidence"]["status"] == "PROVEN"
     assert not target.exists()
 
     import pytest

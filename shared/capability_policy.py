@@ -1,5 +1,3 @@
-[Reading 116 lines from start (total: 116 lines, 0 remaining)]
-
 from dataclasses import dataclass
 from enum import Enum
 

@@ -20,6 +20,11 @@ from shared.capability_policy import (
 
 from shared.action_intent import build_action_intent
 from shared.evidence_ledger import EvidenceLedger
+from shared.capability_grant import CapabilityGrant, CapabilityGrantError
+from shared.execution_gate import ExecutionGate
+from shared.executor_registry import ExecutorRegistry, ExecutorRegistryError
+from shared.filesystem_executor import SafeFilesystemExecutor
+from shared.capability_policy import ActionIntent
 import hashlib
 
 from agents.researcher.agent import Researcher
@@ -41,6 +46,7 @@ AGENTS = {
     "opportunity_hunter": OpportunityHunter,
     "validator": Validator,
     "model_researcher": ModelResearcher,
+    "executor": None,
 }
 
 SUCCESS_STATUSES = {
@@ -51,6 +57,7 @@ SUCCESS_STATUSES = {
     "opportunity_hunter": "opportunities_found",
     "validator": "validated",
     "model_researcher": "model_researched",
+    "executor": "executed",
 }
 
 
@@ -81,6 +88,8 @@ class Worker:
 
         if role == "validator":
             self.agent = Validator(evidence_ledger=self.evidence_ledger)
+        elif role == "executor":
+            self.agent = None
         else:
             self.agent = AGENTS[role]()
 
@@ -182,6 +191,101 @@ class Worker:
 
         return False
 
+    def _enqueue_execution_handoff(self, validator_task_id, result_value):
+        if self.role != "validator" or not isinstance(result_value, dict):
+            return None
+        if result_value.get("validation_mode") != "capability_evidence":
+            return None
+        if result_value.get("status") != "VERIFIED":
+            return None
+        grant = result_value.get("capability_grant")
+        intent = result_value.get("intent")
+        if not isinstance(grant, dict) or not isinstance(intent, dict):
+            return None
+        evidence_ids = grant.get("evidence_ids") or []
+        original_task_id = grant.get("task_id")
+        if not original_task_id or original_task_id == validator_task_id:
+            return None
+        envelope = {
+            "action": "execute_granted",
+            "resource": "capability_grant",
+            "destination": "internal",
+            "read_only": False,
+            "evidence_required": False,
+            "original_task_id": original_task_id,
+            "execution_intent": intent,
+            "capability_grant": grant,
+            "evidence_ids": list(evidence_ids),
+        }
+        task_id = self.queue.add(
+            description=(
+                "[CAPABILITY_EXECUTION] execute only the previously verified "
+                f"grant for task {original_task_id}"
+            ),
+            role="executor",
+            parent_task_id=validator_task_id,
+            capability_intent=envelope,
+            allow_failed_parent=False,
+        )
+        print(
+            f"[{self.worker_id}] EXECUTION HANDOFF queued={task_id} "
+            f"grant={grant.get('grant_id')}",
+            flush=True,
+        )
+        return task_id
+
+    def _execute_granted_task(self, task):
+        payload = getattr(task, "payload", {}) or {}
+        envelope = payload.get("capability_intent")
+        if not isinstance(envelope, dict) or envelope.get("action") != "execute_granted":
+            raise ExecutorRegistryError("execution_handoff_invalid")
+        intent_data = envelope.get("execution_intent")
+        grant_data = envelope.get("capability_grant")
+        evidence_ids = envelope.get("evidence_ids") or []
+        original_task_id = envelope.get("original_task_id")
+        if not isinstance(intent_data, dict) or not isinstance(grant_data, dict):
+            raise ExecutorRegistryError("execution_handoff_incomplete")
+        if not original_task_id or str(grant_data.get("task_id")) != str(original_task_id):
+            raise ExecutorRegistryError("execution_origin_mismatch")
+        try:
+            intent = ActionIntent(**intent_data)
+            grant = CapabilityGrant.from_dict(grant_data)
+        except (TypeError, ValueError, CapabilityGrantError) as exc:
+            raise ExecutorRegistryError(str(exc)) from exc
+        if str(grant.task_id) != str(original_task_id):
+            raise ExecutorRegistryError("grant_task_mismatch")
+        if sorted(str(v) for v in evidence_ids) != sorted(str(v) for v in grant.evidence_ids):
+            raise ExecutorRegistryError("execution_evidence_mismatch")
+        root = os.environ.get(
+            "AEGISFORGE_EXECUTION_ROOT",
+            "/opt/agent-farm/staging-execution",
+        )
+        adapter = SafeFilesystemExecutor(root)
+        gate = ExecutionGate(db=self.queue.db)
+        registry = ExecutorRegistry(
+            gate,
+            evidence_ledger=self.evidence_ledger,
+            role="executor",
+        )
+        registry.register(
+            "staging_delete",
+            "delete",
+            "staging_filesystem",
+            adapter.delete,
+        )
+        result = registry.execute(grant, intent, evidence_ids=evidence_ids)
+        receipt = result["receipt"]
+        return {
+            "agent": self.role,
+            "execution_mode": "capability_grant",
+            "status": receipt.status,
+            "original_task_id": original_task_id,
+            "grant_id": grant.grant_id,
+            "executor": result["executor"],
+            "receipt": receipt.__dict__,
+            "evidence": result["evidence"],
+        }
+
     def run_once(self):
         recovered = self.queue.recover_stale_running(
             stale_minutes=10
@@ -262,6 +366,31 @@ class Worker:
                 f"ROLE={self.role} START: {description}",
                 flush=True,
             )
+
+            if self.role == "executor":
+                try:
+                    result_value = self._execute_granted_task(task)
+                    task.result = result_value
+                    task.status = SUCCESS_STATUSES[self.role]
+                    self.memory.save_task(task)
+                    self.queue.finish(task_id, result=result_value)
+                    print(
+                        f"[{self.worker_id}] EXECUTED grant="
+                        f"{result_value.get('grant_id')}",
+                        flush=True,
+                    )
+                    return True
+                except Exception as exc:
+                    error = {
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    }
+                    self.queue.fail(task_id, result=error)
+                    print(
+                        f"[{self.worker_id}] EXECUTION FAILED {task_id}: {exc}",
+                        flush=True,
+                    )
+                    return False
 
             intent, decision = self._capability_decision(
                 task
@@ -425,6 +554,19 @@ class Worker:
             task.result = result_value
             task.status = SUCCESS_STATUSES[self.role]
 
+            execution_task_id = self._enqueue_execution_handoff(
+                task_id,
+                result_value,
+            )
+            if execution_task_id:
+                result_value = dict(result_value)
+                result_value["execution_request"] = {
+                    "task_id": execution_task_id,
+                    "role": "executor",
+                    "status": "pending",
+                }
+                task.result = result_value
+
             self.memory.save_task(task)
 
             self.queue.finish(
@@ -527,3 +669,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

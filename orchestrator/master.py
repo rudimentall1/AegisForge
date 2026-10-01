@@ -2329,20 +2329,37 @@ class AutonomousPlanner:
             # against that action's expected gain. The bounded outcome ledger
             # becomes calibration data rather than another unbounded memory.
             parent_id = task.get("parent_task_id")
-            if parent_id and task.get("result") is not None:
+            result = task.get("result")
+            result_dict = result if isinstance(result, dict) else {}
+            parent_task = self._planning_tasks.get(parent_id) if parent_id else None
+            direct_planner_child = bool(parent_task and parent_task.get("action_role"))
+            capability_validator = result_dict.get("validation_mode") == "capability_evidence"
+            execution_terminal = result_dict.get("execution_mode") == "capability_grant"
+            should_calibrate = bool(
+                parent_id
+                and result is not None
+                and (execution_terminal or (direct_planner_child and not capability_validator))
+            )
+            if should_calibrate:
                 try:
                     history = self.branch_history(task, self._planning_tasks)
-                    actual_gain, novelty, novel_count, atom_count = self.realized_evidence_gain(
-                        task,
-                        history,
-                    )
+                    # Execution proof is deliberately kept out of research
+                    # evidence calibration. The separate execution_outcome_feedback
+                    # ledger records PROVEN execution facts.
+                    if execution_terminal:
+                        actual_gain, novelty, novel_count, atom_count = 0.0, 0.0, 0, 0
+                    else:
+                        actual_gain, novelty, novel_count, atom_count = self.realized_evidence_gain(
+                            task,
+                            history,
+                        )
                     recorded = self.queue.record_action_outcome(
                         task["id"], actual_gain, novelty, novel_count, atom_count,
                         observed_at=task.get("finished_at"),
                     )
                     print(
                         f"[MASTER] ACTION OUTCOME task={task['id']} parent={parent_id} "
-                        f"recorded={recorded} actual={actual_gain:.4f}",
+                        f"recorded={recorded} actual={actual_gain:.4f} terminal={execution_terminal}",
                         flush=True,
                     )
                 except Exception as exc:

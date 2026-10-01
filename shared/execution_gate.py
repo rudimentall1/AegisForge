@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from shared.capability_grant import CapabilityGrantError, consume_capability_grant
 from shared.capability_signing import CapabilitySignatureError, SignedCapabilityGrant
 from shared.capability_policy import CapabilityPolicy
+from shared.capability_grant_store import CapabilityGrantStore, CapabilityGrantStoreError
 
 
 class ExecutionGateError(ValueError):
@@ -54,6 +55,7 @@ class ExecutionGate:
         self.db = db
         self.policy = policy or CapabilityPolicy()
         self.signer = signer
+        self.grant_store = CapabilityGrantStore(self.db) if self.db is not None else None
         if self.db is not None:
             self.db.execute(
                 f"""
@@ -116,6 +118,14 @@ class ExecutionGate:
         if grant.policy_version != self.policy.VERSION:
             raise ExecutionGateError("policy_version_mismatch")
 
+        if self.grant_store is not None:
+            try:
+                status = self.grant_store.ensure_registered(_signed)
+            except CapabilityGrantStoreError as exc:
+                raise ExecutionGateError(str(exc)) from exc
+            if status != "ACTIVE":
+                raise ExecutionGateError("grant_revoked" if status == "REVOKED" else "grant_replayed")
+
         try:
             consume_capability_grant(
                 grant,
@@ -150,6 +160,12 @@ class ExecutionGate:
 
         executed_at = (now or datetime.now(timezone.utc)).isoformat()
         receipt_id = "receipt_" + secrets.token_urlsafe(18)
+
+        if self.grant_store is not None:
+            try:
+                self.grant_store.consume(grant.grant_id, receipt_id, executed_at)
+            except CapabilityGrantStoreError as exc:
+                raise ExecutionGateError(str(exc)) from exc
 
         self._consume_nonce(grant, receipt_id, executed_at)
 

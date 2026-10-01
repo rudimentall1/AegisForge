@@ -21,6 +21,7 @@ from shared.capability_policy import (
 from shared.action_intent import build_action_intent
 from shared.evidence_ledger import EvidenceLedger
 from shared.capability_grant import CapabilityGrant, CapabilityGrantError
+from shared.capability_signing import CapabilitySigner, CapabilitySignatureError
 from shared.execution_gate import ExecutionGate
 from shared.executor_registry import ExecutorRegistry, ExecutorRegistryError
 from shared.filesystem_executor import SafeFilesystemExecutor
@@ -85,9 +86,19 @@ class Worker:
             if hasattr(self.queue, "db")
             else None
         )
+        self.capability_signer = None
+        if role in {"validator", "executor"}:
+            signer_path = os.environ.get(
+                "AEGISFORGE_CAPABILITY_KEY_PATH",
+                "/opt/agent-farm/data/capability_ed25519.key",
+            )
+            self.capability_signer = CapabilitySigner.load_or_create(signer_path)
 
         if role == "validator":
-            self.agent = Validator(evidence_ledger=self.evidence_ledger)
+            self.agent = Validator(
+                evidence_ledger=self.evidence_ledger,
+                capability_signer=self.capability_signer,
+            )
         elif role == "executor":
             self.agent = None
         else:
@@ -202,8 +213,8 @@ class Worker:
         intent = result_value.get("intent")
         if not isinstance(grant, dict) or not isinstance(intent, dict):
             return None
-        evidence_ids = grant.get("evidence_ids") or []
-        original_task_id = grant.get("task_id")
+        evidence_ids = grant.get("grant", {}).get("evidence_ids") or []
+        original_task_id = grant.get("grant", {}).get("task_id")
         if not original_task_id or original_task_id == validator_task_id:
             return None
         envelope = {
@@ -229,10 +240,17 @@ class Worker:
         )
         print(
             f"[{self.worker_id}] EXECUTION HANDOFF queued={task_id} "
-            f"grant={grant.get('grant_id')}",
+            f"grant={grant.get('grant', {}).get('grant_id')}",
             flush=True,
         )
         return task_id
+
+    def _signed_grant(self, payload):
+        from shared.capability_signing import SignedCapabilityGrant
+        try:
+            return SignedCapabilityGrant.from_dict(payload)
+        except CapabilitySignatureError as exc:
+            raise ExecutorRegistryError(str(exc)) from exc
 
     def _execute_granted_task(self, task):
         payload = getattr(task, "payload", {}) or {}
@@ -245,15 +263,16 @@ class Worker:
         original_task_id = envelope.get("original_task_id")
         if not isinstance(intent_data, dict) or not isinstance(grant_data, dict):
             raise ExecutorRegistryError("execution_handoff_incomplete")
-        if not original_task_id or str(grant_data.get("task_id")) != str(original_task_id):
+        if not original_task_id:
             raise ExecutorRegistryError("execution_origin_mismatch")
         try:
             intent = ActionIntent(**intent_data)
-            grant = CapabilityGrant.from_dict(grant_data)
-        except (TypeError, ValueError, CapabilityGrantError) as exc:
+            signed_grant = self._signed_grant(grant_data)
+            grant = self.capability_signer.verify(signed_grant)
+        except (TypeError, ValueError, CapabilityGrantError, CapabilitySignatureError) as exc:
             raise ExecutorRegistryError(str(exc)) from exc
         if str(grant.task_id) != str(original_task_id):
-            raise ExecutorRegistryError("grant_task_mismatch")
+            raise ExecutorRegistryError("execution_origin_mismatch")
         if sorted(str(v) for v in evidence_ids) != sorted(str(v) for v in grant.evidence_ids):
             raise ExecutorRegistryError("execution_evidence_mismatch")
         root = os.environ.get(
@@ -261,7 +280,7 @@ class Worker:
             "/opt/agent-farm/staging-execution",
         )
         adapter = SafeFilesystemExecutor(root)
-        gate = ExecutionGate(db=self.queue.db)
+        gate = ExecutionGate(db=self.queue.db, signer=self.capability_signer)
         registry = ExecutorRegistry(
             gate,
             evidence_ledger=self.evidence_ledger,
@@ -273,7 +292,7 @@ class Worker:
             "staging_filesystem",
             adapter.delete,
         )
-        result = registry.execute(grant, intent, evidence_ids=evidence_ids)
+        result = registry.execute(signed_grant, intent, evidence_ids=evidence_ids)
         receipt = result["receipt"]
         return {
             "agent": self.role,

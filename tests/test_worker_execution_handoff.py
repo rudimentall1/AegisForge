@@ -129,5 +129,3 @@ def test_executor_rejects_tampered_origin(tmp_path, monkeypatch):
     import pytest
     with pytest.raises(ValueError, match="execution_origin_mismatch"):
         worker._execute_granted_task(task)
-
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

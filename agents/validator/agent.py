@@ -1,5 +1,3 @@
-[Reading 379 lines from start (total: 379 lines, 0 remaining)]
-
 import json
 from shared.task import Task
 from shared.github_client import GitHubClient

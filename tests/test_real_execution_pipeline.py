@@ -88,7 +88,7 @@ def test_real_queue_validator_executor_pipeline(tmp_path, monkeypatch):
     assert validator.run_once() is True
     validator_result = queue.get_result(validator_id)
     assert validator_result["status"] == "VERIFIED"
-    assert validator_result["capability_grant"]["task_id"] == parent_id
+    assert validator_result["capability_grant"]["grant"]["task_id"] == parent_id
 
     execution_rows = queue.db.execute(
         "SELECT id FROM queue WHERE role='executor' AND parent_task_id=?",

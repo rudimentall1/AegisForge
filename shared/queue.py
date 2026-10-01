@@ -666,30 +666,43 @@ class TaskQueue:
         max_rows=200,
     ):
         """Record bounded feedback for a planner action once its child completes."""
-        row = self.db.execute(
-            """
-            SELECT p.id, p.action_role, p.expected_evidence_gain,
-                   p.action_cost, p.action_efficiency
-            FROM queue child
-            JOIN queue p ON p.id = child.parent_task_id
-            WHERE child.id = ?
-              AND child.status = 'completed'
-              AND p.action_role IS NOT NULL
-            """,
-            (child_task_id,),
-        ).fetchone()
-        if row is None:
+        current_id = child_task_id
+        origin = None
+        while current_id:
+            current = self.db.execute(
+                """
+                SELECT id, parent_task_id, action_role, expected_evidence_gain,
+                       action_cost, action_efficiency, status
+                FROM queue WHERE id = ?
+                """,
+                (current_id,),
+            ).fetchone()
+            if current is None:
+                break
+            if current[2]:
+                origin = current
+                break
+            current_id = current[1]
+
+        if origin is None:
             return False
 
+        # The planner action itself may remain pending while its descendant
+        # completes, so its status is intentionally not used as a gate.
+
+        # One calibration sample belongs to one logical planner action, not
+        # to every validator/executor descendant in its provenance chain.
         existing = self.db.execute(
-            "SELECT 1 FROM planner_action_outcomes WHERE child_task_id = ?",
-            (child_task_id,),
+            "SELECT 1 FROM planner_action_outcomes WHERE parent_task_id = ?",
+            (origin[0],),
         ).fetchone()
         if existing:
             return False
 
+        row = origin
+
         actual = max(0.0, min(1.0, float(actual_evidence_gain)))
-        expected = max(0.0, min(1.0, float(row[2] or 0.0)))
+        expected = max(0.0, min(1.0, float(row[3] or 0.0)))
         now = observed_at or datetime.now(timezone.utc).isoformat()
         self.db.execute(
             """
@@ -700,8 +713,8 @@ class TaskQueue:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
             """,
             (
-                child_task_id, row[0], row[1], expected, float(row[3] or 0.0),
-                float(row[4] or 0.0), actual, max(0.0, min(1.0, float(novelty))),
+                child_task_id, row[0], row[2], expected, float(row[4] or 0.0),
+                float(row[5] or 0.0), actual, max(0.0, min(1.0, float(novelty))),
                 int(novel_atom_count), int(atom_count), actual - expected, now,
             ),
         )

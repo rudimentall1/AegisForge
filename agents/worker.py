@@ -25,7 +25,12 @@ from shared.capability_signing import CapabilitySigner, CapabilitySignatureError
 from shared.execution_gate import ExecutionGate
 from shared.executor_registry import ExecutorRegistry, ExecutorRegistryError
 from shared.filesystem_executor import SafeFilesystemExecutor
-from shared.outcome_verifier import FilesystemOutcomeVerifier, OutcomeVerificationError
+from shared.artifact_executor import SafeArtifactPublisher
+from shared.outcome_verifier import (
+    FilesystemOutcomeVerifier,
+    ArtifactOutcomeVerifier,
+    OutcomeVerificationError,
+)
 from shared.capability_policy import ActionIntent
 import hashlib
 
@@ -293,13 +298,25 @@ class Worker:
             "staging_filesystem",
             adapter.delete,
         )
+        artifact_adapter = SafeArtifactPublisher(root)
+        registry.register(
+            "staging_publish",
+            "publish",
+            "staging_artifact_store",
+            artifact_adapter.publish,
+        )
         result = registry.execute(signed_grant, intent, evidence_ids=evidence_ids)
         receipt = result["receipt"]
 
         # Do not treat the executor's self-reported result as proof. The
         # verifier independently inspects the real execution target.
-        verifier = FilesystemOutcomeVerifier(root)
         try:
+            if intent.action == "delete":
+                verifier = FilesystemOutcomeVerifier(root)
+            elif intent.action == "publish":
+                verifier = ArtifactOutcomeVerifier(root)
+            else:
+                raise ExecutorRegistryError("outcome_verifier_not_registered")
             outcome = verifier.verify(intent, receipt)
         except OutcomeVerificationError as exc:
             raise ExecutorRegistryError(str(exc)) from exc

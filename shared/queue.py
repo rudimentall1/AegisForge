@@ -19,11 +19,12 @@ MAX_CAPABILITY_INTENT_BYTES = 2048
 
 
 class TaskQueue:
-    def __init__(self):
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_path=None):
+        path = Path(db_path) if db_path else DB_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
 
         self.db = sqlite3.connect(
-            DB_PATH,
+            path,
             timeout=30,
             check_same_thread=False,
         )
@@ -701,6 +702,73 @@ class TaskQueue:
             )
             """,
             (int(max_rows),),
+        )
+        self.db.commit()
+        return True
+
+    def record_verified_outcome_feedback(
+        self,
+        descendant_task_id,
+        status,
+        observed_at=None,
+    ):
+        """Feed a verified execution outcome back to its originating planner action.
+
+        The execution task may be nested below validator/handoff tasks, so walk
+        ancestors until the planner action carrying action_role is found.
+        Only a PROVEN outcome creates positive evidence feedback.
+        """
+        current_id = descendant_task_id
+        origin = None
+        while current_id:
+            row = self.db.execute(
+                "SELECT id, parent_task_id, action_role, status FROM queue WHERE id = ?",
+                (current_id,),
+            ).fetchone()
+            if row is None:
+                break
+            if row[2]:
+                origin = row
+                break
+            current_id = row[1]
+
+        if origin is None or str(status).upper() != "PROVEN":
+            return False
+
+        # A verified real-world effect is a concrete evidence gain. Keep the
+        # feedback bounded; this is deliberately conservative rather than
+        # claiming that every execution proves an entire research hypothesis.
+        existing = self.db.execute(
+            "SELECT 1 FROM planner_action_outcomes WHERE child_task_id = ?",
+            (descendant_task_id,),
+        ).fetchone()
+        if existing:
+            return False
+
+        expected_row = self.db.execute(
+            "SELECT expected_evidence_gain, action_cost, action_efficiency "
+            "FROM queue WHERE id = ?",
+            (origin[0],),
+        ).fetchone()
+        if expected_row is None:
+            return False
+
+        expected = max(0.0, min(1.0, float(expected_row[0] or 0.0)))
+        actual = 1.0
+        now = observed_at or datetime.now(timezone.utc).isoformat()
+        self.db.execute(
+            """
+            INSERT INTO planner_action_outcomes
+            (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+             action_cost, action_efficiency, actual_evidence_gain, novelty,
+             novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+            """,
+            (
+                descendant_task_id, origin[0], origin[2], expected,
+                float(expected_row[1] or 0.0), float(expected_row[2] or 0.0),
+                actual, 1.0, 1, 1, actual - expected, now,
+            ),
         )
         self.db.commit()
         return True

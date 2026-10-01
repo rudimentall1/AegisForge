@@ -417,6 +417,10 @@ class Worker:
                     task.status = SUCCESS_STATUSES[self.role]
                     self.memory.save_task(task)
                     self.queue.finish(task_id, result=result_value)
+                    self.queue.record_verified_outcome_feedback(
+                        descendant_task_id=task_id,
+                        status=result_value.get("status"),
+                    )
                     print(
                         f"[{self.worker_id}] EXECUTED grant="
                         f"{result_value.get('grant_id')}",

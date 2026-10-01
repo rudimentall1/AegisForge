@@ -319,6 +319,13 @@ class Worker:
             if len(task_row) > 10
             else None
         )
+        if isinstance(capability_intent, str) and capability_intent.strip():
+            try:
+                capability_intent = json.loads(capability_intent)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"Invalid stored capability_intent for task {task_id}: {exc}"
+                ) from exc
 
         print(
             f"[{self.worker_id}] "

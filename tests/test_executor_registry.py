@@ -4,6 +4,7 @@ import pytest
 
 from shared.capability_grant import issue_capability_grant
 from shared.capability_policy import ActionIntent, CapabilityPolicy
+from shared.capability_signing import CapabilitySigner
 from shared.evidence_ledger import EvidenceLedger
 from shared.execution_gate import ExecutionGate
 from shared.executor_registry import ExecutorRegistry, ExecutorRegistryError
@@ -22,27 +23,29 @@ def _intent(action="deploy", resource="staging"):
     )
 
 
-def _grant(intent):
-    return issue_capability_grant(
+def _grant(intent, signer):
+    grant = issue_capability_grant(
         task_id="task-1",
         intent=intent,
         policy_version=CapabilityPolicy.VERSION,
         evidence_ids=["e1", "e2"],
         authorized_scope=intent.destination,
     )
+    return signer.sign(grant)
 
 
 def _runtime():
     db = sqlite3.connect(":memory:")
     ledger = EvidenceLedger(db)
-    gate = ExecutionGate(db=db)
-    return db, ledger, ExecutorRegistry(gate, evidence_ledger=ledger)
+    signer = CapabilitySigner.generate()
+    gate = ExecutionGate(db=db, signer=signer)
+    return db, ledger, ExecutorRegistry(gate, evidence_ledger=ledger), signer
 
 
 def test_successful_execution_creates_receipt_and_ledger_evidence():
-    _, ledger, registry = _runtime()
+    _, ledger, registry, signer = _runtime()
     intent = _intent()
-    grant = _grant(intent)
+    grant = _grant(intent, signer)
     calls = []
     registry.register("staging_deploy", "deploy", "staging", lambda current: calls.append(current.target) or {"ok": True})
 
@@ -55,7 +58,7 @@ def test_successful_execution_creates_receipt_and_ledger_evidence():
 
 
 def test_missing_grant_blocks_before_handler():
-    _, _, registry = _runtime()
+    _, _, registry, signer = _runtime()
     intent = _intent()
     calls = []
     registry.register("staging_deploy", "deploy", "staging", lambda current: calls.append(True))
@@ -67,9 +70,9 @@ def test_missing_grant_blocks_before_handler():
 
 
 def test_wrong_target_is_blocked_before_handler():
-    _, _, registry = _runtime()
+    _, _, registry, signer = _runtime()
     intent = _intent()
-    grant = _grant(intent)
+    grant = _grant(intent, signer)
     calls = []
     registry.register("staging_deploy", "deploy", "staging", lambda current: calls.append(True))
     tampered = ActionIntent(
@@ -88,9 +91,9 @@ def test_wrong_target_is_blocked_before_handler():
 
 
 def test_failed_handler_creates_failed_receipt_and_evidence():
-    _, _, registry = _runtime()
+    _, _, registry, signer = _runtime()
     intent = _intent()
-    grant = _grant(intent)
+    grant = _grant(intent, signer)
     registry.register("staging_deploy", "deploy", "staging", lambda current: (_ for _ in ()).throw(RuntimeError("boom")))
 
     result = registry.execute(grant, intent, evidence_ids=["e1", "e2"])
@@ -101,9 +104,9 @@ def test_failed_handler_creates_failed_receipt_and_evidence():
 
 
 def test_replay_does_not_call_handler_twice():
-    _, _, registry = _runtime()
+    _, _, registry, signer = _runtime()
     intent = _intent()
-    grant = _grant(intent)
+    grant = _grant(intent, signer)
     calls = []
     registry.register("staging_deploy", "deploy", "staging", lambda current: calls.append(True) or {"ok": True})
 
@@ -115,9 +118,9 @@ def test_replay_does_not_call_handler_twice():
 
 
 def test_unknown_executor_is_blocked():
-    _, _, registry = _runtime()
+    _, _, registry, signer = _runtime()
     intent = _intent(action="publish", resource="staging")
-    grant = _grant(intent)
+    grant = _grant(intent, signer)
 
     with pytest.raises(ExecutorRegistryError, match="executor_not_registered"):
         registry.execute(grant, intent, evidence_ids=["e1", "e2"])

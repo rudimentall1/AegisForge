@@ -2,11 +2,8 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from shared.capability_grant import (
-    CapabilityGrant,
-    CapabilityGrantError,
-    consume_capability_grant,
-)
+from shared.capability_grant import CapabilityGrantError, consume_capability_grant
+from shared.capability_signing import CapabilitySignatureError, SignedCapabilityGrant
 from shared.capability_policy import CapabilityPolicy
 
 
@@ -53,9 +50,10 @@ class ExecutionGate:
 
     CONSUMPTION_TABLE = "capability_grant_consumptions"
 
-    def __init__(self, db=None, policy=None):
+    def __init__(self, db=None, policy=None, signer=None):
         self.db = db
         self.policy = policy or CapabilityPolicy()
+        self.signer = signer
         if self.db is not None:
             self.db.execute(
                 f"""
@@ -70,15 +68,15 @@ class ExecutionGate:
             )
             self.db.commit()
 
-    @staticmethod
-    def _grant(value):
-        if isinstance(value, CapabilityGrant):
-            return value
-        if isinstance(value, dict):
-            payload = dict(value)
-            payload["evidence_ids"] = tuple(payload.get("evidence_ids") or ())
-            return CapabilityGrant(**payload)
-        raise ExecutionGateError("grant_required")
+    def _grant(self, value):
+        if not isinstance(value, SignedCapabilityGrant):
+            raise ExecutionGateError("signed_grant_required")
+        if self.signer is None:
+            raise ExecutionGateError("signer_required")
+        try:
+            return self.signer.verify(value), value
+        except CapabilitySignatureError as exc:
+            raise ExecutionGateError(str(exc)) from exc
 
     @staticmethod
     def _scope(intent):
@@ -113,7 +111,7 @@ class ExecutionGate:
         if grant is None:
             raise ExecutionGateError("grant_required")
 
-        grant = self._grant(grant)
+        grant, _signed = self._grant(grant)
 
         if grant.policy_version != self.policy.VERSION:
             raise ExecutionGateError("policy_version_mismatch")

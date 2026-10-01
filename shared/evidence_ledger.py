@@ -224,6 +224,39 @@ class EvidenceLedger:
             "ledger_result": result,
         }
 
+    def record_execution_receipt(
+        self,
+        task_id,
+        role,
+        receipt,
+        observed_at=None,
+        commit=True,
+    ):
+        """Persist an execution receipt as canonical evidence."""
+        if receipt is None:
+            raise ValueError("receipt_required")
+        payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt)
+        atom = "execution_receipt:" + json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        result = self.record_observation(
+            task_id,
+            role,
+            atom,
+            observed_at=observed_at,
+            commit=commit,
+        )
+        return {
+            "evidence_id": self.atom_id(atom),
+            "receipt_id": payload.get("receipt_id"),
+            "status": payload.get("status"),
+            "source": role,
+            "ledger_result": result,
+        }
+
     def record_observation(self, task_id, role, atom, observed_at=None, commit=True):
         """Record one bounded task-level evidence/audit observation.
 

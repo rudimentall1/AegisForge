@@ -83,3 +83,38 @@ def test_artifact_publish_rejects_content_hash_tampering(tmp_path):
         assert str(exc) == "artifact_content_hash_mismatch"
     else:
         raise AssertionError("tampered content was accepted")
+
+
+def test_artifact_verifier_detects_post_execution_tampering(tmp_path):
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    root = tmp_path / "artifacts"
+    content = "immutable claim"
+    intent = _intent(content)
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(
+        issue_capability_grant(
+            "tamper-task",
+            intent,
+            CapabilityPolicy.VERSION,
+            ["artifact-integrity-1"],
+            "staging",
+        )
+    )
+    registry = ExecutorRegistry(
+        ExecutionGate(db=db, signer=signer),
+        evidence_ledger=ledger,
+        role="executor",
+    )
+    registry.register(
+        "staging_publish",
+        "publish",
+        "staging_artifact_store",
+        SafeArtifactPublisher(root).publish,
+    )
+    result = registry.execute(grant, intent, evidence_ids=["artifact-integrity-1"])
+    (root / intent.target).write_text("tampered", encoding="utf-8")
+
+    import pytest
+    with pytest.raises(Exception, match="artifact_hash_mismatch"):
+        ArtifactOutcomeVerifier(root).verify(intent, result["receipt"])

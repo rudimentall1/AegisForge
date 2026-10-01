@@ -1,5 +1,3 @@
-[Reading 76 lines from start (total: 76 lines, 0 remaining)]
-
 from datetime import datetime, timedelta, timezone
 
 import pytest

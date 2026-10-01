@@ -85,6 +85,30 @@ def _insert_planner_outcome(q, idx, role, expected, actual):
     q.db.commit()
 
 
+def test_action_outcome_attributes_nested_executor_to_one_planner_action(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    planner = q.add("planner action", "developer")
+    q.mark_planner_decision(
+        planner, "EXECUTE", 0.8, "fp", "developer", 0.7, 0.2, 3.5
+    )
+    validator = q.add("verify evidence", "validator", parent_task_id=planner, allow_failed_parent=True)
+    executor = q.add("execute granted capability", "executor", parent_task_id=validator, allow_failed_parent=True)
+    q.db.execute("UPDATE queue SET status='completed' WHERE id IN (?, ?)", (validator, executor))
+    q.db.commit()
+
+    assert q.record_action_outcome(validator, 1.0, 1.0, 1, 1) is True
+    assert q.record_action_outcome(executor, 0.0, 0.0, 0, 0) is False
+
+    row = q.db.execute(
+        "SELECT child_task_id, parent_task_id, action_role, actual_evidence_gain "
+        "FROM planner_action_outcomes"
+    ).fetchone()
+    assert row == (validator, planner, "developer", 1.0)
+    assert q.action_outcome_summary()["samples"] == 1
+    q.db.close()
+
+
 def test_action_calibration_neutral_without_enough_history(tmp_path, monkeypatch):
     monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
     q = TaskQueue()

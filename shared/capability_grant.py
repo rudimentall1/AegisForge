@@ -59,6 +59,43 @@ class CapabilityGrant:
     def canonical(self):
         return _canonical(self.to_dict())
 
+    @classmethod
+    def from_dict(cls, payload):
+        if not isinstance(payload, dict):
+            raise CapabilityGrantError("grant_payload_required")
+        required = {
+            "grant_id", "task_id", "intent_hash", "policy_version",
+            "evidence_ids", "evidence_hash", "authorized_action",
+            "authorized_target", "authorized_scope", "issued_at",
+            "expires_at", "nonce", "status",
+        }
+        missing = sorted(required - set(payload))
+        if missing:
+            raise CapabilityGrantError("grant_fields_missing:" + ",".join(missing))
+        try:
+            evidence_ids = tuple(sorted(str(v) for v in payload["evidence_ids"]))
+        except (TypeError, ValueError):
+            raise CapabilityGrantError("invalid_evidence_ids")
+        grant = cls(
+            grant_id=str(payload["grant_id"]),
+            task_id=str(payload["task_id"]),
+            intent_hash=str(payload["intent_hash"]),
+            policy_version=str(payload["policy_version"]),
+            evidence_ids=evidence_ids,
+            evidence_hash=str(payload["evidence_hash"]),
+            authorized_action=str(payload["authorized_action"]),
+            authorized_target=str(payload["authorized_target"]),
+            authorized_scope=str(payload["authorized_scope"]),
+            issued_at=str(payload["issued_at"]),
+            expires_at=str(payload["expires_at"]),
+            nonce=str(payload["nonce"]),
+            status=str(payload["status"]),
+        )
+        # Recompute the evidence commitment before any execution path uses it.
+        if grant.evidence_hash != evidence_hash(grant.evidence_ids):
+            raise CapabilityGrantError("evidence_hash_mismatch")
+        return grant
+
     def verify_binding(self, intent, evidence_ids):
         if self.status != "ACTIVE":
             raise CapabilityGrantError("grant_not_active")
@@ -113,3 +150,5 @@ def consume_capability_grant(grant, intent, evidence_ids=(), now=None):
     if current >= expires:
         raise CapabilityGrantError("grant_expired")
     return True
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

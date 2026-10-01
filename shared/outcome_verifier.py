@@ -96,6 +96,14 @@ class FilesystemOutcomeVerifier:
 class ArtifactOutcomeVerifier:
     """Independently verify a staged artifact publication."""
 
+    @staticmethod
+    def _receipt_dict(receipt):
+        if hasattr(receipt, "to_dict"):
+            return receipt.to_dict()
+        if isinstance(receipt, dict):
+            return dict(receipt)
+        raise OutcomeVerificationError("receipt_required")
+
     def __init__(self, root):
         self.root = Path(root).resolve()
 

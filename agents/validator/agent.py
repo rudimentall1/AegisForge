@@ -285,7 +285,9 @@ class Validator:
                 parent_result.get("decision")
                 if isinstance(parent_result, dict) else None
             ),
-            "intent": intent_data,
+            # The execution handoff must carry the original authorized intent,
+            # not the validator request that triggered this verification.
+            "intent": structured_parent_intent if verified else intent_data,
             "checks": checks,
             "policy_result": policy_result,
             "evidence_claims": evidence_claims,

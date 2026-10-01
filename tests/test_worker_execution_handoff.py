@@ -1,6 +1,7 @@
 import sqlite3
 
 from shared.capability_grant import issue_capability_grant
+from shared.capability_signing import CapabilitySigner
 from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.evidence_ledger import EvidenceLedger
 from shared.task import Task
@@ -35,11 +36,12 @@ def test_validator_verified_result_creates_execution_handoff():
     worker.role = "validator"
     worker.worker_id = "test-validator"
     worker.queue = Queue()
+    worker.capability_signer = CapabilitySigner.generate()
     intent = _delete_intent("workspace/obsolete.txt")
-    grant = issue_capability_grant(
+    grant = worker.capability_signer.sign(issue_capability_grant(
         "original-task-1", intent, CapabilityPolicy.VERSION,
         ["recovery-1"], "staging",
-    ).to_dict()
+    )).to_dict()
 
     result = worker._enqueue_execution_handoff(
         "validator-task-1",
@@ -55,7 +57,7 @@ def test_validator_verified_result_creates_execution_handoff():
     envelope = worker.queue.calls[0]["capability_intent"]
     assert envelope["action"] == "execute_granted"
     assert envelope["original_task_id"] == "original-task-1"
-    assert envelope["capability_grant"]["grant_id"] == grant["grant_id"]
+    assert envelope["capability_grant"]["grant"]["grant_id"] == grant["grant"]["grant_id"]
     assert worker.queue.calls[0]["role"] == "executor"
 
 
@@ -70,13 +72,14 @@ def test_executor_worker_executes_verified_delete(tmp_path, monkeypatch):
     worker.role = "executor"
     worker.queue = type("Queue", (), {"db": db})()
     worker.evidence_ledger = ledger
+    worker.capability_signer = CapabilitySigner.generate()
     monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
 
     intent = _delete_intent("workspace/obsolete.txt")
-    grant = issue_capability_grant(
+    grant = worker.capability_signer.sign(issue_capability_grant(
         "original-task-1", intent, CapabilityPolicy.VERSION,
         ["recovery-1"], "staging",
-    ).to_dict()
+    )).to_dict()
     task = Task(
         task_id="execution-task-1",
         description="execute verified delete",
@@ -95,7 +98,7 @@ def test_executor_worker_executes_verified_delete(tmp_path, monkeypatch):
 
     assert not target.exists()
     assert result["status"] == "EXECUTED"
-    assert result["grant_id"] == grant["grant_id"]
+    assert result["grant_id"] == grant["grant"]["grant_id"]
     assert result["evidence"]["status"] == "EXECUTED"
 
 
@@ -105,13 +108,14 @@ def test_executor_rejects_tampered_origin(tmp_path, monkeypatch):
     worker.role = "executor"
     worker.queue = type("Queue", (), {"db": db})()
     worker.evidence_ledger = EvidenceLedger(db)
+    worker.capability_signer = CapabilitySigner.generate()
     monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
 
     intent = _delete_intent("file.txt")
-    grant = issue_capability_grant(
+    grant = worker.capability_signer.sign(issue_capability_grant(
         "original-task-1", intent, CapabilityPolicy.VERSION,
         ["recovery-1"], "staging",
-    ).to_dict()
+    )).to_dict()
     task = Task(
         task_id="execution-task-1",
         description="tampered handoff",
@@ -131,11 +135,12 @@ def test_executor_rejects_tampered_origin(tmp_path, monkeypatch):
         worker._execute_granted_task(task)
 
 
-def _executor_worker(db):
+def _executor_worker(db, signer):
     worker = Worker.__new__(Worker)
     worker.role = "executor"
     worker.queue = type("Queue", (), {"db": db})()
     worker.evidence_ledger = EvidenceLedger(db)
+    worker.capability_signer = signer
     return worker
 
 
@@ -149,7 +154,7 @@ def _execution_task(intent, grant, evidence_ids=None, original_task_id="original
                 "original_task_id": original_task_id,
                 "execution_intent": intent.to_dict(),
                 "capability_grant": grant.to_dict(),
-                "evidence_ids": list(evidence_ids if evidence_ids is not None else grant.evidence_ids),
+                "evidence_ids": list(evidence_ids if evidence_ids is not None else grant.grant.evidence_ids),
             }
         },
     )
@@ -164,9 +169,10 @@ def test_executor_rejects_tampered_intent_before_effect(tmp_path, monkeypatch):
     monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
 
     intent = _delete_intent("workspace/obsolete.txt")
-    grant = issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging")
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging"))
     tampered = _delete_intent("workspace/other.txt")
-    worker = _executor_worker(db)
+    worker = _executor_worker(db, signer)
 
     import pytest
     with pytest.raises(ValueError, match="intent_hash_mismatch"):
@@ -183,8 +189,9 @@ def test_executor_rejects_tampered_evidence_before_effect(tmp_path, monkeypatch)
     monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
 
     intent = _delete_intent("workspace/obsolete.txt")
-    grant = issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging")
-    worker = _executor_worker(db)
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging"))
+    worker = _executor_worker(db, signer)
 
     import pytest
     with pytest.raises(ValueError, match="execution_evidence_mismatch"):
@@ -201,8 +208,9 @@ def test_executor_grant_is_single_use_across_tasks(tmp_path, monkeypatch):
     monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
 
     intent = _delete_intent("workspace/obsolete.txt")
-    grant = issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging")
-    worker = _executor_worker(db)
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging"))
+    worker = _executor_worker(db, signer)
 
     first = worker._execute_granted_task(_execution_task(intent, grant))
     assert first["status"] == "EXECUTED"
@@ -224,12 +232,13 @@ def test_executor_rejects_tampered_grant_payload(tmp_path, monkeypatch):
     monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
 
     intent = _delete_intent("workspace/obsolete.txt")
-    grant = issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging")
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging"))
     payload = grant.to_dict()
-    payload["evidence_hash"] = "tampered"
+    payload["grant"]["evidence_hash"] = "tampered"
     task = _execution_task(intent, grant)
     task.payload["capability_intent"]["capability_grant"] = payload
-    worker = _executor_worker(db)
+    worker = _executor_worker(db, signer)
 
     import pytest
     with pytest.raises(ValueError, match="evidence_hash_mismatch"):

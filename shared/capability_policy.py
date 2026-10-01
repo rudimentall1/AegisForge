@@ -1,3 +1,5 @@
+[Reading 116 lines from start (total: 116 lines, 0 remaining)]
+
 from dataclasses import dataclass
 from enum import Enum
 
@@ -24,6 +26,7 @@ class ActionIntent:
     privileged: bool = False
     read_only: bool = True
     evidence_required: bool = False
+    parameters: dict = None
 
     def to_dict(self):
         return {
@@ -34,6 +37,7 @@ class ActionIntent:
             "requires_filesystem": self.requires_filesystem, "financial": self.financial,
             "privileged": self.privileged, "read_only": self.read_only,
             "evidence_required": self.evidence_required,
+            "parameters": dict(self.parameters or {}),
         }
 
 

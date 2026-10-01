@@ -1,3 +1,5 @@
+[Reading 76 lines from start (total: 76 lines, 0 remaining)]
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -46,6 +48,14 @@ def test_intent_tampering_is_rejected():
     grant = issue_capability_grant("task-1", _intent(), "policy-v1")
     with pytest.raises(CapabilityGrantError, match="intent_hash_mismatch"):
         consume_capability_grant(grant, _intent(target="production"))
+
+
+def test_execution_parameters_are_bound_to_grant():
+    intent = _intent(parameters={"title": "safe", "body": "approved"})
+    grant = issue_capability_grant("task-1", intent, "policy-v1")
+    tampered = _intent(parameters={"title": "safe", "body": "tampered"})
+    with pytest.raises(CapabilityGrantError, match="intent_hash_mismatch"):
+        consume_capability_grant(grant, tampered)
 
 
 def test_evidence_tampering_is_rejected():

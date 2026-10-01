@@ -1,3 +1,5 @@
+[Reading 110 lines from start (total: 110 lines, 0 remaining)]
+
 import json
 
 from shared.capability_policy import ActionIntent
@@ -74,6 +76,7 @@ INTENT_FIELDS = {
     "privileged",
     "read_only",
     "evidence_required",
+    "parameters",
 }
 
 

@@ -1,3 +1,5 @@
+[Reading 379 lines from start (total: 379 lines, 0 remaining)]
+
 import json
 from shared.task import Task
 from shared.github_client import GitHubClient
@@ -181,7 +183,7 @@ class Validator:
                         "role", "action", "target", "resource", "destination",
                         "data_scope", "irreversible", "requires_network",
                         "requires_shell", "requires_filesystem", "financial",
-                        "privileged", "read_only", "evidence_required",
+                        "privileged", "read_only", "evidence_required", "parameters",
                     )
                     if key in structured_parent_intent
                 }

@@ -6,6 +6,7 @@ import pytest
 
 from shared.capability_grant import issue_capability_grant
 from shared.capability_policy import ActionIntent, CapabilityPolicy
+from shared.capability_signing import CapabilitySigner
 from shared.execution_gate import ExecutionGate, ExecutionGateError
 
 
@@ -23,9 +24,10 @@ def _intent(**overrides):
     return ActionIntent(**values)
 
 
-def _grant(intent=None, **kwargs):
+def _grant(intent=None, signer=None, **kwargs):
     intent = intent or _intent()
-    return issue_capability_grant(
+    signer = signer or CapabilitySigner.generate()
+    grant = issue_capability_grant(
         "task-1",
         intent,
         CapabilityPolicy.VERSION,
@@ -33,6 +35,7 @@ def _grant(intent=None, **kwargs):
         authorized_scope=intent.destination or intent.resource,
         **kwargs,
     )
+    return signer, signer.sign(grant)
 
 
 def _db():
@@ -46,24 +49,25 @@ def test_gate_requires_grant():
 
 
 def test_gate_rejects_policy_drift():
-    gate = ExecutionGate(_db())
-    grant = _grant()
+    signer, grant = _grant()
+    gate = ExecutionGate(_db(), signer=signer)
     gate.policy.VERSION = "changed"
     with pytest.raises(ExecutionGateError, match="policy_version_mismatch"):
         gate.execute(grant, _intent(), lambda: "executed", ["ev-1"])
 
 
 def test_gate_enforces_scope():
-    gate = ExecutionGate(_db())
     intent = _intent()
-    grant = replace(_grant(intent), authorized_scope="other")
+    signer, signed = _grant(intent)
+    grant = signer.sign(replace(signed.grant, authorized_scope="other"))
+    gate = ExecutionGate(_db(), signer=signer)
     with pytest.raises(ExecutionGateError, match="authorized_scope_mismatch"):
         gate.execute(grant, intent, lambda: "executed", ["ev-1"])
 
 
 def test_gate_executes_once_and_returns_receipt():
-    gate = ExecutionGate(_db())
-    grant = _grant()
+    signer, grant = _grant()
+    gate = ExecutionGate(_db(), signer=signer)
     calls = []
     receipt = gate.execute(
         grant,
@@ -72,8 +76,8 @@ def test_gate_executes_once_and_returns_receipt():
         ["ev-1"],
     )
     assert receipt.status == "EXECUTED"
-    assert receipt.grant_id == grant.grant_id
-    assert receipt.intent_hash == grant.intent_hash
+    assert receipt.grant_id == grant.grant.grant_id
+    assert receipt.intent_hash == grant.grant.intent_hash
     assert receipt.result == {"ok": True}
     assert calls == ["ran"]
 
@@ -83,16 +87,16 @@ def test_gate_executes_once_and_returns_receipt():
 
 
 def test_gate_rejects_expired_grant():
-    gate = ExecutionGate(_db())
-    grant = _grant(ttl_seconds=1)
+    signer, grant = _grant(ttl_seconds=1)
+    gate = ExecutionGate(_db(), signer=signer)
     future = datetime.now(timezone.utc) + timedelta(seconds=2)
     with pytest.raises(ExecutionGateError, match="grant_expired"):
         gate.execute(grant, _intent(), lambda: "executed", ["ev-1"], now=future)
 
 
 def test_failed_executor_still_produces_failure_receipt_and_consumes_grant():
-    gate = ExecutionGate(_db())
-    grant = _grant()
+    signer, grant = _grant()
+    gate = ExecutionGate(_db(), signer=signer)
     receipt = gate.execute(
         grant,
         _intent(),

@@ -5,6 +5,7 @@ import pytest
 
 from shared.capability_grant import issue_capability_grant
 from shared.capability_policy import ActionIntent, CapabilityPolicy
+from shared.capability_signing import CapabilitySigner
 from shared.evidence_ledger import EvidenceLedger
 from shared.execution_gate import ExecutionGate
 from shared.executor_registry import ExecutorRegistry
@@ -33,13 +34,15 @@ def test_authorized_delete_executes_and_records_receipt(tmp_path):
 
     db = sqlite3.connect(":memory:")
     ledger = EvidenceLedger(db)
-    registry = ExecutorRegistry(ExecutionGate(db=db), evidence_ledger=ledger)
+    signer = CapabilitySigner.generate()
+    registry = ExecutorRegistry(ExecutionGate(db=db, signer=signer), evidence_ledger=ledger)
     adapter = SafeFilesystemExecutor(tmp_path)
     registry.register("staging_delete", "delete", "staging_filesystem", adapter.delete)
     intent = _intent("workspace/obsolete.txt")
     grant = issue_capability_grant("task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging")
+    signed_grant = signer.sign(grant)
 
-    result = registry.execute(grant, intent, ["recovery-1"])
+    result = registry.execute(signed_grant, intent, ["recovery-1"])
 
     assert not target.exists()
     assert result["receipt"].status == "EXECUTED"

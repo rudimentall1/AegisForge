@@ -129,3 +129,109 @@ def test_executor_rejects_tampered_origin(tmp_path, monkeypatch):
     import pytest
     with pytest.raises(ValueError, match="execution_origin_mismatch"):
         worker._execute_granted_task(task)
+
+
+def _executor_worker(db):
+    worker = Worker.__new__(Worker)
+    worker.role = "executor"
+    worker.queue = type("Queue", (), {"db": db})()
+    worker.evidence_ledger = EvidenceLedger(db)
+    return worker
+
+
+def _execution_task(intent, grant, evidence_ids=None, original_task_id="original-task-1"):
+    return Task(
+        task_id="execution-task-1",
+        description="adversarial execution handoff",
+        payload={
+            "capability_intent": {
+                "action": "execute_granted",
+                "original_task_id": original_task_id,
+                "execution_intent": intent.to_dict(),
+                "capability_grant": grant.to_dict(),
+                "evidence_ids": list(evidence_ids if evidence_ids is not None else grant.evidence_ids),
+            }
+        },
+    )
+
+
+def test_executor_rejects_tampered_intent_before_effect(tmp_path, monkeypatch):
+    import sqlite3
+    db = sqlite3.connect(":memory:")
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    target.write_text("must survive")
+    monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
+
+    intent = _delete_intent("workspace/obsolete.txt")
+    grant = issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging")
+    tampered = _delete_intent("workspace/other.txt")
+    worker = _executor_worker(db)
+
+    import pytest
+    with pytest.raises(ValueError, match="intent_hash_mismatch"):
+        worker._execute_granted_task(_execution_task(tampered, grant))
+    assert target.exists()
+
+
+def test_executor_rejects_tampered_evidence_before_effect(tmp_path, monkeypatch):
+    import sqlite3
+    db = sqlite3.connect(":memory:")
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    target.write_text("must survive")
+    monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
+
+    intent = _delete_intent("workspace/obsolete.txt")
+    grant = issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging")
+    worker = _executor_worker(db)
+
+    import pytest
+    with pytest.raises(ValueError, match="execution_evidence_mismatch"):
+        worker._execute_granted_task(_execution_task(intent, grant, ["attacker-evidence"]))
+    assert target.exists()
+
+
+def test_executor_grant_is_single_use_across_tasks(tmp_path, monkeypatch):
+    import sqlite3
+    db = sqlite3.connect(":memory:")
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    target.write_text("delete once")
+    monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
+
+    intent = _delete_intent("workspace/obsolete.txt")
+    grant = issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging")
+    worker = _executor_worker(db)
+
+    first = worker._execute_granted_task(_execution_task(intent, grant))
+    assert first["status"] == "EXECUTED"
+    assert not target.exists()
+
+    import pytest
+    second_task = _execution_task(intent, grant)
+    second_task.task_id = "execution-task-2"
+    with pytest.raises(ValueError, match="grant_replayed"):
+        worker._execute_granted_task(second_task)
+
+
+def test_executor_rejects_tampered_grant_payload(tmp_path, monkeypatch):
+    import sqlite3
+    db = sqlite3.connect(":memory:")
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    target.write_text("must survive")
+    monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
+
+    intent = _delete_intent("workspace/obsolete.txt")
+    grant = issue_capability_grant("original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging")
+    payload = grant.to_dict()
+    payload["evidence_hash"] = "tampered"
+    task = _execution_task(intent, grant)
+    task.payload["capability_intent"]["capability_grant"] = payload
+    worker = _executor_worker(db)
+
+    import pytest
+    with pytest.raises(ValueError, match="evidence_hash_mismatch"):
+        worker._execute_granted_task(task)
+    assert target.exists()

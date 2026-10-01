@@ -1,0 +1,189 @@
+import secrets
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
+from shared.capability_grant import (
+    CapabilityGrant,
+    CapabilityGrantError,
+    consume_capability_grant,
+)
+from shared.capability_policy import CapabilityPolicy
+
+
+class ExecutionGateError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class ExecutionReceipt:
+    receipt_id: str
+    task_id: str
+    grant_id: str
+    nonce: str
+    intent_hash: str
+    policy_version: str
+    action: str
+    target: str
+    authorized_scope: str
+    status: str
+    executed_at: str
+    result: object = None
+    error: str = ""
+
+    def to_dict(self):
+        return {
+            "receipt_id": self.receipt_id,
+            "task_id": self.task_id,
+            "grant_id": self.grant_id,
+            "nonce": self.nonce,
+            "intent_hash": self.intent_hash,
+            "policy_version": self.policy_version,
+            "action": self.action,
+            "target": self.target,
+            "authorized_scope": self.authorized_scope,
+            "status": self.status,
+            "executed_at": self.executed_at,
+            "result": self.result,
+            "error": self.error,
+        }
+
+
+class ExecutionGate:
+    """Fail-closed boundary between verified authority and real execution."""
+
+    CONSUMPTION_TABLE = "capability_grant_consumptions"
+
+    def __init__(self, db=None, policy=None):
+        self.db = db
+        self.policy = policy or CapabilityPolicy()
+        if self.db is not None:
+            self.db.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {self.CONSUMPTION_TABLE} (
+                    nonce TEXT PRIMARY KEY,
+                    grant_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    consumed_at TEXT NOT NULL,
+                    receipt_id TEXT NOT NULL
+                )
+                """
+            )
+            self.db.commit()
+
+    @staticmethod
+    def _grant(value):
+        if isinstance(value, CapabilityGrant):
+            return value
+        if isinstance(value, dict):
+            payload = dict(value)
+            payload["evidence_ids"] = tuple(payload.get("evidence_ids") or ())
+            return CapabilityGrant(**payload)
+        raise ExecutionGateError("grant_required")
+
+    @staticmethod
+    def _scope(intent):
+        return intent.destination or intent.resource or ""
+
+    def _consume_nonce(self, grant, receipt_id, now):
+        if self.db is None:
+            raise ExecutionGateError("replay_store_required")
+        try:
+            self.db.execute(
+                f"""
+                INSERT INTO {self.CONSUMPTION_TABLE}
+                (nonce, grant_id, task_id, consumed_at, receipt_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    grant.nonce,
+                    grant.grant_id,
+                    grant.task_id,
+                    now,
+                    receipt_id,
+                ),
+            )
+            self.db.commit()
+        except Exception as exc:
+            self.db.rollback()
+            if "UNIQUE" in str(exc).upper():
+                raise ExecutionGateError("grant_replayed") from exc
+            raise
+
+    def authorize(self, grant, intent, evidence_ids=(), now=None):
+        if grant is None:
+            raise ExecutionGateError("grant_required")
+
+        grant = self._grant(grant)
+
+        if grant.policy_version != self.policy.VERSION:
+            raise ExecutionGateError("policy_version_mismatch")
+
+        try:
+            consume_capability_grant(
+                grant,
+                intent,
+                evidence_ids=evidence_ids,
+                now=now,
+            )
+        except CapabilityGrantError as exc:
+            raise ExecutionGateError(str(exc)) from exc
+
+        expected_scope = self._scope(intent)
+        if grant.authorized_scope != expected_scope:
+            raise ExecutionGateError("authorized_scope_mismatch")
+
+        return grant
+
+    def execute(self, grant, intent, executor, evidence_ids=(), now=None):
+        """Authorize exactly once, then invoke executor.
+
+        The executor is deliberately injected: this module does not perform
+        network, shell, filesystem, financial, or other real-world actions.
+        """
+        if not callable(executor):
+            raise ExecutionGateError("executor_required")
+
+        grant = self.authorize(
+            grant,
+            intent,
+            evidence_ids=evidence_ids,
+            now=now,
+        )
+
+        executed_at = (now or datetime.now(timezone.utc)).isoformat()
+        receipt_id = "receipt_" + secrets.token_urlsafe(18)
+
+        self._consume_nonce(grant, receipt_id, executed_at)
+
+        try:
+            result = executor()
+            receipt = ExecutionReceipt(
+                receipt_id=receipt_id,
+                task_id=grant.task_id,
+                grant_id=grant.grant_id,
+                nonce=grant.nonce,
+                intent_hash=grant.intent_hash,
+                policy_version=grant.policy_version,
+                action=intent.action,
+                target=intent.target,
+                authorized_scope=grant.authorized_scope,
+                status="EXECUTED",
+                executed_at=executed_at,
+                result=result,
+            )
+        except Exception as exc:
+            receipt = ExecutionReceipt(
+                receipt_id=receipt_id,
+                task_id=grant.task_id,
+                grant_id=grant.grant_id,
+                nonce=grant.nonce,
+                intent_hash=grant.intent_hash,
+                policy_version=grant.policy_version,
+                action=intent.action,
+                target=intent.target,
+                authorized_scope=grant.authorized_scope,
+                status="FAILED",
+                executed_at=executed_at,
+                error=f"{type(exc).__name__}: {str(exc)[:500]}",
+            )
+        return receipt

@@ -108,3 +108,26 @@ def test_failed_executor_still_produces_failure_receipt_and_consumes_grant():
 
     with pytest.raises(ExecutionGateError, match="grant_replayed"):
         gate.execute(grant, _intent(), lambda: "again", ["ev-1"])
+
+
+def test_gate_honors_persistent_grant_revocation_before_side_effect():
+    db = _db()
+    signer, grant = _grant()
+    gate = ExecutionGate(db, signer=signer)
+    # Registration happens at the gate boundary, before execution.
+    gate.authorize(grant, _intent(), ["ev-1"])
+    from shared.capability_grant_store import CapabilityGrantStore
+
+    store = CapabilityGrantStore(db)
+    assert store.status(grant.grant.grant_id) == "ACTIVE"
+    store.revoke(grant.grant.grant_id, "security_review")
+
+    calls = []
+    with pytest.raises(ExecutionGateError, match="grant_revoked"):
+        gate.execute(
+            grant,
+            _intent(),
+            lambda: calls.append("must-not-run"),
+            ["ev-1"],
+        )
+    assert calls == []

@@ -4,13 +4,15 @@ from shared.github_client import GitHubClient
 from shared.capability_policy import ActionIntent, CapabilityDecision, CapabilityPolicy
 from shared.evidence_ledger import EvidenceLedger
 from shared.capability_grant import issue_capability_grant
+from shared.capability_signing import CapabilitySigner
 
 class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
     name = "validator"
 
-    def __init__(self, evidence_ledger=None):
+    def __init__(self, evidence_ledger=None, capability_signer=None):
         self.evidence_ledger = evidence_ledger
+        self.capability_signer = capability_signer or CapabilitySigner.generate()
     MAX_OPPORTUNITIES = 4
     PROBE_PATHS = ("README.md", "SECURITY.md", "pyproject.toml", "package.json",
                    "Cargo.toml", "go.mod", ".github/workflows")
@@ -268,13 +270,14 @@ class Validator:
                 for value in evidence_claims.values()
                 if isinstance(value, dict) and value.get("evidence_id")
             ]
-            capability_grant = issue_capability_grant(
+            grant = issue_capability_grant(
                 task_id=parent_task_id,
                 intent=intent,
                 policy_version=CapabilityPolicy.VERSION,
                 evidence_ids=evidence_ids,
                 authorized_scope=(intent.destination or intent.resource),
-            ).to_dict()
+            )
+            capability_grant = self.capability_signer.sign(grant).to_dict()
 
         return {
             "agent": self.name,

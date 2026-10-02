@@ -31,6 +31,8 @@ from shared.outcome_verifier import (
     ArtifactOutcomeVerifier,
     OutcomeVerificationError,
 )
+from shared.http_executor import HttpApiExecutor, HttpExecutorError
+from shared.http_outcome_verifier import HttpOutcomeVerifier, HttpOutcomeVerificationError
 from shared.capability_policy import ActionIntent
 import hashlib
 
@@ -305,6 +307,15 @@ class Worker:
             "staging_artifact_store",
             artifact_adapter.publish,
         )
+
+        http_adapter = HttpApiExecutor()
+        registry.register(
+            "http_api_request",
+            "api_request",
+            "http_api",
+            http_adapter.execute,
+        )
+
         result = registry.execute(signed_grant, intent, evidence_ids=evidence_ids)
         receipt = result["receipt"]
 
@@ -315,10 +326,19 @@ class Worker:
                 verifier = FilesystemOutcomeVerifier(root)
             elif intent.action == "publish":
                 verifier = ArtifactOutcomeVerifier(root)
+            elif intent.action == "api_request":
+                verifier = HttpOutcomeVerifier(
+                    allowed_hosts=http_adapter.allowed_hosts,
+                    timeout=http_adapter.timeout,
+                )
             else:
                 raise ExecutorRegistryError("outcome_verifier_not_registered")
             outcome = verifier.verify(intent, receipt)
-        except OutcomeVerificationError as exc:
+        except (
+            OutcomeVerificationError,
+            HttpExecutorError,
+            HttpOutcomeVerificationError,
+        ) as exc:
             raise ExecutorRegistryError(str(exc)) from exc
 
         outcome_evidence = self.evidence_ledger.record_outcome_verification(

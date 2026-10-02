@@ -1,7 +1,11 @@
+import sqlite3
+import pytest
+
 from shared.authority_state import (
     AuthorityState,
     AuthorityStateError,
     AuthorityStateMachine,
+    AuthorityStateStore,
 )
 from shared.trust_evaluation import TrustDecision
 
@@ -93,3 +97,28 @@ def test_missing_agent_id_fails_closed():
         assert str(exc) == "agent_id_required"
     else:
         raise AssertionError("expected AuthorityStateError")
+
+
+def test_authority_state_store_persists_state_and_history():
+    db = sqlite3.connect(":memory:")
+    store = AuthorityStateStore(db)
+    machine = store.load("agent-persist")
+    machine.apply_trust(decision("TRUSTED", "proof-a"))
+    machine.apply_trust(decision("TRUSTED", "proof-b"))
+    store.save(machine)
+    restored = store.load("agent-persist")
+    assert restored.state == AuthorityState.STANDARD
+    assert restored.record.trusted_outcomes == 2
+    assert restored.record.last_proof_id == "proof-b"
+    assert len(restored.history) == 2
+    assert restored.history[-1].proof_id == "proof-b"
+
+
+def test_authority_state_store_rejects_corrupt_state():
+    db = sqlite3.connect(":memory:")
+    store = AuthorityStateStore(db)
+    db.execute("INSERT INTO authority_state VALUES (?, ?, ?, ?, ?, ?)",
+               ("bad-agent", "NOT_A_STATE", 0, 0, "", "authority-state-v1"))
+    db.commit()
+    with pytest.raises(AuthorityStateError, match="invalid_persisted_state"):
+        store.load("bad-agent")

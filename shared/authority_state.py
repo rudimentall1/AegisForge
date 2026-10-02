@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+import sqlite3
 
 
 SCHEMA_VERSION = "authority-state-v1"
@@ -160,3 +161,82 @@ class AuthorityStateMachine:
 
         self.history.append(transition)
         return transition
+
+
+class AuthorityStateStore:
+    """SQLite persistence for dynamic authority state and transitions."""
+
+    def __init__(self, db):
+        self.db = db
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS authority_state (
+                agent_id TEXT PRIMARY KEY,
+                state TEXT NOT NULL,
+                trusted_outcomes INTEGER NOT NULL DEFAULT 0,
+                failed_outcomes INTEGER NOT NULL DEFAULT 0,
+                last_proof_id TEXT NOT NULL DEFAULT '',
+                schema_version TEXT NOT NULL
+            )
+        """)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS authority_transitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                previous_state TEXT NOT NULL,
+                new_state TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                proof_id TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                schema_version TEXT NOT NULL
+            )
+        """)
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_authority_transitions_agent ON authority_transitions(agent_id, id)")
+        self.db.commit()
+
+    def load(self, agent_id):
+        if not agent_id:
+            raise AuthorityStateError("agent_id_required")
+        row = self.db.execute(
+            "SELECT agent_id,state,trusted_outcomes,failed_outcomes,last_proof_id FROM authority_state WHERE agent_id = ?",
+            (agent_id,),
+        ).fetchone()
+        if row is None:
+            return AuthorityStateMachine(agent_id)
+        try:
+            state = AuthorityState(row[1])
+        except ValueError as exc:
+            raise AuthorityStateError("invalid_persisted_state") from exc
+        machine = AuthorityStateMachine(agent_id)
+        machine.record = AuthorityStateRecord(
+            agent_id=row[0], state=state, trusted_outcomes=int(row[2]),
+            failed_outcomes=int(row[3]), last_proof_id=row[4] or "",
+        )
+        rows = self.db.execute(
+            "SELECT previous_state,new_state,reason,proof_id FROM authority_transitions WHERE agent_id = ? ORDER BY id",
+            (agent_id,),
+        ).fetchall()
+        machine.history = [AuthorityTransition(*row, agent_id=agent_id) for row in rows]
+        return machine
+
+    def save(self, machine):
+        if not isinstance(machine, AuthorityStateMachine):
+            raise AuthorityStateError("authority_machine_required")
+        r = machine.record
+        self.db.execute(
+            """INSERT INTO authority_state(agent_id,state,trusted_outcomes,failed_outcomes,last_proof_id,schema_version)
+               VALUES(?,?,?,?,?,?)
+               ON CONFLICT(agent_id) DO UPDATE SET state=excluded.state,
+               trusted_outcomes=excluded.trusted_outcomes, failed_outcomes=excluded.failed_outcomes,
+               last_proof_id=excluded.last_proof_id, schema_version=excluded.schema_version""",
+            (r.agent_id, r.state.value, r.trusted_outcomes, r.failed_outcomes, r.last_proof_id, SCHEMA_VERSION),
+        )
+        self.db.execute("DELETE FROM authority_transitions WHERE agent_id = ?", (r.agent_id,))
+        from datetime import datetime, timezone
+        for transition in machine.history:
+            self.db.execute(
+                """INSERT INTO authority_transitions(agent_id,previous_state,new_state,reason,proof_id,created_at,schema_version)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (transition.agent_id, transition.previous_state, transition.new_state,
+                 transition.reason, transition.proof_id, datetime.now(timezone.utc).isoformat(), SCHEMA_VERSION),
+            )
+        self.db.commit()

@@ -74,3 +74,32 @@ def test_expired_grant_is_rejected():
 def test_non_positive_ttl_is_rejected():
     with pytest.raises(CapabilityGrantError, match="invalid_ttl"):
         issue_capability_grant("task-1", _intent(), "policy-v1", ttl_seconds=0)
+
+def test_outcome_contract_is_bound_to_grant():
+    intent = _intent()
+    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "test-v1"}}
+    grant = issue_capability_grant(
+        "task-contract",
+        intent,
+        "policy-v1",
+        outcome_contract={"type": "state_match", "verifier": "test-v1"},
+    )
+    assert grant.to_dict()["outcome_contract"]["type"] == "state_match"
+    assert grant.verify_binding(intent, []) is True
+
+
+def test_outcome_contract_mismatch_blocks_consumption():
+    intent = _intent()
+    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "test-v1"}}
+    grant = issue_capability_grant(
+        "task-contract-mismatch",
+        intent,
+        "policy-v1",
+        outcome_contract={"type": "state_match", "verifier": "other-v1"},
+    )
+    try:
+        grant.verify_binding(intent, [])
+    except CapabilityGrantError as exc:
+        assert str(exc) == "outcome_contract_mismatch"
+    else:
+        raise AssertionError("outcome contract mismatch was accepted")

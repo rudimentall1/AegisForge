@@ -82,7 +82,7 @@ def test_outcome_contract_is_bound_to_grant():
         "task-contract",
         intent,
         "policy-v1",
-        outcome_contract={"type": "state_match", "verifier": "test-v1"},
+        outcome_contract={"type": "state_match", "verifier": "test-v1", "expected_state": {"status": "ok"}},
     )
     assert grant.to_dict()["outcome_contract"]["type"] == "state_match"
     assert grant.verify_binding(intent, []) is True
@@ -90,16 +90,11 @@ def test_outcome_contract_is_bound_to_grant():
 
 def test_outcome_contract_mismatch_blocks_consumption():
     intent = _intent()
-    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "test-v1"}}
-    grant = issue_capability_grant(
-        "task-contract-mismatch",
-        intent,
-        "policy-v1",
-        outcome_contract={"type": "state_match", "verifier": "other-v1", "expected_state": {"status": "ok"}},
-    )
-    try:
-        grant.verify_binding(intent, [])
-    except CapabilityGrantError as exc:
-        assert str(exc) == "outcome_contract_mismatch"
-    else:
-        raise AssertionError("outcome contract mismatch was accepted")
+    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "test-v1", "expected_state": {"status": "ok"}}}
+    with pytest.raises(CapabilityGrantError, match="outcome_contract_mismatch"):
+        issue_capability_grant(
+            "task-contract-mismatch",
+            intent,
+            "policy-v1",
+            outcome_contract={"type": "state_match", "verifier": "other-v1", "expected_state": {"status": "ok"}},
+        )

@@ -114,6 +114,11 @@ class CapabilityGrant:
             raise CapabilityGrantError("authorized_action_mismatch")
         if self.authorized_target != intent.target:
             raise CapabilityGrantError("authorized_target_mismatch")
+        intent_contract = dict(getattr(intent, "parameters", {}) or {}).get("outcome_contract", {})
+        if not isinstance(intent_contract, dict):
+            raise CapabilityGrantError("invalid_outcome_contract")
+        if intent_contract != self.outcome_contract:
+            raise CapabilityGrantError("outcome_contract_mismatch")
         return True
 
 

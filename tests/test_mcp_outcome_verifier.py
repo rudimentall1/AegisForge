@@ -32,7 +32,7 @@ def make_intent(endpoint, verification):
         data_scope="staging",
         read_only=False,
         requires_network=True,
-        parameters={"verification": verification},
+        parameters={"outcome_contract": verification},
     )
 
 
@@ -42,6 +42,8 @@ def test_mcp_outcome_verifier_proves_expected_state():
     try:
         endpoint = f"http://127.0.0.1:{server.server_port}/mcp"
         intent = make_intent(endpoint, {
+            "type": "mcp_state",
+            "verifier": "mcp_independent_read_v1",
             "endpoint": endpoint,
             "tool": "staging.read",
             "arguments": {},
@@ -69,8 +71,12 @@ def test_mcp_outcome_verifier_proves_expected_state():
 
 def test_mcp_outcome_verifier_requires_read_only_contract():
     intent = make_intent("http://127.0.0.1/mcp", {
+        "type": "mcp_state",
+        "verifier": "mcp_independent_read_v1",
+        "endpoint": "http://127.0.0.1/mcp",
         "tool": "staging.read",
         "arguments": {},
+        "read_only": False,
         "expected_state": {"state": "ready"},
     })
 

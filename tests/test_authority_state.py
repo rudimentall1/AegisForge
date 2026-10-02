@@ -36,15 +36,38 @@ def test_trusted_outcome_promotes_to_standard():
     assert machine.state == AuthorityState.STANDARD
 
 
-def test_repeated_trusted_outcomes_promote_to_elevated():
+def test_repeated_trusted_outcomes_do_not_auto_promote_to_elevated():
     machine = AuthorityStateMachine("agent-1")
 
     machine.apply_trust(decision("TRUSTED", "proof-1"))
     machine.apply_trust(decision("TRUSTED", "proof-2"))
     transition = machine.apply_trust(decision("TRUSTED", "proof-3"))
 
+    assert transition.new_state == AuthorityState.STANDARD
+    assert machine.state == AuthorityState.STANDARD
+
+
+def test_governance_can_promote_to_elevated_after_evidence_conditions():
+    machine = AuthorityStateMachine("agent-1")
+    machine.apply_trust(decision("TRUSTED", "proof-1"))
+    machine.apply_trust(decision("TRUSTED", "proof-2"))
+    machine.apply_trust(decision("TRUSTED", "proof-3"))
+
+    transition = machine.governance_promote_elevated("approved_by_governance", "proof-3")
+
     assert transition.new_state == AuthorityState.ELEVATED
     assert machine.state == AuthorityState.ELEVATED
+
+
+def test_governance_promotion_fails_after_failed_outcome():
+    machine = AuthorityStateMachine("agent-1")
+    machine.apply_trust(decision("TRUSTED", "proof-1"))
+    machine.apply_trust(decision("TRUSTED", "proof-2"))
+    machine.apply_trust(decision("TRUSTED", "proof-3"))
+    machine.apply_trust(decision("UNTRUSTED", "proof-4", "bad_outcome"))
+
+    with pytest.raises(AuthorityStateError, match="elevated_conditions_not_met"):
+        machine.governance_promote_elevated("approved_by_governance", "proof-3")
 
 
 def test_untrusted_outcome_restricts_authority():

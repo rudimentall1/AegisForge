@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from enum import Enum
 import sqlite3
 
+from shared.authority_transition import AuthorityTransitionPolicy
+
 
 SCHEMA_VERSION = "authority-state-v1"
 
@@ -64,12 +66,13 @@ class AuthorityStateMachine:
     This state only constrains the currently usable authority.
     """
 
-    def __init__(self, agent_id: str):
+    def __init__(self, agent_id: str, transition_policy=None):
         if not agent_id:
             raise AuthorityStateError("agent_id_required")
 
         self.record = AuthorityStateRecord(agent_id=agent_id)
         self.history = []
+        self.transition_policy = transition_policy or AuthorityTransitionPolicy()
 
     @property
     def state(self):
@@ -91,15 +94,12 @@ class AuthorityStateMachine:
             self.record.trusted_outcomes += 1
             self.record.last_proof_id = proof_id
 
-            if previous == AuthorityState.SUSPENDED:
-                new_state = AuthorityState.SUSPENDED
-                reason = "suspended_requires_governance_reset"
-            elif self.record.trusted_outcomes >= 3:
-                new_state = AuthorityState.ELEVATED
-                reason = "repeated_trusted_outcomes"
-            else:
-                new_state = AuthorityState.STANDARD
-                reason = "trusted_attested_outcome"
+            new_value, reason = self.transition_policy.evaluate_trusted(
+                previous.value,
+                self.record.trusted_outcomes,
+                self.record.failed_outcomes,
+            )
+            new_state = AuthorityState(new_value)
 
         elif status == "EXPIRED":
             self.record.last_proof_id = proof_id
@@ -125,6 +125,30 @@ class AuthorityStateMachine:
             agent_id=self.record.agent_id,
         )
 
+        self.history.append(transition)
+        return transition
+
+    def governance_promote_elevated(self, reason: str, proof_id: str = ""):
+        if not reason:
+            raise AuthorityStateError("promotion_reason_required")
+        if self.record.state == AuthorityState.SUSPENDED:
+            raise AuthorityStateError("suspended_requires_governance_reset")
+        if not self.transition_policy.can_governance_promote_elevated(
+            self.record.trusted_outcomes, self.record.failed_outcomes
+        ):
+            raise AuthorityStateError("elevated_conditions_not_met")
+
+        previous = self.record.state
+        self.record.state = AuthorityState.ELEVATED
+        if proof_id:
+            self.record.last_proof_id = proof_id
+        transition = AuthorityTransition(
+            previous_state=previous.value,
+            new_state=AuthorityState.ELEVATED.value,
+            reason=reason,
+            proof_id=proof_id,
+            agent_id=self.record.agent_id,
+        )
         self.history.append(transition)
         return transition
 

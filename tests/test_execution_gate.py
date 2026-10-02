@@ -99,6 +99,8 @@ def test_gate_executes_once_and_returns_receipt():
         _intent(),
         lambda: calls.append("ran") or {"ok": True},
         ["ev-1"],
+        executor_id="direct-test-executor",
+        executor_version="1",
     )
     assert receipt.status == "EXECUTED"
     assert receipt.grant_id == grant.grant.grant_id
@@ -127,6 +129,8 @@ def test_failed_executor_still_produces_failure_receipt_and_consumes_grant():
         _intent(),
         lambda: (_ for _ in ()).throw(RuntimeError("boom")),
         ["ev-1"],
+        executor_id="direct-test-executor",
+        executor_version="1",
     )
     assert receipt.status == "FAILED"
     assert "RuntimeError: boom" in receipt.error
@@ -226,5 +230,12 @@ def test_current_authority_context_allows_execution():
     ))
     gate = ExecutionGate(db, signer=signer, authority_registry=registry)
 
-    receipt = gate.execute(grant, intent, lambda: "executed", ["ev-1"])
+    receipt = gate.execute(
+        grant,
+        intent,
+        lambda: "executed",
+        ["ev-1"],
+        executor_id="direct-test-executor",
+        executor_version="1",
+    )
     assert receipt.status == "EXECUTED"

@@ -14,6 +14,11 @@ class ExecutorSpec:
     action: str
     resource: str
     handler: Callable
+    version: str = "1"
+
+    @property
+    def executor_id(self):
+        return self.name
 
 
 class ExecutorRegistry:
@@ -32,16 +37,19 @@ class ExecutorRegistry:
         self.role = role
         self._executors: Dict[Tuple[str, str], ExecutorSpec] = {}
 
-    def register(self, name, action, resource, handler):
+    def register(self, name, action, resource, handler, version="1"):
         if not name or not action or not resource:
             raise ExecutorRegistryError("executor_identity_required")
         if not callable(handler):
             raise ExecutorRegistryError("executor_handler_required")
+        if not version or not isinstance(version, str):
+            raise ExecutorRegistryError("executor_version_required")
         key = (str(action), str(resource))
         if key in self._executors:
             raise ExecutorRegistryError("executor_already_registered")
         self._executors[key] = ExecutorSpec(
-            name=str(name), action=str(action), resource=str(resource), handler=handler
+            name=str(name), action=str(action), resource=str(resource),
+            handler=handler, version=str(version)
         )
         return self._executors[key]
 
@@ -62,6 +70,8 @@ class ExecutorRegistry:
                 intent,
                 executor=lambda: spec.handler(intent),
                 evidence_ids=evidence_ids,
+                executor_id=spec.executor_id,
+                executor_version=spec.version,
             )
         except ExecutionGateError as exc:
             raise ExecutorRegistryError(str(exc)) from exc

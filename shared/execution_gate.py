@@ -31,6 +31,8 @@ class ExecutionReceipt:
     agent_id: str = ""
     authority_epoch: int = 0
     authority_state: str = ""
+    executor_id: str = ""
+    executor_version: str = ""
 
 
     def to_dict(self):
@@ -51,6 +53,8 @@ class ExecutionReceipt:
             "agent_id": self.agent_id,
             "authority_epoch": self.authority_epoch,
             "authority_state": self.authority_state,
+            "executor_id": self.executor_id,
+            "executor_version": self.executor_version,
         }
 
 
@@ -165,7 +169,16 @@ class ExecutionGate:
 
         return grant
 
-    def execute(self, grant, intent, executor, evidence_ids=(), now=None):
+    def execute(
+        self,
+        grant,
+        intent,
+        executor,
+        evidence_ids=(),
+        now=None,
+        executor_id="",
+        executor_version="",
+    ):
         """Authorize exactly once, then invoke executor.
 
         The executor is deliberately injected: this module does not perform
@@ -180,6 +193,11 @@ class ExecutionGate:
             evidence_ids=evidence_ids,
             now=now,
         )
+
+        if not executor_id or not isinstance(executor_id, str):
+            raise ExecutionGateError("executor_identity_required")
+        if not executor_version or not isinstance(executor_version, str):
+            raise ExecutionGateError("executor_version_required")
 
         executed_at = (now or datetime.now(timezone.utc)).isoformat()
         receipt_id = "receipt_" + secrets.token_urlsafe(18)
@@ -210,6 +228,8 @@ class ExecutionGate:
                 agent_id=grant.agent_id,
                 authority_epoch=grant.authority_epoch,
                 authority_state=grant.authority_state,
+                executor_id=executor_id,
+                executor_version=executor_version,
             )
         except Exception as exc:
             receipt = ExecutionReceipt(
@@ -228,5 +248,7 @@ class ExecutionGate:
                 agent_id=grant.agent_id,
                 authority_epoch=grant.authority_epoch,
                 authority_state=grant.authority_state,
+                executor_id=executor_id,
+                executor_version=executor_version,
             )
         return receipt

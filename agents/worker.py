@@ -440,6 +440,8 @@ class Worker:
             "status": outcome.get("status"),
             "source": outcome_evidence.get("source"),
             "agent_id": receipt.agent_id,
+            "executor_id": receipt.executor_id,
+            "executor_version": receipt.executor_version,
         }
         manifest = build_manifest([
             {"id": "grant", "type": "capability_grant", "digest": digest(signed_grant.to_dict())},

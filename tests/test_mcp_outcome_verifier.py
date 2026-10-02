@@ -92,6 +92,6 @@ def test_mcp_outcome_verifier_requires_read_only_contract():
     try:
         McpOutcomeVerifier(allowed_hosts={"127.0.0.1"}).verify(intent, Receipt())
     except McpOutcomeVerificationError as exc:
-        assert str(exc) == "mcp_verification_must_be_read_only"
+        assert str(exc) == "outcome_contract_mcp_arguments_invalid"
     else:
         raise AssertionError("missing read_only contract was accepted")

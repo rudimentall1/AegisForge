@@ -179,7 +179,7 @@ class ExecutionGate:
         now=None,
         executor_id="",
         executor_version="",
-        executor_implementation_digest="",
+        executor_implementation_digest=None,
     ):
         """Authorize exactly once, then invoke executor.
 
@@ -200,8 +200,8 @@ class ExecutionGate:
             raise ExecutionGateError("executor_identity_required")
         if not executor_version or not isinstance(executor_version, str):
             raise ExecutionGateError("executor_version_required")
-        if not executor_implementation_digest or not isinstance(executor_implementation_digest, str):
-            raise ExecutionGateError("executor_implementation_digest_required")
+        if executor_implementation_digest is not None and not isinstance(executor_implementation_digest, str):
+            raise ExecutionGateError("executor_implementation_digest_invalid")
 
         executed_at = (now or datetime.now(timezone.utc)).isoformat()
         receipt_id = "receipt_" + secrets.token_urlsafe(18)

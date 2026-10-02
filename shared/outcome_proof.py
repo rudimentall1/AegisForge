@@ -175,6 +175,14 @@ def verify_outcome_proof(proof):
         raise OutcomeProofError("grant_receipt_task_mismatch")
     if receipt.get("intent_hash") and grant_body.get("intent_hash") != receipt.get("intent_hash"):
         raise OutcomeProofError("grant_receipt_intent_mismatch")
+    for field, error in (
+        ("agent_id", "grant_receipt_agent_mismatch"),
+        ("authority_epoch", "grant_receipt_epoch_mismatch"),
+        ("authority_state", "grant_receipt_authority_state_mismatch"),
+        ("policy_version", "grant_receipt_policy_mismatch"),
+    ):
+        if receipt.get(field) != grant_body.get(field):
+            raise OutcomeProofError(error)
     if grant_body.get("outcome_contract") != proof["outcome_contract"]:
         raise OutcomeProofError("grant_contract_mismatch")
     if proof["outcome"].get("outcome_id") != proof["evidence"].get("outcome_id"):

@@ -86,6 +86,8 @@ def verify(p):
     if body.get("grant_id") != receipt.get("grant_id"): raise ValueError("grant_receipt_binding_mismatch")
     if body.get("task_id") != receipt.get("task_id"): raise ValueError("grant_receipt_task_mismatch")
     if receipt.get("intent_hash") and body.get("intent_hash") != receipt.get("intent_hash"): raise ValueError("grant_receipt_intent_mismatch")
+    for field, error in (("agent_id","grant_receipt_agent_mismatch"),("authority_epoch","grant_receipt_epoch_mismatch"),("authority_state","grant_receipt_authority_state_mismatch"),("policy_version","grant_receipt_policy_mismatch")):
+        if receipt.get(field) != body.get(field): raise ValueError(error)
     if body.get("outcome_contract") != p["outcome_contract"]: raise ValueError("grant_contract_mismatch")
     if p["outcome"].get("outcome_id") != p["evidence"].get("outcome_id"): raise ValueError("outcome_evidence_binding_mismatch")
     return {"proof_id":p["proof_id"],"key_id":p["key_id"],"verifier":p["outcome"]["verifier"],"outcome_id":p["outcome"].get("outcome_id")}

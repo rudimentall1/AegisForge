@@ -44,6 +44,11 @@ def _proof():
         "task_id": "task-1",
         "grant_id": "grant-1",
         "nonce": "nonce-1",
+        "agent_id": "test-agent",
+        "authority_epoch": 1,
+        "authority_state": "STANDARD",
+        "intent_hash": "intent-hash",
+        "policy_version": "capability-policy-v1",
         "status": "EXECUTED",
     }
     contract = grant["outcome_contract"]

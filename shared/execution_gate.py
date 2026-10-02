@@ -28,6 +28,10 @@ class ExecutionReceipt:
     executed_at: str
     result: object = None
     error: str = ""
+    agent_id: str = ""
+    authority_epoch: int = 0
+    authority_state: str = ""
+
 
     def to_dict(self):
         return {
@@ -44,6 +48,9 @@ class ExecutionReceipt:
             "executed_at": self.executed_at,
             "result": self.result,
             "error": self.error,
+            "agent_id": self.agent_id,
+            "authority_epoch": self.authority_epoch,
+            "authority_state": self.authority_state,
         }
 
 
@@ -198,6 +205,9 @@ class ExecutionGate:
                 status="EXECUTED",
                 executed_at=executed_at,
                 result=result,
+                agent_id=grant.agent_id,
+                authority_epoch=grant.authority_epoch,
+                authority_state=grant.authority_state,
             )
         except Exception as exc:
             receipt = ExecutionReceipt(
@@ -213,5 +223,8 @@ class ExecutionGate:
                 status="FAILED",
                 executed_at=executed_at,
                 error=f"{type(exc).__name__}: {str(exc)[:500]}",
+                agent_id=grant.agent_id,
+                authority_epoch=grant.authority_epoch,
+                authority_state=grant.authority_state,
             )
         return receipt

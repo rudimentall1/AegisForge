@@ -32,6 +32,9 @@ def evidence_hash(evidence_ids):
 class CapabilityGrant:
     grant_id: str
     task_id: str
+    agent_id: str
+    authority_epoch: int
+    authority_state: str
     intent_hash: str
     policy_version: str
     evidence_ids: tuple = field(default_factory=tuple)
@@ -49,6 +52,9 @@ class CapabilityGrant:
         return {
             "grant_id": self.grant_id,
             "task_id": self.task_id,
+            "agent_id": self.agent_id,
+            "authority_epoch": self.authority_epoch,
+            "authority_state": self.authority_state,
             "intent_hash": self.intent_hash,
             "policy_version": self.policy_version,
             "evidence_ids": list(self.evidence_ids),
@@ -71,7 +77,8 @@ class CapabilityGrant:
         if not isinstance(payload, dict):
             raise CapabilityGrantError("grant_payload_required")
         required = {
-            "grant_id", "task_id", "intent_hash", "policy_version",
+            "grant_id", "task_id", "agent_id", "authority_epoch", "authority_state",
+            "intent_hash", "policy_version",
             "evidence_ids", "evidence_hash", "authorized_action",
             "authorized_target", "authorized_scope", "issued_at",
             "expires_at", "nonce", "status", "outcome_contract",
@@ -86,6 +93,9 @@ class CapabilityGrant:
         grant = cls(
             grant_id=str(payload["grant_id"]),
             task_id=str(payload["task_id"]),
+            agent_id=str(payload["agent_id"]),
+            authority_epoch=int(payload["authority_epoch"]),
+            authority_state=str(payload["authority_state"]),
             intent_hash=str(payload["intent_hash"]),
             policy_version=str(payload["policy_version"]),
             evidence_ids=evidence_ids,
@@ -138,9 +148,19 @@ def issue_capability_grant(
     outcome_contract=None,
     *,
     authority_state=None,
+    authority_context=None,
 ):
-    if authority_state is None:
-        raise CapabilityGrantError("authority_state_required")
+    if authority_context is None:
+        raise CapabilityGrantError("authority_context_required")
+    if not getattr(authority_context, "agent_id", None):
+        raise CapabilityGrantError("authority_agent_id_required")
+    if int(getattr(authority_context, "authority_epoch", 0)) <= 0:
+        raise CapabilityGrantError("authority_epoch_required")
+    if authority_state is not None and authority_state != authority_context.state:
+        raise CapabilityGrantError("authority_state_mismatch")
+    if str(policy_version) != str(authority_context.policy_version):
+        raise CapabilityGrantError("authority_policy_version_mismatch")
+    authority_state = authority_context.state
     effective = evaluate_effective_capability(intent, authority_state)
     if effective.decision == EffectiveCapabilityDecision.BLOCK:
         raise CapabilityGrantError("authority_blocked:" + effective.reason)
@@ -158,6 +178,9 @@ def issue_capability_grant(
     return CapabilityGrant(
         grant_id="grant_" + secrets.token_urlsafe(18),
         task_id=str(task_id),
+        agent_id=str(authority_context.agent_id),
+        authority_epoch=int(authority_context.authority_epoch),
+        authority_state=authority_context.state.value,
         intent_hash=intent_hash(intent),
         policy_version=str(policy_version),
         evidence_ids=evidence_ids,

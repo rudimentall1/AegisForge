@@ -87,7 +87,7 @@ def test_suspend_and_governance_reset_increment_epoch():
     assert registry.get("agent-1").state == AuthorityState.SUSPENDED
     authority, transition = registry.governance_reset("agent-1", "incident_review")
     assert authority.state == AuthorityState.PROBATION
-    assert authority.authority_epoch == 2
+    assert authority.authority_epoch == 3
     assert transition.new_state == AuthorityState.PROBATION
 
 

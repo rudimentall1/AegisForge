@@ -297,6 +297,7 @@ class Validator:
                 authorized_scope=(intent.destination or intent.resource),
                 outcome_contract=outcome_contract,
                 authority_state=authority.state,
+                authority_context=authority,
             )
             capability_grant = self.capability_signer.sign(grant).to_dict()
 

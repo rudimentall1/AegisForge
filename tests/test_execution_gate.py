@@ -3,16 +3,25 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from types import SimpleNamespace
 
 from shared.capability_grant import issue_capability_grant as _issue_capability_grant
 from shared.authority_state import AuthorityState
 from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.capability_signing import CapabilitySigner
 from shared.execution_gate import ExecutionGate, ExecutionGateError
+from shared.agent_authority import AgentAuthorityRegistry
+from shared.trust_evaluation import TrustDecision
 
 
 def issue_capability_grant(*args, **kwargs):
-    kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    state = kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    kwargs.setdefault("authority_context", SimpleNamespace(
+        agent_id="test-agent",
+        authority_epoch=1,
+        state=state,
+        policy_version=kwargs.get("policy_version", args[2] if len(args) > 2 else "policy-v1"),
+    ))
     return _issue_capability_grant(*args, **kwargs)
 
 
@@ -137,3 +146,75 @@ def test_gate_honors_persistent_grant_revocation_before_side_effect():
             ["ev-1"],
         )
     assert calls == []
+
+
+def _registered_authority(db, agent_id="agent-1"):
+    registry = AgentAuthorityRegistry(db)
+    registry.register(agent_id)
+    registry.record_trust(
+        agent_id,
+        TrustDecision("TRUSTED", "test", "proof-1", "test-verifier"),
+    )
+    return registry, registry.get(agent_id)
+
+
+def test_gate_rejects_stale_authority_epoch():
+    db = _db()
+    registry, authority = _registered_authority(db)
+    intent = _intent()
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant(
+        "task-epoch",
+        intent,
+        CapabilityPolicy.VERSION,
+        evidence_ids=["ev-1"],
+        authorized_scope="staging",
+        authority_state=authority.state,
+        authority_context=authority,
+    ))
+    registry.governance_reset("agent-1", "security_reset")
+    gate = ExecutionGate(db, signer=signer, authority_registry=registry)
+
+    with pytest.raises(ExecutionGateError, match="authority_epoch_mismatch"):
+        gate.execute(grant, intent, lambda: "must-not-run", ["ev-1"])
+
+
+def test_gate_rejects_authority_state_drift():
+    db = _db()
+    registry, authority = _registered_authority(db)
+    intent = _intent()
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant(
+        "task-state",
+        intent,
+        CapabilityPolicy.VERSION,
+        evidence_ids=["ev-1"],
+        authorized_scope="staging",
+        authority_state=authority.state,
+        authority_context=authority,
+    ))
+    registry.suspend("agent-1", "incident")
+    gate = ExecutionGate(db, signer=signer, authority_registry=registry)
+
+    with pytest.raises(ExecutionGateError, match="authority_epoch_mismatch"):
+        gate.execute(grant, intent, lambda: "must-not-run", ["ev-1"])
+
+
+def test_current_authority_context_allows_execution():
+    db = _db()
+    registry, authority = _registered_authority(db)
+    intent = _intent()
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant(
+        "task-current",
+        intent,
+        CapabilityPolicy.VERSION,
+        evidence_ids=["ev-1"],
+        authorized_scope="staging",
+        authority_state=authority.state,
+        authority_context=authority,
+    ))
+    gate = ExecutionGate(db, signer=signer, authority_registry=registry)
+
+    receipt = gate.execute(grant, intent, lambda: "executed", ["ev-1"])
+    assert receipt.status == "EXECUTED"

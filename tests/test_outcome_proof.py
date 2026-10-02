@@ -18,6 +18,9 @@ def _proof():
     grant = {
         "grant_id": "grant-1",
         "task_id": "task-1",
+        "agent_id": "test-agent",
+        "authority_epoch": 1,
+        "authority_state": "STANDARD",
         "intent_hash": "intent-hash",
         "policy_version": "capability-policy-v1",
         "evidence_ids": ["e-1"],

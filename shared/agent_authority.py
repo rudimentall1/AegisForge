@@ -106,8 +106,11 @@ class AgentAuthorityRegistry:
 
     def record_trust(self, agent_id, trust_decision):
         machine = self._machine(agent_id)
+        previous_state = machine.state
         transition = machine.apply_trust(trust_decision)
         self._save_machine(machine)
+        if transition.new_state != previous_state:
+            self._increment_epoch(agent_id)
         return self.get(agent_id), transition
 
     def evaluate(self, agent_id, intent):
@@ -118,12 +121,14 @@ class AgentAuthorityRegistry:
         machine = self._machine(agent_id)
         transition = machine.governance_promote_elevated(reason, proof_id)
         self._save_machine(machine)
+        self._increment_epoch(agent_id)
         return self.get(agent_id), transition
 
     def suspend(self, agent_id, reason):
         machine = self._machine(agent_id)
         transition = machine.suspend(reason)
         self._save_machine(machine)
+        self._increment_epoch(agent_id)
         return self.get(agent_id), transition
 
     def governance_reset(self, agent_id, reason="governance_reset"):

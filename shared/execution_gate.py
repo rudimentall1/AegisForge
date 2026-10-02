@@ -6,6 +6,7 @@ from shared.capability_grant import CapabilityGrantError, consume_capability_gra
 from shared.capability_signing import CapabilitySignatureError, SignedCapabilityGrant
 from shared.capability_policy import CapabilityPolicy
 from shared.capability_grant_store import CapabilityGrantStore, CapabilityGrantStoreError
+from shared.agent_authority import AgentAuthorityRegistry, AgentAuthorityError
 
 
 class ExecutionGateError(ValueError):
@@ -51,10 +52,11 @@ class ExecutionGate:
 
     CONSUMPTION_TABLE = "capability_grant_consumptions"
 
-    def __init__(self, db=None, policy=None, signer=None):
+    def __init__(self, db=None, policy=None, signer=None, authority_registry=None):
         self.db = db
         self.policy = policy or CapabilityPolicy()
         self.signer = signer
+        self.authority_registry = authority_registry
         self.grant_store = CapabilityGrantStore(self.db) if self.db is not None else None
         if self.db is not None:
             self.db.execute(
@@ -117,6 +119,18 @@ class ExecutionGate:
 
         if grant.policy_version != self.policy.VERSION:
             raise ExecutionGateError("policy_version_mismatch")
+
+        if self.authority_registry is not None:
+            try:
+                authority = self.authority_registry.get(grant.agent_id)
+            except AgentAuthorityError as exc:
+                raise ExecutionGateError(str(exc)) from exc
+            if grant.authority_epoch != authority.authority_epoch:
+                raise ExecutionGateError("authority_epoch_mismatch")
+            if grant.authority_state != authority.state.value:
+                raise ExecutionGateError("authority_state_mismatch")
+            if grant.policy_version != authority.policy_version:
+                raise ExecutionGateError("authority_policy_version_mismatch")
 
         if self.grant_store is not None:
             try:

@@ -1,5 +1,6 @@
 import hashlib
 import sqlite3
+from types import SimpleNamespace
 
 from shared.capability_grant import issue_capability_grant as _issue_capability_grant
 from shared.authority_state import AuthorityState
@@ -13,7 +14,13 @@ from shared.execution_gate import ExecutionGate
 
 
 def issue_capability_grant(*args, **kwargs):
-    kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    state = kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    kwargs.setdefault("authority_context", SimpleNamespace(
+        agent_id="test-agent",
+        authority_epoch=1,
+        state=state,
+        policy_version=kwargs.get("policy_version", args[2] if len(args) > 2 else "policy-v1"),
+    ))
     return _issue_capability_grant(*args, **kwargs)
 
 

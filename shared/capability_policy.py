@@ -44,14 +44,14 @@ class CapabilityPolicy:
     ROLE_ALLOWED_ACTIONS = {
         "researcher": {"research", "read_public_docs"},
         "analyst": {"analyze", "inspect_evidence"},
-        "developer": {"inspect_code", "modify_code", "run_tests", "deploy", "publish", "delete", "transfer", "release"},
+        "developer": {"inspect_code", "modify_code", "run_tests", "deploy", "publish", "delete", "transfer", "release", "api_request"},
         "security_checker": {"security_scan", "inspect_code", "verify"},
         "opportunity_hunter": {"identify_opportunities", "research"},
         "validator": {"validate", "verify"},
         "model_researcher": {"model_research", "research"},
     }
 
-    SENSITIVE_ACTIONS = {"modify_code", "deploy", "publish", "delete", "transfer", "release"}
+    SENSITIVE_ACTIONS = {"modify_code", "deploy", "publish", "delete", "transfer", "release", "api_request"}
     SENSITIVE_EVIDENCE_REQUIREMENTS = {
         "modify_code": {"tests_passed"},
         "deploy": {"tests_passed", "security_scan_passed", "rollback_ready"},
@@ -59,6 +59,7 @@ class CapabilityPolicy:
         "delete": {"recovery_ready"},
         "transfer": {"authorization_confirmed", "destination_allowed", "simulation_passed"},
         "release": {"tests_passed", "security_scan_passed", "artifact_integrity"},
+        "api_request": {"destination_allowed"},
     }
 
     EVIDENCE_SOURCE_ROLES = {

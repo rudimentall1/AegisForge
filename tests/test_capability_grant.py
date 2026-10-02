@@ -89,12 +89,12 @@ def test_outcome_contract_is_bound_to_grant():
 
 
 def test_outcome_contract_mismatch_blocks_consumption():
-    intent = _intent()
-    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "test-v1", "expected_state": {"status": "ok"}}}
+    intent = _intent(action="delete", resource="staging_filesystem", irreversible=True, requires_filesystem=True)
+    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"}}
     with pytest.raises(CapabilityGrantError, match="outcome_contract_mismatch"):
         issue_capability_grant(
             "task-contract-mismatch",
             intent,
             "policy-v1",
-            outcome_contract={"type": "state_match", "verifier": "artifact_independent_v1", "expected_state": "ABSENT"},
+            outcome_contract={"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "PRESENT"},
         )

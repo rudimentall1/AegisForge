@@ -25,6 +25,7 @@ def _intent(content, target="release/demo.txt"):
         parameters={
             "content": content,
             "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            "outcome_contract": {"type": "artifact_exists", "verifier": "artifact_independent_v1", "path": target, "expected_exists": True},
         },
     )
 

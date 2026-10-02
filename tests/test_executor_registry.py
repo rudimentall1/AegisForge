@@ -74,6 +74,7 @@ def test_successful_execution_creates_receipt_and_ledger_evidence():
     assert result["receipt"].status == "EXECUTED"
     assert result["receipt"].executor_id == "staging_deploy"
     assert result["receipt"].executor_version == "2"
+    assert len(result["receipt"].executor_implementation_digest) == 64
     assert result["evidence"]["receipt_id"] == result["receipt"].receipt_id
     assert ledger.evidence_quality(result["evidence"]["evidence_id"])["kind"] == "execution_receipt"
 
@@ -136,6 +137,22 @@ def test_replay_does_not_call_handler_twice():
         registry.execute(grant, intent, evidence_ids=["e1", "e2"])
 
     assert len(calls) == 1
+
+
+def test_registry_rejects_executor_identity_conflict():
+    _, _, registry, _ = _runtime()
+    registry.register("same_executor", "deploy", "staging", lambda current: {"v": 1}, version="1")
+    with pytest.raises(ExecutorRegistryError, match="executor_identity_conflict|executor_already_registered"):
+        registry.register("same_executor", "publish", "staging", lambda current: {"v": 2}, version="1")
+
+
+def test_registry_accepts_explicit_implementation_digest():
+    _, _, registry, _ = _runtime()
+    spec = registry.register(
+        "explicit_executor", "deploy", "staging", lambda current: {"ok": True},
+        version="7", implementation_digest="c" * 64,
+    )
+    assert spec.implementation_digest == "c" * 64
 
 
 def test_unknown_executor_is_blocked():

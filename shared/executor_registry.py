@@ -1,3 +1,5 @@
+import hashlib
+import inspect
 from dataclasses import dataclass
 from typing import Callable, Dict, Tuple
 
@@ -8,6 +10,20 @@ class ExecutorRegistryError(ValueError):
     pass
 
 
+def _implementation_digest(handler):
+    try:
+        source = inspect.getsource(handler)
+    except (OSError, TypeError) as exc:
+        raise ExecutorRegistryError("executor_implementation_digest_required") from exc
+    descriptor = {
+        "module": getattr(handler, "__module__", ""),
+        "qualname": getattr(handler, "__qualname__", ""),
+        "source": source,
+    }
+    canonical = repr(sorted(descriptor.items())).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 @dataclass(frozen=True)
 class ExecutorSpec:
     name: str
@@ -15,6 +31,7 @@ class ExecutorSpec:
     resource: str
     handler: Callable
     version: str = "1"
+    implementation_digest: str = ""
 
     @property
     def executor_id(self):
@@ -36,21 +53,44 @@ class ExecutorRegistry:
         self.evidence_ledger = evidence_ledger
         self.role = role
         self._executors: Dict[Tuple[str, str], ExecutorSpec] = {}
+        self._identities: Dict[Tuple[str, str], str] = {}
 
-    def register(self, name, action, resource, handler, version="1"):
+    def register(
+        self,
+        name,
+        action,
+        resource,
+        handler,
+        version="1",
+        implementation_digest=None,
+    ):
         if not name or not action or not resource:
             raise ExecutorRegistryError("executor_identity_required")
         if not callable(handler):
             raise ExecutorRegistryError("executor_handler_required")
         if not version or not isinstance(version, str):
             raise ExecutorRegistryError("executor_version_required")
+        digest = implementation_digest or _implementation_digest(handler)
+        if not isinstance(digest, str) or not digest:
+            raise ExecutorRegistryError("executor_implementation_digest_required")
         key = (str(action), str(resource))
+        identity = (str(name), str(version))
         if key in self._executors:
             raise ExecutorRegistryError("executor_already_registered")
+        existing_digest = self._identities.get(identity)
+        if existing_digest is not None and existing_digest != digest:
+            raise ExecutorRegistryError("executor_identity_conflict")
+        if identity in self._identities:
+            raise ExecutorRegistryError("executor_already_registered")
         self._executors[key] = ExecutorSpec(
-            name=str(name), action=str(action), resource=str(resource),
-            handler=handler, version=str(version)
+            name=str(name),
+            action=str(action),
+            resource=str(resource),
+            handler=handler,
+            version=str(version),
+            implementation_digest=digest,
         )
+        self._identities[identity] = digest
         return self._executors[key]
 
     def resolve(self, intent):
@@ -72,6 +112,7 @@ class ExecutorRegistry:
                 evidence_ids=evidence_ids,
                 executor_id=spec.executor_id,
                 executor_version=spec.version,
+                executor_implementation_digest=spec.implementation_digest,
             )
         except ExecutionGateError as exc:
             raise ExecutorRegistryError(str(exc)) from exc

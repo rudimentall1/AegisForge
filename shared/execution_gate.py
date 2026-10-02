@@ -33,7 +33,7 @@ class ExecutionReceipt:
     authority_state: str = ""
     executor_id: str = ""
     executor_version: str = ""
-
+    executor_implementation_digest: str = ""
 
     def to_dict(self):
         return {
@@ -55,6 +55,7 @@ class ExecutionReceipt:
             "authority_state": self.authority_state,
             "executor_id": self.executor_id,
             "executor_version": self.executor_version,
+            "executor_implementation_digest": self.executor_implementation_digest,
         }
 
 
@@ -178,6 +179,7 @@ class ExecutionGate:
         now=None,
         executor_id="",
         executor_version="",
+        executor_implementation_digest=None,
     ):
         """Authorize exactly once, then invoke executor.
 
@@ -198,6 +200,8 @@ class ExecutionGate:
             raise ExecutionGateError("executor_identity_required")
         if not executor_version or not isinstance(executor_version, str):
             raise ExecutionGateError("executor_version_required")
+        if executor_implementation_digest is not None and not isinstance(executor_implementation_digest, str):
+            raise ExecutionGateError("executor_implementation_digest_invalid")
 
         executed_at = (now or datetime.now(timezone.utc)).isoformat()
         receipt_id = "receipt_" + secrets.token_urlsafe(18)
@@ -230,6 +234,7 @@ class ExecutionGate:
                 authority_state=grant.authority_state,
                 executor_id=executor_id,
                 executor_version=executor_version,
+                executor_implementation_digest=executor_implementation_digest,
             )
         except Exception as exc:
             receipt = ExecutionReceipt(
@@ -250,5 +255,6 @@ class ExecutionGate:
                 authority_state=grant.authority_state,
                 executor_id=executor_id,
                 executor_version=executor_version,
+                executor_implementation_digest=executor_implementation_digest,
             )
         return receipt

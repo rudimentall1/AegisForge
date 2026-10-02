@@ -104,6 +104,7 @@ def verify(p):
     if p["outcome"].get("agent_id") != agent_id: raise ValueError("outcome_agent_mismatch")
     if not receipt.get("executor_id"): raise ValueError("executor_identity_required")
     if not receipt.get("executor_version"): raise ValueError("executor_version_required")
+    if receipt.get("executor_implementation_digest") and p["evidence"].get("executor_implementation_digest") not in (None, receipt.get("executor_implementation_digest")): raise ValueError("evidence_executor_digest_mismatch")
     if p["evidence"].get("executor_id") not in (None, receipt.get("executor_id")): raise ValueError("evidence_executor_mismatch")
     if p["evidence"].get("executor_version") not in (None, receipt.get("executor_version")): raise ValueError("evidence_executor_version_mismatch")
     if p["evidence"].get("agent_id") != agent_id: raise ValueError("evidence_agent_mismatch")

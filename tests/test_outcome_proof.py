@@ -51,6 +51,7 @@ def _proof():
         "policy_version": "capability-policy-v1",
         "executor_id": "staging_deploy",
         "executor_version": "1",
+        "executor_implementation_digest": "a" * 64,
         "status": "EXECUTED",
     }
     contract = grant["outcome_contract"]
@@ -69,6 +70,7 @@ def _proof():
         "source": "evidence-ledger",
         "executor_id": "staging_deploy",
         "executor_version": "1",
+        "executor_implementation_digest": "a" * 64,
     }
     signed_grant = signer.sign(CapabilityGrant.from_dict(grant)).to_dict()
     manifest = build_manifest([
@@ -148,6 +150,28 @@ def test_builder_rejects_missing_executor_identity():
             proof["outcome"],
             proof["evidence"],
             proof["evidence_manifest"],
+        )
+
+
+def test_builder_rejects_missing_executor_implementation_digest():
+    proof = _proof()
+    receipt = dict(proof["receipt"])
+    receipt.pop("executor_implementation_digest")
+    with pytest.raises(OutcomeProofError, match="executor_implementation_digest_required"):
+        build_outcome_proof_payload(
+            proof["grant"], receipt, proof["outcome_contract"],
+            proof["outcome"], proof["evidence"], proof["evidence_manifest"],
+        )
+
+
+def test_builder_rejects_executor_digest_mismatch():
+    proof = _proof()
+    evidence = dict(proof["evidence"])
+    evidence["executor_implementation_digest"] = "b" * 64
+    with pytest.raises(OutcomeProofError, match="evidence_executor_digest_mismatch"):
+        build_outcome_proof_payload(
+            proof["grant"], proof["receipt"], proof["outcome_contract"],
+            proof["outcome"], evidence, proof["evidence_manifest"],
         )
 
 

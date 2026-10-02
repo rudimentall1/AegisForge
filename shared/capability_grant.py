@@ -11,6 +11,7 @@ class CapabilityGrantError(ValueError):
 
 from shared.outcome_contract import validate_outcome_contract, OutcomeContractError
 from shared.effective_capability import EffectiveCapabilityDecision, evaluate_effective_capability
+from shared.signed_action_intent import SignedActionIntent, SignedActionIntentError
 
 
 
@@ -47,6 +48,7 @@ class CapabilityGrant:
     nonce: str = ""
     status: str = "ACTIVE"
     outcome_contract: dict = field(default_factory=dict)
+    signed_action_intent: dict = field(default_factory=dict)
 
     def to_dict(self):
         return {
@@ -67,6 +69,7 @@ class CapabilityGrant:
             "nonce": self.nonce,
             "status": self.status,
             "outcome_contract": self.outcome_contract,
+            "signed_action_intent": self.signed_action_intent,
         }
 
     def canonical(self):
@@ -108,10 +111,19 @@ class CapabilityGrant:
             nonce=str(payload["nonce"]),
             status=str(payload["status"]),
             outcome_contract=dict(payload["outcome_contract"]),
+            signed_action_intent=dict(payload.get("signed_action_intent") or {}),
         )
         if not isinstance(payload["outcome_contract"], dict):
             raise CapabilityGrantError("invalid_outcome_contract")
         validate_outcome_contract(payload["outcome_contract"], action=payload.get("authorized_action"))
+        if grant.signed_action_intent:
+            try:
+                signed_intent = SignedActionIntent.from_dict(grant.signed_action_intent)
+                signed_intent.verify()
+            except (SignedActionIntentError, TypeError, ValueError) as exc:
+                raise CapabilityGrantError("signed_action_intent_invalid") from exc
+            if signed_intent.intent_hash != grant.intent_hash:
+                raise CapabilityGrantError("signed_action_intent_hash_mismatch")
         # Recompute the evidence commitment before any execution path uses it.
         if grant.evidence_hash != evidence_hash(grant.evidence_ids):
             raise CapabilityGrantError("evidence_hash_mismatch")
@@ -122,6 +134,14 @@ class CapabilityGrant:
             raise CapabilityGrantError("grant_not_active")
         if self.intent_hash != intent_hash(intent):
             raise CapabilityGrantError("intent_hash_mismatch")
+        if self.signed_action_intent:
+            try:
+                signed_intent = SignedActionIntent.from_dict(self.signed_action_intent)
+                signed_intent.verify()
+            except (SignedActionIntentError, TypeError, ValueError) as exc:
+                raise CapabilityGrantError("signed_action_intent_invalid") from exc
+            if signed_intent.intent_hash != self.intent_hash:
+                raise CapabilityGrantError("signed_action_intent_hash_mismatch")
         if self.evidence_hash != evidence_hash(evidence_ids):
             raise CapabilityGrantError("evidence_hash_mismatch")
         if tuple(sorted(str(v) for v in evidence_ids)) != tuple(sorted(self.evidence_ids)):
@@ -149,6 +169,7 @@ def issue_capability_grant(
     *,
     authority_state=None,
     authority_context=None,
+    signed_action_intent=None,
 ):
     if authority_context is None:
         raise CapabilityGrantError("authority_context_required")
@@ -160,6 +181,17 @@ def issue_capability_grant(
         raise CapabilityGrantError("authority_state_mismatch")
     if str(policy_version) != str(authority_context.policy_version):
         raise CapabilityGrantError("authority_policy_version_mismatch")
+    signed_intent_payload = {}
+    if signed_action_intent is not None:
+        if not isinstance(signed_action_intent, SignedActionIntent):
+            raise CapabilityGrantError("signed_action_intent_required")
+        try:
+            signed_action_intent.verify()
+        except SignedActionIntentError as exc:
+            raise CapabilityGrantError("signed_action_intent_invalid") from exc
+        if signed_action_intent.intent_hash != intent_hash(intent):
+            raise CapabilityGrantError("signed_action_intent_hash_mismatch")
+        signed_intent_payload = signed_action_intent.to_dict()
     authority_state = authority_context.state
     effective = evaluate_effective_capability(intent, authority_state)
     if effective.decision == EffectiveCapabilityDecision.BLOCK:
@@ -191,7 +223,9 @@ def issue_capability_grant(
         issued_at=now.isoformat(),
         expires_at=(now + timedelta(seconds=ttl_seconds)).isoformat(),
         nonce=secrets.token_urlsafe(18),
-        outcome_contract=dict(requested_contract),    )
+        outcome_contract=dict(requested_contract),
+        signed_action_intent=signed_intent_payload,
+    )
 
 
 def consume_capability_grant(grant, intent, evidence_ids=(), now=None):

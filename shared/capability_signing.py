@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from shared.capability_grant import CapabilityGrant, CapabilityGrantError
+from shared.agent_identity_signing import SignedAgentIdentity, AgentIdentitySigner, AgentIdentitySignatureError
 
 
 class CapabilitySignatureError(ValueError):
@@ -23,6 +24,7 @@ class SignedCapabilityGrant:
     grant: CapabilityGrant
     key_id: str
     signature: str
+    agent_identity: SignedAgentIdentity | None = None
     algorithm: str = "Ed25519"
 
     def payload(self):
@@ -30,6 +32,7 @@ class SignedCapabilityGrant:
             "algorithm": self.algorithm,
             "key_id": self.key_id,
             "grant": self.grant.to_dict(),
+            "agent_identity": self.agent_identity.to_dict() if self.agent_identity else None,
         }
 
     def to_dict(self):
@@ -37,6 +40,7 @@ class SignedCapabilityGrant:
             "algorithm": self.algorithm,
             "key_id": self.key_id,
             "grant": self.grant.to_dict(),
+            "agent_identity": self.agent_identity.to_dict() if self.agent_identity else None,
             "signature": self.signature,
         }
 
@@ -44,7 +48,7 @@ class SignedCapabilityGrant:
     def from_dict(cls, payload):
         if not isinstance(payload, dict):
             raise CapabilitySignatureError("signed_grant_required")
-        for field in ("algorithm", "key_id", "grant", "signature"):
+        for field in ("algorithm", "key_id", "grant", "signature", "agent_identity"):
             if field not in payload:
                 raise CapabilitySignatureError(f"signed_grant_field_missing:{field}")
         if payload["algorithm"] != "Ed25519":
@@ -53,10 +57,17 @@ class SignedCapabilityGrant:
             grant = CapabilityGrant.from_dict(payload["grant"])
         except (CapabilityGrantError, TypeError, ValueError) as exc:
             raise CapabilitySignatureError(str(exc)) from exc
+        agent_identity = None
+        if payload["agent_identity"] is not None:
+            try:
+                agent_identity = SignedAgentIdentity.from_dict(payload["agent_identity"])
+            except (AgentIdentitySignatureError, TypeError, ValueError) as exc:
+                raise CapabilitySignatureError(str(exc)) from exc
         return cls(
             grant=grant,
             key_id=str(payload["key_id"]),
             signature=str(payload["signature"]),
+            agent_identity=agent_identity,
             algorithm="Ed25519",
         )
 
@@ -120,13 +131,23 @@ class CapabilitySigner:
             _canonical(payload).encode("utf-8")
         )
 
-    def sign(self, grant):
+    def sign(self, grant, agent_identity=None):
         if not isinstance(grant, CapabilityGrant):
             raise CapabilitySignatureError("capability_grant_required")
+        if agent_identity is not None:
+            if not isinstance(agent_identity, SignedAgentIdentity):
+                raise CapabilitySignatureError("signed_agent_identity_required")
+            try:
+                AgentIdentitySigner.verify_identity(agent_identity)
+            except AgentIdentitySignatureError as exc:
+                raise CapabilitySignatureError(str(exc)) from exc
+            if agent_identity.identity.agent_id != grant.agent_id:
+                raise CapabilitySignatureError("agent_identity_mismatch")
         artifact = SignedCapabilityGrant(
             grant=grant,
             key_id=self.key_id,
             signature="",
+            agent_identity=agent_identity,
         )
         signature = self._private_key.sign(
             _canonical(artifact.payload()).encode("utf-8")
@@ -135,6 +156,7 @@ class CapabilitySigner:
             grant=grant,
             key_id=self.key_id,
             signature=base64.urlsafe_b64encode(signature).decode("ascii"),
+            agent_identity=agent_identity,
         )
 
     def verify(self, signed):
@@ -144,6 +166,13 @@ class CapabilitySigner:
             raise CapabilitySignatureError("unsupported_signature_algorithm")
         if signed.key_id != self.key_id:
             raise CapabilitySignatureError("signer_key_id_mismatch")
+        if signed.agent_identity is not None:
+            try:
+                AgentIdentitySigner.verify_identity(signed.agent_identity)
+            except AgentIdentitySignatureError as exc:
+                raise CapabilitySignatureError(str(exc)) from exc
+            if signed.agent_identity.identity.agent_id != signed.grant.agent_id:
+                raise CapabilitySignatureError("agent_identity_mismatch")
         try:
             signature = base64.urlsafe_b64decode(signed.signature.encode("ascii"))
             public_key = self._private_key.public_key()

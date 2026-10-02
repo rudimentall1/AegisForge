@@ -198,6 +198,7 @@ def verify_outcome_proof(proof):
         "algorithm": grant["algorithm"],
         "key_id": grant["key_id"],
         "grant": grant.get("grant"),
+        "agent_identity": grant.get("agent_identity"),
     }
     try:
         public_key.verify(

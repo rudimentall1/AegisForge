@@ -5,6 +5,7 @@ from shared.capability_grant import issue_capability_grant as _issue_capability_
 from shared.authority_state import AuthorityState
 from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.capability_signing import CapabilitySignatureError, CapabilitySigner, SignedCapabilityGrant
+from shared.agent_identity_signing import AgentIdentitySigner
 
 
 def issue_capability_grant(*args, **kwargs):
@@ -42,7 +43,8 @@ def _signed(signer=None, **overrides):
         "task-1", _intent(**overrides), CapabilityPolicy.VERSION,
         ["evidence-1"], "staging",
     )
-    return signer, signer.sign(grant)
+    agent = AgentIdentitySigner.generate("test-agent", "developer").sign_identity()
+    return signer, signer.sign(grant, agent)
 
 
 def test_signature_round_trip_and_canonical_artifact():
@@ -86,3 +88,27 @@ def test_signature_binds_evidence_and_policy():
     payload["grant"]["evidence_ids"] = ["attacker-evidence"]
     with pytest.raises(CapabilitySignatureError, match="evidence_hash_mismatch"):
         SignedCapabilityGrant.from_dict(payload)
+
+def test_signed_grant_binds_cryptographic_agent_identity():
+    from shared.agent_identity_signing import AgentIdentitySigner
+    signer = CapabilitySigner.generate()
+    agent = AgentIdentitySigner.generate("agent-1", "validator").sign_identity()
+    grant = issue_capability_grant(
+        "task-1", _intent(), CapabilityPolicy.VERSION, ["evidence-1"], "staging",
+    )
+    grant = grant.__class__(**{**grant.__dict__, "agent_id": "agent-1"})
+    signed = signer.sign(grant, agent)
+    assert signer.verify(signed).agent_id == "agent-1"
+    assert signed.agent_identity.identity.agent_id == "agent-1"
+
+
+def test_signed_grant_rejects_agent_identity_mismatch():
+    from shared.agent_identity_signing import AgentIdentitySigner
+    signer = CapabilitySigner.generate()
+    agent = AgentIdentitySigner.generate("other-agent", "validator").sign_identity()
+    grant = issue_capability_grant(
+        "task-1", _intent(), CapabilityPolicy.VERSION, ["evidence-1"], "staging",
+    )
+    grant = grant.__class__(**{**grant.__dict__, "agent_id": "agent-1"})
+    with pytest.raises(CapabilitySignatureError, match="agent_identity_mismatch"):
+        signer.sign(grant, agent)

@@ -52,6 +52,7 @@ def _proof():
         "executor_id": "staging_deploy",
         "executor_version": "1",
         "executor_implementation_digest": "a" * 64,
+        "executor_identity_epoch": 1,
         "status": "EXECUTED",
     }
     contract = grant["outcome_contract"]
@@ -71,6 +72,7 @@ def _proof():
         "executor_id": "staging_deploy",
         "executor_version": "1",
         "executor_implementation_digest": "a" * 64,
+        "executor_identity_epoch": 1,
     }
     signed_grant = signer.sign(CapabilityGrant.from_dict(grant)).to_dict()
     manifest = build_manifest([
@@ -161,6 +163,17 @@ def test_builder_rejects_missing_executor_implementation_digest():
         build_outcome_proof_payload(
             proof["grant"], receipt, proof["outcome_contract"],
             proof["outcome"], proof["evidence"], proof["evidence_manifest"],
+        )
+
+
+def test_builder_rejects_executor_epoch_mismatch():
+    proof = _proof()
+    evidence = dict(proof["evidence"])
+    evidence["executor_identity_epoch"] = 2
+    with pytest.raises(OutcomeProofError, match="evidence_executor_epoch_mismatch"):
+        build_outcome_proof_payload(
+            proof["grant"], proof["receipt"], proof["outcome_contract"],
+            proof["outcome"], evidence, proof["evidence_manifest"],
         )
 
 

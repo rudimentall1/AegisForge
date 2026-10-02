@@ -74,6 +74,7 @@ def test_successful_execution_creates_receipt_and_ledger_evidence():
     assert result["receipt"].status == "EXECUTED"
     assert result["receipt"].executor_id == "staging_deploy"
     assert result["receipt"].executor_version == "2"
+    assert result["receipt"].executor_identity_epoch >= 1
     assert len(result["receipt"].executor_implementation_digest) == 64
     assert result["evidence"]["receipt_id"] == result["receipt"].receipt_id
     assert ledger.evidence_quality(result["evidence"]["evidence_id"])["kind"] == "execution_receipt"

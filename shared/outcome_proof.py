@@ -4,7 +4,7 @@ import json
 import os
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from shared.evidence_manifest import verify_manifest
+from shared.evidence_manifest import verify_artifact_bindings, verify_manifest
 
 
 class OutcomeProofError(ValueError):
@@ -111,7 +111,16 @@ def build_outcome_proof_payload(grant, receipt, outcome_contract, outcome, evide
     if evidence_manifest.get("agent_id") != agent_id:
         raise OutcomeProofError("manifest_agent_mismatch")
     try:
-        verify_manifest(evidence_manifest)
+        verify_artifact_bindings(
+            evidence_manifest,
+            {
+                "grant": grant,
+                "receipt": receipt,
+                "contract": outcome_contract,
+                "outcome": outcome,
+                "evidence": evidence,
+            },
+        )
     except Exception as exc:
         raise OutcomeProofError(str(exc)) from exc
     if outcome.get("status") != "PROVEN":
@@ -222,6 +231,19 @@ def verify_outcome_proof(proof):
         raise OutcomeProofError("evidence_agent_mismatch")
     if proof["evidence_manifest"].get("agent_id") != agent_id:
         raise OutcomeProofError("manifest_agent_mismatch")
+    try:
+        verify_artifact_bindings(
+            proof["evidence_manifest"],
+            {
+                "grant": grant,
+                "receipt": receipt,
+                "contract": proof["outcome_contract"],
+                "outcome": proof["outcome"],
+                "evidence": proof["evidence"],
+            },
+        )
+    except Exception as exc:
+        raise OutcomeProofError(str(exc)) from exc
     if proof["outcome"].get("outcome_id") != proof["evidence"].get("outcome_id"):
         raise OutcomeProofError("outcome_evidence_binding_mismatch")
     return {

@@ -60,3 +60,27 @@ def verify_manifest(manifest):
     if manifest.get("merkle_root") != expected:
         raise EvidenceManifestError("manifest_root_mismatch")
     return {"valid": True, "merkle_root": expected, "entry_count": len(entries)}
+
+
+def verify_artifact_bindings(manifest, artifacts):
+    """Verify that manifest digests correspond to the exact embedded artifacts."""
+    verify_manifest(manifest)
+    if not isinstance(artifacts, dict):
+        raise EvidenceManifestError("artifact_bindings_required")
+    by_key = {(entry["id"], entry["type"]): entry for entry in manifest["entries"]}
+    required = {
+        "grant": "capability_grant",
+        "receipt": "execution_receipt",
+        "contract": "outcome_contract",
+        "outcome": "verified_outcome",
+        "evidence": "outcome_evidence",
+    }
+    for artifact_id, artifact_type in required.items():
+        entry = by_key.get((artifact_id, artifact_type))
+        if entry is None:
+            raise EvidenceManifestError(f"manifest_entry_missing:{artifact_id}")
+        if artifact_id not in artifacts:
+            raise EvidenceManifestError(f"artifact_missing:{artifact_id}")
+        if digest(artifacts[artifact_id]) != entry["digest"]:
+            raise EvidenceManifestError(f"manifest_artifact_mismatch:{artifact_id}")
+    return {"valid": True, "checked": tuple(required)}

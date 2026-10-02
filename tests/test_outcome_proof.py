@@ -171,3 +171,35 @@ def test_verifier_rejects_tampered_executor_identity():
     proof["receipt"]["executor_id"] = "other-executor"
     with pytest.raises(OutcomeProofError, match="proof_id_mismatch|proof_signature_invalid"):
         verify_outcome_proof(proof)
+
+
+def test_builder_rejects_manifest_digest_not_matching_artifact():
+    proof = _proof()
+    entries = [dict(entry) for entry in proof["evidence_manifest"]["entries"]]
+    entries[0]["digest"] = "0" * 64
+    manifest = build_manifest(entries, agent_id="test-agent")
+    with pytest.raises(OutcomeProofError, match="manifest_artifact_mismatch"):
+        build_outcome_proof_payload(
+            proof["grant"],
+            proof["receipt"],
+            proof["outcome_contract"],
+            proof["outcome"],
+            proof["evidence"],
+            manifest,
+        )
+
+
+def test_verifier_path_uses_semantic_manifest_binding():
+    proof = _proof()
+    entries = [dict(entry) for entry in proof["evidence_manifest"]["entries"]]
+    entries[0]["digest"] = "0" * 64
+    manifest = build_manifest(entries, agent_id="test-agent")
+    with pytest.raises(OutcomeProofError, match="manifest_artifact_mismatch"):
+        build_outcome_proof_payload(
+            proof["grant"],
+            proof["receipt"],
+            proof["outcome_contract"],
+            proof["outcome"],
+            proof["evidence"],
+            manifest,
+        )

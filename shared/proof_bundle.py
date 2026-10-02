@@ -54,6 +54,15 @@ def manifest_verify(m):
         root=leaves[0]
     if m.get("merkle_root") != root: raise ValueError("manifest_merkle_root_mismatch")
 
+def artifact_bindings(p):
+    entries={(e["id"],e["type"]):e for e in p["evidence_manifest"]["entries"]}
+    required=(("grant","capability_grant"),("receipt","execution_receipt"),("contract","outcome_contract"),("outcome","verified_outcome"),("evidence","outcome_evidence"))
+    artifacts={"grant":p["grant"],"receipt":p["receipt"],"contract":p["outcome_contract"],"outcome":p["outcome"],"evidence":p["evidence"]}
+    for artifact_id, artifact_type in required:
+        entry=entries.get((artifact_id,artifact_type))
+        if entry is None: raise ValueError(f"manifest_entry_missing:{artifact_id}")
+        if digest(artifacts[artifact_id]) != entry["digest"]: raise ValueError(f"manifest_artifact_mismatch:{artifact_id}")
+
 def integrity(p):
     return {k:p[k] for k in ("schema_version","algorithm","key_id","public_key","grant","receipt","outcome_contract","outcome","evidence","evidence_manifest")}
 
@@ -76,6 +85,7 @@ def verify(p):
     key=Ed25519PublicKey.from_public_bytes(pub)
     try: key.verify(sig, canonical(signature_payload(p)).encode())
     except Exception as exc: raise ValueError("proof_signature_invalid") from exc
+    artifact_bindings(p)
     g=p["grant"]
     if g.get("algorithm") != ALGORITHM or g.get("key_id") != p["key_id"]: raise ValueError("grant_signer_mismatch")
     gs=b64(g.get("signature",""),"grant_signature")

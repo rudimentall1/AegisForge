@@ -66,12 +66,14 @@ def test_successful_execution_creates_receipt_and_ledger_evidence():
     intent = _intent()
     grant = _grant(intent, signer)
     calls = []
-    registry.register("staging_deploy", "deploy", "staging", lambda current: calls.append(current.target) or {"ok": True})
+    registry.register("staging_deploy", "deploy", "staging", lambda current: calls.append(current.target) or {"ok": True}, version="2")
 
     result = registry.execute(grant, intent, evidence_ids=["e1", "e2"])
 
     assert calls == ["staging"]
     assert result["receipt"].status == "EXECUTED"
+    assert result["receipt"].executor_id == "staging_deploy"
+    assert result["receipt"].executor_version == "2"
     assert result["evidence"]["receipt_id"] == result["receipt"].receipt_id
     assert ledger.evidence_quality(result["evidence"]["evidence_id"])["kind"] == "execution_receipt"
 

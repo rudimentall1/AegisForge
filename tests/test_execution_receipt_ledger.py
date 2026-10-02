@@ -14,6 +14,8 @@ def test_execution_receipt_is_persisted_as_evidence():
         nonce="nonce-1",
         intent_hash="intent-hash",
         policy_version="capability-policy-v1",
+        executor_id="test-executor",
+        executor_version="1",
         action="deploy",
         target="staging",
         authorized_scope="staging",

@@ -1,7 +1,7 @@
 import hashlib
 import json
 
-from shared.capability_grant import intent_hash
+from shared.capability_grant import intent_hash, validate_outcome_contract
 from shared.http_executor import HttpApiExecutor, HttpExecutorError
 
 
@@ -13,10 +13,10 @@ class McpOutcomeVerifier:
     """Independently verifies an MCP action through a read-only verification call.
 
     The verification contract is supplied by the authorized intent:
-    parameters.verification.endpoint
-    parameters.verification.tool
-    parameters.verification.arguments
-    parameters.verification.expected_state
+    parameters.outcome_contract.endpoint
+    parameters.outcome_contract.tool
+    parameters.outcome_contract.arguments
+    parameters.outcome_contract.expected_state
 
     The verifier never trusts the original tools/call response as proof.
     """
@@ -39,13 +39,15 @@ class McpOutcomeVerifier:
             raise McpOutcomeVerificationError("receipt_action_mismatch")
 
         params = dict(getattr(intent, "parameters", {}) or {})
-        verification = params.get("verification")
+        verification = params.get("outcome_contract")
         if not isinstance(verification, dict):
             raise McpOutcomeVerificationError("mcp_verification_contract_required")
+        try:
+            verification = validate_outcome_contract(verification, action="mcp_tool_call")
+        except Exception as exc:
+            raise McpOutcomeVerificationError(str(exc)) from exc
 
         endpoint = verification.get("endpoint") or intent.target
-        if verification.get("read_only") is not True:
-            raise McpOutcomeVerificationError("mcp_verification_must_be_read_only")
         tool = str(verification.get("tool") or "").strip()
         arguments = verification.get("arguments", {})
         if not tool:

@@ -20,6 +20,7 @@ def _delete_intent(target):
         requires_filesystem=True,
         read_only=False,
         evidence_required=True,
+        parameters={"outcome_contract": {"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"}},
     )
 
 

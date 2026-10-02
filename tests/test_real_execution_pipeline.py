@@ -50,6 +50,7 @@ def test_real_queue_validator_executor_pipeline(tmp_path, monkeypatch):
         "privileged": False,
         "read_only": False,
         "evidence_required": True,
+        "parameters": {"outcome_contract": {"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"}},
     }
     parent_result = {
         "error": "capability_evidence_required",

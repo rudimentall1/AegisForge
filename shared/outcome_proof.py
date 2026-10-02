@@ -217,7 +217,19 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     verify = sub.add_parser("verify", help="verify a portable outcome proof offline")
     verify.add_argument("proof", help="path to outcome-proof.json")
+    bundle = sub.add_parser("bundle", help="export a portable offline proof bundle")
+    bundle.add_argument("proof", help="path to outcome-proof.json")
+    bundle.add_argument("output", help="directory to create")
     args = parser.parse_args(argv)
+    if args.command == "bundle":
+        from shared.proof_bundle import export_bundle
+        try:
+            output = export_bundle(args.proof, args.output)
+        except (OutcomeProofError, OSError, ValueError) as exc:
+            print(f"INVALID: {exc}")
+            return 1
+        print(f"BUNDLE: {output}")
+        return 0
     if args.command == "verify":
         try:
             result = verify_outcome_proof(read_outcome_proof(args.proof))

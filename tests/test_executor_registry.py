@@ -162,3 +162,37 @@ def test_unknown_executor_is_blocked():
 
     with pytest.raises(ExecutorRegistryError, match="executor_not_registered"):
         registry.execute(grant, intent, evidence_ids=["e1", "e2"])
+
+
+def test_executor_identity_survives_registry_restart():
+    db, ledger, registry, _ = _runtime()
+    registry.register("persistent_executor", "deploy", "staging", lambda current: {"v": 1}, version="3")
+
+    gate = registry.gate
+    restarted = ExecutorRegistry(gate, evidence_ledger=ledger)
+    spec = restarted.register(
+        "persistent_executor", "publish", "production", lambda current: {"v": 1}, version="3",
+        implementation_digest=registry.identity_registry.get("persistent_executor", "3").implementation_digest,
+    )
+
+    assert spec.version == "3"
+    assert spec.implementation_digest == registry.identity_registry.get("persistent_executor", "3").implementation_digest
+
+
+def test_executor_identity_change_is_blocked_after_registry_restart():
+    db, ledger, registry, _ = _runtime()
+    registry.register("persistent_executor", "deploy", "staging", lambda current: {"v": 1}, version="3")
+    restarted = ExecutorRegistry(registry.gate, evidence_ledger=ledger)
+
+    with pytest.raises(ExecutorRegistryError, match="executor_identity_conflict"):
+        restarted.register("persistent_executor", "publish", "production", lambda current: {"v": 2}, version="3")
+
+
+def test_suspended_executor_identity_cannot_be_re_registered():
+    db, ledger, registry, _ = _runtime()
+    spec = registry.register("suspended_executor", "deploy", "staging", lambda current: {"ok": True}, version="1")
+    registry.identity_registry.set_status(spec.executor_id, spec.version, "SUSPENDED")
+    restarted = ExecutorRegistry(registry.gate, evidence_ledger=ledger)
+
+    with pytest.raises(ExecutorRegistryError, match="executor_identity_not_active"):
+        restarted.register("suspended_executor", "publish", "production", lambda current: {"ok": True}, version="1", implementation_digest=spec.implementation_digest)

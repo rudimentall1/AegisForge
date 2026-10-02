@@ -90,6 +90,16 @@ def build_outcome_proof_payload(grant, receipt, outcome_contract, outcome, evide
         raise OutcomeProofError("evidence_required")
     if not isinstance(evidence_manifest, dict):
         raise OutcomeProofError("evidence_manifest_required")
+    grant_body = grant.get("grant") or {}
+    agent_id = grant_body.get("agent_id")
+    if not agent_id or receipt.get("agent_id") != agent_id:
+        raise OutcomeProofError("grant_receipt_agent_mismatch")
+    if outcome.get("agent_id") != agent_id:
+        raise OutcomeProofError("outcome_agent_mismatch")
+    if evidence.get("agent_id") != agent_id:
+        raise OutcomeProofError("evidence_agent_mismatch")
+    if evidence_manifest.get("agent_id") != agent_id:
+        raise OutcomeProofError("manifest_agent_mismatch")
     try:
         verify_manifest(evidence_manifest)
     except Exception as exc:
@@ -185,6 +195,15 @@ def verify_outcome_proof(proof):
             raise OutcomeProofError(error)
     if grant_body.get("outcome_contract") != proof["outcome_contract"]:
         raise OutcomeProofError("grant_contract_mismatch")
+    agent_id = grant_body.get("agent_id")
+    if not agent_id or receipt.get("agent_id") != agent_id:
+        raise OutcomeProofError("grant_receipt_agent_mismatch")
+    if proof["outcome"].get("agent_id") != agent_id:
+        raise OutcomeProofError("outcome_agent_mismatch")
+    if proof["evidence"].get("agent_id") != agent_id:
+        raise OutcomeProofError("evidence_agent_mismatch")
+    if proof["evidence_manifest"].get("agent_id") != agent_id:
+        raise OutcomeProofError("manifest_agent_mismatch")
     if proof["outcome"].get("outcome_id") != proof["evidence"].get("outcome_id"):
         raise OutcomeProofError("outcome_evidence_binding_mismatch")
     return {

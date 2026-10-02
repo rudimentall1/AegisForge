@@ -53,11 +53,13 @@ def _proof():
     }
     contract = grant["outcome_contract"]
     outcome = {
+        "agent_id": "test-agent",
         "status": "PROVEN",
         "verifier": "artifact_independent_v1",
         "outcome_id": "outcome-1",
     }
     evidence = {
+        "agent_id": "test-agent",
         "outcome_id": "outcome-1",
         "evidence_id": "evidence-1",
         "verifier": "artifact_independent_v1",
@@ -71,7 +73,7 @@ def _proof():
         {"id": "contract", "type": "outcome_contract", "digest": digest(contract)},
         {"id": "outcome", "type": "verified_outcome", "digest": digest(outcome)},
         {"id": "evidence", "type": "outcome_evidence", "digest": digest(evidence)},
-    ])
+    ], agent_id="test-agent")
     payload = build_outcome_proof_payload(signed_grant, receipt, contract, outcome, evidence, manifest)
     return sign_outcome_proof(payload, signer)
 
@@ -95,3 +97,36 @@ def test_contract_binding_is_required():
     proof["outcome_contract"]["expected_exists"] = False
     with pytest.raises(OutcomeProofError, match="proof_id_mismatch|proof_signature_invalid|grant_contract_mismatch"):
         verify_outcome_proof(proof)
+
+
+def test_builder_rejects_cross_agent_outcome():
+    proof = _proof()
+    outcome = dict(proof["outcome"])
+    outcome["agent_id"] = "other-agent"
+    with pytest.raises(OutcomeProofError, match="outcome_agent_mismatch"):
+        build_outcome_proof_payload(
+            proof["grant"], proof["receipt"], proof["outcome_contract"],
+            outcome, proof["evidence"], proof["evidence_manifest"],
+        )
+
+
+def test_builder_rejects_cross_agent_evidence():
+    proof = _proof()
+    evidence = dict(proof["evidence"])
+    evidence["agent_id"] = "other-agent"
+    with pytest.raises(OutcomeProofError, match="evidence_agent_mismatch"):
+        build_outcome_proof_payload(
+            proof["grant"], proof["receipt"], proof["outcome_contract"],
+            proof["outcome"], evidence, proof["evidence_manifest"],
+        )
+
+
+def test_builder_rejects_cross_agent_manifest():
+    proof = _proof()
+    manifest = dict(proof["evidence_manifest"])
+    manifest["agent_id"] = "other-agent"
+    with pytest.raises(OutcomeProofError, match="manifest_agent_mismatch"):
+        build_outcome_proof_payload(
+            proof["grant"], proof["receipt"], proof["outcome_contract"],
+            proof["outcome"], proof["evidence"], manifest,
+        )

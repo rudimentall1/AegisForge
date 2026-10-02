@@ -35,12 +35,17 @@ def merkle_root(entries):
     return level[0]
 
 
-def build_manifest(entries):
+def build_manifest(entries, agent_id=None):
     normalized = [dict(e) for e in entries]
     if len({(e.get("id"), e.get("type")) for e in normalized}) != len(normalized):
         raise EvidenceManifestError("duplicate_manifest_entry")
     root = merkle_root(normalized)
-    return {"schema_version": SCHEMA_VERSION, "entry_count": len(normalized), "entries": sorted(normalized, key=lambda x: (x["id"], x["type"])), "merkle_root": root}
+    manifest = {"schema_version": SCHEMA_VERSION, "entry_count": len(normalized), "entries": sorted(normalized, key=lambda x: (x["id"], x["type"])), "merkle_root": root}
+    if agent_id is not None:
+        if not isinstance(agent_id, str) or not agent_id:
+            raise EvidenceManifestError("invalid_manifest_agent_id")
+        manifest["agent_id"] = agent_id
+    return manifest
 
 
 def verify_manifest(manifest):
@@ -49,6 +54,8 @@ def verify_manifest(manifest):
     entries = manifest.get("entries")
     if not isinstance(entries, list) or manifest.get("entry_count") != len(entries):
         raise EvidenceManifestError("manifest_entry_count_mismatch")
+    if "agent_id" in manifest and (not isinstance(manifest["agent_id"], str) or not manifest["agent_id"]):
+        raise EvidenceManifestError("invalid_manifest_agent_id")
     expected = merkle_root(entries)
     if manifest.get("merkle_root") != expected:
         raise EvidenceManifestError("manifest_root_mismatch")

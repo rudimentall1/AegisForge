@@ -427,6 +427,7 @@ class Worker:
         ) as exc:
             raise ExecutorRegistryError(str(exc)) from exc
 
+        outcome["agent_id"] = receipt.agent_id
         outcome_evidence = self.evidence_ledger.record_outcome_verification(
             task_id=receipt.task_id,
             role="outcome_verifier",
@@ -438,6 +439,7 @@ class Worker:
             "verifier": outcome.get("verifier"),
             "status": outcome.get("status"),
             "source": outcome_evidence.get("source"),
+            "agent_id": receipt.agent_id,
         }
         manifest = build_manifest([
             {"id": "grant", "type": "capability_grant", "digest": digest(signed_grant.to_dict())},
@@ -445,7 +447,7 @@ class Worker:
             {"id": "contract", "type": "outcome_contract", "digest": digest(contract)},
             {"id": "outcome", "type": "verified_outcome", "digest": digest(outcome)},
             {"id": "evidence", "type": "outcome_evidence", "digest": digest(proof_evidence)},
-        ])
+        ], agent_id=receipt.agent_id)
         proof_payload = build_outcome_proof_payload(
             grant=signed_grant.to_dict(),
             receipt=receipt.__dict__,

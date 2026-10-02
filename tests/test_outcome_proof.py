@@ -4,6 +4,7 @@ import pytest
 
 from shared.capability_signing import CapabilitySigner
 from shared.capability_grant import CapabilityGrant, evidence_hash
+from shared.evidence_manifest import build_manifest, digest
 from shared.outcome_proof import (
     OutcomeProofError,
     build_outcome_proof_payload,
@@ -56,7 +57,14 @@ def _proof():
         "source": "evidence-ledger",
     }
     signed_grant = signer.sign(CapabilityGrant.from_dict(grant)).to_dict()
-    payload = build_outcome_proof_payload(signed_grant, receipt, contract, outcome, evidence)
+    manifest = build_manifest([
+        {"id": "grant", "type": "capability_grant", "digest": digest(signed_grant)},
+        {"id": "receipt", "type": "execution_receipt", "digest": digest(receipt)},
+        {"id": "contract", "type": "outcome_contract", "digest": digest(contract)},
+        {"id": "outcome", "type": "verified_outcome", "digest": digest(outcome)},
+        {"id": "evidence", "type": "outcome_evidence", "digest": digest(evidence)},
+    ])
+    payload = build_outcome_proof_payload(signed_grant, receipt, contract, outcome, evidence, manifest)
     return sign_outcome_proof(payload, signer)
 
 

@@ -36,6 +36,7 @@ from shared.http_outcome_verifier import HttpOutcomeVerifier, HttpOutcomeVerific
 from shared.mcp_outcome_verifier import McpOutcomeVerifier, McpOutcomeVerificationError
 from shared.outcome_verifier_registry import OutcomeVerifierRegistry, OutcomeVerifierRegistryError
 from shared.outcome_proof import build_outcome_proof_payload, sign_outcome_proof, write_outcome_proof
+from shared.evidence_manifest import build_manifest, digest
 from shared.capability_policy import ActionIntent
 import hashlib
 
@@ -414,12 +415,20 @@ class Worker:
             "status": outcome.get("status"),
             "source": outcome_evidence.get("source"),
         }
+        manifest = build_manifest([
+            {"id": "grant", "type": "capability_grant", "digest": digest(signed_grant.to_dict())},
+            {"id": "receipt", "type": "execution_receipt", "digest": digest(receipt.to_dict())},
+            {"id": "contract", "type": "outcome_contract", "digest": digest(contract)},
+            {"id": "outcome", "type": "verified_outcome", "digest": digest(outcome)},
+            {"id": "evidence", "type": "outcome_evidence", "digest": digest(proof_evidence)},
+        ])
         proof_payload = build_outcome_proof_payload(
             grant=signed_grant.to_dict(),
             receipt=receipt.__dict__,
             outcome_contract=contract,
             outcome=outcome,
             evidence=proof_evidence,
+            evidence_manifest=manifest,
         )
         proof = sign_outcome_proof(proof_payload, self.capability_signer)
         proof_dir = os.environ.get(

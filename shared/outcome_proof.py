@@ -2,8 +2,9 @@ import base64
 import hashlib
 import json
 import os
-from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+from shared.evidence_manifest import verify_manifest
 
 
 class OutcomeProofError(ValueError):
@@ -36,6 +37,7 @@ def _integrity_payload(proof):
         "outcome_contract": proof["outcome_contract"],
         "outcome": proof["outcome"],
         "evidence": proof["evidence"],
+        "evidence_manifest": proof["evidence_manifest"],
     }
 
 
@@ -67,19 +69,31 @@ def _validate_shape(proof):
         raise OutcomeProofError("proof_outcome_required")
     if not isinstance(proof["evidence"], dict):
         raise OutcomeProofError("proof_evidence_required")
+    if not isinstance(proof["evidence_manifest"], dict):
+        raise OutcomeProofError("proof_evidence_manifest_required")
+    try:
+        verify_manifest(proof["evidence_manifest"])
+    except Exception as exc:
+        raise OutcomeProofError(str(exc)) from exc
     if proof["outcome"].get("status") != "PROVEN":
         raise OutcomeProofError("proof_outcome_not_proven")
     if proof["outcome"].get("verifier") != proof["outcome_contract"].get("verifier"):
         raise OutcomeProofError("proof_verifier_mismatch")
 
 
-def build_outcome_proof_payload(grant, receipt, outcome_contract, outcome, evidence):
+def build_outcome_proof_payload(grant, receipt, outcome_contract, outcome, evidence, evidence_manifest):
     if not isinstance(grant, dict) or not isinstance(receipt, dict):
         raise OutcomeProofError("grant_and_receipt_required")
     if not isinstance(outcome_contract, dict) or not isinstance(outcome, dict):
         raise OutcomeProofError("contract_and_outcome_required")
     if not isinstance(evidence, dict):
         raise OutcomeProofError("evidence_required")
+    if not isinstance(evidence_manifest, dict):
+        raise OutcomeProofError("evidence_manifest_required")
+    try:
+        verify_manifest(evidence_manifest)
+    except Exception as exc:
+        raise OutcomeProofError(str(exc)) from exc
     if outcome.get("status") != "PROVEN":
         raise OutcomeProofError("only_proven_outcomes_can_be_exported")
     if outcome.get("verifier") != outcome_contract.get("verifier"):
@@ -95,6 +109,7 @@ def build_outcome_proof_payload(grant, receipt, outcome_contract, outcome, evide
         "outcome_contract": outcome_contract,
         "outcome": outcome,
         "evidence": evidence,
+        "evidence_manifest": evidence_manifest,
     }
     return payload
 

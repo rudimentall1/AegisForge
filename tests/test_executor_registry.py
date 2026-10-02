@@ -20,6 +20,7 @@ def _intent(action="deploy", resource="staging"):
         data_scope="source_code",
         read_only=False,
         evidence_required=True,
+        parameters=({"outcome_contract": {"type": "artifact_exists", "verifier": "artifact_independent_v1", "path": resource, "expected_exists": True}} if action == "publish" else {}),
     )
 
 

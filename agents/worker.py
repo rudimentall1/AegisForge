@@ -35,6 +35,7 @@ from shared.http_executor import HttpApiExecutor, HttpExecutorError
 from shared.http_outcome_verifier import HttpOutcomeVerifier, HttpOutcomeVerificationError
 from shared.mcp_outcome_verifier import McpOutcomeVerifier, McpOutcomeVerificationError
 from shared.outcome_verifier_registry import OutcomeVerifierRegistry, OutcomeVerifierRegistryError
+from shared.outcome_proof import build_outcome_proof_payload, sign_outcome_proof, write_outcome_proof
 from shared.capability_policy import ActionIntent
 import hashlib
 
@@ -406,6 +407,29 @@ class Worker:
             role="outcome_verifier",
             outcome=outcome,
         )
+        proof_evidence = {
+            "outcome_id": outcome.get("outcome_id"),
+            "evidence_id": outcome_evidence.get("evidence_id"),
+            "verifier": outcome.get("verifier"),
+            "status": outcome.get("status"),
+            "source": outcome_evidence.get("source"),
+        }
+        proof_payload = build_outcome_proof_payload(
+            grant=signed_grant.to_dict(),
+            receipt=receipt.__dict__,
+            outcome_contract=contract,
+            outcome=outcome,
+            evidence=proof_evidence,
+        )
+        proof = sign_outcome_proof(proof_payload, self.capability_signer)
+        proof_dir = os.environ.get(
+            "AEGISFORGE_OUTCOME_PROOF_DIR",
+            "/opt/agent-farm/artifacts/outcome-proofs",
+        )
+        proof_path = write_outcome_proof(
+            proof,
+            os.path.join(proof_dir, f"{proof['proof_id']}.json"),
+        )
         return {
             "agent": self.role,
             "execution_mode": "capability_grant",
@@ -417,6 +441,12 @@ class Worker:
             "evidence": result["evidence"],
             "outcome": outcome,
             "outcome_evidence": outcome_evidence,
+            "outcome_proof": {
+                "proof_id": proof["proof_id"],
+                "path": proof_path,
+                "schema_version": proof["schema_version"],
+                "key_id": proof["key_id"],
+            },
         }
 
     def run_once(self):

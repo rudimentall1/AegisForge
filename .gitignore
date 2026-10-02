@@ -23,3 +23,4 @@ logs/
 developer-result-before-recursive-inspection.json
 
 .DS_Store
+artifacts/outcome-proofs/

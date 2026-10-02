@@ -112,6 +112,14 @@ class CapabilitySigner:
                 raise
             return signer
 
+    def sign_payload(self, payload):
+        """Sign a canonical JSON payload for portable proof artifacts."""
+        if not isinstance(payload, dict):
+            raise CapabilitySignatureError("signing_payload_required")
+        return self._private_key.sign(
+            _canonical(payload).encode("utf-8")
+        )
+
     def sign(self, grant):
         if not isinstance(grant, CapabilityGrant):
             raise CapabilitySignatureError("capability_grant_required")

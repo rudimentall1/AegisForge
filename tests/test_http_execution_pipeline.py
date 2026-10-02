@@ -1,3 +1,4 @@
+from shared.trust_evaluation import TrustDecision
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,7 +20,7 @@ def test_http_execution_pipeline_is_authorized_and_independently_proven(tmp_path
     server=ThreadingHTTPServer(("127.0.0.1",0),StateHandler); threading.Thread(target=server.serve_forever,daemon=True).start()
     try:
         url=f"http://127.0.0.1:{server.server_port}/state"; monkeypatch.setenv("AEGISFORGE_HTTP_ALLOWED_HOSTS","127.0.0.1")
-        q=TaskQueue(); ledger=Worker("validator").evidence_ledger; rec=ledger.record_capability_claim("destination-proof","validator","destination_allowed")
+        q=TaskQueue(); ledger=Worker("validator").evidence_ledger; authority_registry=__import__("shared.agent_authority", fromlist=["AgentAuthorityRegistry"]).AgentAuthorityRegistry(ledger.db); authority_registry.register("developer"); authority_registry.record_trust("developer", TrustDecision(status="TRUSTED", reason="seeded_test_authority", proof_id="proof-seed", verifier="test")); rec=ledger.record_capability_claim("destination-proof","validator","destination_allowed")
         intent={"role":"developer","action":"api_request","target":url,"resource":"http_api","destination":"staging_api","data_scope":"application_data","requires_network":True,"read_only":False,"evidence_required":True,"parameters":{"method":"POST","url":url,"body":{"status":"ready"},"outcome_contract":{"type":"http_state","verifier":"http_independent_get_v1","verify_url":url,"expected_state":{"status":"ready"}}}}
         intent.update({"irreversible":False,"requires_shell":False,"requires_filesystem":False,"financial":False,"privileged":False})
         parent=q.add(description="test governed api request",role="developer",capability_intent=intent); q.claim("developer-test-worker",role="developer"); q.fail(parent,result={"error":"capability_evidence_required","error_type":"CapabilityEvidenceRequired","status":"blocked","decision":"REQUIRE_EVIDENCE","intent":intent,"evidence_claims":{"destination_allowed":{"status":rec["status"],"source":rec["source"],"evidence_id":rec["evidence_id"]}}})

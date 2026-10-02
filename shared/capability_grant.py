@@ -139,11 +139,8 @@ def issue_capability_grant(
     *,
     authority_state=None,
 ):
-    # Compatibility default for legacy callers. New execution paths should
-    # always pass the agent's persisted authority state explicitly.
     if authority_state is None:
-        from shared.authority_state import AuthorityState
-        authority_state = AuthorityState.STANDARD
+        raise CapabilityGrantError("authority_state_required")
     effective = evaluate_effective_capability(intent, authority_state)
     if effective.decision == EffectiveCapabilityDecision.BLOCK:
         raise CapabilityGrantError("authority_blocked:" + effective.reason)

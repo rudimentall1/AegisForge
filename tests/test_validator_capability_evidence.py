@@ -3,6 +3,7 @@ import sqlite3
 from shared.capability_policy import CapabilityDecision
 from shared.evidence_ledger import EvidenceLedger
 from shared.task import Task
+from shared.trust_evaluation import TrustDecision
 from agents.validator.agent import Validator
 
 
@@ -125,6 +126,11 @@ def test_validator_verifies_capability_request_with_structured_evidence_claims()
     )
 
     validator = Validator(evidence_ledger=ledger)
+    validator.authority_registry.register("developer")
+    validator.authority_registry.record_trust(
+        "developer",
+        TrustDecision(status="TRUSTED", reason="seeded_test_authority", proof_id="proof-seed", verifier="test"),
+    )
     result = validator.run(task)
 
     assert result.status == "validated"

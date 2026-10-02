@@ -1,8 +1,14 @@
 import pytest
 
-from shared.capability_grant import issue_capability_grant
+from shared.capability_grant import issue_capability_grant as _issue_capability_grant
+from shared.authority_state import AuthorityState
 from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.capability_signing import CapabilitySignatureError, CapabilitySigner, SignedCapabilityGrant
+
+
+def issue_capability_grant(*args, **kwargs):
+    kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    return _issue_capability_grant(*args, **kwargs)
 
 
 def _intent(**overrides):

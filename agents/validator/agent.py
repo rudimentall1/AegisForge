@@ -5,15 +5,18 @@ from shared.capability_policy import ActionIntent, CapabilityDecision, Capabilit
 from shared.evidence_ledger import EvidenceLedger
 from shared.capability_grant import issue_capability_grant
 from shared.capability_signing import CapabilitySigner
-from shared.authority_state import AuthorityState
+from shared.agent_authority import AgentAuthorityRegistry
 
 class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
     name = "validator"
 
-    def __init__(self, evidence_ledger=None, capability_signer=None):
+    def __init__(self, evidence_ledger=None, capability_signer=None, authority_registry=None):
         self.evidence_ledger = evidence_ledger
         self.capability_signer = capability_signer or CapabilitySigner.generate()
+        self.authority_registry = authority_registry
+        if self.authority_registry is None and evidence_ledger is not None:
+            self.authority_registry = AgentAuthorityRegistry(evidence_ledger.db)
     MAX_OPPORTUNITIES = 4
     PROBE_PATHS = ("README.md", "SECURITY.md", "pyproject.toml", "package.json",
                    "Cargo.toml", "go.mod", ".github/workflows")
@@ -275,14 +278,25 @@ class Validator:
             outcome_contract = parameters.get("outcome_contract", {})
             if not isinstance(outcome_contract, dict):
                 outcome_contract = {}
+            if self.authority_registry is None:
+                raise RuntimeError("authority_registry_required")
+            agent_id = (
+                parent_result.get("agent_id")
+                or structured_parent_intent.get("agent_id")
+                or structured_parent_intent.get("role")
+            )
+            if not agent_id:
+                raise RuntimeError("agent_identity_required")
+            self.authority_registry.register(agent_id)
+            authority = self.authority_registry.get(agent_id)
             grant = issue_capability_grant(
                 task_id=parent_task_id,
                 intent=intent,
-                policy_version=CapabilityPolicy.VERSION,
+                policy_version=authority.policy_version,
                 evidence_ids=evidence_ids,
                 authorized_scope=(intent.destination or intent.resource),
                 outcome_contract=outcome_contract,
-                authority_state=AuthorityState.STANDARD,
+                authority_state=authority.state,
             )
             capability_grant = self.capability_signer.sign(grant).to_dict()
 

@@ -1,3 +1,4 @@
+from shared.trust_evaluation import TrustDecision
 import json
 
 from shared import queue as queue_module
@@ -20,6 +21,9 @@ def test_real_queue_validator_executor_pipeline(tmp_path, monkeypatch):
 
     queue = TaskQueue()
     ledger = Worker("validator").evidence_ledger
+    authority_registry = __import__("shared.agent_authority", fromlist=["AgentAuthorityRegistry"]).AgentAuthorityRegistry(ledger.db)
+    authority_registry.register("developer")
+    authority_registry.record_trust("developer", TrustDecision(status="TRUSTED", reason="seeded_test_authority", proof_id="proof-seed", verifier="test"))
 
     claims = {}
     for task_id, role, claim_type in (

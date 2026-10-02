@@ -1,7 +1,8 @@
 import hashlib
 import sqlite3
 
-from shared.capability_grant import issue_capability_grant
+from shared.capability_grant import issue_capability_grant as _issue_capability_grant
+from shared.authority_state import AuthorityState
 from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.capability_signing import CapabilitySigner
 from shared.evidence_ledger import EvidenceLedger
@@ -9,6 +10,11 @@ from shared.artifact_executor import SafeArtifactPublisher
 from shared.outcome_verifier import ArtifactOutcomeVerifier
 from shared.executor_registry import ExecutorRegistry
 from shared.execution_gate import ExecutionGate
+
+
+def issue_capability_grant(*args, **kwargs):
+    kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    return _issue_capability_grant(*args, **kwargs)
 
 
 def _intent(content, target="release/demo.txt"):

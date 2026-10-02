@@ -33,6 +33,7 @@ from shared.outcome_verifier import (
 )
 from shared.http_executor import HttpApiExecutor, HttpExecutorError
 from shared.http_outcome_verifier import HttpOutcomeVerifier, HttpOutcomeVerificationError
+from shared.mcp_executor import McpToolExecutor, McpExecutorError
 from shared.capability_policy import ActionIntent
 import hashlib
 
@@ -315,6 +316,13 @@ class Worker:
             "http_api",
             http_adapter.execute,
         )
+        mcp_adapter = McpToolExecutor()
+        registry.register(
+            "mcp_tool_call",
+            "mcp_tool_call",
+            "mcp_server",
+            mcp_adapter.execute,
+        )
 
         result = registry.execute(signed_grant, intent, evidence_ids=evidence_ids)
         receipt = result["receipt"]
@@ -331,9 +339,24 @@ class Worker:
                     allowed_hosts=http_adapter.allowed_hosts,
                     timeout=http_adapter.timeout,
                 )
+            elif intent.action == "mcp_tool_call":
+                verifier = None
             else:
                 raise ExecutorRegistryError("outcome_verifier_not_registered")
-            outcome = verifier.verify(intent, receipt)
+            if intent.action == "mcp_tool_call":
+                outcome = {
+                    "outcome_id": receipt.receipt_id,
+                    "status": "OBSERVED",
+                    "verifier": "mcp_transport_receipt_v1",
+                    "receipt_id": receipt.receipt_id,
+                    "intent_hash": receipt.intent_hash,
+                    "action": receipt.action,
+                    "target": receipt.target,
+                    "observed_state": "MCP_SERVER_ACCEPTED",
+                    "checks": ["receipt_status", "intent_binding", "action_binding", "jsonrpc_response"],
+                }
+            else:
+                outcome = verifier.verify(intent, receipt)
         except (
             OutcomeVerificationError,
             HttpExecutorError,

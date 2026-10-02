@@ -233,6 +233,51 @@ def _execution_task(intent, grant, evidence_ids=None, original_task_id="original
     )
 
 
+def test_executor_rejects_missing_signed_action_intent_before_effect(tmp_path, monkeypatch):
+    db = sqlite3.connect(":memory:")
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    target.write_text("must survive")
+    monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
+
+    intent = _delete_intent("workspace/obsolete.txt")
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant(
+        "original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging"
+    ))
+    from dataclasses import replace
+    legacy_grant = signer.sign(replace(grant.grant, signed_action_intent={}))
+    worker = _executor_worker(db, signer)
+
+    import pytest
+    with pytest.raises(ValueError, match="signed_action_intent_required"):
+        worker._execute_granted_task(_execution_task(intent, legacy_grant))
+    assert target.exists()
+
+
+def test_executor_rejects_tampered_signed_action_intent_before_effect(tmp_path, monkeypatch):
+    db = sqlite3.connect(":memory:")
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    target.write_text("must survive")
+    monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
+
+    intent = _delete_intent("workspace/obsolete.txt")
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant(
+        "original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging"
+    ))
+    from dataclasses import replace
+    payload = replace(grant.grant, signed_action_intent={**grant.grant.signed_action_intent, "signature": "tampered"})
+    tampered_grant = signer.sign(payload)
+    worker = _executor_worker(db, signer)
+
+    import pytest
+    with pytest.raises(ValueError, match="signed_action_intent_invalid"):
+        worker._execute_granted_task(_execution_task(intent, tampered_grant))
+    assert target.exists()
+
+
 def test_executor_rejects_tampered_intent_before_effect(tmp_path, monkeypatch):
     import sqlite3
     db = sqlite3.connect(":memory:")

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, Tuple
 
 from shared.execution_gate import ExecutionGate, ExecutionGateError
+from shared.executor_identity import ExecutorIdentityRegistry, ExecutorIdentityRegistryError
 
 
 class ExecutorRegistryError(ValueError):
@@ -52,6 +53,7 @@ class ExecutorRegistry:
         self.gate = gate
         self.evidence_ledger = evidence_ledger
         self.role = role
+        self.identity_registry = ExecutorIdentityRegistry(self.gate.db)
         self._executors: Dict[Tuple[str, str], ExecutorSpec] = {}
         self._identities: Dict[Tuple[str, str], str] = {}
 
@@ -77,6 +79,10 @@ class ExecutorRegistry:
         identity = (str(name), str(version))
         if key in self._executors:
             raise ExecutorRegistryError("executor_already_registered")
+        try:
+            self.identity_registry.register(str(name), str(version), digest)
+        except ExecutorIdentityRegistryError as exc:
+            raise ExecutorRegistryError(str(exc)) from exc
         existing_digest = self._identities.get(identity)
         if existing_digest is not None and existing_digest != digest:
             raise ExecutorRegistryError("executor_identity_conflict")

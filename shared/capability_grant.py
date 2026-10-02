@@ -9,59 +9,7 @@ class CapabilityGrantError(ValueError):
     pass
 
 
-CONTRACT_REQUIRED_ACTIONS = {"delete", "publish", "api_request", "mcp_tool_call"}
-CONTRACT_TYPES = {
-    "state_match": {"required": {"type", "verifier", "expected_state"}, "allowed": {"type", "verifier", "expected_state"}},
-    "artifact_exists": {"required": {"type", "verifier", "path", "expected_exists"}, "allowed": {"type", "verifier", "path", "expected_exists"}},
-    "http_state": {"required": {"type", "verifier", "verify_url", "expected_state"}, "allowed": {"type", "verifier", "verify_url", "expected_state"}},
-    "mcp_state": {"required": {"type", "verifier", "endpoint", "tool", "arguments", "read_only", "expected_state"}, "allowed": {"type", "verifier", "endpoint", "tool", "arguments", "read_only", "expected_state", "headers", "request_id"}},
-    "transaction_confirmed": {"required": {"type", "verifier", "transaction_id"}, "allowed": {"type", "verifier", "transaction_id", "expected_status"}},
-}
-
-
-def validate_outcome_contract(contract, action=None):
-    if contract is None:
-        contract = {}
-    if not isinstance(contract, dict):
-        raise CapabilityGrantError("invalid_outcome_contract")
-    value = json.loads(json.dumps(contract, sort_keys=True))
-    if not value:
-        if action in CONTRACT_REQUIRED_ACTIONS:
-            raise CapabilityGrantError("outcome_contract_required")
-        return value
-    contract_type = value.get("type")
-    if contract_type not in CONTRACT_TYPES:
-        raise CapabilityGrantError("unknown_outcome_contract_type")
-    spec = CONTRACT_TYPES[contract_type]
-    missing = sorted(spec["required"] - set(value))
-    if missing:
-        raise CapabilityGrantError("outcome_contract_fields_missing:" + ",".join(missing))
-    extra = sorted(set(value) - spec["allowed"])
-    if extra:
-        raise CapabilityGrantError("outcome_contract_fields_unknown:" + ",".join(extra))
-    if not isinstance(value.get("verifier"), str) or not value["verifier"].strip():
-        raise CapabilityGrantError("outcome_contract_verifier_required")
-    if contract_type == "artifact_exists":
-        if not isinstance(value["path"], str) or not value["path"].strip() or not isinstance(value["expected_exists"], bool):
-            raise CapabilityGrantError("outcome_contract_artifact_invalid")
-    elif contract_type == "http_state":
-        if not isinstance(value["verify_url"], str) or not value["verify_url"].strip():
-            raise CapabilityGrantError("outcome_contract_verify_url_required")
-    elif contract_type == "mcp_state":
-        if not isinstance(value["endpoint"], str) or not value["endpoint"].strip() or not isinstance(value["tool"], str) or not value["tool"].strip():
-            raise CapabilityGrantError("outcome_contract_mcp_target_required")
-        if not isinstance(value["arguments"], dict) or value["read_only"] is not True:
-            raise CapabilityGrantError("outcome_contract_mcp_arguments_invalid")
-        if "headers" in value and not isinstance(value["headers"], dict):
-            raise CapabilityGrantError("outcome_contract_headers_invalid")
-    elif contract_type == "transaction_confirmed":
-        if not isinstance(value["transaction_id"], str) or not value["transaction_id"].strip():
-            raise CapabilityGrantError("outcome_contract_transaction_id_required")
-    if action == "mcp_tool_call" and contract_type != "mcp_state":
-        raise CapabilityGrantError("mcp_action_requires_mcp_state_contract")
-    if action == "api_request" and contract_type not in {"http_state", "state_match"}:
-        raise CapabilityGrantError("api_action_requires_http_state_contract")
-    return value
+from shared.outcome_contract import validate_outcome_contract, OutcomeContractError
 
 
 

@@ -44,6 +44,8 @@ class McpOutcomeVerifier:
             raise McpOutcomeVerificationError("mcp_verification_contract_required")
 
         endpoint = verification.get("endpoint") or intent.target
+        if verification.get("read_only") is not True:
+            raise McpOutcomeVerificationError("mcp_verification_must_be_read_only")
         tool = str(verification.get("tool") or "").strip()
         arguments = verification.get("arguments", {})
         if not tool:
@@ -79,8 +81,10 @@ class McpOutcomeVerifier:
         if isinstance(observed_state, dict) and "result" in observed_state:
             observed_state = observed_state["result"]
 
-        expected_state = verification.get("expected_state")
-        if expected_state is not None and observed_state != expected_state:
+        if "expected_state" not in verification:
+            raise McpOutcomeVerificationError("mcp_expected_state_required")
+        expected_state = verification["expected_state"]
+        if observed_state != expected_state:
             raise McpOutcomeVerificationError("mcp_expected_state_mismatch")
 
         checks = [

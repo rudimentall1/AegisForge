@@ -33,7 +33,6 @@ from shared.outcome_verifier import (
 )
 from shared.http_executor import HttpApiExecutor, HttpExecutorError
 from shared.http_outcome_verifier import HttpOutcomeVerifier, HttpOutcomeVerificationError
-from shared.mcp_executor import McpToolExecutor, McpExecutorError
 from shared.capability_policy import ActionIntent
 import hashlib
 
@@ -316,12 +315,35 @@ class Worker:
             "http_api",
             http_adapter.execute,
         )
-        mcp_adapter = McpToolExecutor()
+        mcp_adapter = HttpApiExecutor()
+        def mcp_call(mcp_intent):
+            from types import SimpleNamespace
+            params = dict(getattr(mcp_intent, "parameters", {}) or {})
+            endpoint = params.get("endpoint") or mcp_intent.target
+            tool = str(params.get("tool") or "").strip()
+            arguments = params.get("arguments", {})
+            if not tool or not isinstance(arguments, dict):
+                raise ExecutorRegistryError("mcp_tool_request_invalid")
+            transport_intent = SimpleNamespace(
+                target=endpoint,
+                parameters={
+                    "method": "POST",
+                    "url": endpoint,
+                    "headers": params.get("headers") or {},
+                    "body": {
+                        "jsonrpc": "2.0",
+                        "id": params.get("request_id", "aegisforge"),
+                        "method": "tools/call",
+                        "params": {"name": tool, "arguments": arguments},
+                    },
+                },
+            )
+            return mcp_adapter.execute(transport_intent)
         registry.register(
             "mcp_tool_call",
             "mcp_tool_call",
             "mcp_server",
-            mcp_adapter.execute,
+            mcp_call,
         )
 
         result = registry.execute(signed_grant, intent, evidence_ids=evidence_ids)

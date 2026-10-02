@@ -1,8 +1,9 @@
 import base64
 import hashlib
 import json
+import secrets
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from shared.action_intent import ActionIntent
 from shared.agent_identity_signing import (
@@ -140,11 +141,9 @@ class ActionIntentSigner:
             intent_hash=intent_hash(intent),
             agent_identity=identity,
             issued_at=now.isoformat(),
-            nonce=nonce or hashlib.sha256(
-                f"{self.agent_identity_signer.key_id}:{now.isoformat()}".encode()
-            ).hexdigest()[:32],
+            nonce=nonce or secrets.token_urlsafe(18),
             signature="",
-            expires_at=(now + __import__("datetime").timedelta(seconds=ttl_seconds)).isoformat(),
+            expires_at=(now + timedelta(seconds=ttl_seconds)).isoformat(),
         )
         signature = self.agent_identity_signer._private_key.sign(
             artifact.canonical().encode("utf-8")

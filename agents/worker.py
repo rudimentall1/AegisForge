@@ -443,6 +443,7 @@ class Worker:
             "executor_id": receipt.executor_id,
             "executor_version": receipt.executor_version,
     "executor_implementation_digest": receipt.executor_implementation_digest,
+            "executor_identity_epoch": receipt.executor_identity_epoch,
         }
         manifest = build_manifest([
             {"id": "grant", "type": "capability_grant", "digest": digest(signed_grant.to_dict())},

@@ -34,6 +34,7 @@ class ExecutionReceipt:
     executor_id: str = ""
     executor_version: str = ""
     executor_implementation_digest: str = ""
+    executor_identity_epoch: int = 0
 
     def to_dict(self):
         return {
@@ -56,6 +57,7 @@ class ExecutionReceipt:
             "executor_id": self.executor_id,
             "executor_version": self.executor_version,
             "executor_implementation_digest": self.executor_implementation_digest,
+            "executor_identity_epoch": self.executor_identity_epoch,
         }
 
 
@@ -180,6 +182,7 @@ class ExecutionGate:
         executor_id="",
         executor_version="",
         executor_implementation_digest=None,
+        executor_identity_epoch=0,
     ):
         """Authorize exactly once, then invoke executor.
 
@@ -202,6 +205,8 @@ class ExecutionGate:
             raise ExecutionGateError("executor_version_required")
         if executor_implementation_digest is not None and not isinstance(executor_implementation_digest, str):
             raise ExecutionGateError("executor_implementation_digest_invalid")
+        if not isinstance(executor_identity_epoch, int) or executor_identity_epoch < 1:
+            raise ExecutionGateError("executor_identity_epoch_required")
 
         executed_at = (now or datetime.now(timezone.utc)).isoformat()
         receipt_id = "receipt_" + secrets.token_urlsafe(18)
@@ -235,6 +240,7 @@ class ExecutionGate:
                 executor_id=executor_id,
                 executor_version=executor_version,
                 executor_implementation_digest=executor_implementation_digest,
+                executor_identity_epoch=executor_identity_epoch,
             )
         except Exception as exc:
             receipt = ExecutionReceipt(
@@ -256,5 +262,6 @@ class ExecutionGate:
                 executor_id=executor_id,
                 executor_version=executor_version,
                 executor_implementation_digest=executor_implementation_digest,
+                executor_identity_epoch=executor_identity_epoch,
             )
         return receipt

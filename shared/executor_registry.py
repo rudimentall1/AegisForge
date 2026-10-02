@@ -110,6 +110,9 @@ class ExecutorRegistry:
 
     def execute(self, grant, intent, evidence_ids=()):
         spec = self.resolve(intent)
+        identity = self.identity_registry.get(spec.executor_id, spec.version)
+        if identity is None or identity.status != self.identity_registry.ACTIVE:
+            raise ExecutorRegistryError("executor_identity_not_active")
         try:
             receipt = self.gate.execute(
                 grant,
@@ -119,6 +122,7 @@ class ExecutorRegistry:
                 executor_id=spec.executor_id,
                 executor_version=spec.version,
                 executor_implementation_digest=spec.implementation_digest,
+                executor_identity_epoch=identity.registry_epoch,
             )
         except ExecutionGateError as exc:
             raise ExecutorRegistryError(str(exc)) from exc

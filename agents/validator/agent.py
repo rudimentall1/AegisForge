@@ -1,4 +1,5 @@
 import json
+import os
 from shared.task import Task
 from shared.github_client import GitHubClient
 from shared.capability_policy import ActionIntent, CapabilityDecision, CapabilityPolicy
@@ -6,14 +7,17 @@ from shared.evidence_ledger import EvidenceLedger
 from shared.capability_grant import issue_capability_grant
 from shared.capability_signing import CapabilitySigner
 from shared.agent_authority import AgentAuthorityRegistry
+from shared.agent_identity_signing import AgentIdentitySigner
 
 class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
     name = "validator"
 
-    def __init__(self, evidence_ledger=None, capability_signer=None, authority_registry=None):
+    def __init__(self, evidence_ledger=None, capability_signer=None, authority_registry=None, agent_identity_signer=None, agent_identity_key_dir=None):
         self.evidence_ledger = evidence_ledger
         self.capability_signer = capability_signer or CapabilitySigner.generate()
+        self.agent_identity_signer = agent_identity_signer
+        self.agent_identity_key_dir = agent_identity_key_dir or os.environ.get("AEGISFORGE_AGENT_IDENTITY_KEY_DIR", "/var/lib/aegisforge/identities")
         self.authority_registry = authority_registry
         if self.authority_registry is None and evidence_ledger is not None:
             self.authority_registry = AgentAuthorityRegistry(evidence_ledger.db)
@@ -301,7 +305,13 @@ class Validator:
                 authority_state=authority.state,
                 authority_context=authority,
             )
-            capability_grant = self.capability_signer.sign(grant).to_dict()
+            if self.agent_identity_signer is None or self.agent_identity_signer.identity.agent_id != str(agent_id):
+                key_path = os.path.join(self.agent_identity_key_dir, f"{agent_id}.key")
+                self.agent_identity_signer = AgentIdentitySigner.load_or_create(
+                    key_path, agent_id=str(agent_id), role=self.name
+                )
+            signed_agent_identity = self.agent_identity_signer.sign_identity()
+            capability_grant = self.capability_signer.sign(grant, signed_agent_identity).to_dict()
 
         return {
             "agent": self.name,

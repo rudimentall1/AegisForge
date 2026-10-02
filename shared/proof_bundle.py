@@ -89,7 +89,7 @@ def verify(p):
     g=p["grant"]
     if g.get("algorithm") != ALGORITHM or g.get("key_id") != p["key_id"]: raise ValueError("grant_signer_mismatch")
     gs=b64(g.get("signature",""),"grant_signature")
-    gp={"algorithm":g["algorithm"],"key_id":g["key_id"],"grant":g.get("grant")}
+    gp={"algorithm":g["algorithm"],"key_id":g["key_id"],"grant":g.get("grant"),"agent_identity":g.get("agent_identity")}
     try: key.verify(gs, canonical(gp).encode())
     except Exception as exc: raise ValueError("grant_signature_invalid") from exc
     body=g["grant"]; receipt=p["receipt"]

@@ -12,6 +12,7 @@ class CapabilityDecision(str, Enum):
 class ActionIntent:
     role: str
     action: str
+    agent_id: str = ""
     target: str = ""
     resource: str = ""
     destination: str = ""
@@ -28,7 +29,7 @@ class ActionIntent:
 
     def to_dict(self):
         return {
-            "role": self.role, "action": self.action, "target": self.target,
+            "role": self.role, "action": self.action, "agent_id": self.agent_id, "target": self.target,
             "resource": self.resource, "destination": self.destination,
             "data_scope": self.data_scope, "irreversible": self.irreversible,
             "requires_network": self.requires_network, "requires_shell": self.requires_shell,

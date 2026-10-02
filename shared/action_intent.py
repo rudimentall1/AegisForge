@@ -61,6 +61,7 @@ ROLE_DEFAULT_INTENTS = {
 
 
 INTENT_FIELDS = {
+    "agent_id",
     "action",
     "target",
     "resource",
@@ -97,8 +98,10 @@ def default_capability_intent(role: str):
     return dict(ROLE_DEFAULT_INTENTS.get(role, {}))
 
 
-def build_action_intent(role: str, task):
+def build_action_intent(role: str, task, agent_id: str = ""):
     values = default_capability_intent(role)
+    if agent_id:
+        values["agent_id"] = agent_id
     explicit = _explicit_intent(task)
 
     for key, value in explicit.items():

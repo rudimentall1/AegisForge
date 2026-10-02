@@ -268,25 +268,27 @@ class Validator:
 
         capability_grant = None
         if verified:
-            intent = ActionIntent(**structured_parent_intent)
             evidence_ids = [
                 value.get("evidence_id")
                 for value in evidence_claims.values()
                 if isinstance(value, dict) and value.get("evidence_id")
             ]
+            if self.authority_registry is None:
+                raise RuntimeError("authority_registry_required")
+            parent_agent_id = parent_result.get("agent_id")
+            intent_agent_id = structured_parent_intent.get("agent_id")
+            if parent_agent_id and intent_agent_id and str(parent_agent_id) != str(intent_agent_id):
+                raise RuntimeError("agent_identity_mismatch")
+            agent_id = parent_agent_id or intent_agent_id
+            if not agent_id:
+                raise RuntimeError("agent_identity_required")
+            structured_parent_intent = dict(structured_parent_intent)
+            structured_parent_intent["agent_id"] = str(agent_id)
+            intent = ActionIntent(**structured_parent_intent)
             parameters = dict(getattr(intent, "parameters", {}) or {})
             outcome_contract = parameters.get("outcome_contract", {})
             if not isinstance(outcome_contract, dict):
                 outcome_contract = {}
-            if self.authority_registry is None:
-                raise RuntimeError("authority_registry_required")
-            agent_id = (
-                parent_result.get("agent_id")
-                or structured_parent_intent.get("agent_id")
-                or structured_parent_intent.get("role")
-            )
-            if not agent_id:
-                raise RuntimeError("agent_identity_required")
             self.authority_registry.register(agent_id)
             authority = self.authority_registry.get(agent_id)
             grant = issue_capability_grant(

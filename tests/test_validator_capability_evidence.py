@@ -7,8 +7,9 @@ from shared.trust_evaluation import TrustDecision
 from agents.validator.agent import Validator
 
 
-def capability_parent_result(evidence_claims=None):
+def capability_parent_result(evidence_claims=None, agent_id="test-developer", intent_agent_id=None):
     result = {
+        "agent_id": agent_id,
         "error_type": "CapabilityEvidenceRequired",
         "decision": CapabilityDecision.REQUIRE_EVIDENCE.value,
         "intent": {
@@ -28,6 +29,8 @@ def capability_parent_result(evidence_claims=None):
             "evidence_required": False,
         },
     }
+    if intent_agent_id is not None:
+        result["intent"]["agent_id"] = intent_agent_id
     if evidence_claims is not None:
         result["evidence_claims"] = evidence_claims
     return result
@@ -126,9 +129,9 @@ def test_validator_verifies_capability_request_with_structured_evidence_claims()
     )
 
     validator = Validator(evidence_ledger=ledger)
-    validator.authority_registry.register("developer")
+    validator.authority_registry.register("test-developer")
     validator.authority_registry.record_trust(
-        "developer",
+        "test-developer",
         TrustDecision(status="TRUSTED", reason="seeded_test_authority", proof_id="proof-seed", verifier="test"),
     )
     result = validator.run(task)
@@ -156,6 +159,37 @@ def test_validator_verifies_capability_request_when_intent_is_json_string():
 
     assert result.status == "validated"
     assert result.result["status"] == "INSUFFICIENT_EVIDENCE"
+
+
+def test_validator_rejects_role_as_identity_when_real_agent_id_is_missing():
+    db = sqlite3.connect(":memory:")
+    ledger = EvidenceLedger(db)
+    recorded = {
+        "tests_passed": ledger.record_capability_claim("id-tests", "developer", "tests_passed"),
+        "security_scan_passed": ledger.record_capability_claim("id-security", "security_checker", "security_scan_passed", status="VERIFIED"),
+        "rollback_or_recovery_ready": ledger.record_capability_claim("id-recovery", "developer", "rollback_or_recovery_ready"),
+        "rollback_ready": ledger.record_capability_claim("id-rollback", "developer", "rollback_ready"),
+    }
+    claims = {
+        key: {"status": value["status"], "source": value["source"], "evidence_id": value["evidence_id"]}
+        for key, value in recorded.items()
+    }
+    task = Task(
+        task_id="validator-missing-identity",
+        description="[CAPABILITY_EVIDENCE_REQUEST] verify authorization prerequisites",
+        payload={
+            "parent_task_id": "parent-missing-identity",
+            "parent_result": capability_parent_result(claims, agent_id=None),
+            "capability_intent": {"action": "verify", "resource": "authorization_prerequisites"},
+        },
+        result=None,
+        status="running",
+    )
+    result = Validator(evidence_ledger=ledger).run(task)
+    assert result.status == "validation_failed"
+    assert result.result["error_type"] == "RuntimeError"
+    assert result.result["error"] == "agent_identity_required"
+
 
 
 def test_validator_does_not_verify_non_capability_task_without_opportunities():

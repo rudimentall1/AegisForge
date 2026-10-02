@@ -41,6 +41,7 @@ def test_real_queue_validator_executor_pipeline(tmp_path, monkeypatch):
 
     parent_intent = {
         "role": "developer",
+        "agent_id": "developer",
         "action": "delete",
         "target": "workspace/obsolete.txt",
         "resource": "staging_filesystem",

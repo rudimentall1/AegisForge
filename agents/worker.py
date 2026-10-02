@@ -19,6 +19,7 @@ from shared.capability_policy import (
 )
 
 from shared.action_intent import build_action_intent
+from shared.agent_identity import AgentIdentity
 from shared.evidence_ledger import EvidenceLedger
 from shared.capability_grant import CapabilityGrant, CapabilityGrantError
 from shared.capability_signing import CapabilitySigner, CapabilitySignatureError
@@ -85,6 +86,11 @@ class Worker:
             )
 
         self.role = role
+        self.agent_identity = AgentIdentity.for_worker(
+            role,
+            socket.gethostname(),
+        )
+        self.agent_id = self.agent_identity.agent_id
         self.worker_id = (
             f"{role}-worker-{socket.gethostname()}-{os.getpid()}"
         )
@@ -136,6 +142,7 @@ class Worker:
         intent = build_action_intent(
             self.role,
             task,
+            agent_id=self.agent_id,
         )
         decision = self.policy.check(intent)
         return intent, decision
@@ -531,6 +538,8 @@ class Worker:
                 description=description,
                 payload={
                     "role": self.role,
+                    "agent_id": self.agent_id,
+                    "agent_identity": self.agent_identity.to_dict(),
                     "workflow_id": WORKFLOW_ID,
                     "parent_task_id": parent_task_id,
                     "parent_result": parent_result,
@@ -738,6 +747,10 @@ class Worker:
                     )
 
                     return False
+
+            if isinstance(result_value, dict):
+                result_value.setdefault("agent_id", self.agent_id)
+                result_value.setdefault("agent_identity", self.agent_identity.to_dict())
 
             task.result = result_value
             task.status = SUCCESS_STATUSES[self.role]

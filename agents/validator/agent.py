@@ -270,12 +270,17 @@ class Validator:
                 for value in evidence_claims.values()
                 if isinstance(value, dict) and value.get("evidence_id")
             ]
+            parameters = dict(getattr(intent, "parameters", {}) or {})
+            outcome_contract = parameters.get("outcome_contract", {})
+            if not isinstance(outcome_contract, dict):
+                outcome_contract = {}
             grant = issue_capability_grant(
                 task_id=parent_task_id,
                 intent=intent,
                 policy_version=CapabilityPolicy.VERSION,
                 evidence_ids=evidence_ids,
                 authorized_scope=(intent.destination or intent.resource),
+                outcome_contract=outcome_contract,
             )
             capability_grant = self.capability_signer.sign(grant).to_dict()
 

@@ -9,6 +9,62 @@ class CapabilityGrantError(ValueError):
     pass
 
 
+CONTRACT_REQUIRED_ACTIONS = {"delete", "publish", "api_request", "mcp_tool_call"}
+CONTRACT_TYPES = {
+    "state_match": {"required": {"type", "verifier", "expected_state"}, "allowed": {"type", "verifier", "expected_state"}},
+    "artifact_exists": {"required": {"type", "verifier", "path", "expected_exists"}, "allowed": {"type", "verifier", "path", "expected_exists"}},
+    "http_state": {"required": {"type", "verifier", "verify_url", "expected_state"}, "allowed": {"type", "verifier", "verify_url", "expected_state"}},
+    "mcp_state": {"required": {"type", "verifier", "endpoint", "tool", "arguments", "read_only", "expected_state"}, "allowed": {"type", "verifier", "endpoint", "tool", "arguments", "read_only", "expected_state", "headers", "request_id"}},
+    "transaction_confirmed": {"required": {"type", "verifier", "transaction_id"}, "allowed": {"type", "verifier", "transaction_id", "expected_status"}},
+}
+
+
+def validate_outcome_contract(contract, action=None):
+    if contract is None:
+        contract = {}
+    if not isinstance(contract, dict):
+        raise CapabilityGrantError("invalid_outcome_contract")
+    value = json.loads(json.dumps(contract, sort_keys=True))
+    if not value:
+        if action in CONTRACT_REQUIRED_ACTIONS:
+            raise CapabilityGrantError("outcome_contract_required")
+        return value
+    contract_type = value.get("type")
+    if contract_type not in CONTRACT_TYPES:
+        raise CapabilityGrantError("unknown_outcome_contract_type")
+    spec = CONTRACT_TYPES[contract_type]
+    missing = sorted(spec["required"] - set(value))
+    if missing:
+        raise CapabilityGrantError("outcome_contract_fields_missing:" + ",".join(missing))
+    extra = sorted(set(value) - spec["allowed"])
+    if extra:
+        raise CapabilityGrantError("outcome_contract_fields_unknown:" + ",".join(extra))
+    if not isinstance(value.get("verifier"), str) or not value["verifier"].strip():
+        raise CapabilityGrantError("outcome_contract_verifier_required")
+    if contract_type == "artifact_exists":
+        if not isinstance(value["path"], str) or not value["path"].strip() or not isinstance(value["expected_exists"], bool):
+            raise CapabilityGrantError("outcome_contract_artifact_invalid")
+    elif contract_type == "http_state":
+        if not isinstance(value["verify_url"], str) or not value["verify_url"].strip():
+            raise CapabilityGrantError("outcome_contract_verify_url_required")
+    elif contract_type == "mcp_state":
+        if not isinstance(value["endpoint"], str) or not value["endpoint"].strip() or not isinstance(value["tool"], str) or not value["tool"].strip():
+            raise CapabilityGrantError("outcome_contract_mcp_target_required")
+        if not isinstance(value["arguments"], dict) or value["read_only"] is not True:
+            raise CapabilityGrantError("outcome_contract_mcp_arguments_invalid")
+        if "headers" in value and not isinstance(value["headers"], dict):
+            raise CapabilityGrantError("outcome_contract_headers_invalid")
+    elif contract_type == "transaction_confirmed":
+        if not isinstance(value["transaction_id"], str) or not value["transaction_id"].strip():
+            raise CapabilityGrantError("outcome_contract_transaction_id_required")
+    if action == "mcp_tool_call" and contract_type != "mcp_state":
+        raise CapabilityGrantError("mcp_action_requires_mcp_state_contract")
+    if action == "api_request" and contract_type not in {"http_state", "state_match"}:
+        raise CapabilityGrantError("api_action_requires_http_state_contract")
+    return value
+
+
+
 def _canonical(payload):
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
@@ -96,6 +152,7 @@ class CapabilityGrant:
         )
         if not isinstance(payload["outcome_contract"], dict):
             raise CapabilityGrantError("invalid_outcome_contract")
+        validate_outcome_contract(payload["outcome_contract"], action=payload.get("authorized_action"))
         # Recompute the evidence commitment before any execution path uses it.
         if grant.evidence_hash != evidence_hash(grant.evidence_ids):
             raise CapabilityGrantError("evidence_hash_mismatch")
@@ -115,8 +172,8 @@ class CapabilityGrant:
         if self.authorized_target != intent.target:
             raise CapabilityGrantError("authorized_target_mismatch")
         intent_contract = dict(getattr(intent, "parameters", {}) or {}).get("outcome_contract", {})
-        if not isinstance(intent_contract, dict):
-            raise CapabilityGrantError("invalid_outcome_contract")
+        validate_outcome_contract(intent_contract, action=intent.action)
+        validate_outcome_contract(self.outcome_contract, action=intent.action)
         if intent_contract != self.outcome_contract:
             raise CapabilityGrantError("outcome_contract_mismatch")
         return True
@@ -135,6 +192,13 @@ def issue_capability_grant(
         raise CapabilityGrantError("invalid_ttl")
     now = datetime.now(timezone.utc)
     evidence_ids = tuple(sorted(str(value) for value in (evidence_ids or [])))
+    parameters = dict(getattr(intent, "parameters", {}) or {})
+    intent_contract = parameters.get("outcome_contract", {})
+    validate_outcome_contract(intent_contract, action=intent.action)
+    requested_contract = intent_contract if outcome_contract is None else outcome_contract
+    validate_outcome_contract(requested_contract, action=intent.action)
+    if requested_contract != intent_contract:
+        raise CapabilityGrantError("outcome_contract_mismatch")
     return CapabilityGrant(
         grant_id="grant_" + secrets.token_urlsafe(18),
         task_id=str(task_id),
@@ -148,8 +212,7 @@ def issue_capability_grant(
         issued_at=now.isoformat(),
         expires_at=(now + timedelta(seconds=ttl_seconds)).isoformat(),
         nonce=secrets.token_urlsafe(18),
-        outcome_contract=dict(outcome_contract or {}),
-    )
+        outcome_contract=dict(requested_contract),    )
 
 
 def consume_capability_grant(grant, intent, evidence_ids=(), now=None):

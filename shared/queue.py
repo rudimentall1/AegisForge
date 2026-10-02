@@ -15,7 +15,7 @@ DB_PATH = Path("/opt/agent-farm/data/agent_farm.db")
 # make SQLite grow without bound.
 MAX_DESCRIPTION_BYTES = 4096
 MAX_QUEUE_HISTORY = 500
-MAX_CAPABILITY_INTENT_BYTES = 2048
+MAX_CAPABILITY_INTENT_BYTES = 8192
 
 
 class TaskQueue:

@@ -10,6 +10,7 @@ from shared.agent_authority import AgentAuthorityRegistry
 from shared.trust_evaluation import TrustDecision
 from shared.task import Task
 from agents.worker import Worker
+from shared.executor_registry import ExecutorRegistryError
 
 
 def issue_capability_grant(*args, **kwargs):
@@ -23,8 +24,9 @@ def issue_capability_grant(*args, **kwargs):
     return _issue_capability_grant(*args, **kwargs)
 
 
-def _delete_intent(target):
+def _delete_intent(target, agent_id="test-agent"):
     return ActionIntent(
+        agent_id=agent_id,
         role="developer",
         action="delete",
         target=target,
@@ -71,6 +73,7 @@ def test_validator_verified_result_creates_execution_handoff():
         {
             "validation_mode": "capability_evidence",
             "status": "VERIFIED",
+            "agent_id": "test-agent",
             "intent": intent.to_dict(),
             "capability_grant": grant,
         },
@@ -82,6 +85,33 @@ def test_validator_verified_result_creates_execution_handoff():
     assert envelope["original_task_id"] == "original-task-1"
     assert envelope["capability_grant"]["grant"]["grant_id"] == grant["grant"]["grant_id"]
     assert worker.queue.calls[0]["role"] == "executor"
+
+
+def test_validator_handoff_rejects_identity_mismatch():
+    class Queue:
+        def add(self, **kwargs):
+            return "execution-task-1"
+
+    worker = Worker.__new__(Worker)
+    worker.role = "validator"
+    worker.worker_id = "test-validator"
+    worker.queue = Queue()
+    worker.capability_signer = CapabilitySigner.generate()
+    intent = _delete_intent("workspace/obsolete.txt", agent_id="test-agent")
+    grant = worker.capability_signer.sign(issue_capability_grant(
+        "original-task-1", intent, CapabilityPolicy.VERSION,
+        ["recovery-1"], "staging",
+    )).to_dict()
+    result = {
+        "validation_mode": "capability_evidence",
+        "status": "VERIFIED",
+        "agent_id": "attacker-agent",
+        "intent": intent.to_dict(),
+        "capability_grant": grant,
+    }
+    import pytest
+    with pytest.raises(ExecutorRegistryError, match="execution_agent_identity_mismatch"):
+        worker._enqueue_execution_handoff("validator-task-1", result)
 
 
 def test_executor_worker_executes_verified_delete(tmp_path, monkeypatch):

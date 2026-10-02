@@ -231,8 +231,15 @@ class Worker:
             return None
         grant = result_value.get("capability_grant")
         intent = result_value.get("intent")
+        result_agent_id = result_value.get("agent_id")
+        grant_agent_id = grant.get("grant", {}).get("agent_id") if isinstance(grant, dict) else None
+        intent_agent_id = intent.get("agent_id") if isinstance(intent, dict) else None
         if not isinstance(grant, dict) or not isinstance(intent, dict):
             return None
+        if not result_agent_id or not grant_agent_id or not intent_agent_id:
+            raise ExecutorRegistryError("execution_agent_identity_required")
+        if len({str(result_agent_id), str(grant_agent_id), str(intent_agent_id)}) != 1:
+            raise ExecutorRegistryError("execution_agent_identity_mismatch")
         evidence_ids = grant.get("grant", {}).get("evidence_ids") or []
         original_task_id = grant.get("grant", {}).get("task_id")
         if not original_task_id or original_task_id == validator_task_id:
@@ -291,6 +298,10 @@ class Worker:
             grant = self.capability_signer.verify(signed_grant)
         except (TypeError, ValueError, CapabilityGrantError, CapabilitySignatureError) as exc:
             raise ExecutorRegistryError(str(exc)) from exc
+        if not getattr(intent, "agent_id", None) or not grant.agent_id:
+            raise ExecutorRegistryError("execution_agent_identity_required")
+        if str(intent.agent_id) != str(grant.agent_id):
+            raise ExecutorRegistryError("execution_agent_identity_mismatch")
         if str(grant.task_id) != str(original_task_id):
             raise ExecutorRegistryError("execution_origin_mismatch")
         if sorted(str(v) for v in evidence_ids) != sorted(str(v) for v in grant.evidence_ids):

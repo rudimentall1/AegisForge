@@ -305,6 +305,7 @@ class Validator:
 
         return {
             "agent": self.name,
+            "agent_id": structured_parent_intent.get("agent_id") if verified else None,
             "validation_mode": "capability_evidence",
             "status": "VERIFIED" if verified else "INSUFFICIENT_EVIDENCE",
             "parent_task_id": parent_task_id,

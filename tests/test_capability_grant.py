@@ -76,13 +76,13 @@ def test_non_positive_ttl_is_rejected():
         issue_capability_grant("task-1", _intent(), "policy-v1", ttl_seconds=0)
 
 def test_outcome_contract_is_bound_to_grant():
-    intent = _intent()
-    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": {"status": "ok"}}}
+    intent = _intent(action="delete", resource="staging_filesystem", irreversible=True, requires_filesystem=True)
+    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"}}
     grant = issue_capability_grant(
         "task-contract",
         intent,
         "policy-v1",
-        outcome_contract={"type": "state_match", "verifier": "test-v1", "expected_state": {"status": "ok"}},
+        outcome_contract={"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"},
     )
     assert grant.to_dict()["outcome_contract"]["type"] == "state_match"
     assert grant.verify_binding(intent, []) is True
@@ -96,5 +96,5 @@ def test_outcome_contract_mismatch_blocks_consumption():
             "task-contract-mismatch",
             intent,
             "policy-v1",
-            outcome_contract={"type": "state_match", "verifier": "artifact_independent_v1", "expected_state": {"status": "ok"}},
+            outcome_contract={"type": "state_match", "verifier": "artifact_independent_v1", "expected_state": "ABSENT"},
         )

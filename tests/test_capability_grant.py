@@ -77,7 +77,7 @@ def test_non_positive_ttl_is_rejected():
 
 def test_outcome_contract_is_bound_to_grant():
     intent = _intent()
-    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "test-v1"}}
+    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "test-v1", "expected_state": {"status": "ok"}}}
     grant = issue_capability_grant(
         "task-contract",
         intent,
@@ -95,7 +95,7 @@ def test_outcome_contract_mismatch_blocks_consumption():
         "task-contract-mismatch",
         intent,
         "policy-v1",
-        outcome_contract={"type": "state_match", "verifier": "other-v1"},
+        outcome_contract={"type": "state_match", "verifier": "other-v1", "expected_state": {"status": "ok"}},
     )
     try:
         grant.verify_binding(intent, [])

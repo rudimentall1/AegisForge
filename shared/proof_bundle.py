@@ -12,6 +12,8 @@ README_NAME = "README.md"
 PROOF_NAME = "outcome-proof.json"
 MANIFEST_NAME = "evidence-manifest.json"
 PUBLIC_KEY_NAME = "public-key.txt"
+ATTESTATION_NAME = "attestation.json"
+REGISTRY_NAME = "attestor-registry.json"
 
 STANDALONE_VERIFIER = r'''#!/usr/bin/env python3
 import base64, hashlib, json, os, sys
@@ -88,6 +90,36 @@ def verify(p):
     if p["outcome"].get("outcome_id") != p["evidence"].get("outcome_id"): raise ValueError("outcome_evidence_binding_mismatch")
     return {"proof_id":p["proof_id"],"key_id":p["key_id"],"verifier":p["outcome"]["verifier"],"outcome_id":p["outcome"].get("outcome_id")}
 
+def verify_registry(registry):
+    if registry.get("schema_version") != "attestor-registry-v1" or registry.get("algorithm") != "Ed25519": raise ValueError("invalid_attestor_registry")
+    pub=b64(registry.get("issuer_public_key",""),"issuer_public_key")
+    if len(pub)!=32: raise ValueError("invalid_registry_public_key")
+    payload={k:registry[k] for k in ("schema_version","algorithm","registry_id","issuer_key_id","issuer_public_key","attestors")}
+    try:
+        Ed25519PublicKey.from_public_bytes(pub).verify(b64(registry.get("signature",""),"registry_signature"), canonical(payload).encode())
+    except Exception as exc:
+        raise ValueError("registry_signature_invalid") from exc
+    return registry["attestors"]
+
+def verify_attestation(attestation, proof, registry):
+    required=("schema_version","algorithm","attestor_id","key_id","proof_id","verifier","issued_at","signature")
+    if any(k not in attestation for k in required): raise ValueError("attestation_field_missing")
+    if attestation["schema_version"] != "outcome-attestation-v1" or attestation["algorithm"] != "Ed25519": raise ValueError("invalid_attestation_schema")
+    if attestation["proof_id"] != proof["proof_id"]: raise ValueError("attestation_proof_mismatch")
+    records=verify_registry(registry)
+    record=next((x for x in records if x.get("attestor_id")==attestation["attestor_id"]), None)
+    if not record: raise ValueError("attestor_not_found")
+    if record.get("status") != "ACTIVE": raise ValueError("attestor_not_active")
+    if attestation["verifier"] not in record.get("allowed_verifiers",[]): raise ValueError("verifier_not_authorized_for_attestor")
+    if record.get("key_id") != attestation["key_id"]: raise ValueError("attestor_key_id_mismatch")
+    issued=attestation["issued_at"].replace("Z","+00:00")
+    from datetime import datetime, timezone
+    t=datetime.fromisoformat(issued); start=datetime.fromisoformat(record["valid_from"].replace("Z","+00:00")); end=datetime.fromisoformat(record["expires_at"].replace("Z","+00:00"))
+    if not (start <= t < end): raise ValueError("attestation_outside_attestor_validity")
+    payload={k:attestation[k] for k in ("schema_version","algorithm","attestor_id","key_id","proof_id","verifier","issued_at")}
+    Ed25519PublicKey.from_public_bytes(b64(record["public_key"],"public_key")).verify(b64(attestation["signature"],"signature"), canonical(payload).encode())
+    return True
+
 def main():
     root=os.path.dirname(os.path.abspath(__file__))
     with open(os.path.join(root,"outcome-proof.json"),encoding="utf-8") as f: p=json.load(f)
@@ -97,18 +129,28 @@ def main():
         print(f"INVALID: {exc}"); return 1
     with open(os.path.join(root,"public-key.txt"),encoding="utf-8") as f: expected=f.read().strip()
     if expected != p["public_key"]: print("INVALID: public_key_mismatch"); return 1
+    att_path=os.path.join(root,"attestation.json")
+    reg_path=os.path.join(root,"attestor-registry.json")
+    if os.path.exists(att_path) != os.path.exists(reg_path): print("INVALID: attestation_registry_pair_mismatch"); return 1
+    if os.path.exists(att_path):
+        try:
+            with open(att_path,encoding="utf-8") as f: att=json.load(f)
+            with open(reg_path,encoding="utf-8") as f: reg=json.load(f)
+            verify_attestation(att,p,reg)
+        except Exception as exc:
+            print(f"INVALID: {exc}"); return 1
     print("VALID")
     for k,v in result.items(): print(f"{k}={v}")
     return 0
 if __name__ == "__main__": raise SystemExit(main())
 '''
 
-README = """# AegisForge Portable Proof Bundle\n\nThis directory contains a self-contained, signed outcome proof that can be verified on another machine without the AegisForge database or runtime.\n\n## Contents\n- `outcome-proof.json` — signed proof artifact.\n- `evidence-manifest.json` — evidence entries and deterministic Merkle root.\n- `public-key.txt` — Ed25519 public key used for the proof and nested capability grant.\n- `verify_bundle.py` — standalone verifier.\n- `bundle.json` — bundle metadata and hashes.\n\n## Verify\n\nRequires Python 3 and the `cryptography` package. From this directory:\n\n```bash\npython3 verify_bundle.py\n```\n\nA valid bundle prints `VALID`. Any tampering with the proof, evidence manifest, public key, or signature is rejected.\n\n## Trust boundary\n\nThis verifies cryptographic integrity, signature authenticity, grant/receipt binding, the declared outcome contract, and the evidence Merkle root. It does **not** independently establish that the original verifier was honest or that an external real-world claim is true beyond the evidence and verifier identified by the proof. A future governed trust-anchor / attestor registry can add that layer.\n"""
+README = """# AegisForge Portable Proof Bundle\n\nThis directory contains a self-contained, signed outcome proof that can be verified on another machine without the AegisForge database or runtime.\n\n## Contents\n- `outcome-proof.json` — signed proof artifact.\n- `evidence-manifest.json` — evidence entries and deterministic Merkle root.\n- `public-key.txt` — Ed25519 public key used for the proof and nested capability grant.\n- `verify_bundle.py` — standalone verifier.\n- `bundle.json` — bundle metadata and hashes.\n\n## Verify\n\nRequires Python 3 and the `cryptography` package. From this directory:\n\n```bash\npython3 verify_bundle.py\n```\n\nA valid bundle prints `VALID`. Any tampering with the proof, evidence manifest, public key, or signature is rejected.\n\n## Trust boundary\n\nThis verifies cryptographic integrity, signature authenticity, grant/receipt binding, the declared outcome contract, and the evidence Merkle root. When `attestation.json` and `attestor-registry.json` are present, it also verifies the attestor registry signature, attestor authorization, validity window, verifier scope, and attestation signature. It does **not** independently establish that the original verifier was honest or that an external real-world claim is true beyond the evidence and verifier identified by the proof.\n"""
 
 def write(path, content):
     with open(path, "w", encoding="utf-8") as f: f.write(content)
 
-def export_bundle(proof_path, output_dir):
+def export_bundle(proof_path, output_dir, attestation=None, registry=None):
     proof = read_outcome_proof(proof_path)
     verify_outcome_proof(proof)
     output_dir = os.path.abspath(output_dir)
@@ -123,8 +165,19 @@ def export_bundle(proof_path, output_dir):
     write(os.path.join(output_dir, VERIFIER_NAME), STANDALONE_VERIFIER)
     os.chmod(os.path.join(output_dir, VERIFIER_NAME), 0o755)
     write(os.path.join(output_dir, README_NAME), README)
+    optional = []
+    if attestation is not None or registry is not None:
+        if not isinstance(attestation, dict) or not isinstance(registry, dict):
+            raise ValueError("attestation_and_registry_required_together")
+        if attestation.get("proof_id") != proof["proof_id"]:
+            raise ValueError("attestation_proof_mismatch")
+        with open(os.path.join(output_dir, ATTESTATION_NAME), "w", encoding="utf-8") as f:
+            json.dump(attestation, f, sort_keys=True, indent=2, ensure_ascii=True); f.write("\n")
+        with open(os.path.join(output_dir, REGISTRY_NAME), "w", encoding="utf-8") as f:
+            json.dump(registry, f, sort_keys=True, indent=2, ensure_ascii=True); f.write("\n")
+        optional = [ATTESTATION_NAME, REGISTRY_NAME]
     files = []
-    for name in (PROOF_NAME, MANIFEST_NAME, PUBLIC_KEY_NAME, VERIFIER_NAME, README_NAME):
+    for name in (PROOF_NAME, MANIFEST_NAME, PUBLIC_KEY_NAME, VERIFIER_NAME, README_NAME, *optional):
         with open(os.path.join(output_dir, name), "rb") as f: data=f.read()
         files.append({"name":name,"sha256":__import__("hashlib").sha256(data).hexdigest(),"size":len(data)})
     bundle = {"schema_version":BUNDLE_SCHEMA,"proof_id":proof["proof_id"],"key_id":proof["key_id"],"files":files}

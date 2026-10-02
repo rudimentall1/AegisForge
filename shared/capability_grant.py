@@ -38,6 +38,7 @@ class CapabilityGrant:
     expires_at: str = ""
     nonce: str = ""
     status: str = "ACTIVE"
+    outcome_contract: dict = field(default_factory=dict)
 
     def to_dict(self):
         return {
@@ -54,6 +55,7 @@ class CapabilityGrant:
             "expires_at": self.expires_at,
             "nonce": self.nonce,
             "status": self.status,
+            "outcome_contract": self.outcome_contract,
         }
 
     def canonical(self):
@@ -67,7 +69,7 @@ class CapabilityGrant:
             "grant_id", "task_id", "intent_hash", "policy_version",
             "evidence_ids", "evidence_hash", "authorized_action",
             "authorized_target", "authorized_scope", "issued_at",
-            "expires_at", "nonce", "status",
+            "expires_at", "nonce", "status", "outcome_contract",
         }
         missing = sorted(required - set(payload))
         if missing:
@@ -90,7 +92,10 @@ class CapabilityGrant:
             expires_at=str(payload["expires_at"]),
             nonce=str(payload["nonce"]),
             status=str(payload["status"]),
+            outcome_contract=dict(payload["outcome_contract"]),
         )
+        if not isinstance(payload["outcome_contract"], dict):
+            raise CapabilityGrantError("invalid_outcome_contract")
         # Recompute the evidence commitment before any execution path uses it.
         if grant.evidence_hash != evidence_hash(grant.evidence_ids):
             raise CapabilityGrantError("evidence_hash_mismatch")
@@ -119,6 +124,7 @@ def issue_capability_grant(
     evidence_ids=(),
     authorized_scope="",
     ttl_seconds=300,
+    outcome_contract=None,
 ):
     if ttl_seconds <= 0:
         raise CapabilityGrantError("invalid_ttl")
@@ -137,6 +143,7 @@ def issue_capability_grant(
         issued_at=now.isoformat(),
         expires_at=(now + timedelta(seconds=ttl_seconds)).isoformat(),
         nonce=secrets.token_urlsafe(18),
+        outcome_contract=dict(outcome_contract or {}),
     )
 
 

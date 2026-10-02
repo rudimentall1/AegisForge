@@ -98,14 +98,19 @@ def build_outcome_proof_payload(grant, receipt, outcome_contract, outcome, evide
         raise OutcomeProofError("outcome_agent_mismatch")
     executor_id = receipt.get("executor_id")
     executor_version = receipt.get("executor_version")
+    executor_digest = receipt.get("executor_implementation_digest")
     if not executor_id:
         raise OutcomeProofError("executor_identity_required")
     if not executor_version:
         raise OutcomeProofError("executor_version_required")
+    if not executor_digest:
+        raise OutcomeProofError("executor_implementation_digest_required")
     if evidence.get("executor_id") not in (None, executor_id):
         raise OutcomeProofError("evidence_executor_mismatch")
     if evidence.get("executor_version") not in (None, executor_version):
         raise OutcomeProofError("evidence_executor_version_mismatch")
+    if evidence.get("executor_implementation_digest") not in (None, executor_digest):
+        raise OutcomeProofError("evidence_executor_digest_mismatch")
     if evidence.get("agent_id") != agent_id:
         raise OutcomeProofError("evidence_agent_mismatch")
     if evidence_manifest.get("agent_id") != agent_id:
@@ -223,6 +228,10 @@ def verify_outcome_proof(proof):
         raise OutcomeProofError("executor_identity_required")
     if not receipt.get("executor_version"):
         raise OutcomeProofError("executor_version_required")
+    executor_digest = receipt.get("executor_implementation_digest")
+    if executor_digest:
+        if proof["evidence"].get("executor_implementation_digest") not in (None, executor_digest):
+            raise OutcomeProofError("evidence_executor_digest_mismatch")
     if proof["evidence"].get("executor_id") not in (None, receipt.get("executor_id")):
         raise OutcomeProofError("evidence_executor_mismatch")
     if proof["evidence"].get("executor_version") not in (None, receipt.get("executor_version")):

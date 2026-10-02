@@ -10,6 +10,7 @@ class CapabilityGrantError(ValueError):
 
 
 from shared.outcome_contract import validate_outcome_contract, OutcomeContractError
+from shared.effective_capability import EffectiveCapabilityDecision, evaluate_effective_capability
 
 
 
@@ -135,7 +136,17 @@ def issue_capability_grant(
     authorized_scope="",
     ttl_seconds=300,
     outcome_contract=None,
+    *,
+    authority_state=None,
 ):
+    # Compatibility default for legacy callers. New execution paths should
+    # always pass the agent's persisted authority state explicitly.
+    if authority_state is None:
+        from shared.authority_state import AuthorityState
+        authority_state = AuthorityState.STANDARD
+    effective = evaluate_effective_capability(intent, authority_state)
+    if effective.decision == EffectiveCapabilityDecision.BLOCK:
+        raise CapabilityGrantError("authority_blocked:" + effective.reason)
     if ttl_seconds <= 0:
         raise CapabilityGrantError("invalid_ttl")
     now = datetime.now(timezone.utc)

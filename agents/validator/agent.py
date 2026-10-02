@@ -5,6 +5,7 @@ from shared.capability_policy import ActionIntent, CapabilityDecision, Capabilit
 from shared.evidence_ledger import EvidenceLedger
 from shared.capability_grant import issue_capability_grant
 from shared.capability_signing import CapabilitySigner
+from shared.authority_state import AuthorityState
 
 class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
@@ -281,6 +282,7 @@ class Validator:
                 evidence_ids=evidence_ids,
                 authorized_scope=(intent.destination or intent.resource),
                 outcome_contract=outcome_contract,
+                authority_state=AuthorityState.STANDARD,
             )
             capability_grant = self.capability_signer.sign(grant).to_dict()
 

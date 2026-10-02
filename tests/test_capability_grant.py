@@ -7,9 +7,15 @@ from shared.capability_grant import (
     consume_capability_grant,
     evidence_hash,
     intent_hash,
-    issue_capability_grant,
+    issue_capability_grant as _issue_capability_grant,
 )
+from shared.authority_state import AuthorityState
 from shared.capability_policy import ActionIntent
+
+
+def issue_capability_grant(*args, **kwargs):
+    kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    return _issue_capability_grant(*args, **kwargs)
 
 
 def _intent(**overrides):
@@ -74,6 +80,30 @@ def test_expired_grant_is_rejected():
 def test_non_positive_ttl_is_rejected():
     with pytest.raises(CapabilityGrantError, match="invalid_ttl"):
         issue_capability_grant("task-1", _intent(), "policy-v1", ttl_seconds=0)
+
+
+def test_probation_cannot_issue_deploy_grant():
+    with pytest.raises(CapabilityGrantError, match="authority_blocked:dynamic_authority_restricted"):
+        _issue_capability_grant(
+            "task-probation", _intent(), "policy-v1", authority_state=AuthorityState.PROBATION
+        )
+
+
+def test_suspended_cannot_issue_any_grant():
+    with pytest.raises(CapabilityGrantError, match="authority_blocked:authority_suspended"):
+        _issue_capability_grant(
+            "task-suspended", _intent(action="inspect_code", read_only=True),
+            "policy-v1", authority_state=AuthorityState.SUSPENDED
+        )
+
+
+def test_elevated_still_respects_static_policy_evidence_gate():
+    grant = _issue_capability_grant(
+        "task-elevated", _intent(), "policy-v1",
+        evidence_ids=["tests", "security", "rollback"],
+        authority_state=AuthorityState.ELEVATED,
+    )
+    assert grant.status == "ACTIVE"
 
 def test_outcome_contract_is_bound_to_grant():
     intent = _intent(action="delete", resource="staging_filesystem", irreversible=True, requires_filesystem=True)

@@ -34,6 +34,7 @@ from shared.outcome_verifier import (
 from shared.http_executor import HttpApiExecutor, HttpExecutorError
 from shared.http_outcome_verifier import HttpOutcomeVerifier, HttpOutcomeVerificationError
 from shared.mcp_outcome_verifier import McpOutcomeVerifier, McpOutcomeVerificationError
+from shared.outcome_verifier_registry import OutcomeVerifierRegistry, OutcomeVerifierRegistryError
 from shared.capability_policy import ActionIntent
 import hashlib
 
@@ -350,27 +351,49 @@ class Worker:
         result = registry.execute(signed_grant, intent, evidence_ids=evidence_ids)
         receipt = result["receipt"]
 
-        # Do not treat the executor's self-reported result as proof. The
-        # verifier independently inspects the real execution target.
+        # Do not treat the executor's self-reported result as proof. Resolve
+        # the typed outcome contract to an explicit independent verifier.
         try:
-            if intent.action == "delete":
-                verifier = FilesystemOutcomeVerifier(root)
-            elif intent.action == "publish":
-                verifier = ArtifactOutcomeVerifier(root)
-            elif intent.action == "api_request":
-                verifier = HttpOutcomeVerifier(
+            contract = dict((intent.parameters or {}).get("outcome_contract") or {})
+            verifier_registry = OutcomeVerifierRegistry()
+            verifier_registry.register(
+                "filesystem_delete",
+                "state_match",
+                "filesystem_independent_v1",
+                lambda **kwargs: FilesystemOutcomeVerifier(root),
+            )
+            verifier_registry.register(
+                "artifact_publish",
+                "artifact_exists",
+                "artifact_independent_v1",
+                lambda **kwargs: ArtifactOutcomeVerifier(root),
+            )
+            verifier_registry.register(
+                "http_state",
+                "http_state",
+                "http_independent_get_v1",
+                lambda **kwargs: HttpOutcomeVerifier(
                     allowed_hosts=http_adapter.allowed_hosts,
                     timeout=http_adapter.timeout,
-                )
-            elif intent.action == "mcp_tool_call":
-                verifier = McpOutcomeVerifier(
+                ),
+            )
+            verifier_registry.register(
+                "mcp_state",
+                "mcp_state",
+                "mcp_independent_read_v1",
+                lambda **kwargs: McpOutcomeVerifier(
                     allowed_hosts=http_adapter.allowed_hosts,
                     timeout=http_adapter.timeout,
-                )
-            else:
-                raise ExecutorRegistryError("outcome_verifier_not_registered")
-            outcome = verifier.verify(intent, receipt)
+                ),
+            )
+            outcome = verifier_registry.verify(
+                contract,
+                intent,
+                receipt,
+                action=intent.action,
+            )
         except (
+            OutcomeVerifierRegistryError,
             OutcomeVerificationError,
             HttpExecutorError,
             HttpOutcomeVerificationError,

@@ -1,7 +1,8 @@
 import hashlib
 import json
 
-from shared.capability_grant import intent_hash, validate_outcome_contract
+from shared.capability_grant import intent_hash
+from shared.outcome_contract import validate_outcome_contract
 from shared.http_executor import HttpApiExecutor, HttpExecutorError
 
 

@@ -2,7 +2,7 @@ import json
 
 class OutcomeContractError(ValueError): pass
 
-CONTRACT_REQUIRED_ACTIONS={"delete","publish","api_request","mcp_tool_call"}
+CONTRACT_REQUIRED_ACTIONS={"delete","publish","api_request","mcp_tool_call","transfer","release"}
 CONTRACT_TYPES={
  "state_match":{"required":{"type","verifier","expected_state"},"allowed":{"type","verifier","expected_state"},"verifiers":{"filesystem_independent_v1"},"actions":{"delete"}},
  "artifact_exists":{"required":{"type","verifier","path","expected_exists"},"allowed":{"type","verifier","path","expected_exists"},"verifiers":{"artifact_independent_v1"},"actions":{"publish"}},

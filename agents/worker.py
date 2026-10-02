@@ -20,6 +20,7 @@ from shared.capability_policy import (
 
 from shared.action_intent import build_action_intent
 from shared.agent_identity import AgentIdentity
+from shared.agent_authority import AgentAuthorityRegistry
 from shared.evidence_ledger import EvidenceLedger
 from shared.capability_grant import CapabilityGrant, CapabilityGrantError
 from shared.capability_signing import CapabilitySigner, CapabilitySignatureError
@@ -299,7 +300,12 @@ class Worker:
             "/opt/agent-farm/staging-execution",
         )
         adapter = SafeFilesystemExecutor(root)
-        gate = ExecutionGate(db=self.queue.db, signer=self.capability_signer)
+        authority_registry = AgentAuthorityRegistry(self.queue.db)
+        gate = ExecutionGate(
+            db=self.queue.db,
+            signer=self.capability_signer,
+            authority_registry=authority_registry,
+        )
         registry = ExecutorRegistry(
             gate,
             evidence_ledger=self.evidence_ledger,

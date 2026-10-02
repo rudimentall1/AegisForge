@@ -127,17 +127,19 @@ class ExecutionGate:
         if grant.policy_version != self.policy.VERSION:
             raise ExecutionGateError("policy_version_mismatch")
 
-        if self.authority_registry is not None:
-            try:
-                authority = self.authority_registry.get(grant.agent_id)
-            except AgentAuthorityError as exc:
-                raise ExecutionGateError(str(exc)) from exc
-            if grant.authority_epoch != authority.authority_epoch:
-                raise ExecutionGateError("authority_epoch_mismatch")
-            if grant.authority_state != authority.state.value:
-                raise ExecutionGateError("authority_state_mismatch")
-            if grant.policy_version != authority.policy_version:
-                raise ExecutionGateError("authority_policy_version_mismatch")
+        if self.authority_registry is None:
+            raise ExecutionGateError("authority_registry_required")
+
+        try:
+            authority = self.authority_registry.get(grant.agent_id)
+        except AgentAuthorityError as exc:
+            raise ExecutionGateError(str(exc)) from exc
+        if grant.authority_epoch != authority.authority_epoch:
+            raise ExecutionGateError("authority_epoch_mismatch")
+        if grant.authority_state != authority.state.value:
+            raise ExecutionGateError("authority_state_mismatch")
+        if grant.policy_version != authority.policy_version:
+            raise ExecutionGateError("authority_policy_version_mismatch")
 
         if self.grant_store is not None:
             try:

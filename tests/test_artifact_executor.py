@@ -11,13 +11,15 @@ from shared.artifact_executor import SafeArtifactPublisher
 from shared.outcome_verifier import ArtifactOutcomeVerifier
 from shared.executor_registry import ExecutorRegistry
 from shared.execution_gate import ExecutionGate
+from shared.agent_authority import AgentAuthorityRegistry
+from shared.trust_evaluation import TrustDecision
 
 
 def issue_capability_grant(*args, **kwargs):
     state = kwargs.setdefault("authority_state", AuthorityState.STANDARD)
     kwargs.setdefault("authority_context", SimpleNamespace(
         agent_id="test-agent",
-        authority_epoch=1,
+        authority_epoch=2,
         state=state,
         policy_version=kwargs.get("policy_version", args[2] if len(args) > 2 else "policy-v1"),
     ))
@@ -50,6 +52,9 @@ def test_artifact_publish_is_authorized_and_independently_proven(tmp_path):
     content = "AegisForge artifact v1\n"
     intent = _intent(content)
     signer = CapabilitySigner.generate()
+    authority = AgentAuthorityRegistry(db)
+    authority.register("test-agent")
+    authority.record_trust("test-agent", TrustDecision("TRUSTED", "test", "proof-artifact", "test"))
     grant = signer.sign(
         issue_capability_grant(
             "publish-task",
@@ -61,7 +66,7 @@ def test_artifact_publish_is_authorized_and_independently_proven(tmp_path):
     )
 
     registry = ExecutorRegistry(
-        ExecutionGate(db=db, signer=signer),
+        ExecutionGate(db=db, signer=signer, authority_registry=authority),
         evidence_ledger=ledger,
         role="executor",
     )
@@ -106,6 +111,9 @@ def test_artifact_verifier_detects_post_execution_tampering(tmp_path):
     content = "immutable claim"
     intent = _intent(content)
     signer = CapabilitySigner.generate()
+    authority = AgentAuthorityRegistry(db)
+    authority.register("test-agent")
+    authority.record_trust("test-agent", TrustDecision("TRUSTED", "test", "proof-artifact-tamper", "test"))
     grant = signer.sign(
         issue_capability_grant(
             "tamper-task",
@@ -116,7 +124,7 @@ def test_artifact_verifier_detects_post_execution_tampering(tmp_path):
         )
     )
     registry = ExecutorRegistry(
-        ExecutionGate(db=db, signer=signer),
+        ExecutionGate(db=db, signer=signer, authority_registry=authority),
         evidence_ledger=ledger,
         role="executor",
     )

@@ -9,6 +9,8 @@ from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.capability_signing import CapabilitySigner
 from shared.evidence_ledger import EvidenceLedger
 from shared.execution_gate import ExecutionGate
+from shared.agent_authority import AgentAuthorityRegistry
+from shared.trust_evaluation import TrustDecision
 from shared.executor_registry import ExecutorRegistry, ExecutorRegistryError
 
 
@@ -16,7 +18,7 @@ def issue_capability_grant(*args, **kwargs):
     state = kwargs.setdefault("authority_state", AuthorityState.STANDARD)
     kwargs.setdefault("authority_context", SimpleNamespace(
         agent_id="test-agent",
-        authority_epoch=1,
+        authority_epoch=2,
         state=state,
         policy_version=kwargs.get("policy_version", args[2] if len(args) > 2 else "policy-v1"),
     ))
@@ -52,7 +54,10 @@ def _runtime():
     db = sqlite3.connect(":memory:")
     ledger = EvidenceLedger(db)
     signer = CapabilitySigner.generate()
-    gate = ExecutionGate(db=db, signer=signer)
+    authority = AgentAuthorityRegistry(db)
+    authority.register("test-agent")
+    authority.record_trust("test-agent", TrustDecision("TRUSTED", "test", "proof-executor", "test"))
+    gate = ExecutionGate(db=db, signer=signer, authority_registry=authority)
     return db, ledger, ExecutorRegistry(gate, evidence_ledger=ledger), signer
 
 

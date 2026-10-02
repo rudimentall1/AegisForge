@@ -6,6 +6,8 @@ from shared.authority_state import AuthorityState
 from shared.capability_signing import CapabilitySigner
 from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.evidence_ledger import EvidenceLedger
+from shared.agent_authority import AgentAuthorityRegistry
+from shared.trust_evaluation import TrustDecision
 from shared.task import Task
 from agents.worker import Worker
 
@@ -14,7 +16,7 @@ def issue_capability_grant(*args, **kwargs):
     state = kwargs.setdefault("authority_state", AuthorityState.STANDARD)
     kwargs.setdefault("authority_context", SimpleNamespace(
         agent_id="test-agent",
-        authority_epoch=1,
+        authority_epoch=2,
         state=state,
         policy_version=kwargs.get("policy_version", args[2] if len(args) > 2 else "policy-v1"),
     ))
@@ -35,6 +37,13 @@ def _delete_intent(target):
         evidence_required=True,
         parameters={"outcome_contract": {"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"}},
     )
+
+
+def _seed_authority(db):
+    authority = AgentAuthorityRegistry(db)
+    authority.register("test-agent")
+    authority.record_trust("test-agent", TrustDecision("TRUSTED", "test", "proof-worker-executor", "test"))
+    return authority
 
 
 def test_validator_verified_result_creates_execution_handoff():
@@ -87,6 +96,7 @@ def test_executor_worker_executes_verified_delete(tmp_path, monkeypatch):
     worker.queue = type("Queue", (), {"db": db})()
     worker.evidence_ledger = ledger
     worker.capability_signer = CapabilitySigner.generate()
+    _seed_authority(db)
     monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
 
     intent = _delete_intent("workspace/obsolete.txt")
@@ -125,6 +135,7 @@ def test_executor_rejects_tampered_origin(tmp_path, monkeypatch):
     worker.queue = type("Queue", (), {"db": db})()
     worker.evidence_ledger = EvidenceLedger(db)
     worker.capability_signer = CapabilitySigner.generate()
+    _seed_authority(db)
     monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
 
     intent = _delete_intent("file.txt")
@@ -157,6 +168,7 @@ def _executor_worker(db, signer):
     worker.queue = type("Queue", (), {"db": db})()
     worker.evidence_ledger = EvidenceLedger(db)
     worker.capability_signer = signer
+    _seed_authority(db)
     return worker
 
 

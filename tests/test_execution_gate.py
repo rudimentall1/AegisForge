@@ -18,7 +18,7 @@ def issue_capability_grant(*args, **kwargs):
     state = kwargs.setdefault("authority_state", AuthorityState.STANDARD)
     kwargs.setdefault("authority_context", SimpleNamespace(
         agent_id="test-agent",
-        authority_epoch=1,
+        authority_epoch=2,
         state=state,
         policy_version=kwargs.get("policy_version", args[2] if len(args) > 2 else "policy-v1"),
     ))
@@ -57,6 +57,16 @@ def _db():
     return sqlite3.connect(":memory:")
 
 
+def _gate(db, signer):
+    registry = AgentAuthorityRegistry(db)
+    registry.register("test-agent")
+    registry.record_trust(
+        "test-agent",
+        TrustDecision("TRUSTED", "test", "proof-gate", "test-verifier"),
+    )
+    return ExecutionGate(db, signer=signer, authority_registry=registry)
+
+
 def test_gate_requires_grant():
     gate = ExecutionGate(_db())
     with pytest.raises(ExecutionGateError, match="grant_required"):
@@ -65,7 +75,7 @@ def test_gate_requires_grant():
 
 def test_gate_rejects_policy_drift():
     signer, grant = _grant()
-    gate = ExecutionGate(_db(), signer=signer)
+    gate = _gate(_db(), signer)
     gate.policy.VERSION = "changed"
     with pytest.raises(ExecutionGateError, match="policy_version_mismatch"):
         gate.execute(grant, _intent(), lambda: "executed", ["ev-1"])
@@ -75,14 +85,14 @@ def test_gate_enforces_scope():
     intent = _intent()
     signer, signed = _grant(intent)
     grant = signer.sign(replace(signed.grant, authorized_scope="other"))
-    gate = ExecutionGate(_db(), signer=signer)
+    gate = _gate(_db(), signer)
     with pytest.raises(ExecutionGateError, match="authorized_scope_mismatch"):
         gate.execute(grant, intent, lambda: "executed", ["ev-1"])
 
 
 def test_gate_executes_once_and_returns_receipt():
     signer, grant = _grant()
-    gate = ExecutionGate(_db(), signer=signer)
+    gate = _gate(_db(), signer)
     calls = []
     receipt = gate.execute(
         grant,
@@ -103,7 +113,7 @@ def test_gate_executes_once_and_returns_receipt():
 
 def test_gate_rejects_expired_grant():
     signer, grant = _grant(ttl_seconds=1)
-    gate = ExecutionGate(_db(), signer=signer)
+    gate = _gate(_db(), signer)
     future = datetime.now(timezone.utc) + timedelta(seconds=2)
     with pytest.raises(ExecutionGateError, match="grant_expired"):
         gate.execute(grant, _intent(), lambda: "executed", ["ev-1"], now=future)
@@ -111,7 +121,7 @@ def test_gate_rejects_expired_grant():
 
 def test_failed_executor_still_produces_failure_receipt_and_consumes_grant():
     signer, grant = _grant()
-    gate = ExecutionGate(_db(), signer=signer)
+    gate = _gate(_db(), signer)
     receipt = gate.execute(
         grant,
         _intent(),
@@ -128,7 +138,7 @@ def test_failed_executor_still_produces_failure_receipt_and_consumes_grant():
 def test_gate_honors_persistent_grant_revocation_before_side_effect():
     db = _db()
     signer, grant = _grant()
-    gate = ExecutionGate(db, signer=signer)
+    gate = _gate(db, signer)
     # Registration happens at the gate boundary, before execution.
     gate.authorize(grant, _intent(), ["ev-1"])
     from shared.capability_grant_store import CapabilityGrantStore

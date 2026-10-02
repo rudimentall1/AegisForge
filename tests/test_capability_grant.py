@@ -12,6 +12,8 @@ from shared.capability_grant import (
 )
 from shared.authority_state import AuthorityState
 from shared.capability_policy import ActionIntent
+from shared.agent_identity_signing import AgentIdentitySigner
+from shared.signed_action_intent import ActionIntentSigner
 
 
 def issue_capability_grant(*args, **kwargs):
@@ -134,4 +136,27 @@ def test_outcome_contract_mismatch_blocks_consumption():
             intent,
             "policy-v1",
             outcome_contract={"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "PRESENT"},
+        )
+
+
+def test_grant_binds_signed_action_intent():
+    intent = _intent(agent_id="test-agent")
+    identity = AgentIdentitySigner.generate("test-agent", "developer")
+    signed_intent = ActionIntentSigner(identity).sign(intent)
+    grant = issue_capability_grant(
+        "task-signed-intent", intent, "policy-v1", signed_action_intent=signed_intent
+    )
+    assert grant.signed_action_intent["intent_hash"] == signed_intent.intent_hash
+    restored = grant.from_dict(grant.to_dict())
+    assert restored.verify_binding(intent, []) is True
+
+
+def test_grant_rejects_signed_action_intent_for_different_intent():
+    intent = _intent(agent_id="test-agent")
+    identity = AgentIdentitySigner.generate("test-agent", "developer")
+    other_intent = _intent(agent_id="test-agent", target="other-target")
+    signed_intent = ActionIntentSigner(identity).sign(other_intent)
+    with pytest.raises(CapabilityGrantError, match="signed_action_intent_hash_mismatch"):
+        issue_capability_grant(
+            "task-signed-intent-mismatch", intent, "policy-v1", signed_action_intent=signed_intent
         )

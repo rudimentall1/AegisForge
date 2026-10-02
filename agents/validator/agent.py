@@ -8,6 +8,7 @@ from shared.capability_grant import issue_capability_grant
 from shared.capability_signing import CapabilitySigner
 from shared.agent_authority import AgentAuthorityRegistry
 from shared.agent_identity_signing import AgentIdentitySigner
+from shared.signed_action_intent import ActionIntentSigner
 
 class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
@@ -295,6 +296,13 @@ class Validator:
                 outcome_contract = {}
             self.authority_registry.register(agent_id)
             authority = self.authority_registry.get(agent_id)
+            if self.agent_identity_signer is None or self.agent_identity_signer.identity.agent_id != str(agent_id):
+                key_path = os.path.join(self.agent_identity_key_dir, f"{agent_id}.key")
+                self.agent_identity_signer = AgentIdentitySigner.load_or_create(
+                    key_path, agent_id=str(agent_id), role=self.name
+                )
+            signed_agent_identity = self.agent_identity_signer.sign_identity()
+            signed_action_intent = ActionIntentSigner(self.agent_identity_signer).sign(intent)
             grant = issue_capability_grant(
                 task_id=parent_task_id,
                 intent=intent,
@@ -304,13 +312,8 @@ class Validator:
                 outcome_contract=outcome_contract,
                 authority_state=authority.state,
                 authority_context=authority,
+                signed_action_intent=signed_action_intent,
             )
-            if self.agent_identity_signer is None or self.agent_identity_signer.identity.agent_id != str(agent_id):
-                key_path = os.path.join(self.agent_identity_key_dir, f"{agent_id}.key")
-                self.agent_identity_signer = AgentIdentitySigner.load_or_create(
-                    key_path, agent_id=str(agent_id), role=self.name
-                )
-            signed_agent_identity = self.agent_identity_signer.sign_identity()
             capability_grant = self.capability_signer.sign(grant, signed_agent_identity).to_dict()
 
         return {

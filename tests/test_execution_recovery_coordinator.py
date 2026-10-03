@@ -2,6 +2,14 @@ import sqlite3
 
 import pytest
 
+from shared.agent_authority import AgentAuthorityRegistry
+from shared.agent_identity_signing import AgentIdentitySigner
+from shared.capability_grant import intent_hash
+from shared.capability_policy import ActionIntent, CapabilityPolicy
+from shared.capability_signing import CapabilitySigner
+from shared.execution_retry_authorizer import ExecutionRetryAuthorizer
+from shared.signed_action_intent import ActionIntentSigner
+
 from shared.capability_grant import CapabilityGrant
 from shared.capability_signing import SignedCapabilityGrant
 from shared.execution_gate import ExecutionGate
@@ -183,6 +191,18 @@ def test_retry_reauthorization_failure_keeps_original_attempt_running():
         )
 
     assert attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RUNNING
+
+
+def test_retry_authorizer_module_imports_and_issues_new_grant():
+    db = sqlite3.connect(":memory:")
+    registry = AgentAuthorityRegistry(db)
+    registry.register("agent-1", CapabilityPolicy.VERSION)
+    intent = ActionIntent(agent_id="agent-1", role="developer", action="run_tests", target="staging", resource="service", destination="staging", data_scope="artifact", read_only=True)
+    signed = ActionIntentSigner(AgentIdentitySigner.generate("agent-1", "developer")).sign(intent)
+    attempt = ExecutionAttemptStore(db).create("task-1", "old-grant", intent_hash(intent), "operation-1")
+    fresh = ExecutionRetryAuthorizer(registry, CapabilitySigner.generate()).authorize(attempt=attempt, intent=intent, signed_action_intent=signed)
+    assert fresh.grant.grant_id != attempt.grant_id
+    assert fresh.grant.authority_epoch == registry.get("agent-1").authority_epoch
 
 
 def test_retry_cannot_reuse_original_grant():

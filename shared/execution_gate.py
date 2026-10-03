@@ -8,6 +8,7 @@ from shared.capability_policy import CapabilityPolicy
 from shared.capability_grant_store import CapabilityGrantStore, CapabilityGrantStoreError
 from shared.agent_authority import AgentAuthorityRegistry, AgentAuthorityError
 from shared.signed_action_intent import SignedActionIntent, SignedActionIntentError
+from shared.execution_attempt import ExecutionAttemptStore, ExecutionAttemptError
 
 
 class ExecutionGateError(ValueError):
@@ -73,6 +74,7 @@ class ExecutionGate:
         self.signer = signer
         self.authority_registry = authority_registry
         self.grant_store = CapabilityGrantStore(self.db) if self.db is not None else None
+        self.attempt_store = ExecutionAttemptStore(self.db) if self.db is not None else None
         if self.db is not None:
             self.db.execute(
                 f"""
@@ -200,6 +202,7 @@ class ExecutionGate:
         executor_version="",
         executor_implementation_digest=None,
         executor_identity_epoch=0,
+        idempotency_key="",
     ):
         """Authorize exactly once, then invoke executor.
 
@@ -227,14 +230,42 @@ class ExecutionGate:
 
         executed_at = (now or datetime.now(timezone.utc)).isoformat()
         receipt_id = "receipt_" + secrets.token_urlsafe(18)
-
-        if self.grant_store is not None:
+        attempt = None
+        if self.attempt_store is not None:
+            key = str(idempotency_key or grant.nonce)
             try:
-                self.grant_store.consume(grant.grant_id, receipt_id, executed_at)
-            except CapabilityGrantStoreError as exc:
+                attempt = self.attempt_store.create(
+                    grant.task_id, grant.grant_id, grant.intent_hash, key,
+                    now=now, retry=False,
+                )
+                attempt = self.attempt_store.transition(
+                    attempt.attempt_id, "LEASED", now=now,
+                    executor_id=executor_id, executor_version=executor_version,
+                    executor_identity_epoch=executor_identity_epoch,
+                )
+            except ExecutionAttemptError as exc:
                 raise ExecutionGateError(str(exc)) from exc
 
-        self._consume_nonce(grant, receipt_id, executed_at)
+        try:
+            if self.grant_store is not None:
+                try:
+                    self.grant_store.consume(grant.grant_id, receipt_id, executed_at)
+                except CapabilityGrantStoreError as exc:
+                    if attempt is not None:
+                        self.attempt_store.transition(attempt.attempt_id, "ABORTED", now=now, error=str(exc))
+                    raise ExecutionGateError(str(exc)) from exc
+
+            self._consume_nonce(grant, receipt_id, executed_at)
+            if attempt is not None:
+                attempt = self.attempt_store.transition(
+                    attempt.attempt_id, "RUNNING", now=now,
+                )
+        except ExecutionGateError:
+            raise
+        except Exception as exc:
+            if attempt is not None:
+                self.attempt_store.transition(attempt.attempt_id, "ABORTED", now=now, error=str(exc))
+            raise
 
         try:
             result = executor()
@@ -280,5 +311,11 @@ class ExecutionGate:
                 executor_version=executor_version,
                 executor_implementation_digest=executor_implementation_digest,
                 executor_identity_epoch=executor_identity_epoch,
+            )
+        if attempt is not None:
+            terminal = "SUCCEEDED" if receipt.status == "EXECUTED" else "FAILED"
+            attempt = self.attempt_store.transition(
+                attempt.attempt_id, terminal, now=now,
+                receipt_id=receipt.receipt_id, error=receipt.error,
             )
         return receipt

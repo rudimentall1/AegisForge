@@ -9,6 +9,8 @@ from shared.capability_grant import issue_capability_grant as _issue_capability_
 from shared.authority_state import AuthorityState
 from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.capability_signing import CapabilitySigner
+from shared.agent_identity_signing import AgentIdentitySigner
+from shared.signed_action_intent import ActionIntentSigner
 from shared.execution_gate import ExecutionGate, ExecutionGateError
 from shared.agent_authority import AgentAuthorityRegistry
 from shared.trust_evaluation import TrustDecision
@@ -16,6 +18,19 @@ from shared.trust_evaluation import TrustDecision
 
 def issue_capability_grant(*args, **kwargs):
     state = kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    intent = kwargs.get("intent") if "intent" in kwargs else (args[1] if len(args) > 1 else None)
+    if intent is not None and not getattr(intent, "agent_id", ""):
+        from dataclasses import replace
+        intent = replace(intent, agent_id="test-agent")
+        if "intent" in kwargs:
+            kwargs["intent"] = intent
+        elif len(args) > 1:
+            args = list(args)
+            args[1] = intent
+            args = tuple(args)
+    if intent is not None and "signed_action_intent" not in kwargs:
+        identity_signer = AgentIdentitySigner.generate(intent.agent_id or "test-agent", "developer")
+        kwargs["signed_action_intent"] = ActionIntentSigner(identity_signer).sign(intent)
     kwargs.setdefault("authority_context", SimpleNamespace(
         agent_id="test-agent",
         authority_epoch=2,
@@ -27,6 +42,7 @@ def issue_capability_grant(*args, **kwargs):
 
 def _intent(**overrides):
     values = {
+        "agent_id": "test-agent",
         "role": "developer",
         "action": "deploy",
         "target": "staging",
@@ -177,7 +193,7 @@ def _registered_authority(db, agent_id="agent-1"):
 def test_gate_rejects_stale_authority_epoch():
     db = _db()
     registry, authority = _registered_authority(db)
-    intent = _intent()
+    intent = _intent(agent_id="agent-1")
     signer = CapabilitySigner.generate()
     grant = signer.sign(issue_capability_grant(
         "task-epoch",
@@ -198,7 +214,7 @@ def test_gate_rejects_stale_authority_epoch():
 def test_gate_rejects_authority_state_drift():
     db = _db()
     registry, authority = _registered_authority(db)
-    intent = _intent()
+    intent = _intent(agent_id="agent-1")
     signer = CapabilitySigner.generate()
     grant = signer.sign(issue_capability_grant(
         "task-state",
@@ -219,7 +235,7 @@ def test_gate_rejects_authority_state_drift():
 def test_current_authority_context_allows_execution():
     db = _db()
     registry, authority = _registered_authority(db)
-    intent = _intent()
+    intent = _intent(agent_id="agent-1")
     signer = CapabilitySigner.generate()
     grant = signer.sign(issue_capability_grant(
         "task-current",
@@ -242,3 +258,39 @@ def test_current_authority_context_allows_execution():
         executor_identity_epoch=1,
     )
     assert receipt.status == "EXECUTED"
+
+
+def test_gate_requires_cryptographically_signed_action_intent():
+    signer, signed = _grant()
+    legacy = signer.sign(replace(signed.grant, signed_action_intent={}))
+    gate = _gate(_db(), signer)
+
+    with pytest.raises(ExecutionGateError, match="signed_action_intent_required"):
+        gate.execute(
+            legacy,
+            _intent(),
+            lambda: "must-not-run",
+            ["ev-1"],
+            executor_id="direct-test-executor",
+            executor_version="1",
+            executor_identity_epoch=1,
+        )
+
+
+def test_gate_rejects_grant_with_tampered_signed_action_intent():
+    signer, signed = _grant()
+    tampered_payload = dict(signed.grant.signed_action_intent)
+    tampered_payload["signature"] = "tampered"
+    tampered = signer.sign(replace(signed.grant, signed_action_intent=tampered_payload))
+    gate = _gate(_db(), signer)
+
+    with pytest.raises(ExecutionGateError, match="signed_action_intent_invalid"):
+        gate.execute(
+            tampered,
+            _intent(),
+            lambda: "must-not-run",
+            ["ev-1"],
+            executor_id="direct-test-executor",
+            executor_version="1",
+            executor_identity_epoch=1,
+        )

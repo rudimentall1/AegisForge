@@ -6,6 +6,8 @@ from shared.capability_grant import issue_capability_grant as _issue_capability_
 from shared.authority_state import AuthorityState
 from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.capability_signing import CapabilitySigner
+from shared.agent_identity_signing import AgentIdentitySigner
+from shared.signed_action_intent import ActionIntentSigner
 from shared.evidence_ledger import EvidenceLedger
 from shared.artifact_executor import SafeArtifactPublisher
 from shared.outcome_verifier import ArtifactOutcomeVerifier
@@ -17,6 +19,19 @@ from shared.trust_evaluation import TrustDecision
 
 def issue_capability_grant(*args, **kwargs):
     state = kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    intent = kwargs.get("intent") if "intent" in kwargs else (args[1] if len(args) > 1 else None)
+    if intent is not None and not getattr(intent, "agent_id", ""):
+        from dataclasses import replace
+        intent = replace(intent, agent_id="test-agent")
+        if "intent" in kwargs:
+            kwargs["intent"] = intent
+        elif len(args) > 1:
+            args = list(args)
+            args[1] = intent
+            args = tuple(args)
+    if intent is not None and "signed_action_intent" not in kwargs:
+        identity_signer = AgentIdentitySigner.generate("test-agent", "developer")
+        kwargs["signed_action_intent"] = ActionIntentSigner(identity_signer).sign(intent)
     kwargs.setdefault("authority_context", SimpleNamespace(
         agent_id="test-agent",
         authority_epoch=2,
@@ -28,6 +43,7 @@ def issue_capability_grant(*args, **kwargs):
 
 def _intent(content, target="release/demo.txt"):
     return ActionIntent(
+        agent_id="test-agent",
         role="developer",
         action="publish",
         target=target,

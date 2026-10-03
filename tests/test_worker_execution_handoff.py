@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from shared.capability_grant import issue_capability_grant as _issue_capability_grant
 from shared.authority_state import AuthorityState
 from shared.capability_signing import CapabilitySigner
+from shared.agent_identity_signing import AgentIdentitySigner
+from shared.signed_action_intent import ActionIntentSigner
 from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.evidence_ledger import EvidenceLedger
 from shared.agent_authority import AgentAuthorityRegistry
@@ -15,6 +17,19 @@ from shared.executor_registry import ExecutorRegistryError
 
 def issue_capability_grant(*args, **kwargs):
     state = kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    intent = kwargs.get("intent") if "intent" in kwargs else (args[1] if len(args) > 1 else None)
+    if intent is not None and not getattr(intent, "agent_id", ""):
+        from dataclasses import replace
+        intent = replace(intent, agent_id="test-agent")
+        if "intent" in kwargs:
+            kwargs["intent"] = intent
+        elif len(args) > 1:
+            args = list(args)
+            args[1] = intent
+            args = tuple(args)
+    if intent is not None and "signed_action_intent" not in kwargs:
+        identity_signer = AgentIdentitySigner.generate("test-agent", "developer")
+        kwargs["signed_action_intent"] = ActionIntentSigner(identity_signer).sign(intent)
     kwargs.setdefault("authority_context", SimpleNamespace(
         agent_id="test-agent",
         authority_epoch=2,
@@ -216,6 +231,51 @@ def _execution_task(intent, grant, evidence_ids=None, original_task_id="original
             }
         },
     )
+
+
+def test_executor_rejects_missing_signed_action_intent_before_effect(tmp_path, monkeypatch):
+    db = sqlite3.connect(":memory:")
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    target.write_text("must survive")
+    monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
+
+    intent = _delete_intent("workspace/obsolete.txt")
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant(
+        "original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging"
+    ))
+    from dataclasses import replace
+    legacy_grant = signer.sign(replace(grant.grant, signed_action_intent={}))
+    worker = _executor_worker(db, signer)
+
+    import pytest
+    with pytest.raises(ValueError, match="signed_action_intent_required"):
+        worker._execute_granted_task(_execution_task(intent, legacy_grant))
+    assert target.exists()
+
+
+def test_executor_rejects_tampered_signed_action_intent_before_effect(tmp_path, monkeypatch):
+    db = sqlite3.connect(":memory:")
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    target.write_text("must survive")
+    monkeypatch.setenv("AEGISFORGE_EXECUTION_ROOT", str(tmp_path))
+
+    intent = _delete_intent("workspace/obsolete.txt")
+    signer = CapabilitySigner.generate()
+    grant = signer.sign(issue_capability_grant(
+        "original-task-1", intent, CapabilityPolicy.VERSION, ["recovery-1"], "staging"
+    ))
+    from dataclasses import replace
+    payload = replace(grant.grant, signed_action_intent={**grant.grant.signed_action_intent, "signature": "tampered"})
+    tampered_grant = signer.sign(payload)
+    worker = _executor_worker(db, signer)
+
+    import pytest
+    with pytest.raises(ValueError, match="signed_action_intent_invalid"):
+        worker._execute_granted_task(_execution_task(intent, tampered_grant))
+    assert target.exists()
 
 
 def test_executor_rejects_tampered_intent_before_effect(tmp_path, monkeypatch):

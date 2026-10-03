@@ -7,6 +7,7 @@ from shared.capability_signing import CapabilitySignatureError, SignedCapability
 from shared.capability_policy import CapabilityPolicy
 from shared.capability_grant_store import CapabilityGrantStore, CapabilityGrantStoreError
 from shared.agent_authority import AgentAuthorityRegistry, AgentAuthorityError
+from shared.signed_action_intent import SignedActionIntent, SignedActionIntentError
 
 
 class ExecutionGateError(ValueError):
@@ -125,11 +126,27 @@ class ExecutionGate:
                 raise ExecutionGateError("grant_replayed") from exc
             raise
 
+    def _verify_signed_action_intent(self, grant, intent, now=None):
+        """Require the execution boundary to authenticate the agent's exact intent."""
+        if not grant.signed_action_intent:
+            raise ExecutionGateError("signed_action_intent_required")
+        try:
+            signed_intent = SignedActionIntent.from_dict(grant.signed_action_intent)
+            signed_intent.verify(now=now)
+        except (SignedActionIntentError, TypeError, ValueError) as exc:
+            raise ExecutionGateError("signed_action_intent_invalid") from exc
+        if signed_intent.agent_identity.identity.agent_id != grant.agent_id:
+            raise ExecutionGateError("signed_action_intent_agent_mismatch")
+        if signed_intent.intent_hash != grant.intent_hash:
+            raise ExecutionGateError("signed_action_intent_hash_mismatch")
+        return signed_intent
+
     def authorize(self, grant, intent, evidence_ids=(), now=None):
         if grant is None:
             raise ExecutionGateError("grant_required")
 
         grant, _signed = self._grant(grant)
+        self._verify_signed_action_intent(grant, intent, now=now)
 
         if grant.policy_version != self.policy.VERSION:
             raise ExecutionGateError("policy_version_mismatch")

@@ -43,6 +43,31 @@ def _receipt(intent, result=None, intent_hash_value=None):
     )
 
 
+def test_filesystem_recovery_confirms_delete_without_receipt(tmp_path):
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    intent = _intent()
+    outcome = FilesystemOutcomeVerifier(tmp_path).verify_recovery(
+        intent,
+        {"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"},
+    )
+    assert outcome["status"] == "SIDE_EFFECT_CONFIRMED"
+    assert outcome["observed_state"] == "ABSENT"
+
+
+def test_filesystem_recovery_allows_retry_when_delete_did_not_happen(tmp_path):
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    target.write_text("still here")
+    intent = _intent()
+    outcome = FilesystemOutcomeVerifier(tmp_path).verify_recovery(
+        intent,
+        {"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"},
+    )
+    assert outcome["status"] == "SAFE_TO_RETRY"
+    assert outcome["observed_state"] == "PRESENT"
+
+
 def test_filesystem_outcome_is_proven_from_observed_state(tmp_path):
     target = tmp_path / "workspace" / "obsolete.txt"
     target.parent.mkdir()

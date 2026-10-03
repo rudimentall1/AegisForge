@@ -41,6 +41,17 @@ class FilesystemOutcomeVerifier:
             return dict(receipt)
         raise OutcomeVerificationError("receipt_required")
 
+    def verify_recovery(self, intent, contract):
+        """Classify post-crash filesystem state without trusting a receipt."""
+        expected_state = contract.get("expected_state")
+        if expected_state not in {"ABSENT", "PRESENT"}:
+            raise OutcomeVerificationError("recovery_expected_state_invalid")
+        target = self._resolve_target(intent)
+        observed_state = "PRESENT" if target.exists() else "ABSENT"
+        decision = "SIDE_EFFECT_CONFIRMED" if observed_state == expected_state else "SAFE_TO_RETRY"
+        canonical = json.dumps({"intent_hash": intent_hash(intent), "target": str(intent.target), "observed_state": observed_state, "decision": decision}, sort_keys=True, separators=(",", ":"))
+        return {"outcome_id": hashlib.sha256(canonical.encode("utf-8")).hexdigest(), "status": decision, "verifier": "filesystem_independent_v1", "intent_hash": intent_hash(intent), "action": intent.action, "target": str(intent.target), "observed_state": observed_state, "checks": ["filesystem_recovery_state"]}
+
     def verify(self, intent, receipt):
         payload = self._receipt_dict(receipt)
         expected_intent_hash = intent_hash(intent)
@@ -119,6 +130,28 @@ class ArtifactOutcomeVerifier:
         if target == self.root:
             raise OutcomeVerificationError("artifact_target_invalid")
         return target
+
+    def verify_recovery(self, intent, contract):
+        """Classify post-crash artifact state without trusting a receipt."""
+        expected_exists = contract.get("expected_exists")
+        if not isinstance(expected_exists, bool):
+            raise OutcomeVerificationError("recovery_expected_exists_invalid")
+        target = self._resolve_target(intent)
+        exists = target.is_file()
+        if exists:
+            expected_sha256 = (intent.parameters or {}).get("sha256")
+            observed_sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
+            if expected_sha256 and observed_sha256 != expected_sha256:
+                decision = "QUARANTINED"
+            elif expected_exists:
+                decision = "SIDE_EFFECT_CONFIRMED"
+            else:
+                decision = "QUARANTINED"
+        else:
+            decision = "SAFE_TO_RETRY" if expected_exists else "SIDE_EFFECT_CONFIRMED"
+        observed_state = "PRESENT" if exists else "ABSENT"
+        canonical = json.dumps({"intent_hash": intent_hash(intent), "target": str(intent.target), "observed_state": observed_state, "decision": decision}, sort_keys=True, separators=(",", ":"))
+        return {"outcome_id": hashlib.sha256(canonical.encode("utf-8")).hexdigest(), "status": decision, "verifier": "artifact_independent_v1", "intent_hash": intent_hash(intent), "action": intent.action, "target": str(intent.target), "observed_state": observed_state, "checks": ["artifact_recovery_state"]}
 
     def verify(self, intent, receipt):
         payload = self._receipt_dict(receipt)

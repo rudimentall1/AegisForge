@@ -294,3 +294,81 @@ def test_gate_rejects_grant_with_tampered_signed_action_intent():
             executor_version="1",
             executor_identity_epoch=1,
         )
+
+
+def test_gate_records_execution_attempt_lifecycle():
+    from shared.execution_attempt import ExecutionAttemptState
+
+    db = _db()
+    signer, grant = _grant()
+    gate = _gate(db, signer)
+    receipt = gate.execute(
+        grant,
+        _intent(),
+        lambda: {"ok": True},
+        ["ev-1"],
+        executor_id="direct-test-executor",
+        executor_version="1",
+        executor_identity_epoch=1,
+        idempotency_key="logical-execution-1",
+    )
+    attempt = gate.attempt_store.find_by_idempotency_key("logical-execution-1")
+    assert attempt.state is ExecutionAttemptState.SUCCEEDED
+    assert attempt.attempt_number == 1
+    assert attempt.receipt_id == receipt.receipt_id
+    assert attempt.executor_id == "direct-test-executor"
+
+
+def test_gate_preserves_running_attempt_when_executor_process_crashes():
+    from shared.execution_attempt import ExecutionAttemptState
+
+    db = _db()
+    signer, grant = _grant()
+    gate = _gate(db, signer)
+
+    def crashing_executor():
+        raise SystemExit("simulated_process_crash")
+
+    with pytest.raises(SystemExit, match="simulated_process_crash"):
+        gate.execute(
+            grant,
+            _intent(),
+            crashing_executor,
+            ["ev-1"],
+            executor_id="direct-test-executor",
+            executor_version="1",
+            executor_identity_epoch=1,
+            idempotency_key="crash-execution-1",
+        )
+
+    attempt = gate.attempt_store.find_by_idempotency_key("crash-execution-1")
+    assert attempt.state is ExecutionAttemptState.RUNNING
+    assert attempt.receipt_id in ("", None)
+    assert attempt.finished_at in ("", None)
+
+
+def test_gate_rejects_duplicate_active_idempotency_key_before_side_effect():
+    db = _db()
+    signer, grant = _grant()
+    gate = _gate(db, signer)
+    calls = []
+
+    gate.attempt_store.create(
+        grant.grant.task_id,
+        grant.grant.grant_id,
+        grant.grant.intent_hash,
+        "active-execution",
+    )
+
+    with pytest.raises(ExecutionGateError, match="idempotency_key_active"):
+        gate.execute(
+            grant,
+            _intent(),
+            lambda: calls.append("must-not-run"),
+            ["ev-1"],
+            executor_id="direct-test-executor",
+            executor_version="1",
+            executor_identity_epoch=1,
+            idempotency_key="active-execution",
+        )
+    assert calls == []

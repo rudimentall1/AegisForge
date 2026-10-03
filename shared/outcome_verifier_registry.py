@@ -66,6 +66,23 @@ class OutcomeVerifierRegistry:
             raise OutcomeVerifierRegistryError("outcome_verifier_invalid")
         return verifier, canonical
 
+    def verify_recovery(self, contract, intent, action=None, **factory_kwargs):
+        effective_action = action or getattr(intent, "action", None)
+        verifier, canonical = self.build(contract, action=effective_action, **factory_kwargs)
+        method = getattr(verifier, "verify_recovery", None)
+        if not callable(method):
+            raise OutcomeVerifierRegistryError("outcome_verifier_recovery_unsupported")
+        outcome = method(intent, canonical)
+        if not isinstance(outcome, dict):
+            raise OutcomeVerifierRegistryError("outcome_verifier_invalid_recovery_result")
+        if outcome.get("verifier") != canonical["verifier"]:
+            raise OutcomeVerifierRegistryError("outcome_verifier_result_mismatch")
+        if outcome.get("status") not in {"SIDE_EFFECT_CONFIRMED", "SAFE_TO_RETRY", "QUARANTINED"}:
+            raise OutcomeVerifierRegistryError("outcome_verifier_invalid_recovery_status")
+        if not outcome.get("outcome_id"):
+            raise OutcomeVerifierRegistryError("outcome_verifier_recovery_id_required")
+        return outcome
+
     def verify(self, contract, intent, receipt, action=None, **factory_kwargs):
         effective_action = action or getattr(intent, "action", None)
         verifier, canonical = self.build(contract, action=effective_action, **factory_kwargs)

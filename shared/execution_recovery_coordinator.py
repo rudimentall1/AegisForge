@@ -3,6 +3,7 @@ from shared.execution_recovery import ExecutionRecoveryError, ExecutionRecoveryS
 from shared.outcome_verifier_registry import OutcomeVerifierRegistry, OutcomeVerifierRegistryError
 from shared.execution_gate import ExecutionGate, ExecutionGateError
 from shared.capability_signing import SignedCapabilityGrant
+from shared.execution_retry_authorizer import ExecutionRetryAuthorizer
 
 
 class ExecutionRecoveryCoordinatorError(ValueError):
@@ -17,17 +18,22 @@ class ExecutionRecoveryCoordinator:
     established that retry is safe.
     """
 
-    def __init__(self, db, verifier_registry: OutcomeVerifierRegistry, execution_gate=None):
+    def __init__(self, db, verifier_registry: OutcomeVerifierRegistry, execution_gate=None, retry_authorizer=None):
         if db is None:
             raise ExecutionRecoveryCoordinatorError("database_required")
         if not isinstance(verifier_registry, OutcomeVerifierRegistry):
             raise ExecutionRecoveryCoordinatorError("verifier_registry_required")
         if execution_gate is not None and not isinstance(execution_gate, ExecutionGate):
             raise ExecutionRecoveryCoordinatorError("execution_gate_required")
+        if retry_authorizer is not None and not isinstance(
+            retry_authorizer, ExecutionRetryAuthorizer
+        ):
+            raise ExecutionRecoveryCoordinatorError("retry_authorizer_required")
         self.attempts = ExecutionAttemptStore(db)
         self.recovery = ExecutionRecoveryStore(db)
         self.verifiers = verifier_registry
         self.execution_gate = execution_gate
+        self.retry_authorizer = retry_authorizer
 
     def review(self, attempt_id, intent, contract, action=None, **factory_kwargs):
         attempt = self.attempts.get(attempt_id)
@@ -42,15 +48,41 @@ class ExecutionRecoveryCoordinator:
         except (OutcomeVerifierRegistryError, ExecutionRecoveryError):
             raise
 
-    def _reauthorize_retry(self, attempt, intent, reauthorize, evidence_ids=(), now=None):
-        if not callable(reauthorize):
-            raise ExecutionRecoveryCoordinatorError("reauthorizer_required")
-        try:
-            signed_grant = reauthorize(attempt=attempt, intent=intent, now=now)
-        except Exception as exc:
-            raise ExecutionRecoveryCoordinatorError(
-                "retry_reauthorization_failed"
-            ) from exc
+    def _reauthorize_retry(
+        self,
+        attempt,
+        intent,
+        reauthorize=None,
+        signed_action_intent=None,
+        evidence_ids=(),
+        now=None,
+    ):
+        if self.retry_authorizer is not None:
+            if signed_action_intent is None:
+                raise ExecutionRecoveryCoordinatorError(
+                    "signed_action_intent_required"
+                )
+            try:
+                signed_grant = self.retry_authorizer.authorize(
+                    attempt=attempt,
+                    intent=intent,
+                    signed_action_intent=signed_action_intent,
+                    evidence_ids=evidence_ids,
+                    now=now,
+                )
+            except Exception as exc:
+                raise ExecutionRecoveryCoordinatorError(
+                    "retry_reauthorization_failed"
+                ) from exc
+        else:
+            if not callable(reauthorize):
+                raise ExecutionRecoveryCoordinatorError("reauthorizer_required")
+            try:
+                signed_grant = reauthorize(attempt=attempt, intent=intent, now=now)
+            except Exception as exc:
+                raise ExecutionRecoveryCoordinatorError(
+                    "retry_reauthorization_failed"
+                ) from exc
         if not isinstance(signed_grant, SignedCapabilityGrant):
             raise ExecutionRecoveryCoordinatorError("reauthorizer_must_return_signed_grant")
         if signed_grant.grant.grant_id == attempt.grant_id:
@@ -74,8 +106,18 @@ class ExecutionRecoveryCoordinator:
             ) from exc
         return signed_grant
 
-    def retry_if_safe(self, attempt_id, intent, contract, action=None, now=None,
-                      reauthorize=None, evidence_ids=(), **factory_kwargs):
+    def retry_if_safe(
+        self,
+        attempt_id,
+        intent,
+        contract,
+        action=None,
+        now=None,
+        reauthorize=None,
+        signed_action_intent=None,
+        evidence_ids=(),
+        **factory_kwargs,
+    ):
         attempt = self.attempts.get(attempt_id)
         review = self.recovery.get_by_attempt(attempt_id)
         if review is None or review.decision == RecoveryDecision.UNKNOWN:
@@ -93,7 +135,12 @@ class ExecutionRecoveryCoordinator:
         # Re-authorize against the current authority/policy before closing the
         # original attempt. A retry must never inherit the old grant.
         retry_grant = self._reauthorize_retry(
-            current, intent, reauthorize, evidence_ids=evidence_ids, now=now
+            current,
+            intent,
+            reauthorize=reauthorize,
+            signed_action_intent=signed_action_intent,
+            evidence_ids=evidence_ids,
+            now=now,
         )
 
         # Only after current authority has approved the new grant do we close

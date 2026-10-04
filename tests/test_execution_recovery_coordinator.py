@@ -20,6 +20,7 @@ from shared.execution_recovery_coordinator import (
     ExecutionRecoveryCoordinatorError,
 )
 from shared.outcome_verifier_registry import OutcomeVerifierRegistry
+from shared.trust_evaluation import TrustDecision
 
 
 class FakeRecoveryVerifier:
@@ -204,6 +205,181 @@ def test_retry_authorizer_module_imports_and_issues_new_grant():
     assert fresh.grant.grant_id != attempt.grant_id
     assert fresh.grant.authority_epoch == registry.get("agent-1").authority_epoch
 
+
+
+def test_retry_authorizer_is_used_directly_by_coordinator():
+    db = sqlite3.connect(":memory:")
+
+    authority_registry = AgentAuthorityRegistry(db)
+    authority_registry.register("agent-1", CapabilityPolicy.VERSION)
+    authority_registry.record_trust(
+        "agent-1",
+        TrustDecision(
+            status="TRUSTED",
+            reason="test",
+            proof_id="proof-retry-authority",
+            verifier="test",
+        ),
+    )
+
+    identity_signer = AgentIdentitySigner.generate("agent-1", "developer")
+    intent = ActionIntent(
+        agent_id="agent-1",
+        role="developer",
+        action="delete",
+        target="staging",
+        resource="service",
+        destination="staging",
+        data_scope="artifact",
+        read_only=True,
+        parameters={
+            "outcome_contract": {
+                "type": "state_match",
+                "verifier": "filesystem_independent_v1",
+                "expected_state": "ABSENT",
+            }
+        },
+    )
+    signed_intent = ActionIntentSigner(identity_signer).sign(intent)
+
+    attempt_store = ExecutionAttemptStore(db)
+    attempt = attempt_store.create(
+        "task-1",
+        "old-grant",
+        intent_hash(intent),
+        "operation-1",
+    )
+    attempt = attempt_store.transition(
+        attempt.attempt_id,
+        ExecutionAttemptState.LEASED,
+    )
+    attempt = attempt_store.transition(
+        attempt.attempt_id,
+        ExecutionAttemptState.RUNNING,
+    )
+
+    verifier_registry = OutcomeVerifierRegistry()
+    verifier_registry.register(
+        "fake",
+        "state_match",
+        "filesystem_independent_v1",
+        lambda **kwargs: FakeRecoveryVerifier("SAFE_TO_RETRY"),
+    )
+
+    gate = RecordingExecutionGate()
+    retry_authorizer = ExecutionRetryAuthorizer(
+        authority_registry,
+        CapabilitySigner.generate(),
+    )
+
+    coordinator = ExecutionRecoveryCoordinator(
+        db,
+        verifier_registry,
+        execution_gate=gate,
+        retry_authorizer=retry_authorizer,
+    )
+
+    contract = {
+        "type": "state_match",
+        "verifier": "filesystem_independent_v1",
+        "expected_state": "ABSENT",
+    }
+
+    next_attempt = coordinator.retry_if_safe(
+        attempt.attempt_id,
+        intent,
+        contract,
+        signed_action_intent=signed_intent,
+    )
+
+    assert next_attempt is not None
+    assert next_attempt.attempt_number == 2
+    assert next_attempt.grant_id != attempt.grant_id
+    assert next_attempt.intent_hash == attempt.intent_hash
+    assert next_attempt.idempotency_key == attempt.idempotency_key
+    assert next_attempt.state is ExecutionAttemptState.AUTHORIZED
+    assert attempt_store.get(attempt.attempt_id).state is ExecutionAttemptState.ABORTED
+
+    fresh_grant = gate.authorized[-1].grant
+    assert fresh_grant.grant_id == next_attempt.grant_id
+    assert fresh_grant.authority_epoch == authority_registry.get(
+        "agent-1"
+    ).authority_epoch
+
+
+def test_direct_retry_authorizer_requires_signed_action_intent():
+    db = sqlite3.connect(":memory:")
+
+    authority_registry = AgentAuthorityRegistry(db)
+    authority_registry.register("agent-1", CapabilityPolicy.VERSION)
+
+    verifier_registry = OutcomeVerifierRegistry()
+    verifier_registry.register(
+        "fake",
+        "state_match",
+        "filesystem_independent_v1",
+        lambda **kwargs: FakeRecoveryVerifier("SAFE_TO_RETRY"),
+    )
+
+    gate = RecordingExecutionGate()
+    retry_authorizer = ExecutionRetryAuthorizer(
+        authority_registry,
+        CapabilitySigner.generate(),
+    )
+
+    coordinator = ExecutionRecoveryCoordinator(
+        db,
+        verifier_registry,
+        execution_gate=gate,
+        retry_authorizer=retry_authorizer,
+    )
+
+    intent = ActionIntent(
+        agent_id="agent-1",
+        role="developer",
+        action="delete",
+        target="staging",
+        resource="service",
+        destination="staging",
+        data_scope="artifact",
+        read_only=True,
+    )
+
+    attempt_store = ExecutionAttemptStore(db)
+    attempt = attempt_store.create(
+        "task-1",
+        "old-grant",
+        intent_hash(intent),
+        "operation-1",
+    )
+    attempt = attempt_store.transition(
+        attempt.attempt_id,
+        ExecutionAttemptState.LEASED,
+    )
+    attempt = attempt_store.transition(
+        attempt.attempt_id,
+        ExecutionAttemptState.RUNNING,
+    )
+
+    contract = {
+        "type": "state_match",
+        "verifier": "filesystem_independent_v1",
+        "expected_state": "ABSENT",
+    }
+
+    with pytest.raises(
+        ExecutionRecoveryCoordinatorError,
+        match="signed_action_intent_required",
+    ):
+        coordinator.retry_if_safe(
+            attempt.attempt_id,
+            intent,
+            contract,
+        )
+
+    assert attempt_store.get(
+        attempt.attempt_id
+    ).state is ExecutionAttemptState.RUNNING
 
 def test_retry_cannot_reuse_original_grant():
     _, attempts, coordinator, attempt, contract = _setup()

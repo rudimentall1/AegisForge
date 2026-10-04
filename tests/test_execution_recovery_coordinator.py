@@ -307,6 +307,101 @@ def test_retry_authorizer_is_used_directly_by_coordinator():
     ).authority_epoch
 
 
+def test_retry_authorization_uses_current_suspended_authority_and_keeps_attempt_running():
+    db = sqlite3.connect(":memory:")
+    authority_registry = AgentAuthorityRegistry(db)
+    authority_registry.register("agent-1", CapabilityPolicy.VERSION)
+    authority_registry.record_trust(
+        "agent-1",
+        TrustDecision(
+            status="TRUSTED",
+            reason="test",
+            proof_id="proof-retry-authority",
+            verifier="test",
+        ),
+    )
+
+    identity_signer = AgentIdentitySigner.generate("agent-1", "developer")
+    intent = ActionIntent(
+        agent_id="agent-1",
+        role="developer",
+        action="delete",
+        target="staging",
+        resource="service",
+        destination="staging",
+        data_scope="artifact",
+        read_only=True,
+        parameters={
+            "outcome_contract": {
+                "type": "state_match",
+                "verifier": "filesystem_independent_v1",
+                "expected_state": "ABSENT",
+            }
+        },
+    )
+    signed_intent = ActionIntentSigner(identity_signer).sign(intent)
+
+    attempt_store = ExecutionAttemptStore(db)
+    attempt = attempt_store.create(
+        "task-1",
+        "old-grant",
+        intent_hash(intent),
+        "operation-1",
+    )
+    attempt = attempt_store.transition(
+        attempt.attempt_id,
+        ExecutionAttemptState.LEASED,
+    )
+    attempt = attempt_store.transition(
+        attempt.attempt_id,
+        ExecutionAttemptState.RUNNING,
+    )
+
+    verifier_registry = OutcomeVerifierRegistry()
+    verifier_registry.register(
+        "fake",
+        "state_match",
+        "filesystem_independent_v1",
+        lambda **kwargs: FakeRecoveryVerifier("SAFE_TO_RETRY"),
+    )
+
+    gate = RecordingExecutionGate()
+    retry_authorizer = ExecutionRetryAuthorizer(
+        authority_registry,
+        CapabilitySigner.generate(),
+    )
+    coordinator = ExecutionRecoveryCoordinator(
+        db,
+        verifier_registry,
+        execution_gate=gate,
+        retry_authorizer=retry_authorizer,
+    )
+
+    authority_registry.suspend("agent-1", "security_incident")
+
+    contract = {
+        "type": "state_match",
+        "verifier": "filesystem_independent_v1",
+        "expected_state": "ABSENT",
+    }
+
+    with pytest.raises(
+        ExecutionRecoveryCoordinatorError,
+        match="retry_reauthorization_failed",
+    ):
+        coordinator.retry_if_safe(
+            attempt.attempt_id,
+            intent,
+            contract,
+            signed_action_intent=signed_intent,
+        )
+
+    assert authority_registry.get("agent-1").authority_epoch == 3
+    assert authority_registry.get("agent-1").state.value == "SUSPENDED"
+    assert attempt_store.get(attempt.attempt_id).state is ExecutionAttemptState.RUNNING
+    assert gate.authorized == []
+
+
 def test_direct_retry_authorizer_requires_signed_action_intent():
     db = sqlite3.connect(":memory:")
 

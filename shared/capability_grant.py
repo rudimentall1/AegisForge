@@ -170,6 +170,8 @@ def issue_capability_grant(
     authority_state=None,
     authority_context=None,
     signed_action_intent=None,
+    grant_id=None,
+    nonce=None,
 ):
     if authority_context is None:
         raise CapabilityGrantError("authority_context_required")
@@ -208,7 +210,7 @@ def issue_capability_grant(
     if requested_contract != intent_contract:
         raise CapabilityGrantError("outcome_contract_mismatch")
     return CapabilityGrant(
-        grant_id="grant_" + secrets.token_urlsafe(18),
+        grant_id=str(grant_id) if grant_id else "grant_" + secrets.token_urlsafe(18),
         task_id=str(task_id),
         agent_id=str(authority_context.agent_id),
         authority_epoch=int(authority_context.authority_epoch),
@@ -222,7 +224,7 @@ def issue_capability_grant(
         authorized_scope=authorized_scope,
         issued_at=now.isoformat(),
         expires_at=(now + timedelta(seconds=ttl_seconds)).isoformat(),
-        nonce=secrets.token_urlsafe(18),
+        nonce=str(nonce) if nonce else secrets.token_urlsafe(18),
         outcome_contract=dict(requested_contract),
         signed_action_intent=signed_intent_payload,
     )

@@ -1,3 +1,4 @@
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -17,6 +18,7 @@ class ExecutionAttemptState(str, Enum):
     LEASED = "LEASED"
     RUNNING = "RUNNING"
     SUCCEEDED = "SUCCEEDED"
+    RECOVERED = "RECOVERED"
     FAILED = "FAILED"
     TIMED_OUT = "TIMED_OUT"
     ABORTED = "ABORTED"
@@ -24,6 +26,7 @@ class ExecutionAttemptState(str, Enum):
 
 _TERMINAL = {
     ExecutionAttemptState.SUCCEEDED,
+    ExecutionAttemptState.RECOVERED,
     ExecutionAttemptState.FAILED,
     ExecutionAttemptState.TIMED_OUT,
     ExecutionAttemptState.ABORTED,
@@ -32,8 +35,9 @@ _TERMINAL = {
 _ALLOWED = {
     ExecutionAttemptState.AUTHORIZED: {ExecutionAttemptState.LEASED, ExecutionAttemptState.ABORTED},
     ExecutionAttemptState.LEASED: {ExecutionAttemptState.RUNNING, ExecutionAttemptState.TIMED_OUT, ExecutionAttemptState.ABORTED},
-    ExecutionAttemptState.RUNNING: {ExecutionAttemptState.SUCCEEDED, ExecutionAttemptState.FAILED, ExecutionAttemptState.TIMED_OUT, ExecutionAttemptState.ABORTED},
+    ExecutionAttemptState.RUNNING: {ExecutionAttemptState.SUCCEEDED, ExecutionAttemptState.RECOVERED, ExecutionAttemptState.FAILED, ExecutionAttemptState.TIMED_OUT, ExecutionAttemptState.ABORTED},
     ExecutionAttemptState.SUCCEEDED: set(),
+    ExecutionAttemptState.RECOVERED: set(),
     ExecutionAttemptState.FAILED: set(),
     ExecutionAttemptState.TIMED_OUT: set(),
     ExecutionAttemptState.ABORTED: set(),
@@ -219,6 +223,13 @@ class ExecutionAttemptStore:
             raise ExecutionAttemptError("attempt_state_conflict")
         self.db.commit()
         return self.get(attempt_id)
+
+    def find_by_grant_id(self, grant_id):
+        row = self.db.execute(
+            f"SELECT attempt_id FROM {self.TABLE} WHERE grant_id=? LIMIT 1",
+            (str(grant_id),),
+        ).fetchone()
+        return self.get(row[0]) if row else None
 
     def find_by_idempotency_key(self, idempotency_key):
         row = self.db.execute(

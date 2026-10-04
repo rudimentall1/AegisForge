@@ -1,3 +1,5 @@
+[Reading 204 lines from start (total: 204 lines, 0 remaining)]
+
 from shared.execution_attempt import ExecutionAttemptState, ExecutionAttemptStore, ExecutionAttemptError
 from shared.execution_recovery import ExecutionRecoveryError, ExecutionRecoveryStore, RecoveryDecision
 from shared.outcome_verifier_registry import OutcomeVerifierRegistry, OutcomeVerifierRegistryError
@@ -125,6 +127,38 @@ class ExecutionRecoveryCoordinator:
                 attempt_id, intent, contract, action=action, **factory_kwargs
             )
 
+        if review.decision == RecoveryDecision.SIDE_EFFECT_CONFIRMED:
+            current = self.attempts.get(attempt_id)
+            if current.state == ExecutionAttemptState.RUNNING:
+                try:
+                    self.attempts.transition(
+                        attempt_id,
+                        ExecutionAttemptState.RECOVERED,
+                        now=now,
+                        error="recovery_verified_side_effect_confirmed",
+                    )
+                except ExecutionAttemptError as exc:
+                    raise ExecutionRecoveryCoordinatorError(
+                        "recovery_terminalization_failed"
+                    ) from exc
+            return None
+
+        if review.decision == RecoveryDecision.QUARANTINED:
+            current = self.attempts.get(attempt_id)
+            if current.state == ExecutionAttemptState.RUNNING:
+                try:
+                    self.attempts.transition(
+                        attempt_id,
+                        ExecutionAttemptState.ABORTED,
+                        now=now,
+                        error="recovery_quarantined",
+                    )
+                except ExecutionAttemptError as exc:
+                    raise ExecutionRecoveryCoordinatorError(
+                        "recovery_terminalization_failed"
+                    ) from exc
+            return None
+
         if review.decision != RecoveryDecision.SAFE_TO_RETRY:
             return None
 
@@ -170,3 +204,5 @@ class ExecutionRecoveryCoordinator:
             raise ExecutionRecoveryCoordinatorError(
                 "retry_attempt_create_failed"
             ) from exc
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

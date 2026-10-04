@@ -1,4 +1,3 @@
-[Reading 602 lines from start (total: 602 lines, 0 remaining)]
 
 import sqlite3
 
@@ -6,7 +5,7 @@ import pytest
 
 from shared.agent_authority import AgentAuthorityRegistry
 from shared.agent_identity_signing import AgentIdentitySigner
-from shared.capability_grant import intent_hash
+from shared.capability_grant import intent_hash, evidence_hash
 from shared.capability_policy import ActionIntent, CapabilityPolicy
 from shared.capability_signing import CapabilitySigner
 from shared.execution_retry_authorizer import ExecutionRetryAuthorizer
@@ -63,13 +62,15 @@ def _retry_grant(grant_id="grant-retry-1", task_id="task-1", intent_hash="intent
             authority_state="STANDARD",
             intent_hash=intent_hash,
             policy_version="policy-v1",
+            evidence_ids=(),
+            evidence_hash=evidence_hash(()),
             authorized_action="delete",
             authorized_target="target",
             authorized_scope="scope",
             issued_at="2026-10-03T00:00:00+00:00",
             expires_at="2026-10-03T01:00:00+00:00",
             nonce=grant_id + "-nonce",
-            outcome_contract={},
+            outcome_contract={"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"},
         ),
         key_id="test-key",
         signature="test-signature",
@@ -603,4 +604,175 @@ def test_crash_after_side_effect_before_receipt_blocks_retry_with_real_filesyste
     assert coordinator.attempts.get(attempt.attempt_id).error == "recovery_verified_side_effect_confirmed"
     assert coordinator.attempts.find_by_idempotency_key(attempt.idempotency_key).attempt_number == 1
 
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]
+
+
+def test_retry_claim_allows_only_one_concurrent_reauthorization(tmp_path):
+    import threading
+
+    db_path = tmp_path / "recovery.sqlite"
+    db1 = sqlite3.connect(db_path, timeout=5, check_same_thread=False)
+    db2 = sqlite3.connect(db_path, timeout=5, check_same_thread=False)
+    attempts1 = ExecutionAttemptStore(db1)
+    attempt = attempts1.create("task-1", "grant-1", "intent-1", "operation-1")
+    attempts1.transition(attempt.attempt_id, ExecutionAttemptState.LEASED)
+    attempts1.transition(attempt.attempt_id, ExecutionAttemptState.RUNNING)
+
+    registry1 = OutcomeVerifierRegistry()
+    registry1.register(
+        "fake", "state_match", "filesystem_independent_v1",
+        lambda **kwargs: FakeRecoveryVerifier("SAFE_TO_RETRY"),
+    )
+    registry2 = OutcomeVerifierRegistry()
+    registry2.register(
+        "fake", "state_match", "filesystem_independent_v1",
+        lambda **kwargs: FakeRecoveryVerifier("SAFE_TO_RETRY"),
+    )
+    gate1 = RecordingExecutionGate()
+    gate2 = RecordingExecutionGate()
+    coordinator1 = ExecutionRecoveryCoordinator(db1, registry1, execution_gate=gate1)
+    coordinator2 = ExecutionRecoveryCoordinator(db2, registry2, execution_gate=gate2)
+    contract = {
+        "type": "state_match",
+        "verifier": "filesystem_independent_v1",
+        "expected_state": "ABSENT",
+    }
+    review = coordinator1.review(attempt.attempt_id, Intent(), contract)
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def reauthorize(**kwargs):
+        calls.append(1)
+        entered.set()
+        assert release.wait(5)
+        return _retry_grant()
+
+    result = {}
+
+    def winner():
+        result["value"] = coordinator1.retry_if_safe(
+            attempt.attempt_id, Intent(), contract, reauthorize=reauthorize
+        )
+
+    thread = threading.Thread(target=winner)
+    thread.start()
+    assert entered.wait(5)
+
+    with pytest.raises(ExecutionRecoveryCoordinatorError, match="retry_in_progress"):
+        coordinator2.retry_if_safe(attempt.attempt_id, Intent(), contract)
+
+    release.set()
+    thread.join(5)
+    assert not thread.is_alive()
+    assert len(calls) == 1
+    assert result["value"].attempt_number == 2
+    assert gate1.authorized[0].grant.grant_id == "grant-retry-1"
+    assert gate2.authorized == []
+    assert coordinator1.attempts.get(attempt.attempt_id).state is ExecutionAttemptState.ABORTED
+
+    db1.close()
+    db2.close()
+
+
+def test_authorized_retry_resumes_after_original_attempt_was_aborted(tmp_path):
+    db = sqlite3.connect(tmp_path / "recovery.sqlite")
+    attempts = ExecutionAttemptStore(db)
+    attempt = attempts.create("task-1", "grant-1", "intent-1", "operation-1")
+    attempts.transition(attempt.attempt_id, ExecutionAttemptState.LEASED)
+    attempts.transition(attempt.attempt_id, ExecutionAttemptState.RUNNING)
+
+    registry = OutcomeVerifierRegistry()
+    registry.register(
+        "fake",
+        "state_match",
+        "filesystem_independent_v1",
+        lambda **kwargs: FakeRecoveryVerifier("SAFE_TO_RETRY"),
+    )
+    gate = ExecutionGate(db=db)
+    coordinator = ExecutionRecoveryCoordinator(db, registry, execution_gate=gate)
+    contract = {
+        "type": "state_match",
+        "verifier": "filesystem_independent_v1",
+        "expected_state": "ABSENT",
+    }
+    review = coordinator.review(attempt.attempt_id, Intent(), contract)
+    coordinator.recovery.claim_retry(review)
+    operation = coordinator.recovery.get_retry_operation(review.recovery_id)
+    retry_grant = _retry_grant(grant_id=operation[4])
+    gate.grant_store.register(retry_grant)
+    coordinator.recovery.update_retry_operation(
+        review.recovery_id, "AUTHORIZED"
+    )
+    attempts.transition(
+        attempt.attempt_id,
+        ExecutionAttemptState.ABORTED,
+        error="recovery_verified_safe_to_retry",
+    )
+
+    next_attempt = coordinator.retry_if_safe(
+        attempt.attempt_id,
+        Intent(),
+        contract,
+    )
+
+    assert next_attempt.attempt_number == 2
+    assert next_attempt.grant_id == retry_grant.grant.grant_id
+    operation = coordinator.recovery.get_retry_operation(review.recovery_id)
+    assert operation[3] == "CREATED"
+    assert operation[5] == next_attempt.attempt_id
+    db.close()
+
+
+def test_existing_retry_attempt_is_recovered_if_process_dies_before_operation_update(tmp_path):
+    db = sqlite3.connect(tmp_path / "recovery.sqlite")
+    attempts = ExecutionAttemptStore(db)
+    attempt = attempts.create("task-1", "grant-1", "intent-1", "operation-1")
+    attempts.transition(attempt.attempt_id, ExecutionAttemptState.LEASED)
+    attempts.transition(attempt.attempt_id, ExecutionAttemptState.RUNNING)
+
+    registry = OutcomeVerifierRegistry()
+    registry.register(
+        "fake",
+        "state_match",
+        "filesystem_independent_v1",
+        lambda **kwargs: FakeRecoveryVerifier("SAFE_TO_RETRY"),
+    )
+    gate = ExecutionGate(db=db)
+    coordinator = ExecutionRecoveryCoordinator(db, registry, execution_gate=gate)
+    contract = {
+        "type": "state_match",
+        "verifier": "filesystem_independent_v1",
+        "expected_state": "ABSENT",
+    }
+    review = coordinator.review(attempt.attempt_id, Intent(), contract)
+    coordinator.recovery.claim_retry(review)
+    operation = coordinator.recovery.get_retry_operation(review.recovery_id)
+    retry_grant = _retry_grant(grant_id=operation[4])
+    gate.grant_store.register(retry_grant)
+    coordinator.recovery.update_retry_operation(
+        review.recovery_id, "AUTHORIZED"
+    )
+    attempts.transition(
+        attempt.attempt_id,
+        ExecutionAttemptState.ABORTED,
+        error="recovery_verified_safe_to_retry",
+    )
+    existing = attempts.create(
+        task_id=attempt.task_id,
+        grant_id=retry_grant.grant.grant_id,
+        intent_hash=attempt.intent_hash,
+        idempotency_key=attempt.idempotency_key,
+        retry=True,
+    )
+
+    resumed = coordinator.retry_if_safe(
+        attempt.attempt_id,
+        Intent(),
+        contract,
+    )
+
+    assert resumed.attempt_id == existing.attempt_id
+    operation = coordinator.recovery.get_retry_operation(review.recovery_id)
+    assert operation[3] == "CREATED"
+    assert operation[5] == existing.attempt_id
+    db.close()

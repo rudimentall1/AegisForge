@@ -91,6 +91,19 @@ class CapabilityGrantStore:
         self.register(signed_grant)
         return "ACTIVE"
 
+    def get_signed(self, grant_id):
+        row = self.db.execute(
+            f"SELECT payload FROM {self.TABLE} WHERE grant_id=?",
+            (str(grant_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        from shared.capability_signing import SignedCapabilityGrant
+        try:
+            return SignedCapabilityGrant.from_dict(json.loads(row[0]))
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise CapabilityGrantStoreError("grant_payload_invalid") from exc
+
     def status(self, grant_id):
         row = self.db.execute(
             f"SELECT status FROM {self.TABLE} WHERE grant_id=?",

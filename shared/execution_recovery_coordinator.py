@@ -1,4 +1,3 @@
-[Reading 204 lines from start (total: 204 lines, 0 remaining)]
 
 from shared.execution_attempt import ExecutionAttemptState, ExecutionAttemptStore, ExecutionAttemptError
 from shared.execution_recovery import ExecutionRecoveryError, ExecutionRecoveryStore, RecoveryDecision
@@ -58,6 +57,7 @@ class ExecutionRecoveryCoordinator:
         signed_action_intent=None,
         evidence_ids=(),
         now=None,
+        retry_grant_id=None,
     ):
         if self.retry_authorizer is not None:
             if signed_action_intent is None:
@@ -71,6 +71,8 @@ class ExecutionRecoveryCoordinator:
                     signed_action_intent=signed_action_intent,
                     evidence_ids=evidence_ids,
                     now=now,
+                    grant_id=retry_grant_id,
+                    nonce=("retry-nonce_" + str(retry_grant_id)) if retry_grant_id else None,
                 )
             except Exception as exc:
                 raise ExecutionRecoveryCoordinatorError(
@@ -163,36 +165,82 @@ class ExecutionRecoveryCoordinator:
             return None
 
         current = self.attempts.get(attempt_id)
-        if current.state != ExecutionAttemptState.RUNNING:
-            raise ExecutionRecoveryCoordinatorError("retry_requires_running_attempt")
+        operation, created = self.recovery.claim_retry(review, now=now)
+        operation_state = operation[3]
+        retry_grant_id = operation[4]
+        retry_attempt_id = operation[5]
 
-        # Re-authorize against the current authority/policy before closing the
-        # original attempt. A retry must never inherit the old grant.
-        retry_grant = self._reauthorize_retry(
-            current,
-            intent,
-            reauthorize=reauthorize,
-            signed_action_intent=signed_action_intent,
-            evidence_ids=evidence_ids,
-            now=now,
-        )
+        if operation_state == "CREATED" and retry_attempt_id:
+            return self.attempts.get(retry_attempt_id)
 
-        # Only after current authority has approved the new grant do we close
-        # the ambiguous execution and create the next attempt.
-        try:
-            self.attempts.transition(
-                attempt_id,
-                ExecutionAttemptState.ABORTED,
+        if operation_state == "AUTHORIZED" and retry_attempt_id:
+            return self.attempts.get(retry_attempt_id)
+
+        if not created and operation_state == "CLAIMED":
+            if self.execution_gate is not None and getattr(self.execution_gate, "grant_store", None) is not None:
+                persisted = self.execution_gate.grant_store.get_signed(retry_grant_id)
+                if persisted is not None:
+                    operation = self.recovery.update_retry_operation(
+                        review.recovery_id, "AUTHORIZED", now=now
+                    )
+                    operation_state = "AUTHORIZED"
+                else:
+                    raise ExecutionRecoveryCoordinatorError("retry_in_progress")
+            else:
+                raise ExecutionRecoveryCoordinatorError("retry_in_progress")
+
+        if operation_state == "AUTHORIZED":
+            if self.execution_gate is None or getattr(self.execution_gate, "grant_store", None) is None:
+                raise ExecutionRecoveryCoordinatorError("retry_authorization_record_required")
+            retry_grant = self.execution_gate.grant_store.get_signed(retry_grant_id)
+            if retry_grant is None:
+                raise ExecutionRecoveryCoordinatorError("retry_authorization_record_missing")
+        else:
+            # Only the durable claim winner may issue fresh authority. The
+            # production authorizer receives deterministic identifiers so a
+            # process crash after grant persistence remains recoverable.
+            retry_grant = self._reauthorize_retry(
+                current,
+                intent,
+                reauthorize=reauthorize,
+                signed_action_intent=signed_action_intent,
+                evidence_ids=evidence_ids,
                 now=now,
-                error="recovery_verified_safe_to_retry",
+                retry_grant_id=retry_grant_id,
             )
-        except ExecutionAttemptError as exc:
-            raise ExecutionRecoveryCoordinatorError(
-                "original_attempt_close_failed"
-            ) from exc
+            self.recovery.update_retry_operation(
+                review.recovery_id, "AUTHORIZED", now=now
+            )
+
+        # Close the ambiguous execution only if this is the first pass. If a
+        # process crashed after the durable authorization but before retry
+        # creation, the original attempt is already terminal and must not block
+        # completion of the durable retry operation.
+        current = self.attempts.get(attempt_id)
+        if current.state == ExecutionAttemptState.RUNNING:
+            try:
+                self.attempts.transition(
+                    attempt_id,
+                    ExecutionAttemptState.ABORTED,
+                    now=now,
+                    error="recovery_verified_safe_to_retry",
+                )
+            except ExecutionAttemptError as exc:
+                raise ExecutionRecoveryCoordinatorError(
+                    "original_attempt_close_failed"
+                ) from exc
+        elif current.state != ExecutionAttemptState.ABORTED:
+            raise ExecutionRecoveryCoordinatorError("retry_requires_running_or_aborted_attempt")
+
+        existing_retry = self.attempts.find_by_grant_id(retry_grant.grant.grant_id)
+        if existing_retry is not None:
+            self.recovery.update_retry_operation(
+                review.recovery_id, "CREATED", retry_attempt_id=existing_retry.attempt_id, now=now
+            )
+            return existing_retry
 
         try:
-            return self.attempts.create(
+            next_attempt = self.attempts.create(
                 task_id=current.task_id,
                 grant_id=retry_grant.grant.grant_id,
                 intent_hash=current.intent_hash,
@@ -200,9 +248,11 @@ class ExecutionRecoveryCoordinator:
                 now=now,
                 retry=True,
             )
+            self.recovery.update_retry_operation(
+                review.recovery_id, "CREATED", retry_attempt_id=next_attempt.attempt_id, now=now
+            )
+            return next_attempt
         except ExecutionAttemptError as exc:
             raise ExecutionRecoveryCoordinatorError(
                 "retry_attempt_create_failed"
             ) from exc
-
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

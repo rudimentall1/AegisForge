@@ -1,4 +1,3 @@
-[Reading 249 lines from start (total: 249 lines, 0 remaining)]
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -225,6 +224,13 @@ class ExecutionAttemptStore:
         self.db.commit()
         return self.get(attempt_id)
 
+    def find_by_grant_id(self, grant_id):
+        row = self.db.execute(
+            f"SELECT attempt_id FROM {self.TABLE} WHERE grant_id=? LIMIT 1",
+            (str(grant_id),),
+        ).fetchone()
+        return self.get(row[0]) if row else None
+
     def find_by_idempotency_key(self, idempotency_key):
         row = self.db.execute(
             f"SELECT attempt_id FROM {self.TABLE} WHERE idempotency_key=? ORDER BY attempt_number DESC LIMIT 1",
@@ -249,5 +255,3 @@ class ExecutionAttemptStore:
             except ExecutionAttemptError:
                 pass
         return expired
-
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

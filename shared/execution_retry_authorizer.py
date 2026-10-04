@@ -19,7 +19,7 @@ class ExecutionRetryAuthorizer:
         self.authority_registry = authority_registry
         self.capability_signer = capability_signer
 
-    def authorize(self, *, attempt, intent, signed_action_intent, evidence_ids=(), ttl_seconds=300, authorized_scope=None, now=None):
+    def authorize(self, *, attempt, intent, signed_action_intent, evidence_ids=(), ttl_seconds=300, authorized_scope=None, now=None, grant_id=None, nonce=None):
         if attempt is None:
             raise ExecutionRetryAuthorizationError("attempt_required")
         if not getattr(attempt, "task_id", ""):
@@ -52,6 +52,8 @@ class ExecutionRetryAuthorizer:
                 authority_state=authority.state,
                 authority_context=authority,
                 signed_action_intent=signed_action_intent,
+                grant_id=grant_id,
+                nonce=nonce,
             )
             signed_grant = self.capability_signer.sign(grant)
         except (CapabilityGrantError, TypeError, ValueError) as exc:

@@ -7,7 +7,7 @@ import uuid
 from shared.execution_attempt import ExecutionAttempt, ExecutionAttemptError
 
 
-SCHEMA_VERSION = "execution-recovery-v1"
+SCHEMA_VERSION = "execution-recovery-v2"
 
 
 class ExecutionRecoveryError(ValueError):
@@ -50,6 +50,7 @@ class RecoveryReview:
 
 class ExecutionRecoveryStore:
     TABLE = "execution_recovery_reviews"
+    OP_TABLE = "execution_recovery_operations"
 
     def __init__(self, db):
         if db is None:
@@ -71,6 +72,21 @@ class ExecutionRecoveryStore:
         self.db.execute(
             f"CREATE UNIQUE INDEX IF NOT EXISTS uq_{self.TABLE}_attempt "
             f"ON {self.TABLE}(attempt_id)"
+        )
+        self.db.execute(f"""\
+            CREATE TABLE IF NOT EXISTS {self.OP_TABLE} (
+                recovery_id TEXT PRIMARY KEY,
+                attempt_id TEXT NOT NULL UNIQUE,
+                operation_key TEXT NOT NULL UNIQUE,
+                state TEXT NOT NULL,
+                retry_grant_id TEXT NOT NULL,
+                retry_attempt_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        self.db.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_{self.OP_TABLE}_state ON {self.OP_TABLE}(state)"
         )
         self.db.commit()
 
@@ -223,3 +239,62 @@ class ExecutionRecoveryStore:
 
     def can_retry(self, recovery_id):
         return self.get(recovery_id).decision == RecoveryDecision.SAFE_TO_RETRY
+
+    def claim_retry(self, review, now=None):
+        if not isinstance(review, RecoveryReview):
+            raise ExecutionRecoveryError("recovery_review_required")
+        if review.decision != RecoveryDecision.SAFE_TO_RETRY:
+            raise ExecutionRecoveryError("retry_not_safe")
+        existing = self.get_retry_operation(review.recovery_id)
+        if existing is not None:
+            return existing, False
+        timestamp = self._now(now).isoformat()
+        operation_key = "retry_" + review.recovery_id
+        grant_id = "retry-grant_" + review.recovery_id
+        try:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at FROM {self.OP_TABLE} WHERE recovery_id=?",
+                (review.recovery_id,),
+            ).fetchone()
+            if row is None:
+                self.db.execute(
+                    f"INSERT INTO {self.OP_TABLE} (recovery_id,attempt_id,operation_key,state,retry_grant_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+                    (review.recovery_id, review.attempt_id, operation_key, "CLAIMED", grant_id, timestamp, timestamp),
+                )
+                created = True
+            else:
+                created = False
+            self.db.commit()
+        except sqlite3.IntegrityError:
+            self.db.rollback()
+            row = self.db.execute(
+                f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at FROM {self.OP_TABLE} WHERE recovery_id=?",
+                (review.recovery_id,),
+            ).fetchone()
+            if row is None:
+                raise ExecutionRecoveryError("retry_claim_conflict")
+        if created:
+            row = self.db.execute(
+                f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at FROM {self.OP_TABLE} WHERE recovery_id=?",
+                (review.recovery_id,),
+            ).fetchone()
+        return row, created
+
+    def get_retry_operation(self, recovery_id):
+        return self.db.execute(
+            f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at FROM {self.OP_TABLE} WHERE recovery_id=?",
+            (str(recovery_id),),
+        ).fetchone()
+
+    def update_retry_operation(self, recovery_id, state, retry_attempt_id=None, now=None):
+        timestamp = self._now(now).isoformat()
+        self.db.execute(
+            f"UPDATE {self.OP_TABLE} SET state=?, retry_attempt_id=COALESCE(?,retry_attempt_id), updated_at=? WHERE recovery_id=?",
+            (str(state), retry_attempt_id, timestamp, str(recovery_id)),
+        )
+        if self.db.execute("SELECT changes()").fetchone()[0] != 1:
+            self.db.rollback()
+            raise ExecutionRecoveryError("retry_operation_not_found")
+        self.db.commit()
+        return self.get_retry_operation(recovery_id)

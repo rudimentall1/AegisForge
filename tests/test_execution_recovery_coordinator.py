@@ -1,3 +1,5 @@
+[Reading 602 lines from start (total: 602 lines, 0 remaining)]
+
 import sqlite3
 
 import pytest
@@ -131,7 +133,8 @@ def test_side_effect_confirmation_never_creates_retry():
     )
 
     assert next_attempt is None
-    assert attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RUNNING
+    assert attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RECOVERED
+    assert attempts.get(attempt.attempt_id).error == "recovery_verified_side_effect_confirmed"
 
 
 def test_quarantine_never_creates_retry():
@@ -142,7 +145,8 @@ def test_quarantine_never_creates_retry():
     )
 
     assert next_attempt is None
-    assert attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RUNNING
+    assert attempts.get(attempt.attempt_id).state is ExecutionAttemptState.ABORTED
+    assert attempts.get(attempt.attempt_id).error == "recovery_quarantined"
 
 
 def test_retry_if_safe_opens_and_resolves_recovery_automatically():
@@ -595,5 +599,8 @@ def test_crash_after_side_effect_before_receipt_blocks_retry_with_real_filesyste
     assert recovered.verifier_id == "filesystem_independent_v1"
     assert recovered.outcome_id
     assert recovered.idempotency_key == attempt.idempotency_key
-    assert coordinator.attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RUNNING
+    assert coordinator.attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RECOVERED
+    assert coordinator.attempts.get(attempt.attempt_id).error == "recovery_verified_side_effect_confirmed"
     assert coordinator.attempts.find_by_idempotency_key(attempt.idempotency_key).attempt_number == 1
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

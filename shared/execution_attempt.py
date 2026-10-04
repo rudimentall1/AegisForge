@@ -1,3 +1,5 @@
+[Reading 249 lines from start (total: 249 lines, 0 remaining)]
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -17,6 +19,7 @@ class ExecutionAttemptState(str, Enum):
     LEASED = "LEASED"
     RUNNING = "RUNNING"
     SUCCEEDED = "SUCCEEDED"
+    RECOVERED = "RECOVERED"
     FAILED = "FAILED"
     TIMED_OUT = "TIMED_OUT"
     ABORTED = "ABORTED"
@@ -24,6 +27,7 @@ class ExecutionAttemptState(str, Enum):
 
 _TERMINAL = {
     ExecutionAttemptState.SUCCEEDED,
+    ExecutionAttemptState.RECOVERED,
     ExecutionAttemptState.FAILED,
     ExecutionAttemptState.TIMED_OUT,
     ExecutionAttemptState.ABORTED,
@@ -32,8 +36,9 @@ _TERMINAL = {
 _ALLOWED = {
     ExecutionAttemptState.AUTHORIZED: {ExecutionAttemptState.LEASED, ExecutionAttemptState.ABORTED},
     ExecutionAttemptState.LEASED: {ExecutionAttemptState.RUNNING, ExecutionAttemptState.TIMED_OUT, ExecutionAttemptState.ABORTED},
-    ExecutionAttemptState.RUNNING: {ExecutionAttemptState.SUCCEEDED, ExecutionAttemptState.FAILED, ExecutionAttemptState.TIMED_OUT, ExecutionAttemptState.ABORTED},
+    ExecutionAttemptState.RUNNING: {ExecutionAttemptState.SUCCEEDED, ExecutionAttemptState.RECOVERED, ExecutionAttemptState.FAILED, ExecutionAttemptState.TIMED_OUT, ExecutionAttemptState.ABORTED},
     ExecutionAttemptState.SUCCEEDED: set(),
+    ExecutionAttemptState.RECOVERED: set(),
     ExecutionAttemptState.FAILED: set(),
     ExecutionAttemptState.TIMED_OUT: set(),
     ExecutionAttemptState.ABORTED: set(),
@@ -244,3 +249,5 @@ class ExecutionAttemptStore:
             except ExecutionAttemptError:
                 pass
         return expired
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

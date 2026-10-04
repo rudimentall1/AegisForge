@@ -488,3 +488,112 @@ def test_retry_cannot_reuse_original_grant():
         )
 
     assert attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RUNNING
+
+
+def test_crash_after_side_effect_before_receipt_blocks_retry_with_real_filesystem_verifier(tmp_path):
+    from shared.capability_grant import issue_capability_grant
+
+    db = sqlite3.connect(":memory:")
+    authority_registry = AgentAuthorityRegistry(db)
+    authority_registry.register("agent-1", CapabilityPolicy.VERSION)
+    authority_registry.record_trust(
+        "agent-1",
+        TrustDecision("TRUSTED", "test", "proof-crash-recovery", "test"),
+    )
+    signer = CapabilitySigner.generate()
+    identity_signer = AgentIdentitySigner.generate("agent-1", "developer")
+
+    target = tmp_path / "workspace" / "obsolete.txt"
+    target.parent.mkdir()
+    target.write_text("must-not-be-recreated")
+    intent = ActionIntent(
+        agent_id="agent-1",
+        role="developer",
+        action="delete",
+        target="workspace/obsolete.txt",
+        resource="staging_filesystem",
+        destination="staging",
+        data_scope="source_code",
+        irreversible=True,
+        requires_filesystem=True,
+        read_only=False,
+        evidence_required=True,
+        parameters={
+            "outcome_contract": {
+                "type": "state_match",
+                "verifier": "filesystem_independent_v1",
+                "expected_state": "ABSENT",
+            }
+        },
+    )
+    signed_intent = ActionIntentSigner(identity_signer).sign(intent)
+    authority = authority_registry.get("agent-1")
+    grant = issue_capability_grant(
+        "task-crash-recovery",
+        intent,
+        CapabilityPolicy.VERSION,
+        evidence_ids=["ev-1"],
+        authorized_scope="staging",
+        authority_state=authority.state,
+        authority_context=authority,
+        signed_action_intent=signed_intent,
+    )
+    grant = signer.sign(grant)
+    gate = ExecutionGate(db, signer=signer, authority_registry=authority_registry)
+
+    def side_effect_then_crash():
+        target.unlink()
+        raise SystemExit("simulated_process_crash_after_side_effect")
+
+    with pytest.raises(SystemExit, match="simulated_process_crash_after_side_effect"):
+        gate.execute(
+            grant,
+            intent,
+            side_effect_then_crash,
+            ["ev-1"],
+            executor_id="direct-test-executor",
+            executor_version="1",
+            executor_identity_epoch=1,
+            idempotency_key="crash-after-side-effect-1",
+        )
+
+    attempt = gate.attempt_store.find_by_idempotency_key("crash-after-side-effect-1")
+    assert attempt.state is ExecutionAttemptState.RUNNING
+    assert attempt.receipt_id in ("", None)
+    assert not target.exists()
+
+    verifier_registry = OutcomeVerifierRegistry()
+    verifier_registry.register(
+        "filesystem",
+        "state_match",
+        "filesystem_independent_v1",
+        lambda root, **kwargs: __import__("shared.outcome_verifier", fromlist=["FilesystemOutcomeVerifier"]).FilesystemOutcomeVerifier(root),
+    )
+    retry_gate = RecordingExecutionGate()
+    coordinator = ExecutionRecoveryCoordinator(
+        db,
+        verifier_registry,
+        execution_gate=retry_gate,
+    )
+    contract = {
+        "type": "state_match",
+        "verifier": "filesystem_independent_v1",
+        "expected_state": "ABSENT",
+    }
+
+    next_attempt = coordinator.retry_if_safe(
+        attempt.attempt_id,
+        intent,
+        contract,
+        root=tmp_path,
+    )
+
+    assert next_attempt is None
+    assert retry_gate.authorized == []
+    recovered = coordinator.recovery.get_by_attempt(attempt.attempt_id)
+    assert recovered.decision is RecoveryDecision.SIDE_EFFECT_CONFIRMED
+    assert recovered.verifier_id == "filesystem_independent_v1"
+    assert recovered.outcome_id
+    assert recovered.idempotency_key == attempt.idempotency_key
+    assert coordinator.attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RUNNING
+    assert coordinator.attempts.find_by_idempotency_key(attempt.idempotency_key).attempt_number == 1

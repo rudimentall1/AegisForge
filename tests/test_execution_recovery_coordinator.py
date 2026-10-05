@@ -1022,3 +1022,35 @@ def test_recover_stale_running_requires_complete_context():
         )
 
     assert attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RUNNING
+
+def test_recover_stale_running_skips_receipt_race_without_retry():
+    _, attempts, coordinator, attempt, contract = _setup()
+    stale_now = datetime.fromisoformat(
+        attempts.get(attempt.attempt_id).lease_expires_at
+    ) + timedelta(seconds=1)
+    calls = []
+
+    def context_factory(candidate):
+        calls.append(candidate.attempt_id)
+        coordinator.attempts.db.execute(
+            "UPDATE execution_attempts SET receipt_id=? WHERE attempt_id=?",
+            ("receipt-race", candidate.attempt_id),
+        )
+        coordinator.attempts.db.commit()
+        return {
+            "intent": Intent(),
+            "contract": contract,
+            "kwargs": {"reauthorize": lambda **_: _retry_grant()},
+        }
+
+    results = coordinator.recover_stale_running(
+        context_factory,
+        now=stale_now,
+    )
+
+    assert calls == [attempt.attempt_id]
+    assert results == [(attempt.attempt_id, None)]
+    current = attempts.get(attempt.attempt_id)
+    assert current.state is ExecutionAttemptState.RUNNING
+    assert current.receipt_id == "receipt-race"
+    assert coordinator.recovery.get_by_attempt(attempt.attempt_id) is None

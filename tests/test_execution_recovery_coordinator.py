@@ -1,5 +1,9 @@
 
+
+
 import sqlite3
+from datetime import datetime, timedelta, timezone
+import threading
 
 import pytest
 
@@ -701,7 +705,7 @@ def test_authorized_retry_resumes_after_original_attempt_was_aborted(tmp_path):
     retry_grant = _retry_grant(grant_id=operation[4])
     gate.grant_store.register(retry_grant)
     coordinator.recovery.update_retry_operation(
-        review.recovery_id, "AUTHORIZED"
+        review.recovery_id, "AUTHORIZED", claim_token=operation[8]
     )
     attempts.transition(
         attempt.attempt_id,
@@ -750,7 +754,7 @@ def test_existing_retry_attempt_is_recovered_if_process_dies_before_operation_up
     retry_grant = _retry_grant(grant_id=operation[4])
     gate.grant_store.register(retry_grant)
     coordinator.recovery.update_retry_operation(
-        review.recovery_id, "AUTHORIZED"
+        review.recovery_id, "AUTHORIZED", claim_token=operation[8]
     )
     attempts.transition(
         attempt.attempt_id,
@@ -801,7 +805,7 @@ def test_retry_operation_state_machine_rejects_impossible_transitions(tmp_path):
     with pytest.raises(ExecutionRecoveryError, match="retry_operation_invalid_transition"):
         store.update_retry_operation(review.recovery_id, "CREATED", retry_attempt_id="attempt-2")
 
-    store.update_retry_operation(review.recovery_id, "AUTHORIZED")
+    store.update_retry_operation(review.recovery_id, "AUTHORIZED", claim_token=operation[8])
     with pytest.raises(ExecutionRecoveryError, match="retry_operation_invalid_transition"):
         store.update_retry_operation(review.recovery_id, "CLAIMED")
 
@@ -812,7 +816,7 @@ def test_retry_operation_state_machine_rejects_impossible_transitions(tmp_path):
     assert store.get_retry_operation(review.recovery_id)[3] == "CREATED"
 
     with pytest.raises(ExecutionRecoveryError, match="retry_operation_invalid_transition"):
-        store.update_retry_operation(review.recovery_id, "AUTHORIZED")
+        store.update_retry_operation(review.recovery_id, "AUTHORIZED", claim_token=operation[8])
     with pytest.raises(ExecutionRecoveryError, match="retry_operation_invalid_transition"):
         store.update_retry_operation(review.recovery_id, "CLAIMED")
 
@@ -822,3 +826,140 @@ def test_retry_operation_state_machine_rejects_impossible_transitions(tmp_path):
     with pytest.raises(ExecutionRecoveryError, match="retry_operation_state_conflict"):
         store.update_retry_operation(review.recovery_id, "CREATED", retry_attempt_id="attempt-3")
     db.close()
+
+
+def test_stale_retry_claim_can_be_reclaimed_and_old_token_is_fenced(tmp_path):
+    db = sqlite3.connect(tmp_path / "recovery.sqlite")
+    attempts = ExecutionAttemptStore(db)
+    attempt = attempts.create("task-1", "grant-1", "intent-1", "operation-1")
+    attempt = attempts.transition(attempt.attempt_id, ExecutionAttemptState.LEASED)
+    attempt = attempts.transition(attempt.attempt_id, ExecutionAttemptState.RUNNING)
+    from shared.execution_recovery import ExecutionRecoveryStore, ExecutionRecoveryError
+
+    store = ExecutionRecoveryStore(db)
+    review = store.open(attempt)
+    review = store.resolve(
+        review.recovery_id,
+        RecoveryDecision.SAFE_TO_RETRY,
+        verifier_id="verifier-1",
+        outcome_id="outcome-1",
+    )
+    initial_now = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    first, acquired = store.claim_retry(review, now=initial_now)
+    assert acquired is True
+    old_token = first[8]
+    assert first[9] == (initial_now + timedelta(seconds=store.CLAIM_LEASE_SECONDS)).isoformat()
+
+    stale_now = initial_now + timedelta(seconds=store.CLAIM_LEASE_SECONDS + 1)
+    reclaimed, acquired = store.claim_retry(review, now=stale_now)
+    assert acquired is True
+    assert reclaimed[8] != old_token
+    assert reclaimed[9] == (stale_now + timedelta(seconds=store.CLAIM_LEASE_SECONDS)).isoformat()
+
+    with pytest.raises(ExecutionRecoveryError, match="retry_claim_token_conflict"):
+        store.update_retry_operation(
+            review.recovery_id, "AUTHORIZED", claim_token=old_token, now=stale_now
+        )
+
+    store.update_retry_operation(
+        review.recovery_id, "AUTHORIZED", claim_token=reclaimed[8], now=stale_now
+    )
+    assert store.get_retry_operation(review.recovery_id)[3] == "AUTHORIZED"
+    db.close()
+
+
+def test_coordinator_reclaims_stale_claim_and_completes_retry(tmp_path):
+    db = sqlite3.connect(tmp_path / "recovery.sqlite")
+    attempts = ExecutionAttemptStore(db)
+    attempt = attempts.create("task-1", "grant-1", "intent-1", "operation-1")
+    attempt = attempts.transition(attempt.attempt_id, ExecutionAttemptState.LEASED)
+    attempt = attempts.transition(attempt.attempt_id, ExecutionAttemptState.RUNNING)
+
+    registry = OutcomeVerifierRegistry()
+    registry.register(
+        "fake",
+        "state_match",
+        "filesystem_independent_v1",
+        lambda **kwargs: FakeRecoveryVerifier("SAFE_TO_RETRY"),
+    )
+    gate = RecordingExecutionGate()
+    coordinator = ExecutionRecoveryCoordinator(db, registry, execution_gate=gate)
+    contract = {
+        "type": "state_match",
+        "verifier": "filesystem_independent_v1",
+        "expected_state": "ABSENT",
+    }
+    review = coordinator.review(attempt.attempt_id, Intent(), contract)
+    initial_now = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    operation, acquired = coordinator.recovery.claim_retry(review, now=initial_now)
+    assert acquired is True
+    old_token = operation[8]
+
+    stale_now = initial_now + timedelta(seconds=coordinator.recovery.CLAIM_LEASE_SECONDS + 1)
+    calls = []
+
+    def reauthorize(**kwargs):
+        calls.append(kwargs)
+        return _retry_grant(grant_id=operation[4])
+
+    retry = coordinator.retry_if_safe(
+        attempt.attempt_id,
+        Intent(),
+        contract,
+        now=stale_now,
+        reauthorize=reauthorize,
+    )
+
+    assert len(calls) == 1
+    assert len(gate.authorized) == 1
+    assert retry.attempt_number == 2
+    assert retry.grant_id == operation[4]
+    assert coordinator.attempts.get(attempt.attempt_id).state is ExecutionAttemptState.ABORTED
+    final_operation = coordinator.recovery.get_retry_operation(review.recovery_id)
+    assert final_operation[3] == "CREATED"
+    assert final_operation[8] is None
+    assert old_token != final_operation[8]
+    db.close()
+
+
+
+def test_concurrent_stale_retry_reclaim_has_one_winner(tmp_path):
+    path = tmp_path / "recovery.sqlite"
+    db = sqlite3.connect(path)
+    attempts = ExecutionAttemptStore(db)
+    attempt = attempts.create("task-1", "grant-1", "intent-1", "operation-1")
+    attempt = attempts.transition(attempt.attempt_id, ExecutionAttemptState.LEASED)
+    attempt = attempts.transition(attempt.attempt_id, ExecutionAttemptState.RUNNING)
+    from shared.execution_recovery import ExecutionRecoveryStore
+
+    store = ExecutionRecoveryStore(db)
+    review = store.open(attempt)
+    review = store.resolve(
+        review.recovery_id,
+        RecoveryDecision.SAFE_TO_RETRY,
+        verifier_id="verifier-1",
+        outcome_id="outcome-1",
+    )
+    initial_now = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    store.claim_retry(review, now=initial_now)
+    db.close()
+
+    db1 = sqlite3.connect(path, check_same_thread=False)
+    db2 = sqlite3.connect(path, check_same_thread=False)
+    store1 = ExecutionRecoveryStore(db1)
+    store2 = ExecutionRecoveryStore(db2)
+    stale_now = initial_now + timedelta(seconds=store1.CLAIM_LEASE_SECONDS + 1)
+    results = []
+    barrier = threading.Barrier(2)
+
+    def reclaim(store):
+        barrier.wait()
+        results.append(store.claim_retry(review, now=stale_now)[1])
+
+    t1 = threading.Thread(target=reclaim, args=(store1,))
+    t2 = threading.Thread(target=reclaim, args=(store2,))
+    t1.start(); t2.start(); t1.join(5); t2.join(5)
+    assert not t1.is_alive() and not t2.is_alive()
+    assert sorted(results) == [False, True]
+    db1.close()
+    db2.close()

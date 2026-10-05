@@ -74,3 +74,34 @@ def test_planner_applies_live_queue_backpressure(tmp_path, monkeypatch):
     assert result["created"] == 0
     assert q.db.execute("SELECT COUNT(*) FROM queue WHERE status='pending'").fetchone()[0] == MAX_LIVE_TASKS
     q.db.close()
+
+
+def test_commercial_shortcut_requires_technical_review():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    task = {
+        "role": "analyst",
+        "result": {
+            "repositories": [{"name": "acme/project", "url": "https://github.com/acme/project"}],
+            "opportunities": [{"target": "acme/project", "product_thesis": "test"}],
+        },
+    }
+    primary = planner._choose_next_raw(task)
+    candidates = planner.candidate_decisions(task, primary)
+    assert primary[1] == "developer"
+    assert [candidate[1] for candidate in candidates] == ["developer"]
+
+
+def test_commercial_shortcut_allowed_after_technical_review():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    task = {
+        "role": "analyst",
+        "result": {
+            "repositories": [{"name": "acme/project", "url": "https://github.com/acme/project"}],
+            "opportunities": [{"target": "acme/project", "product_thesis": "test"}],
+            "technical_review": [{"name": "acme/project", "technical_maturity_score": 8}],
+        },
+    }
+    primary = planner._choose_next_raw(task)
+    candidates = planner.candidate_decisions(task, primary)
+    assert primary[1] == "developer"
+    assert {candidate[1] for candidate in candidates} == {"developer", "opportunity_hunter"}

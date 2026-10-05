@@ -113,6 +113,8 @@ class RecoveryAttestorRegistry:
         attestor = self.get(key_id)
         if attestor is None:
             raise RecoveryTrustError("untrusted_attestor")
+        if not attestor.enabled:
+            raise RecoveryTrustError("attestor_disabled")
         if self._status[key_id] == RecoveryAttestorStatus.SUSPENDED:
             raise RecoveryTrustError("attestor_suspended")
         if self._status[key_id] == RecoveryAttestorStatus.REVOKED:

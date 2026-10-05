@@ -195,3 +195,77 @@ def test_registry_persistent_transition_is_atomic_on_failure(tmp_path):
     restarted = RecoveryAttestorRegistry(store=db)
     assert restarted.status(signer.key_id) == RecoveryAttestorStatus.SUSPENDED
     assert [event["to_status"] for event in restarted.history(signer.key_id)] == ["ACTIVE", "SUSPENDED"]
+
+
+def test_registry_history_hash_chain_is_verifiable():
+    signer = CapabilitySigner.generate()
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="hash-chain",
+        )
+    ])
+    registry.transition(signer.key_id, RecoveryAttestorStatus.SUSPENDED, "incident")
+    result = registry.verify_history(signer.key_id)
+
+    assert result["valid"] is True
+    assert result["events"] == 2
+    assert len(result["head_hash"]) == 64
+    history = registry.history(signer.key_id)
+    assert history[0]["prev_hash"] == "0" * 64
+    assert history[1]["prev_hash"] == history[0]["event_hash"]
+
+
+def test_persistent_history_detects_source_record_tampering(tmp_path):
+    signer = CapabilitySigner.generate()
+    db = tmp_path / "attestors.sqlite3"
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="tamper",
+        )
+    ], store=db)
+    registry.transition(signer.key_id, RecoveryAttestorStatus.SUSPENDED, "incident")
+
+    import sqlite3
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "UPDATE recovery_attestor_history SET reason = ? WHERE key_id = ? AND event_id = 2",
+        ("tampered", signer.key_id),
+    )
+    conn.commit()
+    conn.close()
+
+    restarted = RecoveryAttestorRegistry(store=db)
+    with pytest.raises(RecoveryTrustError, match="trust_history_event_hash_mismatch"):
+        restarted.verify_history(signer.key_id)
+
+
+def test_persistent_history_detects_chain_link_tampering(tmp_path):
+    signer = CapabilitySigner.generate()
+    db = tmp_path / "attestors.sqlite3"
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="chain-tamper",
+        )
+    ], store=db)
+    registry.transition(signer.key_id, RecoveryAttestorStatus.SUSPENDED, "incident")
+    registry.transition(signer.key_id, RecoveryAttestorStatus.ACTIVE, "cleared")
+
+    import sqlite3
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "UPDATE recovery_attestor_history_integrity SET prev_hash = ? "
+        "WHERE key_id = ? AND event_id = 3",
+        ("f" * 64, signer.key_id),
+    )
+    conn.commit()
+    conn.close()
+
+    restarted = RecoveryAttestorRegistry(store=db)
+    with pytest.raises(RecoveryTrustError, match="trust_history_prev_hash_mismatch"):
+        restarted.verify_history(signer.key_id)

@@ -1,3 +1,5 @@
+[Reading 425 lines from start (total: 425 lines, 0 remaining)]
+
 import json
 import os
 from shared.task import Task
@@ -113,13 +115,21 @@ class Validator:
                 result["experiment_value"] = len(security_files)
 
             else:
+                # GitHub can validate technical existence and public project signals,
+                # but it cannot establish willingness to pay. Never label a commercial
+                # hypothesis as validated from stars, forks, or repository metadata.
                 description = str(metadata.get("description") or "").strip()
                 topics = metadata.get("topics") or []
+                result.update(
+                    status="PARTIAL",
+                    reason="public repository evidence cannot establish buyer demand or willingness to pay",
+                )
                 result["checks"].append({"check": "commercial_signal_probe",
                                          "passed": bool(description or topics),
                                          "description_present": bool(description),
-                                         "topic_count": len(topics)})
-                result["experiment_metric"] = "commercial_signal"
+                                         "topic_count": len(topics),
+                                         "limitation": "not evidence of willingness_to_pay"})
+                result["experiment_metric"] = "public_commercial_signal"
                 result["experiment_value"] = len(topics) + (1 if description else 0)
 
             result["source"] = "github_api"
@@ -415,3 +425,5 @@ class Validator:
             task.result = {"agent": self.name, "error_type": type(exc).__name__,
                            "error": str(exc)}
         return task
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

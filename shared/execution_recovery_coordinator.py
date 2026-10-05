@@ -1,12 +1,10 @@
-
-
-
 from shared.execution_attempt import ExecutionAttemptState, ExecutionAttemptStore, ExecutionAttemptError
 from shared.execution_recovery import ExecutionRecoveryError, ExecutionRecoveryStore, RecoveryDecision
 from shared.outcome_verifier_registry import OutcomeVerifierRegistry, OutcomeVerifierRegistryError
 from shared.execution_gate import ExecutionGate, ExecutionGateError
 from shared.capability_signing import SignedCapabilityGrant
 from shared.execution_retry_authorizer import ExecutionRetryAuthorizer
+from shared.recovery_evidence import RecoveryEvidenceChain
 
 
 class ExecutionRecoveryCoordinatorError(ValueError):
@@ -34,6 +32,7 @@ class ExecutionRecoveryCoordinator:
             raise ExecutionRecoveryCoordinatorError("retry_authorizer_required")
         self.attempts = ExecutionAttemptStore(db)
         self.recovery = ExecutionRecoveryStore(db)
+        self.recovery_evidence = RecoveryEvidenceChain(db)
         self.verifiers = verifier_registry
         self.execution_gate = execution_gate
         self.retry_authorizer = retry_authorizer
@@ -43,11 +42,28 @@ class ExecutionRecoveryCoordinator:
         review = self.recovery.open(attempt)
         if review.decision != RecoveryDecision.UNKNOWN:
             return review
+        self.recovery_evidence.append(
+            review.recovery_id,
+            attempt.attempt_id,
+            "RECOVERY_OPENED",
+            {"state": attempt.state.value, "lease_expires_at": attempt.lease_expires_at},
+        )
         try:
             outcome = self.verifiers.verify_recovery(
                 contract, intent, action=action, **factory_kwargs
             )
-            return self.recovery.resolve_verified(review.recovery_id, outcome)
+            resolved = self.recovery.resolve_verified(review.recovery_id, outcome)
+            self.recovery_evidence.append(
+                review.recovery_id,
+                attempt.attempt_id,
+                "VERIFICATION_DECISION",
+                {
+                    "decision": resolved.decision.value,
+                    "verifier_id": resolved.verifier_id,
+                    "outcome_id": resolved.outcome_id,
+                },
+            )
+            return resolved
         except (OutcomeVerifierRegistryError, ExecutionRecoveryError):
             raise
 
@@ -154,6 +170,7 @@ class ExecutionRecoveryCoordinator:
                 raise
             results.append((attempt.attempt_id, result))
         return results
+
     def retry_if_safe(
         self,
         attempt_id,
@@ -187,6 +204,13 @@ class ExecutionRecoveryCoordinator:
                     raise ExecutionRecoveryCoordinatorError(
                         "recovery_terminalization_failed"
                     ) from exc
+            self.recovery_evidence.append(
+                review.recovery_id,
+                attempt_id,
+                "SIDE_EFFECT_CONFIRMED",
+                {"outcome_id": review.outcome_id, "verifier_id": review.verifier_id},
+                now=now,
+            )
             return None
 
         if review.decision == RecoveryDecision.QUARANTINED:
@@ -203,6 +227,13 @@ class ExecutionRecoveryCoordinator:
                     raise ExecutionRecoveryCoordinatorError(
                         "recovery_terminalization_failed"
                     ) from exc
+            self.recovery_evidence.append(
+                review.recovery_id,
+                attempt_id,
+                "QUARANTINED",
+                {"outcome_id": review.outcome_id, "verifier_id": review.verifier_id},
+                now=now,
+            )
             return None
 
         if review.decision != RecoveryDecision.SAFE_TO_RETRY:
@@ -233,7 +264,6 @@ class ExecutionRecoveryCoordinator:
                     raise ExecutionRecoveryCoordinatorError("retry_in_progress")
             else:
                 raise ExecutionRecoveryCoordinatorError("retry_in_progress")
-
         if operation_state == "AUTHORIZED":
             if self.execution_gate is None or getattr(self.execution_gate, "grant_store", None) is None:
                 raise ExecutionRecoveryCoordinatorError("retry_authorization_record_required")
@@ -241,9 +271,6 @@ class ExecutionRecoveryCoordinator:
             if retry_grant is None:
                 raise ExecutionRecoveryCoordinatorError("retry_authorization_record_missing")
         else:
-            # Only the durable claim winner may issue fresh authority. The
-            # production authorizer receives deterministic identifiers so a
-            # process crash after grant persistence remains recoverable.
             retry_grant = self._reauthorize_retry(
                 current,
                 intent,
@@ -256,11 +283,18 @@ class ExecutionRecoveryCoordinator:
             self.recovery.update_retry_operation(
                 review.recovery_id, "AUTHORIZED", now=now, claim_token=claim_token
             )
+            self.recovery_evidence.append(
+                review.recovery_id,
+                attempt_id,
+                "RETRY_AUTHORIZED",
+                {
+                    "grant_id": retry_grant.grant.grant_id,
+                    "verifier_id": review.verifier_id,
+                    "outcome_id": review.outcome_id,
+                },
+                now=now,
+            )
 
-        # Close the ambiguous execution only if this is the first pass. If a
-        # process crashed after the durable authorization but before retry
-        # creation, the original attempt is already terminal and must not block
-        # completion of the durable retry operation.
         current = self.attempts.get(attempt_id)
         if current.state == ExecutionAttemptState.RUNNING:
             try:
@@ -269,6 +303,13 @@ class ExecutionRecoveryCoordinator:
                     ExecutionAttemptState.ABORTED,
                     now=now,
                     error="recovery_verified_safe_to_retry",
+                )
+                self.recovery_evidence.append(
+                    review.recovery_id,
+                    attempt_id,
+                    "ORIGINAL_ABORTED",
+                    {"reason": "recovery_verified_safe_to_retry"},
+                    now=now,
                 )
             except ExecutionAttemptError as exc:
                 raise ExecutionRecoveryCoordinatorError(
@@ -281,6 +322,16 @@ class ExecutionRecoveryCoordinator:
         if existing_retry is not None:
             self.recovery.update_retry_operation(
                 review.recovery_id, "CREATED", retry_attempt_id=existing_retry.attempt_id, now=now
+            )
+            self.recovery_evidence.append(
+                review.recovery_id,
+                attempt_id,
+                "RETRY_CREATED",
+                {
+                    "retry_attempt_id": existing_retry.attempt_id,
+                    "grant_id": retry_grant.grant.grant_id,
+                },
+                now=now,
             )
             return existing_retry
 
@@ -295,6 +346,16 @@ class ExecutionRecoveryCoordinator:
             )
             self.recovery.update_retry_operation(
                 review.recovery_id, "CREATED", retry_attempt_id=next_attempt.attempt_id, now=now
+            )
+            self.recovery_evidence.append(
+                review.recovery_id,
+                attempt_id,
+                "RETRY_CREATED",
+                {
+                    "retry_attempt_id": next_attempt.attempt_id,
+                    "grant_id": retry_grant.grant.grant_id,
+                },
+                now=now,
             )
             return next_attempt
         except ExecutionAttemptError as exc:

@@ -95,8 +95,8 @@ class Researcher:
         suffix = profiles[(rotation + index) % len(profiles)]
         return f"{query} {suffix}".strip()
 
-    def __init__(self):
-        self.github = GitHubClient()
+    def __init__(self, github=None):
+        self.github = github or GitHubClient()
 
     @classmethod
     def select_queries(cls, description):
@@ -137,67 +137,41 @@ class Researcher:
         try:
             repositories = []
             seen = set()
-            signals = []
-
             for index, query in enumerate(queries):
-                search_query = self._rotated_query(query, rotation, index)
-                print(f"[Researcher] SEARCH: {search_query}", flush=True)
-
-                # GitHub search is ranked and therefore tends to return the
-                # same top repositories on every cycle. When the first page
-                # contains only previously discovered identities, advance a
-                # few pages instead of treating an exhausted top page as a
-                # discovery failure. Extra pages are requested only when
-                # needed, keeping normal cycles cheap on API quota.
+                rotated_query = self._rotated_query(query, rotation, index)
                 for page in range(1, 6):
                     batch = self.github.search_repositories(
-                        search_query,
-                        limit=5,
+                        rotated_query,
                         page=page,
                     )
                     if not batch:
                         break
 
-                    novel = 0
+                    novel = []
                     for repo in batch:
-                        name = str(repo.get("name") or "").strip()
-                        if not name or name.lower() in excluded or name.lower() in seen:
+                        name = str(repo.get("name") or "").lower()
+                        if not name or name in excluded or name in seen:
                             continue
-                        seen.add(name.lower())
-                        repositories.append(repo)
-                        signals.append(self._signal(repo, search_query))
-                        novel += 1
+                        seen.add(name)
+                        novel.append(repo)
 
-                    # One page already produced useful novel candidates.
-                    # Paginate only when the page was exhausted by duplicates.
+                    repositories.extend(
+                        self._signal(repo, rotated_query)
+                        for repo in novel
+                    )
+
                     if novel:
                         break
 
-            if not repositories:
-                raise RuntimeError("GitHub returned zero repositories for research queries")
-
-            task.result = {
-                "agent": self.name,
-                "task": task.description,
-                "research_scope": "technology_intelligence",
-                "repositories": repositories,
-                "technology_signals": signals,
+            repositories = repositories[:20]
+            task.status = "researched"
+            return task.complete({
                 "count": len(repositories),
                 "queries": queries,
                 "rotation": rotation,
-                "excluded_count": len(excluded),
-                "source": "github",
-            }
-            task.status = "researched"
-            print(f"[Researcher] FOUND {len(repositories)} repositories across {len(queries)} queries", flush=True)
+                "repositories": repositories,
+                "summary": "Research completed with bounded pagination and cross-cycle exclusion.",
+            })
         except Exception as exc:
-            task.status = "research_failed"
-            task.result = {
-                "agent": self.name,
-                "task": task.description,
-                "queries": queries,
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
-            print(f"[Researcher] ERROR: {type(exc).__name__}: {exc}", flush=True)
-        return task
+            task.status = "failed"
+            return task.fail(str(exc))

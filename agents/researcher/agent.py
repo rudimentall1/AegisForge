@@ -137,41 +137,67 @@ class Researcher:
         try:
             repositories = []
             seen = set()
+            signals = []
+
             for index, query in enumerate(queries):
-                rotated_query = self._rotated_query(query, rotation, index)
+                search_query = self._rotated_query(query, rotation, index)
+                print(f"[Researcher] SEARCH: {search_query}", flush=True)
+
+                # GitHub search is ranked and therefore tends to return the
+                # same top repositories on every cycle. When the first page
+                # contains only previously discovered identities, advance a
+                # few pages instead of treating an exhausted top page as a
+                # discovery failure. Extra pages are requested only when
+                # needed, keeping normal cycles cheap on API quota.
                 for page in range(1, 6):
                     batch = self.github.search_repositories(
-                        rotated_query,
+                        search_query,
+                        limit=5,
                         page=page,
                     )
                     if not batch:
                         break
 
-                    novel = []
+                    novel = 0
                     for repo in batch:
-                        name = str(repo.get("name") or "").lower()
-                        if not name or name in excluded or name in seen:
+                        name = str(repo.get("name") or "").strip()
+                        if not name or name.lower() in excluded or name.lower() in seen:
                             continue
-                        seen.add(name)
-                        novel.append(repo)
+                        seen.add(name.lower())
+                        repositories.append(repo)
+                        signals.append(self._signal(repo, search_query))
+                        novel += 1
 
-                    repositories.extend(
-                        self._signal(repo, rotated_query)
-                        for repo in novel
-                    )
-
+                    # One page already produced useful novel candidates.
+                    # Paginate only when the page was exhausted by duplicates.
                     if novel:
                         break
 
-            repositories = repositories[:20]
-            task.status = "researched"
-            return task.complete({
+            if not repositories:
+                raise RuntimeError("GitHub returned zero repositories for research queries")
+
+            task.result = {
+                "agent": self.name,
+                "task": task.description,
+                "research_scope": "technology_intelligence",
+                "repositories": repositories,
+                "technology_signals": signals,
                 "count": len(repositories),
                 "queries": queries,
                 "rotation": rotation,
-                "repositories": repositories,
-                "summary": "Research completed with bounded pagination and cross-cycle exclusion.",
-            })
+                "excluded_count": len(excluded),
+                "source": "github",
+            }
+            task.status = "researched"
+            print(f"[Researcher] FOUND {len(repositories)} repositories across {len(queries)} queries", flush=True)
         except Exception as exc:
-            task.status = "failed"
-            return task.fail(str(exc))
+            task.status = "research_failed"
+            task.result = {
+                "agent": self.name,
+                "task": task.description,
+                "queries": queries,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+            print(f"[Researcher] ERROR: {type(exc).__name__}: {exc}", flush=True)
+        return task

@@ -122,6 +122,12 @@ class RecoveryAttestorStore:
         ).hexdigest()
 
     def _backfill_history_integrity(self, conn):
+        # Backfill only a completely new integrity table. Once integrity state
+        # exists, missing rows are evidence of tampering and must fail closed.
+        if conn.execute(
+            "SELECT 1 FROM recovery_attestor_history_integrity LIMIT 1"
+        ).fetchone():
+            return
         rows = conn.execute(
             "SELECT event_id, key_id, from_status, to_status, occurred_at, reason "
             "FROM recovery_attestor_history ORDER BY key_id, event_id"

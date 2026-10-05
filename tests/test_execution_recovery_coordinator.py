@@ -963,3 +963,62 @@ def test_concurrent_stale_retry_reclaim_has_one_winner(tmp_path):
     assert sorted(results) == [False, True]
     db1.close()
     db2.close()
+
+
+def test_recover_stale_running_routes_candidates_through_coordinator():
+    _, attempts, coordinator, attempt, contract = _setup()
+    stale_now = datetime.fromisoformat(attempts.get(attempt.attempt_id).lease_expires_at) + timedelta(seconds=1)
+    calls = []
+
+    def context_factory(candidate):
+        calls.append(candidate.attempt_id)
+        return {
+            "intent": Intent(),
+            "contract": contract,
+            "kwargs": {"reauthorize": lambda **_: _retry_grant()},
+        }
+
+    results = coordinator.recover_stale_running(
+        context_factory,
+        now=stale_now,
+    )
+
+    assert calls == [attempt.attempt_id]
+    assert results[0][0] == attempt.attempt_id
+    assert results[0][1].attempt_number == 2
+    assert attempts.get(attempt.attempt_id).state is ExecutionAttemptState.ABORTED
+
+
+def test_recover_stale_running_does_not_touch_fresh_attempt():
+    _, attempts, coordinator, attempt, contract = _setup()
+    fresh_now = datetime.fromisoformat(attempts.get(attempt.attempt_id).lease_expires_at) - timedelta(seconds=1)
+    calls = []
+
+    def context_factory(candidate):
+        calls.append(candidate.attempt_id)
+        return {"intent": Intent(), "contract": contract}
+
+    results = coordinator.recover_stale_running(
+        context_factory,
+        now=fresh_now,
+    )
+
+    assert results == []
+    assert calls == []
+    assert attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RUNNING
+
+
+def test_recover_stale_running_requires_complete_context():
+    _, attempts, coordinator, attempt, _ = _setup()
+    stale_now = datetime.fromisoformat(attempts.get(attempt.attempt_id).lease_expires_at) + timedelta(seconds=1)
+
+    with pytest.raises(
+        ExecutionRecoveryCoordinatorError,
+        match="recovery_context_incomplete",
+    ):
+        coordinator.recover_stale_running(
+            lambda candidate: {"intent": Intent()},
+            now=stale_now,
+        )
+
+    assert attempts.get(attempt.attempt_id).state is ExecutionAttemptState.RUNNING

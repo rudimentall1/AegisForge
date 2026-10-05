@@ -162,7 +162,11 @@ class RecoveryAttestorStore:
                 "WHERE h.key_id = ? ORDER BY h.event_id",
                 (key_id,),
             ).fetchall()
-            if not rows:
+            source_count = conn.execute(
+                "SELECT COUNT(*) FROM recovery_attestor_history WHERE key_id = ?",
+                (key_id,),
+            ).fetchone()[0]
+            if not rows or len(rows) != source_count:
                 raise RecoveryTrustError("trust_history_missing")
             previous = self.GENESIS_HASH
             for event_id, row_key_id, from_status, to_status, occurred_at, reason, prev_hash, event_hash in rows:

@@ -1,5 +1,7 @@
+[Reading 350 lines from start (total: 350 lines, 0 remaining)]
+
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import sqlite3
 import uuid
@@ -7,7 +9,7 @@ import uuid
 from shared.execution_attempt import ExecutionAttempt, ExecutionAttemptError
 
 
-SCHEMA_VERSION = "execution-recovery-v2"
+SCHEMA_VERSION = "execution-recovery-v3"
 
 
 class ExecutionRecoveryError(ValueError):
@@ -51,6 +53,7 @@ class RecoveryReview:
 class ExecutionRecoveryStore:
     TABLE = "execution_recovery_reviews"
     OP_TABLE = "execution_recovery_operations"
+    CLAIM_LEASE_SECONDS = 60
 
     def __init__(self, db):
         if db is None:
@@ -82,12 +85,19 @@ class ExecutionRecoveryStore:
                 retry_grant_id TEXT NOT NULL,
                 retry_attempt_id TEXT,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                claim_token TEXT,
+                lease_expires_at TEXT
             )
         """)
         self.db.execute(
             f"CREATE INDEX IF NOT EXISTS idx_{self.OP_TABLE}_state ON {self.OP_TABLE}(state)"
         )
+        columns = {row[1] for row in self.db.execute(f"PRAGMA table_info({self.OP_TABLE})").fetchall()}
+        if "claim_token" not in columns:
+            self.db.execute(f"ALTER TABLE {self.OP_TABLE} ADD COLUMN claim_token TEXT")
+        if "lease_expires_at" not in columns:
+            self.db.execute(f"ALTER TABLE {self.OP_TABLE} ADD COLUMN lease_expires_at TEXT")
         self.db.commit()
 
     @staticmethod
@@ -245,49 +255,62 @@ class ExecutionRecoveryStore:
             raise ExecutionRecoveryError("recovery_review_required")
         if review.decision != RecoveryDecision.SAFE_TO_RETRY:
             raise ExecutionRecoveryError("retry_not_safe")
-        existing = self.get_retry_operation(review.recovery_id)
-        if existing is not None:
-            return existing, False
-        timestamp = self._now(now).isoformat()
+
+        current_time = self._now(now)
+        timestamp = current_time.isoformat()
+        lease_expires_at = (current_time + timedelta(seconds=self.CLAIM_LEASE_SECONDS)).isoformat()
         operation_key = "retry_" + review.recovery_id
         grant_id = "retry-grant_" + review.recovery_id
+        claim_token = "claim_" + uuid.uuid4().hex
+
+        self.db.execute("BEGIN IMMEDIATE")
         try:
-            self.db.execute("BEGIN IMMEDIATE")
             row = self.db.execute(
-                f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at FROM {self.OP_TABLE} WHERE recovery_id=?",
+                f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at,claim_token,lease_expires_at FROM {self.OP_TABLE} WHERE recovery_id=?",
                 (review.recovery_id,),
             ).fetchone()
+            acquired = False
             if row is None:
                 self.db.execute(
-                    f"INSERT INTO {self.OP_TABLE} (recovery_id,attempt_id,operation_key,state,retry_grant_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                    (review.recovery_id, review.attempt_id, operation_key, "CLAIMED", grant_id, timestamp, timestamp),
+                    f"INSERT INTO {self.OP_TABLE} (recovery_id,attempt_id,operation_key,state,retry_grant_id,created_at,updated_at,claim_token,lease_expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (review.recovery_id, review.attempt_id, operation_key, "CLAIMED", grant_id, timestamp, timestamp, claim_token, lease_expires_at),
                 )
-                created = True
-            else:
-                created = False
+                acquired = True
+            elif row[3] == "CLAIMED":
+                expires = row[9]
+                if expires:
+                    try:
+                        stale = datetime.fromisoformat(expires) <= current_time
+                    except ValueError:
+                        stale = True
+                else:
+                    stale = True
+                if stale:
+                    cursor = self.db.execute(
+                        f"UPDATE {self.OP_TABLE} SET claim_token=?, lease_expires_at=?, updated_at=? WHERE recovery_id=? AND state='CLAIMED' AND lease_expires_at=?",
+                        (claim_token, lease_expires_at, timestamp, review.recovery_id, row[9]),
+                    )
+                    acquired = cursor.rowcount == 1
             self.db.commit()
-        except sqlite3.IntegrityError:
+        except Exception:
             self.db.rollback()
-            row = self.db.execute(
-                f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at FROM {self.OP_TABLE} WHERE recovery_id=?",
-                (review.recovery_id,),
-            ).fetchone()
-            if row is None:
-                raise ExecutionRecoveryError("retry_claim_conflict")
-        if created:
-            row = self.db.execute(
-                f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at FROM {self.OP_TABLE} WHERE recovery_id=?",
-                (review.recovery_id,),
-            ).fetchone()
-        return row, created
+            raise
+
+        row = self.db.execute(
+            f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at,claim_token,lease_expires_at FROM {self.OP_TABLE} WHERE recovery_id=?",
+            (review.recovery_id,),
+        ).fetchone()
+        if row is None:
+            raise ExecutionRecoveryError("retry_claim_conflict")
+        return row, acquired
 
     def get_retry_operation(self, recovery_id):
         return self.db.execute(
-            f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at FROM {self.OP_TABLE} WHERE recovery_id=?",
+            f"SELECT recovery_id,attempt_id,operation_key,state,retry_grant_id,retry_attempt_id,created_at,updated_at,claim_token,lease_expires_at FROM {self.OP_TABLE} WHERE recovery_id=?",
             (str(recovery_id),),
         ).fetchone()
 
-    def update_retry_operation(self, recovery_id, state, retry_attempt_id=None, now=None):
+    def update_retry_operation(self, recovery_id, state, retry_attempt_id=None, now=None, claim_token=None):
         allowed_transitions = {
             "CLAIMED": {"AUTHORIZED"},
             "AUTHORIZED": {"CREATED"},
@@ -307,9 +330,19 @@ class ExecutionRecoveryStore:
         if state == "CREATED" and not str(retry_attempt_id or "").strip():
             raise ExecutionRecoveryError("retry_attempt_id_required")
 
+        if current_state == "CLAIMED":
+            if not str(claim_token or "").strip() or claim_token != current[8]:
+                raise ExecutionRecoveryError("retry_claim_token_conflict")
+            if current[9]:
+                try:
+                    if datetime.fromisoformat(current[9]) <= self._now(now):
+                        raise ExecutionRecoveryError("retry_claim_expired")
+                except ValueError:
+                    raise ExecutionRecoveryError("retry_claim_expired")
+
         timestamp = self._now(now).isoformat()
         self.db.execute(
-            f"UPDATE {self.OP_TABLE} SET state=?, retry_attempt_id=COALESCE(?,retry_attempt_id), updated_at=? WHERE recovery_id=? AND state=?",
+            f"UPDATE {self.OP_TABLE} SET state=?, retry_attempt_id=COALESCE(?,retry_attempt_id), updated_at=?, claim_token=NULL, lease_expires_at=NULL WHERE recovery_id=? AND state=?",
             (state, retry_attempt_id, timestamp, str(recovery_id), current_state),
         )
         if self.db.execute("SELECT changes()").fetchone()[0] != 1:
@@ -317,3 +350,5 @@ class ExecutionRecoveryStore:
             raise ExecutionRecoveryError("retry_operation_state_conflict")
         self.db.commit()
         return self.get_retry_operation(recovery_id)
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

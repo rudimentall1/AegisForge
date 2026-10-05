@@ -75,3 +75,65 @@ def test_active_attempt_cannot_be_retried():
     s.create("task-1", "grant-1", "hash-1", "idem-1")
     with pytest.raises(ExecutionAttemptError, match="idempotency_key_active"):
         s.create("task-1", "grant-2", "hash-1", "idem-1", retry=True)
+
+
+def test_fresh_running_attempt_is_not_stale():
+    s = store()
+    now = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    a = s.create("task-1", "grant-1", "hash-1", "idem-1", now=now)
+    leased = s.transition(a.attempt_id, "LEASED", now=now)
+    s.transition(a.attempt_id, "RUNNING", now=now)
+    before_expiry = datetime.fromisoformat(leased.lease_expires_at) - timedelta(seconds=1)
+
+    assert s.find_stale_running(now=before_expiry) == []
+    assert s.get(a.attempt_id).state is ExecutionAttemptState.RUNNING
+
+
+def test_expired_running_without_receipt_is_recovery_candidate():
+    s = store()
+    now = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    a = s.create("task-1", "grant-1", "hash-1", "idem-1", now=now)
+    leased = s.transition(a.attempt_id, "LEASED", now=now)
+    s.transition(a.attempt_id, "RUNNING", now=now)
+    stale_at = datetime.fromisoformat(leased.lease_expires_at) + timedelta(seconds=1)
+
+    candidates = s.find_stale_running(now=stale_at)
+
+    assert [item.attempt_id for item in candidates] == [a.attempt_id]
+    assert candidates[0].state is ExecutionAttemptState.RUNNING
+    assert candidates[0].receipt_id == ""
+    assert s.get(a.attempt_id).state is ExecutionAttemptState.RUNNING
+
+
+def test_running_attempt_with_receipt_is_not_recovery_candidate():
+    s = store()
+    now = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    a = s.create("task-1", "grant-1", "hash-1", "idem-1", now=now)
+    leased = s.transition(a.attempt_id, "LEASED", now=now)
+    s.transition(a.attempt_id, "RUNNING", now=now)
+    stale_at = datetime.fromisoformat(leased.lease_expires_at) + timedelta(seconds=1)
+    s.transition(a.attempt_id, "SUCCEEDED", now=stale_at, receipt_id="receipt-1")
+
+    assert s.find_stale_running(now=stale_at + timedelta(seconds=1)) == []
+
+
+def test_stale_running_detection_is_read_only_and_repeatable():
+    s = store()
+    now = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    a = s.create("task-1", "grant-1", "hash-1", "idem-1", now=now)
+    leased = s.transition(a.attempt_id, "LEASED", now=now)
+    s.transition(a.attempt_id, "RUNNING", now=now)
+    stale_at = datetime.fromisoformat(leased.lease_expires_at) + timedelta(seconds=1)
+
+    first = s.find_stale_running(now=stale_at)
+    second = s.find_stale_running(now=stale_at)
+
+    assert [item.attempt_id for item in first] == [a.attempt_id]
+    assert [item.attempt_id for item in second] == [a.attempt_id]
+    assert s.get(a.attempt_id).state is ExecutionAttemptState.RUNNING
+
+
+def test_stale_running_detection_rejects_non_positive_limit():
+    s = store()
+    with pytest.raises(ExecutionAttemptError, match="limit_must_be_positive"):
+        s.find_stale_running(limit=0)

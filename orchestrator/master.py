@@ -1536,7 +1536,12 @@ class AutonomousPlanner:
                     "Candidate generated from security findings requiring technical review.",
                     max(0.60, min(0.75, float(gain or 0.0))),
                 ))
-            elif opportunities:
+            elif opportunities and isinstance(result, dict) and result.get("technical_review"):
+                # Commercial validation is downstream of implementation-level
+                # evidence. Without a Developer technical_review, the cheaper
+                # OpportunityHunter path can starve the technical/security
+                # pipeline because action economics may prefer it. Keep the
+                # evidence gate explicit: Analyst -> Developer first.
                 candidates.append((
                     "REFINE",
                     "opportunity_hunter",
@@ -1544,7 +1549,7 @@ class AutonomousPlanner:
                         "Independently validate the concrete opportunities "
                         f"identified by analysis: {self.format_items(opportunities[:10])}"
                     ),
-                    "Candidate generated from unresolved commercial opportunities.",
+                    "Candidate generated from unresolved commercial opportunities after technical evidence exists.",
                     max(0.35, min(0.60, float(gain or 0.0))),
                 ))
 

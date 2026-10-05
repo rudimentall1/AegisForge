@@ -22,8 +22,12 @@ class Researcher:
             "grid energy optimization distributed energy",
         ],
         "Security": [
+            "AI agent security authorization",
+            "agent identity machine identity workload identity",
+            "software supply chain security SBOM provenance",
+            "API security runtime authorization",
+            "post quantum cryptography migration cryptographic inventory",
             "cybersecurity security automation",
-            "application security vulnerability detection",
         ],
         "Web3": [
             "web3 infrastructure blockchain",

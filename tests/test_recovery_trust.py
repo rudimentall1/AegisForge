@@ -70,3 +70,63 @@ def test_registry_rejects_noncanonical_key_id():
                 name="bad",
             )
         ])
+
+
+def test_registry_lifecycle_suspend_resume_revoke():
+    signer = CapabilitySigner.generate()
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="lifecycle",
+        )
+    ])
+
+    assert registry.status(signer.key_id) == "ACTIVE"
+    registry.transition(signer.key_id, "SUSPENDED", "investigate attestor")
+    with pytest.raises(RecoveryTrustError, match="attestor_suspended"):
+        registry.require(signer.key_id, signer.public_key)
+
+    registry.transition(signer.key_id, "ACTIVE", "investigation cleared")
+    assert registry.require(signer.key_id, signer.public_key).key_id == signer.key_id
+
+    registry.transition(signer.key_id, "REVOKED", "key compromise")
+    with pytest.raises(RecoveryTrustError, match="attestor_revoked"):
+        registry.require(signer.key_id, signer.public_key)
+
+
+def test_registry_rejects_invalid_lifecycle_transitions_and_requires_reason():
+    signer = CapabilitySigner.generate()
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="lifecycle",
+        )
+    ])
+
+    with pytest.raises(RecoveryTrustError, match="attestor_transition_reason_required"):
+        registry.transition(signer.key_id, "SUSPENDED", " ")
+
+    registry.transition(signer.key_id, "REVOKED", "retired")
+    with pytest.raises(RecoveryTrustError, match="invalid_attestor_transition"):
+        registry.transition(signer.key_id, "ACTIVE", "restore")
+
+
+def test_registry_history_is_auditable():
+    signer = CapabilitySigner.generate()
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="history",
+        )
+    ])
+
+    registry.transition(signer.key_id, "SUSPENDED", "temporary suspension")
+    history = registry.history(signer.key_id)
+
+    assert [event["to_status"] for event in history] == ["ACTIVE", "SUSPENDED"]
+    assert history[1]["from_status"] == "ACTIVE"
+    assert history[1]["reason"] == "temporary suspension"
+    assert all(event["occurred_at"] for event in history)

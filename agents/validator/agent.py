@@ -1,5 +1,3 @@
-[Reading 425 lines from start (total: 425 lines, 0 remaining)]
-
 import json
 import os
 from shared.task import Task
@@ -425,5 +423,3 @@ class Validator:
             task.result = {"agent": self.name, "error_type": type(exc).__name__,
                            "error": str(exc)}
         return task
-
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

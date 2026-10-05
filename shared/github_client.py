@@ -354,12 +354,14 @@ class GitHubClient:
         query: str,
         limit: int = 5,
         cache_ttl: int = 3600,
+        page: int = 1,
     ):
         params = {
             "q": query,
             "sort": "stars",
             "order": "desc",
             "per_page": limit,
+            "page": page,
         }
 
         print(

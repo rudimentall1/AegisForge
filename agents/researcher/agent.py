@@ -138,13 +138,36 @@ class Researcher:
             for index, query in enumerate(queries):
                 search_query = self._rotated_query(query, rotation, index)
                 print(f"[Researcher] SEARCH: {search_query}", flush=True)
-                for repo in self.github.search_repositories(search_query, limit=5):
-                    name = str(repo.get("name") or "").strip()
-                    if not name or name.lower() in excluded or name.lower() in seen:
-                        continue
-                    seen.add(name.lower())
-                    repositories.append(repo)
-                    signals.append(self._signal(repo, search_query))
+
+                # GitHub search is ranked and therefore tends to return the
+                # same top repositories on every cycle. When the first page
+                # contains only previously discovered identities, advance a
+                # few pages instead of treating an exhausted top page as a
+                # discovery failure. Extra pages are requested only when
+                # needed, keeping normal cycles cheap on API quota.
+                for page in range(1, 6):
+                    batch = self.github.search_repositories(
+                        search_query,
+                        limit=5,
+                        page=page,
+                    )
+                    if not batch:
+                        break
+
+                    novel = 0
+                    for repo in batch:
+                        name = str(repo.get("name") or "").strip()
+                        if not name or name.lower() in excluded or name.lower() in seen:
+                            continue
+                        seen.add(name.lower())
+                        repositories.append(repo)
+                        signals.append(self._signal(repo, search_query))
+                        novel += 1
+
+                    # One page already produced useful novel candidates.
+                    # Paginate only when the page was exhausted by duplicates.
+                    if novel:
+                        break
 
             if not repositories:
                 raise RuntimeError("GitHub returned zero repositories for research queries")

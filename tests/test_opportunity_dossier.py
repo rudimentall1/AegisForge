@@ -44,3 +44,40 @@ def test_commercial_dossier_exposes_uncertainty():
     assert dossier["commercial_readiness"] == "EARLY_SIGNAL"
     assert len(dossier["uncertainties"]) >= 3
 
+
+
+def test_dossiers_change_with_repository_capability():
+    hunter = OpportunityHunter()
+    common_analysis = {"opportunity_score": 80}
+    technical = {
+        "technical_maturity_score": 8,
+        "has_tests": True,
+        "has_ci": True,
+        "stack": ["Python"],
+        "readme_signal": "A robotics simulator for training and evaluating physical AI systems.",
+    }
+    robotics = hunter._commercial_dossier(
+        {
+            "name": "NVIDIA/cosmos",
+            "description": "World foundation models and simulation tools for physical AI.",
+            "topics": ["robotics", "simulation"],
+            "stars": 10000,
+        },
+        ["AI"], technical, {}, common_analysis,
+    )
+    security = hunter._commercial_dossier(
+        {
+            "name": "Acme/agent-scanner",
+            "description": "Security scanner for autonomous AI agents and tool permissions.",
+            "topics": ["security", "agents"],
+            "stars": 1000,
+        },
+        ["AI", "Security"], {**technical, "readme_signal": "Scans agent tool permissions for exploitable policy gaps."}, {"security_posture": {"score": 82}}, common_analysis,
+    )
+
+    assert robotics["domain"] != security["domain"]
+    assert robotics["target_customer"] != security["target_customer"]
+    assert robotics["problem_signal"] != security["problem_signal"]
+    assert robotics["validation_experiment"] != security["validation_experiment"]
+    assert "simulation" in robotics["domain"]
+    assert "security" in security["domain"]

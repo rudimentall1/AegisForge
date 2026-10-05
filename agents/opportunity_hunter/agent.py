@@ -120,40 +120,78 @@ class OpportunityHunter:
 
     @staticmethod
     def _commercial_dossier(repo, categories, technical, security, analysis):
-        name = repo.get("name") or "unknown"
-        description = str(repo.get("description") or "").strip()
-        text = (name + " " + description + " " + " ".join(categories)).lower()
+        """Build a repository-specific opportunity hypothesis from observed evidence.
 
-        if "security" in categories or "guardian" in text or "audit" in text:
-            customer = "Security teams, protocol developers, and engineering organizations operating high-value software."
-            problem = "Security review is fragmented across code, configuration, deployment evidence, and runtime signals, making continuous risk detection expensive."
-            product = "Continuous security intelligence that turns repository and runtime evidence into prioritized, explainable remediation workflows."
-            validation = "Run the detector against a representative repository set and measure precision, actionable findings, and analyst time saved."
-            model = "B2B SaaS with repository/organization tiers and optional enterprise deployment."
-        elif "AI" in categories or "agent" in text or "llm" in text:
-            customer = "Teams deploying AI agents, agent platforms, and autonomous workflows."
-            problem = "Agent behavior, tool permissions, and operational reliability are difficult to observe and control as systems become more autonomous."
-            product = "An agent operations layer for evaluating, monitoring, and constraining autonomous workflows before and during execution."
-            validation = "Instrument a real agent workflow and compare failure detection and remediation time with the existing manual process."
-            model = "Usage-based developer platform with team and enterprise plans."
-        elif "Wallet" in categories or "defi" in text or "swap" in text:
-            customer = "Wallet providers, DeFi applications, and teams managing programmable financial operations."
-            problem = "Users and automated systems need transaction intent and protocol risk evaluated before value-bearing actions are signed."
-            product = "A transaction intelligence and policy layer that scores intent, protocol context, and authorization risk before execution."
-            validation = "Replay historical transactions and measure how many known risky or anomalous actions would have been intercepted."
-            model = "API/SDK pricing by protected transaction volume with enterprise contracts."
-        elif "Infrastructure" in categories or "protocol" in text or "rpc" in text:
-            customer = "Infrastructure operators and developers building on distributed systems."
-            problem = "Infrastructure failures and compatibility risks are discovered late because operational evidence is scattered across code, deployments, and runtime behavior."
-            product = "Evidence-driven infrastructure intelligence that detects operational risk and recommends targeted verification."
-            validation = "Monitor a live service and compare detected incidents or regressions against its existing observability stack."
-            model = "Developer SaaS plus enterprise observability and support."
-        else:
-            customer = "Engineering teams adopting emerging technology."
-            problem = "Teams struggle to convert rapidly changing technical signals into validated product decisions."
-            product = "A decision-intelligence layer that combines technical maturity, security, adoption, and validation evidence."
-            validation = "Evaluate a fixed set of emerging technologies and compare generated recommendations with expert review."
-            model = "Research/developer SaaS with team and enterprise tiers."
+        This is deliberately deterministic: public popularity is evidence of interest,
+        not evidence of a buyer. Every commercial claim is therefore separated from
+        observed technical signals and explicit unknowns.
+        """
+        name = str(repo.get("name") or "unknown")
+        description = str(repo.get("description") or "").strip()
+        topics = [str(x) for x in (repo.get("topics") or [])]
+        stack = [str(x) for x in (technical.get("stack") or [])]
+        readme_signal = str(technical.get("readme_signal") or "").strip()
+        corpus = " ".join([name, description, " ".join(topics), " ".join(stack), readme_signal]).lower()
+
+        def has(*terms):
+            return any(term in corpus for term in terms)
+
+        domain = "general developer infrastructure"
+        technology_surface = stack[:4] or [technical.get("language") or "repository"]
+        customer = "Engineering teams evaluating or operating this technology."
+        problem = "The repository exposes a technical capability, but the buyer problem is not yet established from public evidence."
+        product = "A product built around the repository's concrete capability, with the commercial problem validated separately from technical interest."
+        validation = "Interview teams using or evaluating this technology; identify a repeated costly workflow and test willingness to pay for a narrowly defined solution."
+        model = "B2B SaaS or API pricing tied to the measurable workflow being protected or automated."
+
+        if has("simulation", "simulator", "physical ai", "robotics", "autonomous vehicle", "cosmos", "isaac"):
+            domain = "simulation and evaluation for physical/robotic AI"
+            technology_surface = [x for x in (stack + topics) if x][:5] or ["simulation"]
+            customer = "Robotics, autonomous-vehicle, and physical-AI teams that need repeatable simulation and evaluation before deploying models into the real world."
+            problem = f"{description or name} appears to address simulation/evaluation of physical AI; the commercial pain hypothesis is reducing the cost, risk, or iteration time of validating models before real-world deployment."
+            product = "A managed evaluation and evidence layer around simulation workloads: scenario management, reproducible runs, failure analysis, and deployment-readiness evidence."
+            validation = "Run representative scenarios for one robotics/physical-AI team and measure simulation-to-deployment iteration time, failed-run detection, and infrastructure cost saved."
+            model = "Usage-based simulation/evaluation infrastructure with team and enterprise tiers."
+        elif has("mcp", "agent", "llm", "tool calling", "autonomous workflow", "orchestration") and not has("security", "vulnerability", "scanner", "audit", "guardian", "exploit"):
+            domain = "AI-agent orchestration and control"
+            technology_surface = [x for x in (stack + topics) if x][:5] or ["agent runtime"]
+            customer = "Teams deploying AI agents or tool-using workflows in production."
+            problem = f"{description or name} indicates an agent/tooling capability; the commercial pain hypothesis is controlling reliability, permissions, and operational failures as autonomous workflows gain access to real systems."
+            product = "A control and evidence layer that observes agent actions, enforces bounded capabilities, and records outcomes for debugging and audit."
+            validation = "Instrument one production-like agent workflow and measure blocked unsafe actions, prevented failures, operator time saved, and the cost of integrating the control layer."
+            model = "Usage-based API/SDK pricing by protected agent actions, with enterprise deployment and audit features."
+        elif has("security", "vulnerability", "scanner", "audit", "guardian", "policy", "exploit"):
+            domain = "software security and continuous assurance"
+            technology_surface = [x for x in (stack + topics) if x][:5] or ["security tooling"]
+            customer = "Security and engineering teams responsible for software or high-value infrastructure."
+            problem = f"{description or name} exposes a security-oriented capability; the commercial pain hypothesis is reducing the time and expertise required to detect, reproduce, prioritize, and remediate actionable risk."
+            product = "Continuous assurance that turns repository/runtime evidence into reproducible findings, prioritized remediation, and verifiable closure."
+            validation = "Run against representative repositories and compare precision, reproducibility, analyst minutes per finding, and remediation lead time with the existing security workflow."
+            model = "B2B SaaS priced by repositories/assets, with enterprise deployment and compliance evidence."
+        elif has("wallet", "transaction", "defi", "smart contract", "solidity", "evm", "blockchain", "rpc"):
+            domain = "programmable financial and blockchain infrastructure"
+            technology_surface = [x for x in (stack + topics) if x][:5] or ["blockchain infrastructure"]
+            customer = "Wallet, protocol, infrastructure, and financial-automation teams operating programmable assets."
+            problem = f"{description or name} points to blockchain/financial infrastructure; the commercial pain hypothesis is preventing expensive transaction, integration, or operational failures before value-bearing actions execute."
+            product = "An evidence and control layer that validates transaction intent, execution context, and operational state before and after value-bearing actions."
+            validation = "Replay representative historical transactions or workflows and measure prevented failures, false positives, integration effort, and financial/operational loss avoided."
+            model = "API/SDK pricing by protected transaction or execution volume, with enterprise contracts."
+        elif has("rpc", "node", "kubernetes", "observability", "operator", "storage", "database", "network"):
+            domain = "distributed infrastructure operations"
+            technology_surface = [x for x in (stack + topics) if x][:5] or ["infrastructure"]
+            customer = "Infrastructure operators and platform teams running distributed services."
+            problem = f"{description or name} indicates infrastructure capability; the commercial pain hypothesis is reducing downtime, diagnosis time, and operational toil when distributed components fail or drift."
+            product = "Evidence-driven operations that correlates configuration, deployment, and runtime signals into reproducible incident and regression workflows."
+            validation = "Monitor one live service and compare incident detection, diagnosis time, false alerts, and operator effort against the existing observability stack."
+            model = "Infrastructure SaaS priced by monitored assets/events, with enterprise support and deployment options."
+        elif has("dataset", "inference", "training", "embedding", "model", "machine learning"):
+            domain = "machine-learning development infrastructure"
+            technology_surface = [x for x in (stack + topics) if x][:5] or ["ML infrastructure"]
+            customer = "ML engineering teams building, evaluating, or operating models at scale."
+            problem = f"{description or name} indicates an ML capability; the commercial pain hypothesis is reducing iteration cost, evaluation uncertainty, or operational failure around model development."
+            product = "A reproducible evaluation and operations layer that connects model inputs, runs, outputs, and production evidence."
+            validation = "Apply it to one real model workflow and measure evaluation time, reproducibility, infrastructure cost, and production regressions detected."
+            model = "Usage-based developer infrastructure with team and enterprise plans."
 
         maturity = technical.get("technical_maturity_score", 0)
         security_score = security.get("security_posture", {}).get("score", 0)
@@ -163,7 +201,12 @@ class OpportunityHunter:
             "security_score": security_score,
             "has_tests": bool(technical.get("has_tests")),
             "has_ci": bool(technical.get("has_ci")),
+            "stack": technology_surface,
+            "topics": topics[:10],
+            "repository_description": description,
+            "readme_signal": readme_signal,
         }
+
         uncertainty = []
         if not technical.get("has_tests"):
             uncertainty.append("test coverage is not established")
@@ -171,30 +214,27 @@ class OpportunityHunter:
             uncertainty.append("CI evidence is not established")
         if security and security_score < 60:
             uncertainty.append("security posture requires further validation")
-        if not repo.get("description"):
+        if not description and not readme_signal:
             uncertainty.append("market/problem context is inferred from technical signals")
+        uncertainty.append("willingness to pay and buyer demand are not validated")
 
         if "test coverage is not established" in uncertainty:
             validation_type = "technical"
         elif "security posture requires further validation" in uncertainty:
             validation_type = "security"
-        elif "market/problem context is inferred from technical signals" in uncertainty:
-            validation_type = "commercial"
         else:
-            # Repository popularity is not proof of adoption or willingness to pay.
-            # When technical/security uncertainty is already bounded, the remaining
-            # question is commercial and must be treated as a market hypothesis.
             validation_type = "commercial"
-            uncertainty.append("willingness to pay and buyer demand are not validated")
 
         return {
+            "domain": domain,
+            "technology_surface": technology_surface,
             "target_customer": customer,
             "problem_signal": problem,
             "product_thesis": product,
             "validation_experiment": validation,
             "validation_type": validation_type,
             "business_model": model,
-            "commercial_moat": "Provenance-rich evidence graph and accumulated validation history can make the system harder to replace than a one-shot repository scanner.",
+            "commercial_moat": "Accumulated repository-specific evidence, validation history, and outcome data can compound into a decision dataset that a one-shot scanner cannot reproduce.",
             "evidence": evidence,
             "uncertainties": uncertainty,
             "source_description": description,

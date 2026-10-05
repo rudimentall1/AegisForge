@@ -602,6 +602,16 @@ class Developer:
             + list(security_files.values())
         )
 
+        readme_signal = ""
+        for content in readmes.values():
+            for line in content.splitlines():
+                line = line.strip().lstrip("#*- ")
+                if len(line) >= 30:
+                    readme_signal = line[:320]
+                    break
+            if readme_signal:
+                break
+
         security_signals = self._security_signals(
             paths,
             configs,
@@ -739,6 +749,7 @@ class Developer:
             "readme_files": list(
                 readmes.keys()
             ),
+            "readme_signal": readme_signal,
             "has_tests": has_tests,
             "has_ci": has_ci,
             "has_security_policy": has_security,

@@ -288,13 +288,32 @@ class ExecutionRecoveryStore:
         ).fetchone()
 
     def update_retry_operation(self, recovery_id, state, retry_attempt_id=None, now=None):
+        allowed_transitions = {
+            "CLAIMED": {"AUTHORIZED"},
+            "AUTHORIZED": {"CREATED"},
+            "CREATED": set(),
+        }
+        state = str(state)
+        current = self.get_retry_operation(recovery_id)
+        if current is None:
+            raise ExecutionRecoveryError("retry_operation_not_found")
+        current_state = current[3]
+        if state == current_state:
+            if state == "CREATED" and retry_attempt_id and current[5] not in {None, str(retry_attempt_id)}:
+                raise ExecutionRecoveryError("retry_operation_state_conflict")
+            return current
+        if state not in allowed_transitions.get(current_state, set()):
+            raise ExecutionRecoveryError("retry_operation_invalid_transition")
+        if state == "CREATED" and not str(retry_attempt_id or "").strip():
+            raise ExecutionRecoveryError("retry_attempt_id_required")
+
         timestamp = self._now(now).isoformat()
         self.db.execute(
-            f"UPDATE {self.OP_TABLE} SET state=?, retry_attempt_id=COALESCE(?,retry_attempt_id), updated_at=? WHERE recovery_id=?",
-            (str(state), retry_attempt_id, timestamp, str(recovery_id)),
+            f"UPDATE {self.OP_TABLE} SET state=?, retry_attempt_id=COALESCE(?,retry_attempt_id), updated_at=? WHERE recovery_id=? AND state=?",
+            (state, retry_attempt_id, timestamp, str(recovery_id), current_state),
         )
         if self.db.execute("SELECT changes()").fetchone()[0] != 1:
             self.db.rollback()
-            raise ExecutionRecoveryError("retry_operation_not_found")
+            raise ExecutionRecoveryError("retry_operation_state_conflict")
         self.db.commit()
         return self.get_retry_operation(recovery_id)

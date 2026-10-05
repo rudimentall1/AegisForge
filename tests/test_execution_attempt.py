@@ -101,7 +101,7 @@ def test_expired_running_without_receipt_is_recovery_candidate():
 
     assert [item.attempt_id for item in candidates] == [a.attempt_id]
     assert candidates[0].state is ExecutionAttemptState.RUNNING
-    assert candidates[0].receipt_id == ""
+    assert candidates[0].receipt_id is None
     assert s.get(a.attempt_id).state is ExecutionAttemptState.RUNNING
 
 

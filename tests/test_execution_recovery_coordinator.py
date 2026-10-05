@@ -1,4 +1,4 @@
-[Reading 963 lines from start (total: 963 lines, 0 remaining)]
+
 
 
 import sqlite3
@@ -963,5 +963,3 @@ def test_concurrent_stale_retry_reclaim_has_one_winner(tmp_path):
     assert sorted(results) == [False, True]
     db1.close()
     db2.close()
-
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

@@ -766,13 +766,17 @@ class AutonomousPlanner:
                 else []
             )
             if isinstance(result, dict) and result.get("evaluated_by") == "opportunity_hunter":
-                return (
-                    "COMPLETE",
-                    None,
-                    None,
-                    "Opportunity Hunter has completed the commercial refinement pass; retain the resulting opportunity package as the branch output.",
-                    max(gain, 0.40),
+                dossier_quality = getattr(self, "intelligence_quality", IntelligenceQualityEvaluator()).evaluate_batch(
+                    result.get("opportunities", [])
                 )
+                if dossier_quality["duplicate_rate"] < 0.50:
+                    return (
+                        "COMPLETE",
+                        None,
+                        None,
+                        "Opportunity Hunter has completed the commercial refinement pass; retain the resulting opportunity package as the branch output.",
+                        max(gain, 0.40),
+                    )
             return (
                 "REFINE",
                 "developer",
@@ -984,18 +988,16 @@ class AutonomousPlanner:
                 if dossier_quality["duplicate_rate"] >= 0.50:
                     return (
                         "REFINE",
-                        "opportunity_hunter",
+                        "analyst",
                         (
-                            "Rewrite the opportunity dossiers to eliminate template duplication. "
-                            "Preserve repository-specific technical evidence, but make the target customer, "
-                            "problem signal, product thesis, validation experiment, and business model materially "
-                            "different where the underlying technologies differ. Do not use generic agent/security "
-                            "language unless the repository evidence directly supports it. "
+                            "Independently re-analyze the underlying repositories because the commercial dossiers are too similar. "
+                            "Identify materially different technical capabilities, failure modes, users, and workflows. "
+                            "Do not infer a shared market problem merely because repositories are in the same broad category. "
                             f"Duplicate rate: {dossier_quality['duplicate_rate']}. "
                             f"Duplicate groups: {self.format_items(dossier_quality['duplicate_groups'][:5])}. "
                             f"Opportunities: {self.format_items(opportunities[:10])}."
                         ),
-                        "The quality evaluator detected excessive cross-repository dossier duplication; another commercial pass must increase information specificity before validation consumes resources.",
+                        "The quality evaluator detected excessive cross-repository dossier duplication; an independent analytical pass must extract new evidence before commercial validation consumes resources.",
                         max(gain, 0.60),
                     )
 

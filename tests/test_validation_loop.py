@@ -163,3 +163,34 @@ def test_planner_penalizes_repeated_blocked_validation():
     }]
     selected = planner.validation_followup(opportunities)
     assert selected[2] == "commercial"
+
+
+def test_duplicate_opportunity_dossiers_route_to_independent_analysis():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    task = {
+        "role": "opportunity_hunter",
+        "result": {
+            "repositories": [{"name": "a/project"}, {"name": "b/project"}],
+            "opportunities": [
+                {
+                    "name": "a/project",
+                    "target_customer": "Teams deploying AI agents and autonomous workflows.",
+                    "problem_signal": "Deployment, orchestration, reliability, or security complexity",
+                    "product_thesis": "Build agent infrastructure or an autonomous workflow product.",
+                    "validation_experiment": "Check users, deployment friction, and willingness to pay.",
+                    "business_model": "B2B SaaS for agent infrastructure.",
+                },
+                {
+                    "name": "b/project",
+                    "target_customer": "Teams deploying AI agents and autonomous workflows.",
+                    "problem_signal": "Deployment, orchestration, reliability, or security complexity",
+                    "product_thesis": "Build agent infrastructure or an autonomous workflow product.",
+                    "validation_experiment": "Check users, deployment friction, and willingness to pay.",
+                    "business_model": "B2B SaaS for agent infrastructure.",
+                },
+            ],
+        },
+    }
+    decision = planner._choose_next_raw(task)
+    assert decision[0] == "REFINE"
+    assert decision[1] == "analyst"

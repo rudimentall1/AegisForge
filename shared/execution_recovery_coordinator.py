@@ -1,3 +1,5 @@
+[Reading 259 lines from start (total: 259 lines, 0 remaining)]
+
 
 from shared.execution_attempt import ExecutionAttemptState, ExecutionAttemptStore, ExecutionAttemptError
 from shared.execution_recovery import ExecutionRecoveryError, ExecutionRecoveryStore, RecoveryDecision
@@ -169,6 +171,7 @@ class ExecutionRecoveryCoordinator:
         operation_state = operation[3]
         retry_grant_id = operation[4]
         retry_attempt_id = operation[5]
+        claim_token = operation[8]
 
         if operation_state == "CREATED" and retry_attempt_id:
             return self.attempts.get(retry_attempt_id)
@@ -181,7 +184,7 @@ class ExecutionRecoveryCoordinator:
                 persisted = self.execution_gate.grant_store.get_signed(retry_grant_id)
                 if persisted is not None:
                     operation = self.recovery.update_retry_operation(
-                        review.recovery_id, "AUTHORIZED", now=now
+                        review.recovery_id, "AUTHORIZED", now=now, claim_token=claim_token
                     )
                     operation_state = "AUTHORIZED"
                 else:
@@ -209,7 +212,7 @@ class ExecutionRecoveryCoordinator:
                 retry_grant_id=retry_grant_id,
             )
             self.recovery.update_retry_operation(
-                review.recovery_id, "AUTHORIZED", now=now
+                review.recovery_id, "AUTHORIZED", now=now, claim_token=claim_token
             )
 
         # Close the ambiguous execution only if this is the first pass. If a
@@ -256,3 +259,5 @@ class ExecutionRecoveryCoordinator:
             raise ExecutionRecoveryCoordinatorError(
                 "retry_attempt_create_failed"
             ) from exc
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

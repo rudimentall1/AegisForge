@@ -269,3 +269,29 @@ def test_persistent_history_detects_chain_link_tampering(tmp_path):
     restarted = RecoveryAttestorRegistry(store=db)
     with pytest.raises(RecoveryTrustError, match="trust_history_prev_hash_mismatch"):
         restarted.verify_history(signer.key_id)
+
+
+def test_persistent_history_detects_missing_integrity_record(tmp_path):
+    signer = CapabilitySigner.generate()
+    db = tmp_path / "attestors.sqlite3"
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="missing-integrity",
+        )
+    ], store=db)
+    registry.transition(signer.key_id, RecoveryAttestorStatus.SUSPENDED, "incident")
+
+    import sqlite3
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "DELETE FROM recovery_attestor_history_integrity WHERE key_id = ? AND event_id = 2",
+        (signer.key_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    restarted = RecoveryAttestorRegistry(store=db)
+    with pytest.raises(RecoveryTrustError, match="trust_history_missing"):
+        restarted.verify_history(signer.key_id)

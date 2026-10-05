@@ -16,6 +16,7 @@ from shared.queue import TaskQueue
 from shared.result_codec import decode as decode_result
 from shared.evidence_ledger import EvidenceLedger
 from shared.action_intent import default_capability_intent
+from shared.intelligence_quality import IntelligenceQualityEvaluator
 
 
 DECISIONS = {
@@ -64,6 +65,7 @@ class AutonomousPlanner:
     def __init__(self, queue=None):
         self.queue = queue or TaskQueue()
         self.evidence_ledger = EvidenceLedger(self.queue.db)
+        self.intelligence_quality = IntelligenceQualityEvaluator()
 
     # =========================================================
     # RESULT NORMALIZATION
@@ -977,6 +979,41 @@ class AutonomousPlanner:
         opportunities = self.extract_opportunities(result)
 
         if opportunities:
+            if role == "opportunity_hunter" and not result.get("validation_results"):
+                dossier_quality = getattr(self, "intelligence_quality", IntelligenceQualityEvaluator()).evaluate_batch(opportunities)
+                if dossier_quality["duplicate_rate"] >= 0.50:
+                    return (
+                        "REFINE",
+                        "opportunity_hunter",
+                        (
+                            "Rewrite the opportunity dossiers to eliminate template duplication. "
+                            "Preserve repository-specific technical evidence, but make the target customer, "
+                            "problem signal, product thesis, validation experiment, and business model materially "
+                            "different where the underlying technologies differ. Do not use generic agent/security "
+                            "language unless the repository evidence directly supports it. "
+                            f"Duplicate rate: {dossier_quality['duplicate_rate']}. "
+                            f"Duplicate groups: {self.format_items(dossier_quality['duplicate_groups'][:5])}. "
+                            f"Opportunities: {self.format_items(opportunities[:10])}."
+                        ),
+                        "The quality evaluator detected excessive cross-repository dossier duplication; another commercial pass must increase information specificity before validation consumes resources.",
+                        max(gain, 0.60),
+                    )
+
+            if role == "opportunity_hunter" and not result.get("validation_results"):
+                return (
+                    "REFINE",
+                    "validator",
+                    (
+                        "Execute the validation experiment selected for each "
+                        "opportunity based on its unresolved uncertainty. Use the "
+                        "requested validation_type (technical, adoption, dependency, "
+                        "security, or commercial), prefer authoritative evidence, "
+                        "and record observed metrics plus remaining uncertainty. "
+                        f"Opportunities: {self.format_items(opportunities[:10])}."
+                    ),
+                    "A commercial dossier is a hypothesis until a concrete validation experiment is executed.",
+                    max(gain, 0.55),
+                )
             if role == "opportunity_hunter" and not result.get("validation_results"):
                 return (
                     "REFINE",

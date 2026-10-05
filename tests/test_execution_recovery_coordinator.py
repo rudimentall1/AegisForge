@@ -776,3 +776,49 @@ def test_existing_retry_attempt_is_recovered_if_process_dies_before_operation_up
     assert operation[3] == "CREATED"
     assert operation[5] == existing.attempt_id
     db.close()
+
+
+def test_retry_operation_state_machine_rejects_impossible_transitions(tmp_path):
+    from shared.execution_recovery import ExecutionRecoveryStore, ExecutionRecoveryError
+
+    db = sqlite3.connect(tmp_path / "recovery.sqlite")
+    attempts = ExecutionAttemptStore(db)
+    attempt = attempts.create("task-1", "grant-1", "intent-1", "operation-1")
+    attempt = attempts.transition(attempt.attempt_id, ExecutionAttemptState.LEASED)
+    attempt = attempts.transition(attempt.attempt_id, ExecutionAttemptState.RUNNING)
+    store = ExecutionRecoveryStore(db)
+    review = store.open(attempt)
+    review = store.resolve(
+        review.recovery_id,
+        RecoveryDecision.SAFE_TO_RETRY,
+        verifier_id="verifier-1",
+        outcome_id="outcome-1",
+    )
+    operation, created = store.claim_retry(review)
+    assert created is True
+    assert operation[3] == "CLAIMED"
+
+    with pytest.raises(ExecutionRecoveryError, match="retry_operation_invalid_transition"):
+        store.update_retry_operation(review.recovery_id, "CREATED", retry_attempt_id="attempt-2")
+
+    store.update_retry_operation(review.recovery_id, "AUTHORIZED")
+    with pytest.raises(ExecutionRecoveryError, match="retry_operation_invalid_transition"):
+        store.update_retry_operation(review.recovery_id, "CLAIMED")
+
+    with pytest.raises(ExecutionRecoveryError, match="retry_attempt_id_required"):
+        store.update_retry_operation(review.recovery_id, "CREATED")
+
+    store.update_retry_operation(review.recovery_id, "CREATED", retry_attempt_id="attempt-2")
+    assert store.get_retry_operation(review.recovery_id)[3] == "CREATED"
+
+    with pytest.raises(ExecutionRecoveryError, match="retry_operation_invalid_transition"):
+        store.update_retry_operation(review.recovery_id, "AUTHORIZED")
+    with pytest.raises(ExecutionRecoveryError, match="retry_operation_invalid_transition"):
+        store.update_retry_operation(review.recovery_id, "CLAIMED")
+
+    assert store.update_retry_operation(
+        review.recovery_id, "CREATED", retry_attempt_id="attempt-2"
+    )[5] == "attempt-2"
+    with pytest.raises(ExecutionRecoveryError, match="retry_operation_state_conflict"):
+        store.update_retry_operation(review.recovery_id, "CREATED", retry_attempt_id="attempt-3")
+    db.close()

@@ -263,7 +263,7 @@ class RecoveryAttestorRegistry:
             {
                 "from_status": current,
                 "to_status": new_status,
-                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "occurred_at": occurred_at,
                 "reason": reason.strip(),
             }
         )

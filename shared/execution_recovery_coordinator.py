@@ -136,12 +136,22 @@ class ExecutionRecoveryCoordinator:
                 raise ExecutionRecoveryCoordinatorError("recovery_context_incomplete")
             kwargs = dict(context.get("kwargs") or {})
             kwargs.setdefault("now", now)
-            result = self.retry_if_safe(
-                attempt.attempt_id,
-                context["intent"],
-                context["contract"],
-                **kwargs,
-            )
+            try:
+                result = self.retry_if_safe(
+                    attempt.attempt_id,
+                    context["intent"],
+                    context["contract"],
+                    **kwargs,
+                )
+            except ExecutionRecoveryError:
+                # A stale-candidate snapshot can race with a receipt or a
+                # terminal state becoming durable. In that case the candidate
+                # is no longer ambiguous and must be skipped, not retried.
+                current = self.attempts.get(attempt.attempt_id)
+                if current.state != ExecutionAttemptState.RUNNING or current.receipt_id:
+                    results.append((attempt.attempt_id, None))
+                    continue
+                raise
             results.append((attempt.attempt_id, result))
         return results
     def retry_if_safe(

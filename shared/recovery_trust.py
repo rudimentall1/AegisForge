@@ -307,6 +307,8 @@ class RecoveryAttestorRegistry:
                     "to_status": to_status,
                     "occurred_at": occurred_at,
                     "reason": reason,
+                    "prev_hash": prev_hash,
+                    "event_hash": event_hash,
                 }
                 for from_status, to_status, occurred_at, reason, prev_hash, event_hash
                 in self._store.history(key_id)
@@ -345,11 +347,19 @@ class RecoveryAttestorRegistry:
                 "to_status": status,
                 "occurred_at": occurred_at,
                 "reason": "registered",
+                "prev_hash": RecoveryAttestorStore.GENESIS_HASH,
+                "event_hash": RecoveryAttestorStore.history_event_hash(
+                    attestor.key_id, None, status, occurred_at, "registered",
+                    RecoveryAttestorStore.GENESIS_HASH,
+                ),
             }
         ]
         if self._store is not None:
             try:
-                self._store.insert(attestor, status, self._history[attestor.key_id][0]["occurred_at"])
+                event_hash = self._store.insert(
+                    attestor, status, self._history[attestor.key_id][0]["occurred_at"]
+                )
+                self._history[attestor.key_id][0]["event_hash"] = event_hash
             except Exception:
                 self._attestors.pop(attestor.key_id, None)
                 self._status.pop(attestor.key_id, None)
@@ -376,7 +386,14 @@ class RecoveryAttestorRegistry:
             raise RecoveryTrustError("attestor_transition_reason_required")
         occurred_at = datetime.now(timezone.utc).isoformat()
         if self._store is not None:
-            self._store.transition(key_id, current, new_status, reason.strip(), occurred_at)
+            event_hash = self._store.transition(
+                key_id, current, new_status, reason.strip(), occurred_at
+            )
+        else:
+            prev_hash = self._history[key_id][-1]["event_hash"]
+            event_hash = RecoveryAttestorStore.history_event_hash(
+                key_id, current, new_status, occurred_at, reason.strip(), prev_hash
+            )
         self._status[key_id] = new_status
         self._history[key_id].append(
             {
@@ -384,6 +401,8 @@ class RecoveryAttestorRegistry:
                 "to_status": new_status,
                 "occurred_at": occurred_at,
                 "reason": reason.strip(),
+                "prev_hash": self._history[key_id][-1]["event_hash"],
+                "event_hash": event_hash,
             }
         )
         return new_status
@@ -392,6 +411,24 @@ class RecoveryAttestorRegistry:
         if key_id not in self._attestors:
             raise RecoveryTrustError("untrusted_attestor")
         return [dict(event) for event in self._history[key_id]]
+
+    def verify_history(self, key_id):
+        if key_id not in self._attestors:
+            raise RecoveryTrustError("untrusted_attestor")
+        if self._store is not None:
+            return self._store.verify_history(key_id)
+        previous = RecoveryAttestorStore.GENESIS_HASH
+        for event in self._history[key_id]:
+            if event["prev_hash"] != previous:
+                raise RecoveryTrustError("trust_history_prev_hash_mismatch")
+            expected = RecoveryAttestorStore.history_event_hash(
+                key_id, event["from_status"], event["to_status"],
+                event["occurred_at"], event["reason"], previous
+            )
+            if event["event_hash"] != expected:
+                raise RecoveryTrustError("trust_history_event_hash_mismatch")
+            previous = event["event_hash"]
+        return {"valid": True, "head_hash": previous, "events": len(self._history[key_id])}
 
     def require(self, key_id, public_key):
         attestor = self.get(key_id)

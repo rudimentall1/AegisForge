@@ -1,3 +1,5 @@
+[Reading 285 lines from start (total: 285 lines, 0 remaining)]
+
 from shared.task import Task
 
 
@@ -181,7 +183,11 @@ class OpportunityHunter:
         elif "market/problem context is inferred from technical signals" in uncertainty:
             validation_type = "commercial"
         else:
-            validation_type = "adoption"
+            # Repository popularity is not proof of adoption or willingness to pay.
+            # When technical/security uncertainty is already bounded, the remaining
+            # question is commercial and must be treated as a market hypothesis.
+            validation_type = "commercial"
+            uncertainty.append("willingness to pay and buyer demand are not validated")
 
         return {
             "target_customer": customer,
@@ -279,3 +285,5 @@ class OpportunityHunter:
             }
 
         return task
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

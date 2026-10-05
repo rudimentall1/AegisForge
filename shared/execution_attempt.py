@@ -238,6 +238,28 @@ class ExecutionAttemptStore:
         ).fetchone()
         return self.get(row[0]) if row else None
 
+    def find_stale_running(self, now=None, limit=100):
+        """Return RUNNING attempts whose execution lease expired without a receipt.
+
+        Detection is deliberately read-only: a stale execution is not proof that
+        its side effect did not happen, so this method never terminalizes or
+        retries an attempt. Recovery verification must decide what happened.
+        """
+        if limit is None or int(limit) < 1:
+            raise ExecutionAttemptError("limit_must_be_positive")
+        point = self._now(now).isoformat()
+        rows = self.db.execute(
+            f"""SELECT attempt_id FROM {self.TABLE}
+                WHERE state='RUNNING'
+                  AND lease_expires_at IS NOT NULL
+                  AND lease_expires_at <= ?
+                  AND COALESCE(receipt_id, '') = ''
+                ORDER BY lease_expires_at ASC, attempt_id ASC
+                LIMIT ?""",
+            (point, int(limit)),
+        ).fetchall()
+        return [self.get(attempt_id) for (attempt_id,) in rows]
+
     def expire_leases(self, now=None):
         point = self._now(now)
         rows = self.db.execute(

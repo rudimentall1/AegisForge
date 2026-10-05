@@ -63,8 +63,10 @@ def test_registry_rejects_noncanonical_key_id():
     signer = CapabilitySigner.generate()
 
     with pytest.raises(RecoveryTrustError, match="attestor_key_id_mismatch"):
-        RecoveryAttestor(
-            key_id="wrong",
-            public_key=signer.public_key,
-            name="bad",
-        )
+        RecoveryAttestorRegistry([
+            RecoveryAttestor(
+                key_id="wrong",
+                public_key=signer.public_key,
+                name="bad",
+            )
+        ])

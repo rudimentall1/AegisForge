@@ -117,3 +117,28 @@ def test_temporal_signing_requires_active_attestor():
 
     with pytest.raises(TemporalTrustError, match="attestor_not_active"):
         sign_temporal_recovery_proof(make_artifact(), signer, registry)
+
+def test_temporal_proof_survives_restart_after_lifecycle_transition(tmp_path):
+    signer, attestor = make_attestor()
+    db = tmp_path / "attestors.sqlite3"
+
+    first = RecoveryAttestorRegistry([attestor], store=db)
+    first.transition(
+        signer.key_id,
+        RecoveryAttestorStatus.SUSPENDED,
+        "maintenance",
+    )
+    first.transition(
+        signer.key_id,
+        RecoveryAttestorStatus.ACTIVE,
+        "maintenance complete",
+    )
+    proof = sign_temporal_recovery_proof(make_artifact(), signer, first)
+
+    restarted = RecoveryAttestorRegistry(store=db)
+    result = verify_temporal_recovery_proof(proof, trusted_attestors=restarted)
+
+    assert result["valid"] is True
+    assert result["trust_event_id"] == trust_event_id(
+        signer.key_id, restarted.history(signer.key_id)[-1]
+    )

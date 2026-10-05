@@ -219,6 +219,7 @@ class RecoveryAttestorRegistry:
             else RecoveryAttestorStatus.SUSPENDED
         )
         self._status[attestor.key_id] = status
+        occurred_at = datetime.now(timezone.utc).isoformat()
         self._history[attestor.key_id] = [
             {
                 "from_status": None,

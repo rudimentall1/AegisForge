@@ -6,6 +6,7 @@ import os
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from shared.recovery_evidence import RecoveryEvidenceChain
+from shared.recovery_trust import RecoveryAttestorRegistry, RecoveryTrustError
 
 
 SCHEMA_VERSION = "recovery-proof-v1"
@@ -95,7 +96,7 @@ def sign_recovery_proof(recovery_artifact, signer):
     return proof
 
 
-def verify_recovery_proof(proof):
+def verify_recovery_proof(proof, trusted_attestors=None):
     _validate_shape(proof)
 
     expected_id = hashlib.sha256(
@@ -122,6 +123,14 @@ def verify_recovery_proof(proof):
         )
     except Exception as exc:
         raise RecoveryProofError("proof_signature_invalid") from exc
+
+    if trusted_attestors is not None:
+        if not isinstance(trusted_attestors, RecoveryAttestorRegistry):
+            raise RecoveryProofError("attestor_registry_required")
+        try:
+            trusted_attestors.require(proof["key_id"], proof["public_key"])
+        except RecoveryTrustError as exc:
+            raise RecoveryProofError(str(exc)) from exc
 
     artifact = proof["recovery_artifact"]
     result = RecoveryEvidenceChain.verify_artifact(artifact)

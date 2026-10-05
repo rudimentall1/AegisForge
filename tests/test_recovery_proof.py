@@ -5,6 +5,7 @@ import pytest
 
 from shared.capability_signing import CapabilitySigner
 from shared.recovery_evidence import RecoveryEvidenceChain
+from shared.recovery_trust import RecoveryAttestor, RecoveryAttestorRegistry
 from shared.recovery_proof import (
     RecoveryProofError,
     sign_recovery_proof,
@@ -70,3 +71,27 @@ def test_recovery_proof_rejects_invalid_artifact_before_signing():
 
     with pytest.raises(RecoveryProofError, match="recovery_artifact_invalid:head_hash_mismatch"):
         sign_recovery_proof(artifact, CapabilitySigner.generate())
+
+
+def test_recovery_proof_requires_registered_attestor_when_trust_registry_is_supplied():
+    signer = CapabilitySigner.generate()
+    proof = sign_recovery_proof(make_artifact(), signer)
+    registry = RecoveryAttestorRegistry()
+
+    with pytest.raises(RecoveryProofError, match="untrusted_attestor"):
+        verify_recovery_proof(proof, trusted_attestors=registry)
+
+
+def test_recovery_proof_accepts_registered_attestor():
+    signer = CapabilitySigner.generate()
+    proof = sign_recovery_proof(make_artifact(), signer)
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="test-attestor",
+        )
+    ])
+
+    result = verify_recovery_proof(proof, trusted_attestors=registry)
+    assert result["valid"] is True

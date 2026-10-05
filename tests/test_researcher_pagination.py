@@ -15,7 +15,7 @@ class FakeGitHub:
             ]
         if page == 2:
             return [
-                {"name": f"new/{len(fake.calls)}", "description": "new", "stars": 80, "language": "Python", "url": "u3", "updated": "now"},
+                {"name": "new/a", "description": "new", "stars": 80, "language": "Python", "url": "u3", "updated": "now"},
             ]
         return []
 
@@ -27,10 +27,8 @@ def test_researcher_paginates_when_first_page_is_exhausted():
 
     task = Task(
         task_id="test-1",
-        description=(
-            "Discover promising AI agent technologies\\n"
-            "Previously discovered repositories to skip: old/a,old/b"
-        ),
+        description="Discover promising AI agent technologies" + chr(10)
+        + "Previously discovered repositories to skip: old/a,old/b",
     )
 
     result = researcher.run(task)
@@ -47,11 +45,17 @@ def test_researcher_does_not_pay_for_extra_pages_when_page_is_novel():
 
     def search(query, limit=5, cache_ttl=3600, page=1):
         fake.calls.append((query, page))
-        return (
-            [{"name": "new/a", "description": "new", "stars": 80,
-              "language": "Python", "url": "u3", "updated": "now"}]
-            if page == 1 else []
-        )
+        if page != 1:
+            return []
+        suffix = str(len(fake.calls))
+        return [{
+            "name": "new/" + suffix,
+            "description": "new",
+            "stars": 80,
+            "language": "Python",
+            "url": "u" + suffix,
+            "updated": "now",
+        }]
 
     fake.search_repositories = search
     researcher.github = fake
@@ -59,5 +63,6 @@ def test_researcher_does_not_pay_for_extra_pages_when_page_is_novel():
     task = Task(task_id="test-2", description="AI agents")
     result = researcher.run(task)
 
-    assert result.result["count"] == 1
+    assert result.result["count"] == 2
+    assert fake.calls
     assert all(page == 1 for _, page in fake.calls)

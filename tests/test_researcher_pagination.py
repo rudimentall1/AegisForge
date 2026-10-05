@@ -15,7 +15,7 @@ class FakeGitHub:
             ]
         if page == 2:
             return [
-                {"name": "new/a", "description": "new", "stars": 80, "language": "Python", "url": "u3", "updated": "now"},
+                {"name": f"new/{len(fake.calls)}", "description": "new", "stars": 80, "language": "Python", "url": "u3", "updated": "now"},
             ]
         return []
 

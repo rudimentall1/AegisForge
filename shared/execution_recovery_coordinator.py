@@ -112,6 +112,38 @@ class ExecutionRecoveryCoordinator:
             ) from exc
         return signed_grant
 
+    def recover_stale_running(
+        self,
+        context_factory,
+        now=None,
+        limit=100,
+    ):
+        """Recover expired RUNNING attempts without treating staleness as proof.
+
+        Detection is read-only and recovery still requires an independent
+        outcome verifier. The context factory supplies the intent, contract,
+        and optional retry arguments needed by retry_if_safe for each candidate.
+        """
+        if not callable(context_factory):
+            raise ExecutionRecoveryCoordinatorError("context_factory_required")
+        candidates = self.attempts.find_stale_running(now=now, limit=limit)
+        results = []
+        for attempt in candidates:
+            context = context_factory(attempt)
+            if not isinstance(context, dict):
+                raise ExecutionRecoveryCoordinatorError("recovery_context_required")
+            if "intent" not in context or "contract" not in context:
+                raise ExecutionRecoveryCoordinatorError("recovery_context_incomplete")
+            kwargs = dict(context.get("kwargs") or {})
+            kwargs.setdefault("now", now)
+            result = self.retry_if_safe(
+                attempt.attempt_id,
+                context["intent"],
+                context["contract"],
+                **kwargs,
+            )
+            results.append((attempt.attempt_id, result))
+        return results
     def retry_if_safe(
         self,
         attempt_id,

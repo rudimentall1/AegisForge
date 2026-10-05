@@ -295,3 +295,112 @@ def test_persistent_history_detects_missing_integrity_record(tmp_path):
     restarted = RecoveryAttestorRegistry(store=db)
     with pytest.raises(RecoveryTrustError, match="trust_history_missing"):
         restarted.verify_history(signer.key_id)
+
+
+def test_portable_trust_history_artifact_exports_and_verifies():
+    from shared.recovery_trust import (
+        export_trust_history_artifact,
+        verify_trust_history_artifact,
+    )
+
+    signer = CapabilitySigner.generate()
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="portable",
+        )
+    ])
+    registry.transition(signer.key_id, RecoveryAttestorStatus.SUSPENDED, "incident")
+    registry.transition(signer.key_id, RecoveryAttestorStatus.ACTIVE, "cleared")
+
+    artifact = export_trust_history_artifact(registry, signer.key_id)
+    result = verify_trust_history_artifact(artifact)
+
+    assert result["valid"] is True
+    assert result["events"] == 3
+    assert result["head_hash"] == artifact["head_hash"]
+
+
+def test_portable_trust_history_artifact_verifies_without_registry():
+    from shared.recovery_trust import (
+        export_trust_history_artifact,
+        verify_trust_history_artifact,
+    )
+
+    signer = CapabilitySigner.generate()
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="portable-independent",
+        )
+    ])
+    artifact = export_trust_history_artifact(registry, signer.key_id)
+
+    # Verification uses only the artifact; no registry or database is needed.
+    detached = dict(artifact)
+    assert verify_trust_history_artifact(detached)["valid"] is True
+
+
+def test_portable_trust_history_rejects_event_tampering():
+    from shared.recovery_trust import (
+        export_trust_history_artifact,
+        verify_trust_history_artifact,
+    )
+
+    signer = CapabilitySigner.generate()
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="portable-tamper",
+        )
+    ])
+    artifact = export_trust_history_artifact(registry, signer.key_id)
+    artifact["history"][0]["reason"] = "tampered"
+
+    with pytest.raises(RecoveryTrustError, match="trust_history_event_hash_mismatch"):
+        verify_trust_history_artifact(artifact)
+
+
+def test_portable_trust_history_rejects_head_tampering():
+    from shared.recovery_trust import (
+        export_trust_history_artifact,
+        verify_trust_history_artifact,
+    )
+
+    signer = CapabilitySigner.generate()
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="portable-head",
+        )
+    ])
+    artifact = export_trust_history_artifact(registry, signer.key_id)
+    artifact["head_hash"] = "f" * 64
+
+    with pytest.raises(RecoveryTrustError, match="trust_history_head_hash_mismatch"):
+        verify_trust_history_artifact(artifact)
+
+
+def test_portable_trust_history_rejects_status_mismatch():
+    from shared.recovery_trust import (
+        export_trust_history_artifact,
+        verify_trust_history_artifact,
+    )
+
+    signer = CapabilitySigner.generate()
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="portable-status",
+        )
+    ])
+    artifact = export_trust_history_artifact(registry, signer.key_id)
+    artifact["status"] = RecoveryAttestorStatus.REVOKED
+
+    with pytest.raises(RecoveryTrustError, match="trust_history_status_mismatch"):
+        verify_trust_history_artifact(artifact)

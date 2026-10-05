@@ -289,6 +289,109 @@ class RecoveryAttestorStore:
                 conn.close()
 
 
+SCHEMA_VERSION = "recovery-trust-history-v1"
+
+def export_trust_history_artifact(registry, key_id):
+    """Export one attestor's trust lifecycle as a self-contained artifact."""
+    if not isinstance(registry, RecoveryAttestorRegistry):
+        raise RecoveryTrustError("registry_required")
+    attestor = registry.get(key_id)
+    if attestor is None:
+        raise RecoveryTrustError("untrusted_attestor")
+    registry.verify_history(key_id)
+    history = registry.history(key_id)
+    head_hash = history[-1]["event_hash"] if history else RecoveryAttestorStore.GENESIS_HASH
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "key_id": attestor.key_id,
+        "public_key": attestor.public_key,
+        "name": attestor.name,
+        "enabled": attestor.enabled,
+        "status": registry.status(key_id),
+        "history": history,
+        "head_hash": head_hash,
+    }
+
+
+def verify_trust_history_artifact(artifact):
+    """Verify a portable trust-history artifact without a registry or database."""
+    if not isinstance(artifact, dict):
+        raise RecoveryTrustError("trust_history_artifact_required")
+    required = {
+        "schema_version", "key_id", "public_key", "name",
+        "enabled", "status", "history", "head_hash",
+    }
+    missing = sorted(required - set(artifact))
+    if missing:
+        raise RecoveryTrustError(
+            "trust_history_artifact_fields_missing:" + ",".join(missing)
+        )
+    if artifact["schema_version"] != SCHEMA_VERSION:
+        raise RecoveryTrustError("unsupported_trust_history_schema")
+    key_id = artifact["key_id"]
+    public_key = artifact["public_key"]
+    if not isinstance(key_id, str) or not key_id:
+        raise RecoveryTrustError("trust_history_key_id_required")
+    if not isinstance(public_key, str):
+        raise RecoveryTrustError("trust_history_public_key_required")
+    try:
+        raw = base64.urlsafe_b64decode(public_key.encode("ascii"))
+    except Exception as exc:
+        raise RecoveryTrustError("invalid_attestor_public_key") from exc
+    if len(raw) != 32:
+        raise RecoveryTrustError("invalid_attestor_public_key")
+    expected_key_id = "ed25519-" + hashlib.sha256(raw).hexdigest()[:16]
+    if key_id != expected_key_id:
+        raise RecoveryTrustError("attestor_key_id_mismatch")
+    if not isinstance(artifact["name"], str) or not artifact["name"].strip():
+        raise RecoveryTrustError("attestor_name_required")
+    if artifact["status"] not in {
+        RecoveryAttestorStatus.ACTIVE,
+        RecoveryAttestorStatus.SUSPENDED,
+        RecoveryAttestorStatus.REVOKED,
+    }:
+        raise RecoveryTrustError("invalid_attestor_status")
+    history = artifact["history"]
+    if not isinstance(history, list) or not history:
+        raise RecoveryTrustError("trust_history_missing")
+    previous = RecoveryAttestorStore.GENESIS_HASH
+    for event in history:
+        if not isinstance(event, dict):
+            raise RecoveryTrustError("trust_history_event_invalid")
+        required_event = {
+            "from_status", "to_status", "occurred_at",
+            "reason", "prev_hash", "event_hash",
+        }
+        missing_event = sorted(required_event - set(event))
+        if missing_event:
+            raise RecoveryTrustError(
+                "trust_history_event_fields_missing:" + ",".join(missing_event)
+            )
+        if event["prev_hash"] != previous:
+            raise RecoveryTrustError("trust_history_prev_hash_mismatch")
+        expected = RecoveryAttestorStore.history_event_hash(
+            key_id,
+            event["from_status"],
+            event["to_status"],
+            event["occurred_at"],
+            event["reason"],
+            previous,
+        )
+        if event["event_hash"] != expected:
+            raise RecoveryTrustError("trust_history_event_hash_mismatch")
+        previous = event["event_hash"]
+    if artifact["head_hash"] != previous:
+        raise RecoveryTrustError("trust_history_head_hash_mismatch")
+    if history[-1]["to_status"] != artifact["status"]:
+        raise RecoveryTrustError("trust_history_status_mismatch")
+    return {
+        "valid": True,
+        "key_id": key_id,
+        "head_hash": previous,
+        "events": len(history),
+    }
+
+
 class RecoveryAttestorRegistry:
     """Explicit trust anchors and auditable lifecycle for recovery attestors."""
 

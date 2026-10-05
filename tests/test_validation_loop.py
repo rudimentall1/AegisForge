@@ -1,3 +1,5 @@
+[Reading 156 lines from start (total: 156 lines, 0 remaining)]
+
 from agents.validator.agent import Validator
 from orchestrator.master import AutonomousPlanner
 
@@ -15,13 +17,25 @@ class FakeGitHub:
 def test_validator_executes_bounded_repository_experiment():
     agent = Validator()
     result = agent._validate_repo(
-        {"name": "acme/project", "url": "https://github.com/acme/project"},
+        {"name": "acme/project", "url": "https://github.com/acme/project", "validation_type": "technical"},
         FakeGitHub(),
     )
     assert result["status"] == "VALIDATED"
     assert result["reproducibility"] == "PASS"
     assert result["stars_observed"] == 12
 
+
+
+def test_validator_does_not_claim_willingness_to_pay_from_github():
+    agent = Validator()
+    result = agent._validate_repo(
+        {"name": "acme/project", "url": "https://github.com/acme/project", "validation_type": "commercial"},
+        FakeGitHub(),
+    )
+    assert result["status"] == "PARTIAL"
+    assert result["validation_type"] == "commercial"
+    assert "willingness to pay" in result["reason"]
+    assert result["checks"][-1]["limitation"] == "not evidence of willingness_to_pay"
 
 def test_opportunity_hunter_routes_to_validator():
     planner = AutonomousPlanner.__new__(AutonomousPlanner)
@@ -142,3 +156,5 @@ def test_planner_penalizes_repeated_blocked_validation():
     }]
     selected = planner.validation_followup(opportunities)
     assert selected[2] == "commercial"
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

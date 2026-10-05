@@ -1,5 +1,3 @@
-[Reading 1000 lines from start (total: 2659 lines, 1659 remaining)]
-
 import hashlib
 import json
 import os
@@ -1000,5 +998,1662 @@ class AutonomousPlanner:
                     "REFINE",
                     "opportunity_hunter",
                     (
+                        "Synthesize the validation results back into the commercial "
+                        "opportunity dossiers. Update validation status and "
+                        "uncertainties using only observed evidence. "
+                        f"Validation: {self.compact_context(result.get('validation_results'))}."
+                    ),
+                    "Validation produced new evidence; feed it back into the commercial dossier.",
+                    max(gain, 0.50),
+                )
 
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]
+            if role == "opportunity_hunter" and result.get("validation_results"):
+                commercial_only = all(
+                    str(u).lower().startswith("willingness to pay")
+                    for opportunity in opportunities
+                    for u in opportunity.get("uncertainties", [])
+                ) if any(opportunity.get("uncertainties") for opportunity in opportunities) else False
+                commercial_partial = any(
+                    item.get("validation_type") == "commercial" and item.get("status") == "PARTIAL"
+                    for item in result.get("validation_results", [])
+                    if isinstance(item, dict)
+                )
+                if commercial_only and commercial_partial:
+                    return (
+                        "COMPLETE",
+                        None,
+                        None,
+                        "Commercial hypotheses are technically evidenced but market demand and willingness to pay require external customer validation; AegisForge will not fabricate that evidence.",
+                        max(gain, 0.40),
+                    )
+                followup = self.validation_followup(opportunities)
+                if followup:
+                    opportunity, uncertainty, validation_type = followup
+                    opportunity["validation_type"] = validation_type
+                    return (
+                        "REFINE",
+                        "validator",
+                        (
+                            "Run the next highest-information validation experiment for the unresolved uncertainty. "
+                            f"Target: {opportunity.get('name')}. Uncertainty: {uncertainty}. "
+                            f"Validation type: {validation_type}. Use authoritative evidence and update confidence only from observed results."
+                        ),
+                        "Validation resolved some uncertainty but left a decision-relevant uncertainty; continue with a different targeted experiment rather than declaring completion.",
+                        max(gain, 0.55),
+                    )
+                return (
+                    "COMPLETE",
+                    None,
+                    None,
+                    "Commercial opportunities have no remaining decision-relevant uncertainties after executed validation evidence.",
+                    max(gain, 0.45),
+                )
+
+            if role == "opportunity_hunter":
+                return (
+                    "REFINE",
+                    "analyst",
+                    (
+                        "Independently analyze and prioritize the opportunities "
+                        "discovered by the previous Opportunity Hunter. "
+                        f"Opportunities: {self.format_items(opportunities[:10])}."
+                    ),
+                    "The opportunity branch requires an independent analytical pass.",
+                    max(gain, 0.40),
+                )
+
+            return (
+                "REFINE",
+                "opportunity_hunter",
+                (
+                    "Refine and validate the following opportunities. "
+                    f"Opportunities: {self.format_items(opportunities[:10])}. "
+                    f"Context: {self.compact_context(result)}"
+                ),
+                "The result contains concrete opportunities that can be refined and validated.",
+                max(gain, 0.25),
+            )
+
+        # -------------------------------------------------
+        # Multiple concrete targets
+        # -------------------------------------------------
+
+        targets = self.extract_targets(result)
+
+        if len(targets) >= 2:
+
+            history = self.branch_history(
+                task,
+                getattr(self, "_planning_tasks", {}),
+            )
+
+            recent_roles = self.recent_roles(
+                history,
+                limit=4,
+            )
+
+            # Avoid blindly repeating Analyst after Analyst.
+            # Move from prioritization into technical inspection.
+            if (
+                role == "analyst"
+                and self.repeated_role(recent_roles, 2)
+            ):
+                return (
+                    "REFINE",
+                    "developer",
+                    (
+                        "Perform a focused technical investigation of the "
+                        "highest-priority targets identified by the previous "
+                        "analysis. Inspect repository structure, implementation "
+                        "quality, security-sensitive components, and technical "
+                        "feasibility. "
+                        f"Targets: {self.format_items(targets[:10])}. "
+                        f"Previous evidence: {self.compact_context(result)}"
+                    ),
+                    (
+                        "The branch already contains consecutive Analyst "
+                        "steps. Additional prioritization would risk repeating "
+                        "the same work, so the next step should extract new "
+                        "technical information."
+                    ),
+                    max(gain, 0.60),
+                )
+
+            return (
+                "CONTINUE",
+                "analyst",
+                (
+                    "Analyze and prioritize these concrete targets: "
+                    f"{self.format_items(targets[:10])}. "
+                    f"Previous evidence: {self.compact_context(result)}"
+                ),
+                (
+                    "Multiple concrete targets were identified and require "
+                    "structured analysis."
+                ),
+                max(gain, 0.50),
+            )
+
+        # -------------------------------------------------
+        # One concrete target
+        # -------------------------------------------------
+
+        if len(targets) == 1:
+            return (
+                "REFINE",
+                "developer",
+                (
+                    "Perform a focused technical investigation of the "
+                    f"identified target: {targets[0]}. "
+                    f"Previous evidence: {self.compact_context(result)}"
+                ),
+                (
+                    "A concrete target was identified and now requires "
+                    "technical inspection."
+                ),
+                max(gain, 0.50),
+            )
+
+        # -------------------------------------------------
+        # Generic useful research
+        # -------------------------------------------------
+
+        if gain >= 0.50:
+            return (
+                "CONTINUE",
+                "researcher",
+                (
+                    "Deepen the previous investigation. Identify the most "
+                    "important unresolved question, missing evidence, "
+                    "contradiction, or assumption. Perform focused research "
+                    "and return new evidence rather than repeating the "
+                    "previous result."
+                ),
+                (
+                    "The result contains useful information but no concrete "
+                    "target was extracted. A focused follow-up investigation "
+                    "may produce additional evidence."
+                ),
+                gain,
+            )
+
+        # -------------------------------------------------
+        # Nothing useful
+        # -------------------------------------------------
+
+        return (
+            "ABORT",
+            None,
+            None,
+            (
+                "The completed task produced no useful information "
+                "for further autonomous work."
+            ),
+            0.0,
+        )
+
+    def coverage_summary(self, result):
+        """Summarize explicit inspection coverage without storing new history."""
+        summary = {
+            "expected": 0,
+            "completed": 0,
+            "failed": 0,
+            "complete": True,
+        }
+        if not isinstance(result, dict):
+            return summary
+
+        candidates = (
+            result.get("developer_integrity"),
+            result.get("security_integrity"),
+        )
+        integrity = next((item for item in candidates if isinstance(item, dict)), None)
+        if integrity:
+            expected = integrity.get("expected_repositories", 0)
+            completed = integrity.get("inspected_repositories")
+            if completed is None:
+                completed = integrity.get("checked_repositories", 0)
+            failed = integrity.get("inspection_errors", 0)
+            summary.update({
+                "expected": int(expected or 0),
+                "completed": int(completed or 0),
+                "failed": int(failed or 0),
+                "complete": bool(integrity.get("complete", False)),
+            })
+            return summary
+
+        developer_summary = result.get("developer_summary")
+        security_summary = result.get("security_summary")
+        summary_data = next(
+            (item for item in (developer_summary, security_summary) if isinstance(item, dict)),
+            None,
+        )
+        if summary_data:
+            expected = summary_data.get("repositories_received", 0)
+            completed = summary_data.get("repositories_inspected")
+            if completed is None:
+                completed = summary_data.get("repositories_checked", 0)
+            failed = summary_data.get("inspection_errors", 0)
+            if expected:
+                summary.update({
+                    "expected": int(expected),
+                    "completed": int(completed or 0),
+                    "failed": int(failed or 0),
+                    "complete": int(completed or 0) == int(expected),
+                })
+        return summary
+
+    def _coverage_policy(self, task, coverage):
+        """Do not advance an incomplete inspection as if it were complete."""
+        if coverage["complete"] or coverage["expected"] <= 0:
+            return None
+
+        result = task.get("result")
+        role = task.get("role")
+        failed = coverage["failed"]
+        expected = coverage["expected"]
+        completed = coverage["completed"]
+
+        if role in {"developer", "security_checker"}:
+            return (
+                "COMPLETE",
+                None,
+                None,
+                (
+                    f"Inspection coverage is incomplete: {completed}/{expected} "
+                    f"completed, {failed} failed. The result is explicitly "
+                    "marked incomplete and must not be treated as a complete "
+                    "research or security review."
+                ),
+                0.0,
+            )
+        return None
+
+    # =========================================================
+    @staticmethod
+    def validation_followup(opportunities):
+        """Choose the next validation by bounded information gain per cost."""
+        if not isinstance(opportunities, list):
+            return None
+
+        type_cost = {
+            "security": 0.50,
+            "technical": 0.65,
+            "dependency": 0.50,
+            "commercial": 0.40,
+            "adoption": 0.50,
+        }
+        marker_types = (
+            ("security", "security"),
+            ("vulnerability", "security"),
+            ("technical", "technical"),
+            ("test", "technical"),
+            ("dependency", "dependency"),
+            ("package", "dependency"),
+            ("market", "commercial"),
+            ("commercial", "commercial"),
+            ("adoption", "adoption"),
+            ("usage", "adoption"),
+        )
+        candidates = []
+
+        for opportunity in opportunities[:4]:
+            if not isinstance(opportunity, dict):
+                continue
+            uncertainties = [
+                str(x).strip()
+                for x in (opportunity.get("uncertainties") or [])[:6]
+                if str(x).strip()
+            ]
+            if not uncertainties:
+                continue
+
+            confidence = max(
+                0.0,
+                min(1.0, float(opportunity.get("confidence", 0.5) or 0.5)),
+            )
+            history = [
+                x for x in (opportunity.get("validation_history") or [])[-6:]
+                if isinstance(x, dict)
+            ]
+
+            for uncertainty in uncertainties:
+                low = uncertainty.lower()
+                validation_type = None
+                for marker, candidate_type in marker_types:
+                    if marker in low:
+                        validation_type = candidate_type
+                        break
+                if not validation_type:
+                    continue
+
+                attempts = [
+                    x for x in history
+                    if str(x.get("type") or "") == validation_type
+                ]
+                blocked = sum(x.get("status") in {"BLOCKED", "DEFERRED"} for x in attempts)
+                validated = sum(x.get("status") == "VALIDATED" for x in attempts)
+
+                # Unresolved high-impact uncertainty is worth more when
+                # confidence is low. Repeating blocked experiments is penalized.
+                criticality = 1.0
+                if validation_type == "security":
+                    criticality = 1.30
+                elif validation_type in {"technical", "dependency"}:
+                    criticality = 1.15
+
+                novelty = 1.0 / (1.0 + len(attempts))
+                failure_penalty = 0.35 ** blocked
+                saturation_penalty = 0.55 if validated else 1.0
+                expected_gain = (
+                    criticality
+                    * (1.0 + (1.0 - confidence))
+                    * novelty
+                    * failure_penalty
+                    * saturation_penalty
+                )
+                cost = type_cost[validation_type]
+                efficiency = expected_gain / max(cost, 0.10)
+
+                candidates.append(
+                    (
+                        efficiency,
+                        expected_gain,
+                        opportunity,
+                        uncertainty,
+                        validation_type,
+                    )
+                )
+
+        if not candidates:
+            return None
+
+        candidates.sort(
+            key=lambda item: (
+                -item[0],
+                -item[1],
+                str(item[2].get("name", "")),
+                item[3],
+            )
+        )
+        _, _, opportunity, uncertainty, validation_type = candidates[0]
+        return opportunity, uncertainty, validation_type
+
+    # ACTION ECONOMICS
+    # =========================================================
+
+    @staticmethod
+    def action_cost(role):
+        """Bounded relative execution cost for planner actions."""
+        return {
+            "researcher": 0.25,
+            "analyst": 0.35,
+            "opportunity_hunter": 0.40,
+            "validator": 0.50,
+            "model_researcher": 0.55,
+            "developer": 0.65,
+            "security_checker": 0.75,
+        }.get(role, 0.50)
+
+    def expected_evidence_gain(self, task, decision):
+        """Estimate expected new evidence from a proposed next action."""
+        if not isinstance(decision, tuple) or len(decision) != 5:
+            return 0.0
+
+        decision_name, next_role, _description, _reason, base_gain = decision
+        if decision_name in {"COMPLETE", "ABORT"} or not next_role:
+            return 0.0
+
+        result = task.get("result")
+        history = self.branch_history(
+            task,
+            getattr(self, "_planning_tasks", {}),
+        )
+        novelty, _novel_count, atom_count = self.novelty_against_history(
+            task,
+            history,
+        )
+        quality = self.evidence_quality_summary(result)
+
+        base = max(0.0, min(1.0, float(base_gain or 0.0)))
+        novelty_factor = 0.35 + (0.65 * novelty) if atom_count else 0.75
+
+        quality_factor = 1.0
+        if quality["contested"]:
+            quality_factor += 0.25
+        elif quality["unconfirmed"]:
+            quality_factor += 0.15
+        elif quality["multi_source"]:
+            quality_factor -= 0.10
+        elif quality["corroborated"]:
+            quality_factor -= 0.05
+
+        coverage = self.coverage_summary(result)
+        if coverage["expected"] > 0 and not coverage["complete"]:
+            deficit = max(
+                0,
+                coverage["expected"] - coverage["completed"],
+            )
+            coverage_factor = 1.0 + min(
+                0.40,
+                deficit / max(1, coverage["expected"]),
+            )
+        else:
+            coverage_factor = 1.0
+
+        repeat_penalty = 0.75 if next_role in self.recent_roles(
+            history,
+            limit=4,
+        ) else 1.0
+
+        estimate = (
+            base
+            * novelty_factor
+            * quality_factor
+            * coverage_factor
+            * repeat_penalty
+        )
+        return max(0.0, min(1.0, estimate))
+
+    def realized_evidence_gain(self, task, history):
+        """Measure realized newness; atom density stays diagnostic, not value."""
+        novelty, novel_count, atom_count = self.novelty_against_history(
+            task,
+            history,
+        )
+        actual_gain = max(0.0, min(1.0, float(novelty or 0.0)))
+        return actual_gain, novelty, novel_count, atom_count
+
+    def action_economics(self, task, decision):
+        """Return explainable cost/gain data with bounded historical calibration."""
+        if isinstance(decision, dict):
+            decision = (
+                decision.get("decision"),
+                decision.get("role"),
+                decision.get("description"),
+                decision.get("reason"),
+                decision.get("information_gain", 0.0),
+            )
+        if not isinstance(decision, tuple) or len(decision) != 5:
+            return {
+                "action": None,
+                "cost": 0.0,
+                "expected_evidence_gain": 0.0,
+                "efficiency": 0.0,
+                "calibration": {"factor": 1.0, "samples": 0, "raw_ratio": 1.0, "weight": 0.0},
+            }
+
+        _decision_name, next_role, _description, _reason, _gain = decision
+        cost = self.action_cost(next_role)
+        raw_expected = self.expected_evidence_gain(task, decision)
+        queue = getattr(self, "queue", None)
+        if queue is None:
+            calibration = {"factor": 1.0, "samples": 0, "raw_ratio": 1.0, "weight": 0.0}
+        else:
+            calibration = queue.action_calibration(
+                next_role,
+                source_role=task.get("role"),
+            )
+        expected = max(0.0, min(1.0, raw_expected * calibration["factor"]))
+        efficiency = expected / cost if cost else 0.0
+        return {
+            "action": next_role,
+            "cost": cost,
+            "expected_evidence_gain": round(expected, 4),
+            "efficiency": round(efficiency, 4),
+            "calibration": calibration,
+        }
+
+    def candidate_decisions(self, task, primary):
+        """Generate a small set of contract-safe actions for cost-aware selection."""
+        if not isinstance(primary, tuple) or len(primary) != 5:
+            return []
+
+        decision_name, next_role, description, reason, gain = primary
+        if decision_name in {"COMPLETE", "ABORT"} or not next_role:
+            return [primary]
+
+        candidates = [primary]
+        result = task.get("result")
+        role = task.get("role")
+        findings = self.extract_security_findings(result)
+        opportunities = self.extract_opportunities(result)
+        targets = self.extract_targets(result)
+        repositories = (
+            result.get("repositories", [])
+            if isinstance(result, dict)
+            else []
+        )
+
+        # Only add transitions whose downstream agent contract is already
+        # established by the planner. Do not invent arbitrary role hops.
+        if role in {"researcher", "model_researcher"} and (targets or repositories):
+            candidates.append((
+                "CONTINUE",
+                "analyst",
+                (
+                    "Analyze and prioritize the concrete research targets "
+                    "without repeating prior discovery. "
+                    f"Targets: {self.format_items((repositories or targets)[:10])}"
+                ),
+                "Candidate generated from concrete research targets.",
+                max(0.55, min(0.80, float(gain or 0.0))),
+            ))
+
+        if role == "analyst":
+            if findings and repositories:
+                candidates.append((
+                    "REFINE",
+                    "developer",
+                    (
+                        "Establish implementation-level evidence for the "
+                        "security findings before verification. "
+                        f"Findings: {self.format_items(findings[:10])}. "
+                        f"Repositories: {self.format_items(repositories[:10])}"
+                    ),
+                    "Candidate generated from security findings requiring technical review.",
+                    max(0.60, min(0.75, float(gain or 0.0))),
+                ))
+            elif opportunities and isinstance(result, dict) and result.get("technical_review"):
+                # Commercial validation is downstream of implementation-level
+                # evidence. Without a Developer technical_review, the cheaper
+                # OpportunityHunter path can starve the technical/security
+                # pipeline because action economics may prefer it. Keep the
+                # evidence gate explicit: Analyst -> Developer first.
+                candidates.append((
+                    "REFINE",
+                    "opportunity_hunter",
+                    (
+                        "Independently validate the concrete opportunities "
+                        f"identified by analysis: {self.format_items(opportunities[:10])}"
+                    ),
+                    "Candidate generated from unresolved commercial opportunities after technical evidence exists.",
+                    max(0.35, min(0.60, float(gain or 0.0))),
+                ))
+
+        unique = {}
+        for candidate in candidates:
+            key = (candidate[0], candidate[1])
+            if key not in unique:
+                unique[key] = candidate
+        return list(unique.values())
+
+    def select_action(self, task, primary):
+        """Select the highest evidence-gain-per-cost action deterministically."""
+        candidates = self.candidate_decisions(task, primary)
+        if not candidates:
+            return primary, []
+
+        scored = []
+        for candidate in candidates:
+            economics = self.action_economics(task, candidate)
+            scored.append((economics["efficiency"], economics["expected_evidence_gain"], candidate, economics))
+
+        scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        selected = scored[0][2]
+        return selected, [item[3] for item in scored]
+
+    def _evidence_quality_policy(self, task, quality):
+        """Apply bounded quality gates before the general planner policy."""
+        result = task.get("result")
+        findings = self.extract_security_findings(result)
+        if not findings:
+            return None
+
+        role = task.get("role")
+        if quality["contested"] and role == "developer" and isinstance(result, dict):
+            technical_review = result.get("technical_review")
+            if technical_review:
+                return (
+                    "VERIFY",
+                    "security_checker",
+                    (
+                        "Resolve the contested security evidence using an independent "
+                        "verification pass. Compare the conflicting statuses, inspect "
+                        "the affected implementation, and return a reasoned disposition. "
+                        f"Findings: {self.format_items(findings[:10])}. "
+                        f"Technical review: {self.compact_context(technical_review)}"
+                    ),
+                    "Current security evidence is CONTESTED and requires independent verification.",
+                    0.85,
+                )
+
+        if quality["unconfirmed"] and role in {"analyst", "researcher", "opportunity_hunter"}:
+            repositories = result.get("repositories", []) if isinstance(result, dict) else []
+            if repositories:
+                return (
+                    "REFINE",
+                    "developer",
+                    (
+                        "Establish technical evidence for these unconfirmed security findings. "
+                        f"Findings: {self.format_items(findings[:10])}. "
+                        f"Repositories: {self.format_items(repositories[:10])}."
+                    ),
+                    "Security evidence is UNCONFIRMED, so it requires a technical review before verification.",
+                    0.70,
+                )
+
+        return None
+
+    def choose_next(self, task):
+        """
+        Final decision gate for autonomous transitions.
+
+        The raw decision engine selects the next action based on the
+        actual result. This outer gate prevents immediate same-role
+        transitions from creating autonomous branch stagnation.
+        """
+
+        history = self.branch_history(
+            task,
+            getattr(self, "_planning_tasks", {}),
+        )
+
+        novelty, novel_count, atom_count = self.novelty_against_history(
+            task,
+            history,
+        )
+
+        # A useful result must add evidence before the branch is allowed to
+        # continue. Exact repeats are not progress, even when the raw result
+        # has a high structural information_gain score.
+        if atom_count and novelty == 0.0 and len(history) > 1:
+            return (
+                "COMPLETE",
+                None,
+                None,
+                (
+                    "The result contains no evidence atoms that are new "
+                    "relative to its branch history. Further autonomous work "
+                    "would repeat existing evidence."
+                ),
+                0.0,
+            )
+
+        coverage = self.coverage_summary(task.get("result"))
+        coverage_decision = self._coverage_policy(task, coverage)
+        if coverage_decision is not None:
+            return coverage_decision
+
+        quality = self.evidence_quality_summary(task.get("result"))
+        quality_decision = self._evidence_quality_policy(task, quality)
+        if quality_decision is not None:
+            return quality_decision
+
+        primary = self._choose_next_raw(task)
+
+        if not isinstance(primary, tuple) or len(primary) != 5:
+            return primary
+
+        decision, economics_options = self.select_action(task, primary)
+        decision_name, next_role, description, reason, gain = decision
+
+        if decision_name not in {"COMPLETE", "ABORT"}:
+            selected_economics = self.action_economics(task, decision)
+            alternatives = [
+                item for item in economics_options
+                if item["action"] != selected_economics["action"]
+            ]
+            comparison = ""
+            if alternatives:
+                comparison = (
+                    " Compared alternatives: "
+                    + ", ".join(
+                        f"{item['action']} efficiency={item['efficiency']:.2f}"
+                        for item in alternatives[:3]
+                    )
+                    + "."
+                )
+            reason = (
+                f"{reason} "
+                f"Action economics: selected={selected_economics['action']}, "
+                f"cost={selected_economics['cost']:.2f}, "
+                f"expected_evidence_gain={selected_economics['expected_evidence_gain']:.2f}, "
+                f"efficiency={selected_economics['efficiency']:.2f}."
+                f"{comparison}"
+            )
+            decision = (decision_name, next_role, description, reason, gain)
+        current_role = task.get("role")
+
+        # SecurityChecker -> Developer -> SecurityChecker can otherwise
+        # become an infinite verification loop when both agents reproduce
+        # the same findings. Stop only when a later SecurityChecker sees
+        # the exact same normalized finding set as an earlier checker.
+        if current_role == "security_checker":
+            history = self.branch_history(
+                task,
+                getattr(self, "_planning_tasks", {}),
+            )
+            current_findings = self.extract_security_findings(
+                task.get("result")
+            )
+
+            if current_findings:
+                current_signature = json.dumps(
+                    current_findings,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                )
+
+                for ancestor in history[1:]:
+                    if ancestor.get("role") != "security_checker":
+                        continue
+
+                    ancestor_findings = self.extract_security_findings(
+                        ancestor.get("result")
+                    )
+
+                    ancestor_signature = json.dumps(
+                        ancestor_findings,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    )
+
+                    if ancestor_findings and ancestor_signature == current_signature:
+                        return (
+                            "COMPLETE",
+                            None,
+                            None,
+                            (
+                                "Security findings are unchanged after a "
+                                "second independent verification pass. "
+                                "Further Developer/SecurityChecker cycling "
+                                "would repeat the same evidence."
+                            ),
+                            0.0,
+                        )
+
+        if (
+            current_role
+            and next_role
+            and current_role == next_role
+        ):
+            history = self.branch_history(
+                task,
+                getattr(self, "_planning_tasks", {}),
+            )
+
+            recent_roles = self.recent_roles(
+                history,
+                limit=4,
+            )
+
+            alternate = self.alternate_role(
+                current_role,
+                recent_roles,
+            )
+
+            if alternate:
+                return (
+                    "REFINE",
+                    alternate,
+                    (
+                        "Do not repeat the current worker role. "
+                        "Perform a different type of investigation that "
+                        "extracts new information from the current result. "
+                        f"Previous planned role: {current_role}. "
+                        f"Current evidence: {self.compact_context(task.get('result'))}"
+                    ),
+                    (
+                        f"Blocked same-role transition "
+                        f"{current_role} -> {next_role}. "
+                        "The autonomous branch must change investigation "
+                        "type to avoid stagnation."
+                    ),
+                    max(float(gain), 0.40),
+                )
+
+            return (
+                "ABORT",
+                None,
+                None,
+                (
+                    f"Blocked same-role transition "
+                    f"{current_role} -> {next_role}, and no safe "
+                    "alternate worker role was available."
+                ),
+                0.0,
+            )
+
+        return decision
+
+    def _load_tasks(self):
+        rows = self.queue.planning_tasks()
+
+        tasks = {}
+
+        for row in rows:
+            (
+                task_id,
+                description,
+                status,
+                role,
+                parent_task_id,
+                finished_at,
+                raw_result,
+                planner_decision,
+                planner_decided_at,
+                information_gain,
+                fingerprint,
+            ) = row
+
+            tasks[task_id] = {
+                "id": task_id,
+                "description": description,
+                "status": status,
+                "role": role,
+                "parent_task_id": parent_task_id,
+                "finished_at": finished_at,
+                "result": self.parse_result(raw_result),
+                "planner_decision": planner_decision,
+                "planner_decided_at": planner_decided_at,
+                "information_gain": information_gain,
+                "fingerprint": fingerprint,
+            }
+
+        return tasks
+
+    @staticmethod
+    def _children(tasks):
+        children = {}
+
+        for task in tasks.values():
+            parent = task["parent_task_id"]
+
+            if parent:
+                children.setdefault(parent, []).append(task)
+
+        return children
+
+    def _existing_fingerprints(self, tasks):
+        result = set()
+
+        for task in tasks.values():
+            if task["fingerprint"]:
+                result.add(task["fingerprint"])
+                continue
+
+            result.add(
+                self.fingerprint(
+                    task["parent_task_id"],
+                    task["role"],
+                    task["description"],
+                )
+            )
+
+        return result
+
+    # =========================================================
+    # BRANCH HISTORY
+    # =========================================================
+
+    def branch_history(self, task, tasks, max_depth=4):
+        """
+        Return a bounded recent ancestor chain for the current task.
+
+        Planner guards only need recent branch context. Walking an
+        unbounded historical chain becomes prohibitively expensive when
+        old autonomous branches are very deep.
+        """
+        history = []
+        current = task
+
+        while current and len(history) < max_depth:
+            history.append(current)
+
+            parent_id = current.get("parent_task_id")
+
+            if not parent_id:
+                break
+
+            current = tasks.get(parent_id)
+
+            if current is None:
+                row = self.queue.get(parent_id)
+                if row is None:
+                    break
+
+                (
+                    task_id,
+                    description,
+                    status,
+                    worker,
+                    created_at,
+                    started_at,
+                    finished_at,
+                    role,
+                    parent_task_id,
+                    raw_result,
+                    capability_intent,
+                    allow_failed_parent,
+                ) = row
+
+                current = {
+                    "id": task_id,
+                    "description": description,
+                    "status": status,
+                    "role": role,
+                    "parent_task_id": parent_task_id,
+                    "finished_at": finished_at,
+                    "result": self.parse_result(raw_result),
+                    "planner_decision": None,
+                    "planner_decided_at": None,
+                    "information_gain": None,
+                    "fingerprint": None,
+                    "capability_intent": capability_intent,
+                    "allow_failed_parent": bool(allow_failed_parent),
+                }
+                tasks[parent_id] = current
+
+        return history
+
+    @staticmethod
+    def recent_roles(history, limit=4):
+        return [
+            item.get("role")
+            for item in history[:limit]
+            if item.get("role")
+        ]
+
+    @staticmethod
+    def alternate_role(current_role, recent_roles):
+        """
+        Select a different worker role when the planner would otherwise
+        repeat the same role immediately.
+
+        Preference is given to roles that extract a genuinely different
+        type of information from the current branch.
+        """
+        preferences = {
+            "analyst": [
+                "developer",
+                "security_checker",
+                "researcher",
+                "opportunity_hunter",
+            ],
+            "developer": [
+                "security_checker",
+                "analyst",
+                "researcher",
+                "opportunity_hunter",
+            ],
+            "security_checker": [
+                "developer",
+                "analyst",
+                "researcher",
+                "opportunity_hunter",
+            ],
+            "opportunity_hunter": [
+                "analyst",
+                "developer",
+                "researcher",
+                "model_researcher",
+            ],
+            "researcher": [
+                "analyst",
+                "developer",
+                "security_checker",
+                "opportunity_hunter",
+            ],
+            "model_researcher": [
+                "analyst",
+                "researcher",
+                "developer",
+                "security_checker",
+            ],
+        }
+
+        recent = set(recent_roles or [])
+
+        for role in preferences.get(current_role, []):
+            if role != current_role and role not in recent:
+                return role
+
+        for role in preferences.get(current_role, []):
+            if role != current_role:
+                return role
+
+        return None
+
+    @staticmethod
+    def same_role_transition(current_role, next_role, recent_roles):
+        """
+        Prevent autonomous branches from repeatedly routing to the
+        same worker role without introducing a new type of work.
+
+        Repeating a role is allowed only when the branch history does
+        not already show that role as the immediate previous step.
+        """
+        if not current_role or not next_role:
+            return False
+
+        if current_role != next_role:
+            return False
+
+        if not recent_roles:
+            return False
+
+        return recent_roles[0] == current_role
+
+    @staticmethod
+    def repeated_role(recent_roles, count=2):
+        """
+        Return True when the same role appears consecutively
+        at the head of the branch history.
+        """
+        if len(recent_roles) < count:
+            return False
+
+        return all(
+            role == recent_roles[0]
+            for role in recent_roles[:count]
+        )
+
+    # =========================================================
+    # FAILURE RECOVERY
+    # =========================================================
+
+    @staticmethod
+    def retryable_failure(task):
+        result = task.get("result")
+
+        if not isinstance(result, dict):
+            return False
+
+        error_type = str(
+            result.get("error_type")
+            or ""
+        )
+
+        if error_type in {
+            "orphaned_dag_branch",
+            "PipelineContractError",
+            "CapabilityBlocked",
+            "CapabilityEvidenceRequired",
+        }:
+            return False
+
+        # Historical SecurityChecker contract failures were stored as
+        # RuntimeError before PipelineContractError existed. They are
+        # deterministic pipeline failures, not transient infrastructure
+        # failures, so they must not be retried.
+        error_text = str(result.get("error") or "")
+
+        if (
+            error_type == "RuntimeError"
+            and "Security Checker received no technical_review from Developer"
+            in error_text
+        ):
+            return False
+
+        if error_type in {
+            "PartialInspectionFailure",
+            "PartialSecurityInspectionFailure",
+            "RuntimeError",
+            "TimeoutError",
+            "ConnectionError",
+        }:
+            return True
+
+        return False
+
+    def recover_failed_tasks(self, tasks):
+        """
+        Recover bounded transient failures without touching permanent
+        DAG-corruption failures.
+
+        Recovery requeues the failed task itself, preserving its parent
+        relationship and previous failure result for auditability.
+        """
+
+        from datetime import datetime, timezone
+
+        recovered = []
+
+        failed_tasks = [
+            task
+            for task in tasks.values()
+            if task.get("status") == "failed"
+            and self.retryable_failure(task)
+        ]
+
+        failed_tasks.sort(
+            key=lambda item: item.get("finished_at") or "",
+            reverse=True,
+        )
+
+        now = datetime.now(timezone.utc)
+
+        for task in failed_tasks:
+            if len(recovered) >= MAX_FAILED_RECOVERIES_PER_CYCLE:
+                break
+
+            task_id = task["id"]
+
+            retry_count = self.queue.retry_count(task_id)
+
+            if retry_count >= MAX_RETRIES_PER_TASK:
+                continue
+
+            finished_at = task.get("finished_at")
+
+            if finished_at:
+                try:
+                    finished = datetime.fromisoformat(
+                        finished_at
+                    )
+
+                    elapsed = (
+                        now - finished
+                    ).total_seconds()
+
+                    if elapsed < FAILED_RETRY_COOLDOWN_SECONDS:
+                        continue
+
+                except (TypeError, ValueError):
+                    pass
+
+            if self.queue.requeue_failed(
+                task_id,
+                max_retries=MAX_RETRIES_PER_TASK,
+            ):
+                recovered.append(task_id)
+
+                print(
+                    f"[MASTER] RECOVERED FAILED TASK "
+                    f"task={task_id} "
+                    f"role={task.get('role')} "
+                    f"retry={retry_count + 1}/"
+                    f"{MAX_RETRIES_PER_TASK}",
+                    flush=True,
+                )
+
+        return recovered
+
+    # =========================================================
+    # PLANNER
+    # =========================================================
+
+    def plan(self):
+        try:
+            compacted = self.queue.compact_completed_results(
+                older_than_days=7,
+                keep_ancestor_depth=4,
+                limit=500,
+            )
+            history_compacted = self.queue.compact_history(
+                keep_recent=500,
+                limit=1000,
+            )
+            if compacted or history_compacted:
+                print(
+                    f"[MASTER] MEMORY COMPACTION raw_results={compacted} "
+                    f"history_rows={history_compacted}",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(
+                f"[MASTER] MEMORY COMPACTION ERROR: {exc}",
+                flush=True,
+            )
+
+        tasks = self._load_tasks()
+        self._planning_tasks = tasks
+
+        recovered = self.recover_failed_tasks(tasks)
+
+        if recovered:
+            tasks = self._load_tasks()
+            self._planning_tasks = tasks
+
+        # ---------------------------------------------------------
+        # DAG INTEGRITY GUARD
+        # ---------------------------------------------------------
+        # Active tasks must never depend on a missing parent.
+        # Historical failed orphan tasks remain preserved for audit.
+        active_orphans = self.queue.active_orphans()
+
+        if active_orphans:
+            print(
+                f"[MASTER] DAG INTEGRITY ERROR: "
+                f"{len(active_orphans)} active orphan task(s) detected",
+                flush=True,
+            )
+
+            for orphan in active_orphans:
+                (
+                    task_id,
+                    description,
+                    status,
+                    role,
+                    parent_task_id,
+                ) = orphan
+
+                print(
+                    f"[MASTER] ORPHAN "
+                    f"task={task_id} "
+                    f"role={role} "
+                    f"status={status} "
+                    f"missing_parent={parent_task_id}",
+                    flush=True,
+                )
+
+            return {
+                "created": 0,
+                "decisions": [],
+                "state": "DAG_ERROR",
+                "active_orphans": len(active_orphans),
+            }
+
+        if not tasks:
+            return {
+                "created": 0,
+                "decisions": [],
+                "state": "EMPTY",
+            }
+
+        # Apply backpressure before evaluating a large completed history.
+        # The planner must not outpace workers and turn validation feedback
+        # into an ever-growing pending queue.
+        live_count = self.queue.db.execute(
+            "SELECT COUNT(*) FROM queue WHERE status NOT IN ('completed', 'failed')"
+        ).fetchone()[0]
+        if live_count >= MAX_LIVE_TASKS:
+            print(
+                f"[MASTER] BACKPRESSURE live_tasks={live_count} "
+                f"limit={MAX_LIVE_TASKS}",
+                flush=True,
+            )
+            return {
+                "created": 0,
+                "decisions": [],
+                "recovered": recovered,
+                "state": "BACKPRESSURE",
+            }
+
+        # MAX_TASKS_PER_GOAL limits creation across one planning pass;
+        # MAX_TASKS_PER_PLAN provides tighter per-cycle control.
+        # Existing completed tasks are still evaluated when capacity exists.
+        creation_budget = min(
+            MAX_TASKS_PER_PLAN,
+            MAX_LIVE_TASKS - live_count,
+            MAX_TASKS_PER_GOAL,
+        )
+
+        children = self._children(tasks)
+        fingerprints = self._existing_fingerprints(tasks)
+
+        created = 0
+        decisions = []
+
+        for task in list(tasks.values()):
+
+            # Only successful tasks can produce a new decision.
+            if not self.successful(task):
+                continue
+
+            # A persistent planner decision is considered processed only
+            # when:
+            #   - it is terminal (COMPLETE / ABORT), or
+            #   - an actual child task already exists.
+            #
+            # Non-terminal decisions without a child are retryable. This
+            # prevents a failed/duplicate/max-limit creation attempt from
+            # permanently orphaning the planning state.
+            existing_decision = task["planner_decision"]
+            child_count = len(
+                children.get(task["id"], [])
+            )
+
+            if existing_decision:
+                if existing_decision in {
+                    "COMPLETE",
+                    "ABORT",
+                } or child_count > 0:
+                    continue
+
+                print(
+                    f"[MASTER] RETRY STALE DECISION "
+                    f"task={task['id']} "
+                    f"decision={existing_decision} "
+                    f"reason=no_child",
+                    flush=True,
+                )
+
+            # A completed task without a terminal decision or an existing
+            # child must be evaluated by Master.
+            # Persist normalized evidence once before planner routing.
+            # Existing terminal decisions are skipped above, so historical
+            # tasks do not get replayed into the ledger every cycle.
+            try:
+                ledger_result = self.evidence_ledger.record(
+                    task["id"],
+                    task.get("role"),
+                    self.evidence_atoms(task.get("result")),
+                    observed_at=task.get("finished_at"),
+                )
+                if ledger_result["inserted"] or ledger_result["confirmed"]:
+                    print(
+                        f"[MASTER] EVIDENCE LEDGER task={task['id']} "
+                        f"new={ledger_result['inserted']} "
+                        f"confirmed={ledger_result['confirmed']}",
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(
+                    f"[MASTER] EVIDENCE LEDGER ERROR task={task['id']}: {exc}",
+                    flush=True,
+                )
+
+            # Close the feedback loop: when this completed task was itself
+            # produced by a planner action, measure the actual evidence gain
+            # against that action's expected gain. The bounded outcome ledger
+            # becomes calibration data rather than another unbounded memory.
+            parent_id = task.get("parent_task_id")
+            result = task.get("result")
+            result_dict = result if isinstance(result, dict) else {}
+            parent_task = self._planning_tasks.get(parent_id) if parent_id else None
+            direct_planner_child = bool(parent_task and parent_task.get("action_role"))
+            capability_validator = result_dict.get("validation_mode") == "capability_evidence"
+            execution_terminal = result_dict.get("execution_mode") == "capability_grant"
+            should_calibrate = bool(
+                parent_id
+                and result is not None
+                and (execution_terminal or (direct_planner_child and not capability_validator))
+            )
+            if should_calibrate:
+                try:
+                    history = self.branch_history(task, self._planning_tasks)
+                    # Execution proof is deliberately kept out of research
+                    # evidence calibration. The separate execution_outcome_feedback
+                    # ledger records PROVEN execution facts.
+                    if execution_terminal:
+                        actual_gain, novelty, novel_count, atom_count = 0.0, 0.0, 0, 0
+                    else:
+                        actual_gain, novelty, novel_count, atom_count = self.realized_evidence_gain(
+                            task,
+                            history,
+                        )
+                    recorded = self.queue.record_action_outcome(
+                        task["id"], actual_gain, novelty, novel_count, atom_count,
+                        observed_at=task.get("finished_at"),
+                    )
+                    print(
+                        f"[MASTER] ACTION OUTCOME task={task['id']} parent={parent_id} "
+                        f"recorded={recorded} actual={actual_gain:.4f} terminal={execution_terminal}",
+                        flush=True,
+                    )
+                except Exception as exc:
+                    print(f"[MASTER] ACTION OUTCOME ERROR task={task['id']}: {exc}", flush=True)
+
+            decision = self.choose_next(task)
+
+            # Backward compatibility: choose_next() may return either
+            # the native decision dict or the compact tuple form.
+            if isinstance(decision, tuple):
+                if len(decision) != 5:
+                    raise RuntimeError(
+                        f"Invalid planner decision tuple length: {len(decision)}"
+                    )
+
+                decision = {
+                    "decision": decision[0],
+                    "role": decision[1],
+                    "description": decision[2],
+                    "reason": decision[3],
+                    "information_gain": decision[4],
+                    "tasks": [],
+                }
+
+                # Compact tuple form represents one next task.
+                if decision["role"] and decision["description"]:
+                    decision["tasks"] = [
+                        (
+                            decision["role"],
+                            decision["description"],
+                        )
+                    ]
+
+            if not isinstance(decision, dict):
+                raise RuntimeError(
+                    f"Invalid planner decision type: {type(decision).__name__}"
+                )
+
+            decision_name = decision.get(
+                "decision",
+                "ABORT",
+            )
+
+            if decision_name not in DECISIONS:
+                decision_name = "ABORT"
+
+            gain = float(
+                decision.get(
+                    "information_gain",
+                    0.0,
+                )
+            )
+
+            task_fp = self.fingerprint(
+                task["parent_task_id"],
+                task["role"],
+                task["description"],
+            )
+
+            # Persist Master decision and the calibrated action economics BEFORE creating children.
+            selected_economics = self.action_economics(task, decision) if decision_name not in {"COMPLETE", "ABORT"} else {"action": None, "cost": 0.0, "expected_evidence_gain": 0.0, "efficiency": 0.0}
+            self.queue.mark_planner_decision(
+                task["id"],
+                decision_name,
+                gain,
+                task_fp,
+                selected_economics["action"],
+                selected_economics["expected_evidence_gain"],
+                selected_economics["cost"],
+                selected_economics["efficiency"],
+            )
+
+            record = {
+                "task_id": task["id"],
+                "role": task["role"],
+                "decision": decision_name,
+                "reason": decision.get("reason", ""),
+                "information_gain": gain,
+            }
+
+            decisions.append(record)
+
+            print(
+                f"[MASTER] DECISION "
+                f"task={task['id']} "
+                f"role={task['role']} "
+                f"decision={decision_name} "
+                f"gain={gain:.2f} "
+                f"reason={decision.get('reason', '')}",
+                flush=True,
+            )
+
+            if decision_name in {
+                "COMPLETE",
+                "ABORT",
+            }:
+                continue
+
+            for child_role, description in decision.get(
+                "tasks",
+                [],
+            ):
+
+                if created >= creation_budget:
+                    break
+
+                child_fp = self.fingerprint(
+                    task["id"],
+                    child_role,
+                    description,
+                )
+
+                if child_fp in fingerprints:
+                    print(
+                        f"[MASTER] DUPLICATE SKIPPED "
+                        f"parent={task['id']} "
+                        f"role={child_role}",
+                        flush=True,
+                    )
+                    continue
+
+                child_id = self.queue.add(
+                    description=description,
+                    role=child_role,
+                    parent_task_id=task["id"],
+                    capability_intent=default_capability_intent(child_role),
+                )
+
+                fingerprints.add(child_fp)
+                created += 1
+
+                print(
+                    f"[MASTER] NEW TASK "
+                    f"parent={task['id']} "
+                    f"role={child_role} "
+                    f"id={child_id}",
+                    flush=True,
+                )
+
+        return {
+            "created": created,
+            "decisions": decisions,
+            "recovered": recovered,
+            "state": "OK",
+        }
+
+
+class MasterOrchestrator:
+
+    def __init__(self):
+        self.queue = TaskQueue()
+        self.planner = AutonomousPlanner(self.queue)
+
+    def bootstrap(self):
+        # Do not inject a new research root while Master still has a completed
+        # task awaiting planning. Workers can finish children faster than the
+        # 15-second Master tick, so "no live tasks" alone is not an idle signal.
+        if self.queue.has_planner_work():
+            return False
+
+        row = self.queue.db.execute(
+            "SELECT COUNT(*) FROM queue WHERE role = 'researcher' AND parent_task_id IS NULL"
+        ).fetchone()
+        cycle = int(row[0] or 0)
+        goal = RESEARCH_GOALS[cycle % len(RESEARCH_GOALS)]
+        # Cross-cycle novelty: exclude a small bounded set of recently
+        # discovered repository identities so a fresh research branch does
+        # not repeatedly rediscover GitHub's same top results. Evidence is
+        # durable intelligence, while this exclusion list stays tiny.
+        rows = self.queue.db.execute(
+            "SELECT value FROM evidence_ledger "
+            "WHERE kind = 'target' ORDER BY last_seen DESC LIMIT 35"
+        ).fetchall()
+        excluded = []
+        for row in rows:
+            try:
+                item = json.loads(row[0])
+            except Exception:
+                continue
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or item.get("full_name") or item.get("repository")
+            if name and str(name).strip() not in excluded:
+                excluded.append(str(name).strip())
+        description = goal + f"\nDiscovery rotation: {cycle}"
+        if excluded:
+            description += "\nPreviously discovered repositories to skip: " + ",".join(excluded[:35])
+
+        task_id = self.queue.add(
+            description=description,
+            role="researcher",
+        )
+
+        print(
+            f"[MASTER] BOOTSTRAP "
+            f"role=researcher "
+            f"id={task_id}",
+            flush=True,
+        )
+
+        return True
+
+    def show_state(self):
+        total, status_rows, role_rows, decision_rows = self.queue.summary()
+
+        status_text = " ".join(
+            f"{k}={v}"
+            for k, v in sorted(status_rows)
+        )
+        role_text = " ".join(
+            f"{k}={v}"
+            for k, v in sorted(role_rows)
+        )
+        decision_text = " ".join(
+            f"{k}={v}"
+            for k, v in sorted(decision_rows)
+        )
+
+        print(
+            f"[MASTER] STATE "
+            f"{status_text} "
+            f"total={total} "
+            f"roles=[{role_text}] "
+            f"decisions=[{decision_text}]",
+            flush=True,
+        )
+
+    def run(self):
+        print(
+            "[MASTER] Autonomous Decision Engine v3 started",
+            flush=True,
+        )
+
+        while True:
+            try:
+                repaired = self.queue.repair_active_orphans()
+                if repaired:
+                    print(
+                        f"[MASTER] REPAIRED ORPHAN TASKS count={repaired}",
+                        flush=True,
+                    )
+
+                self.bootstrap()
+
+                result = self.planner.plan()
+
+                if result.get("created"):
+                    print(
+                        f"[MASTER] PLANNER "
+                        f"created={result['created']}",
+                        flush=True,
+                    )
+
+                if result.get("recovered"):
+                    print(
+                        f"[MASTER] RECOVERY "
+                        f"count={len(result['recovered'])}",
+                        flush=True,
+                    )
+
+                self.show_state()
+
+            except Exception as exc:
+                print(
+                    f"[MASTER] ERROR "
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+
+            time.sleep(15)
+
+
+if __name__ == "__main__":
+    MasterOrchestrator().run()

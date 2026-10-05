@@ -3,6 +3,7 @@ import pytest
 from shared.capability_signing import CapabilitySigner
 from shared.recovery_trust import (
     RecoveryAttestor,
+    RecoveryAttestorStatus,
     RecoveryAttestorRegistry,
     RecoveryTrustError,
 )
@@ -130,3 +131,67 @@ def test_registry_history_is_auditable():
     assert history[1]["from_status"] == "ACTIVE"
     assert history[1]["reason"] == "temporary suspension"
     assert all(event["occurred_at"] for event in history)
+
+
+
+def test_registry_persists_lifecycle_across_restart(tmp_path):
+    signer = CapabilitySigner.generate()
+    db = tmp_path / "recovery-attestors.sqlite3"
+    attestor = RecoveryAttestor(
+        key_id=signer.key_id,
+        public_key=signer.public_key,
+        name="persistent",
+    )
+
+    first = RecoveryAttestorRegistry([attestor], store=db)
+    first.transition(signer.key_id, RecoveryAttestorStatus.SUSPENDED, "incident review")
+    assert first.status(signer.key_id) == RecoveryAttestorStatus.SUSPENDED
+
+    second = RecoveryAttestorRegistry(store=db)
+    assert second.status(signer.key_id) == RecoveryAttestorStatus.SUSPENDED
+    assert len(second.history(signer.key_id)) == 2
+    with pytest.raises(RecoveryTrustError, match="attestor_suspended"):
+        second.require(signer.key_id, signer.public_key)
+
+    second.transition(signer.key_id, RecoveryAttestorStatus.ACTIVE, "review cleared")
+    third = RecoveryAttestorRegistry(store=db)
+    assert third.status(signer.key_id) == RecoveryAttestorStatus.ACTIVE
+    assert len(third.history(signer.key_id)) == 3
+    assert third.require(signer.key_id, signer.public_key).key_id == signer.key_id
+
+
+def test_registry_persists_revocation_and_cannot_restore(tmp_path):
+    signer = CapabilitySigner.generate()
+    db = tmp_path / "recovery-attestors.sqlite3"
+    attestor = RecoveryAttestor(
+        key_id=signer.key_id,
+        public_key=signer.public_key,
+        name="revoked",
+    )
+
+    registry = RecoveryAttestorRegistry([attestor], store=db)
+    registry.transition(signer.key_id, RecoveryAttestorStatus.REVOKED, "key compromised")
+
+    restarted = RecoveryAttestorRegistry(store=db)
+    assert restarted.status(signer.key_id) == RecoveryAttestorStatus.REVOKED
+    with pytest.raises(RecoveryTrustError, match="attestor_revoked"):
+        restarted.require(signer.key_id, signer.public_key)
+    with pytest.raises(RecoveryTrustError, match="invalid_attestor_transition"):
+        restarted.transition(signer.key_id, RecoveryAttestorStatus.ACTIVE, "attempt restore")
+
+
+def test_registry_persistent_transition_is_atomic_on_failure(tmp_path):
+    signer = CapabilitySigner.generate()
+    db = tmp_path / "recovery-attestors.sqlite3"
+    registry = RecoveryAttestorRegistry([
+        RecoveryAttestor(
+            key_id=signer.key_id,
+            public_key=signer.public_key,
+            name="atomic",
+        )
+    ], store=db)
+
+    registry.transition(signer.key_id, RecoveryAttestorStatus.SUSPENDED, "suspend")
+    restarted = RecoveryAttestorRegistry(store=db)
+    assert restarted.status(signer.key_id) == RecoveryAttestorStatus.SUSPENDED
+    assert [event["to_status"] for event in restarted.history(signer.key_id)] == ["ACTIVE", "SUSPENDED"]

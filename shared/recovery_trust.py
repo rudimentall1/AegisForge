@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -40,6 +41,8 @@ class RecoveryAttestorStore:
     """Durable SQLite state for recovery attestor trust and lifecycle."""
 
     SCHEMA_VERSION = "recovery-attestor-store-v1"
+    HISTORY_INTEGRITY_SCHEMA = "recovery-attestor-history-integrity-v1"
+    GENESIS_HASH = "0" * 64
 
     def __init__(self, db):
         self.db = db
@@ -76,10 +79,106 @@ class RecoveryAttestorStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_recovery_attestor_history_key
                     ON recovery_attestor_history(key_id, event_id);
+                CREATE TABLE IF NOT EXISTS recovery_attestor_history_integrity (
+                    event_id INTEGER PRIMARY KEY,
+                    key_id TEXT NOT NULL,
+                    prev_hash TEXT NOT NULL,
+                    event_hash TEXT NOT NULL,
+                    schema_version TEXT NOT NULL,
+                    FOREIGN KEY(event_id) REFERENCES recovery_attestor_history(event_id)
+                );
                 """
             )
+            self._backfill_history_integrity(conn)
             if owned:
                 conn.commit()
+        finally:
+            if owned:
+                conn.close()
+
+    @staticmethod
+    def _canonical_history_event(key_id, from_status, to_status, occurred_at, reason, prev_hash):
+        return json.dumps(
+            {
+                "schema_version": RecoveryAttestorStore.HISTORY_INTEGRITY_SCHEMA,
+                "key_id": key_id,
+                "from_status": from_status,
+                "to_status": to_status,
+                "occurred_at": occurred_at,
+                "reason": reason,
+                "prev_hash": prev_hash,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+
+    @classmethod
+    def history_event_hash(cls, key_id, from_status, to_status, occurred_at, reason, prev_hash):
+        return hashlib.sha256(
+            cls._canonical_history_event(
+                key_id, from_status, to_status, occurred_at, reason, prev_hash
+            ).encode("utf-8")
+        ).hexdigest()
+
+    def _backfill_history_integrity(self, conn):
+        # Backfill only a completely new integrity table. Once integrity state
+        # exists, missing rows are evidence of tampering and must fail closed.
+        if conn.execute(
+            "SELECT 1 FROM recovery_attestor_history_integrity LIMIT 1"
+        ).fetchone():
+            return
+        rows = conn.execute(
+            "SELECT event_id, key_id, from_status, to_status, occurred_at, reason "
+            "FROM recovery_attestor_history ORDER BY key_id, event_id"
+        ).fetchall()
+        previous = {}
+        for event_id, key_id, from_status, to_status, occurred_at, reason in rows:
+            existing = conn.execute(
+                "SELECT event_hash FROM recovery_attestor_history_integrity WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            if existing:
+                previous[key_id] = existing[0]
+                continue
+            prev_hash = previous.get(key_id, self.GENESIS_HASH)
+            event_hash = self.history_event_hash(
+                key_id, from_status, to_status, occurred_at, reason, prev_hash
+            )
+            conn.execute(
+                "INSERT INTO recovery_attestor_history_integrity "
+                "(event_id, key_id, prev_hash, event_hash, schema_version) VALUES (?, ?, ?, ?, ?)",
+                (event_id, key_id, prev_hash, event_hash, self.HISTORY_INTEGRITY_SCHEMA),
+            )
+            previous[key_id] = event_hash
+
+    def verify_history(self, key_id):
+        conn, owned = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT h.event_id, h.key_id, h.from_status, h.to_status, h.occurred_at, h.reason, "
+                "i.prev_hash, i.event_hash FROM recovery_attestor_history h "
+                "JOIN recovery_attestor_history_integrity i ON i.event_id = h.event_id "
+                "WHERE h.key_id = ? ORDER BY h.event_id",
+                (key_id,),
+            ).fetchall()
+            source_count = conn.execute(
+                "SELECT COUNT(*) FROM recovery_attestor_history WHERE key_id = ?",
+                (key_id,),
+            ).fetchone()[0]
+            if not rows or len(rows) != source_count:
+                raise RecoveryTrustError("trust_history_missing")
+            previous = self.GENESIS_HASH
+            for event_id, row_key_id, from_status, to_status, occurred_at, reason, prev_hash, event_hash in rows:
+                if prev_hash != previous:
+                    raise RecoveryTrustError("trust_history_prev_hash_mismatch")
+                expected = self.history_event_hash(
+                    row_key_id, from_status, to_status, occurred_at, reason, previous
+                )
+                if event_hash != expected:
+                    raise RecoveryTrustError("trust_history_event_hash_mismatch")
+                previous = event_hash
+            return {"valid": True, "head_hash": previous, "events": len(rows)}
         finally:
             if owned:
                 conn.close()
@@ -99,8 +198,10 @@ class RecoveryAttestorStore:
         conn, owned = self._connect()
         try:
             return conn.execute(
-                "SELECT from_status, to_status, occurred_at, reason "
-                "FROM recovery_attestor_history WHERE key_id = ? ORDER BY event_id",
+                "SELECT h.from_status, h.to_status, h.occurred_at, h.reason, "
+                "i.prev_hash, i.event_hash FROM recovery_attestor_history h "
+                "JOIN recovery_attestor_history_integrity i ON i.event_id = h.event_id "
+                "WHERE h.key_id = ? ORDER BY h.event_id",
                 (key_id,),
             ).fetchall()
         finally:
@@ -117,13 +218,24 @@ class RecoveryAttestorStore:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (attestor.key_id, attestor.public_key, attestor.name, int(attestor.enabled), status, self.SCHEMA_VERSION),
             )
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO recovery_attestor_history "
                 "(key_id, from_status, to_status, occurred_at, reason, schema_version) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (attestor.key_id, None, status, occurred_at, "registered", self.SCHEMA_VERSION),
             )
+            event_id = cur.lastrowid
+            prev_hash = self.GENESIS_HASH
+            event_hash = self.history_event_hash(
+                attestor.key_id, None, status, occurred_at, "registered", prev_hash
+            )
+            conn.execute(
+                "INSERT INTO recovery_attestor_history_integrity "
+                "(event_id, key_id, prev_hash, event_hash, schema_version) VALUES (?, ?, ?, ?, ?)",
+                (event_id, attestor.key_id, prev_hash, event_hash, self.HISTORY_INTEGRITY_SCHEMA),
+            )
             conn.commit()
+            return event_hash
         except Exception:
             conn.rollback()
             raise
@@ -146,13 +258,29 @@ class RecoveryAttestorStore:
                 "UPDATE recovery_attestors SET status = ? WHERE key_id = ? AND status = ?",
                 (new_status, key_id, expected_status),
             )
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO recovery_attestor_history "
                 "(key_id, from_status, to_status, occurred_at, reason, schema_version) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (key_id, expected_status, new_status, occurred_at, reason, self.SCHEMA_VERSION),
             )
+            event_id = cur.lastrowid
+            previous = conn.execute(
+                "SELECT event_hash FROM recovery_attestor_history_integrity "
+                "WHERE key_id = ? ORDER BY event_id DESC LIMIT 1",
+                (key_id,),
+            ).fetchone()
+            prev_hash = previous[0] if previous else self.GENESIS_HASH
+            event_hash = self.history_event_hash(
+                key_id, expected_status, new_status, occurred_at, reason, prev_hash
+            )
+            conn.execute(
+                "INSERT INTO recovery_attestor_history_integrity "
+                "(event_id, key_id, prev_hash, event_hash, schema_version) VALUES (?, ?, ?, ?, ?)",
+                (event_id, key_id, prev_hash, event_hash, self.HISTORY_INTEGRITY_SCHEMA),
+            )
             conn.commit()
+            return event_hash
         except Exception:
             conn.rollback()
             raise
@@ -189,8 +317,11 @@ class RecoveryAttestorRegistry:
                     "to_status": to_status,
                     "occurred_at": occurred_at,
                     "reason": reason,
+                    "prev_hash": prev_hash,
+                    "event_hash": event_hash,
                 }
-                for from_status, to_status, occurred_at, reason in self._store.history(key_id)
+                for from_status, to_status, occurred_at, reason, prev_hash, event_hash
+                in self._store.history(key_id)
             ]
 
     def register(self, attestor):
@@ -226,11 +357,19 @@ class RecoveryAttestorRegistry:
                 "to_status": status,
                 "occurred_at": occurred_at,
                 "reason": "registered",
+                "prev_hash": RecoveryAttestorStore.GENESIS_HASH,
+                "event_hash": RecoveryAttestorStore.history_event_hash(
+                    attestor.key_id, None, status, occurred_at, "registered",
+                    RecoveryAttestorStore.GENESIS_HASH,
+                ),
             }
         ]
         if self._store is not None:
             try:
-                self._store.insert(attestor, status, self._history[attestor.key_id][0]["occurred_at"])
+                event_hash = self._store.insert(
+                    attestor, status, self._history[attestor.key_id][0]["occurred_at"]
+                )
+                self._history[attestor.key_id][0]["event_hash"] = event_hash
             except Exception:
                 self._attestors.pop(attestor.key_id, None)
                 self._status.pop(attestor.key_id, None)
@@ -257,7 +396,14 @@ class RecoveryAttestorRegistry:
             raise RecoveryTrustError("attestor_transition_reason_required")
         occurred_at = datetime.now(timezone.utc).isoformat()
         if self._store is not None:
-            self._store.transition(key_id, current, new_status, reason.strip(), occurred_at)
+            event_hash = self._store.transition(
+                key_id, current, new_status, reason.strip(), occurred_at
+            )
+        else:
+            prev_hash = self._history[key_id][-1]["event_hash"]
+            event_hash = RecoveryAttestorStore.history_event_hash(
+                key_id, current, new_status, occurred_at, reason.strip(), prev_hash
+            )
         self._status[key_id] = new_status
         self._history[key_id].append(
             {
@@ -265,6 +411,8 @@ class RecoveryAttestorRegistry:
                 "to_status": new_status,
                 "occurred_at": occurred_at,
                 "reason": reason.strip(),
+                "prev_hash": self._history[key_id][-1]["event_hash"],
+                "event_hash": event_hash,
             }
         )
         return new_status
@@ -273,6 +421,24 @@ class RecoveryAttestorRegistry:
         if key_id not in self._attestors:
             raise RecoveryTrustError("untrusted_attestor")
         return [dict(event) for event in self._history[key_id]]
+
+    def verify_history(self, key_id):
+        if key_id not in self._attestors:
+            raise RecoveryTrustError("untrusted_attestor")
+        if self._store is not None:
+            return self._store.verify_history(key_id)
+        previous = RecoveryAttestorStore.GENESIS_HASH
+        for event in self._history[key_id]:
+            if event["prev_hash"] != previous:
+                raise RecoveryTrustError("trust_history_prev_hash_mismatch")
+            expected = RecoveryAttestorStore.history_event_hash(
+                key_id, event["from_status"], event["to_status"],
+                event["occurred_at"], event["reason"], previous
+            )
+            if event["event_hash"] != expected:
+                raise RecoveryTrustError("trust_history_event_hash_mismatch")
+            previous = event["event_hash"]
+        return {"valid": True, "head_hash": previous, "events": len(self._history[key_id])}
 
     def require(self, key_id, public_key):
         attestor = self.get(key_id)

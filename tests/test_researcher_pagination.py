@@ -28,8 +28,7 @@ def test_researcher_paginates_when_first_page_is_exhausted():
     task = Task(
         task_id="test-1",
         description=(
-            "Discover promising AI agent technologies
-"
+            "Discover promising AI agent technologies\\n"
             "Previously discovered repositories to skip: old/a,old/b"
         ),
     )

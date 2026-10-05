@@ -21,9 +21,8 @@ class FakeGitHub:
 
 
 def test_researcher_paginates_when_first_page_is_exhausted():
-    researcher = Researcher()
     fake = FakeGitHub()
-    researcher.github = fake
+    researcher = Researcher(github=fake)
 
     task = Task(
         task_id="test-1",
@@ -40,7 +39,6 @@ def test_researcher_paginates_when_first_page_is_exhausted():
 
 
 def test_researcher_does_not_pay_for_extra_pages_when_page_is_novel():
-    researcher = Researcher()
     fake = FakeGitHub()
 
     def search(query, limit=5, cache_ttl=3600, page=1):
@@ -58,7 +56,7 @@ def test_researcher_does_not_pay_for_extra_pages_when_page_is_novel():
         }]
 
     fake.search_repositories = search
-    researcher.github = fake
+    researcher = Researcher(github=fake)
 
     task = Task(task_id="test-2", description="AI agents")
     result = researcher.run(task)

@@ -47,4 +47,13 @@ jobs:
         run: git diff --check
 
       - name: Run tests
-        run: python -m pytest -q
+        run: |
+          set -o pipefail
+          python -m pytest -q --tb=short 2>&1 | tee pytest.log
+
+      - name: Upload pytest failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegisforge-pytest-failure
+          path: pytest.log

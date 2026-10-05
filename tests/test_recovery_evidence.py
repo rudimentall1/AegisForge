@@ -48,3 +48,35 @@ def test_recovery_evidence_detects_tampering():
     result = chain.verify("recovery-1")
     assert result["valid"] is False
     assert result["error"] == "event_hash_mismatch"
+
+
+def test_recovery_evidence_exports_and_verifies_portable_artifact():
+    db = sqlite3.connect(":memory:")
+    chain = RecoveryEvidenceChain(db)
+    chain.append("recovery-1", "attempt-1", "RECOVERY_OPENED", {"state": "RUNNING"})
+    chain.append(
+        "recovery-1",
+        "attempt-1",
+        "VERIFICATION_DECISION",
+        {"decision": "SAFE_TO_RETRY"},
+    )
+    artifact = chain.export_artifact("recovery-1")
+
+    assert artifact["schema_version"] == "recovery-evidence-v1"
+    assert RecoveryEvidenceChain.verify_artifact(artifact)["valid"] is True
+
+    tampered = dict(artifact)
+    tampered["events"] = [dict(event) for event in artifact["events"]]
+    tampered["events"][1]["payload"] = {"decision": "SIDE_EFFECT_CONFIRMED"}
+    assert RecoveryEvidenceChain.verify_artifact(tampered)["error"] == "event_hash_mismatch"
+
+
+def test_recovery_evidence_rejects_portable_artifact_head_tampering():
+    db = sqlite3.connect(":memory:")
+    chain = RecoveryEvidenceChain(db)
+    chain.append("recovery-1", "attempt-1", "RECOVERY_OPENED", {"state": "RUNNING"})
+    artifact = chain.export_artifact("recovery-1")
+
+    tampered = dict(artifact)
+    tampered["head_hash"] = GENESIS_HASH
+    assert RecoveryEvidenceChain.verify_artifact(tampered)["error"] == "head_hash_mismatch"

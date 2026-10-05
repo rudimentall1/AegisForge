@@ -1,5 +1,3 @@
-[Reading 156 lines from start (total: 156 lines, 0 remaining)]
-
 from agents.validator.agent import Validator
 from orchestrator.master import AutonomousPlanner
 
@@ -156,5 +154,3 @@ def test_planner_penalizes_repeated_blocked_validation():
     }]
     selected = planner.validation_followup(opportunities)
     assert selected[2] == "commercial"
-
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

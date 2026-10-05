@@ -137,6 +137,80 @@ class RecoveryEvidenceChain:
         ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    def export_artifact(self, recovery_id):
+        """Return a portable JSON-compatible recovery evidence artifact."""
+        events = self.events(recovery_id)
+        result = self.verify(recovery_id)
+        if not result["valid"]:
+            raise RecoveryEvidenceError("cannot_export_invalid_chain")
+        attempt_ids = {event["attempt_id"] for event in events}
+        recovery_ids = {event["recovery_id"] for event in events}
+        if len(recovery_ids) != 1 or (events and len(attempt_ids) != 1):
+            raise RecoveryEvidenceError("inconsistent_recovery_chain")
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "recovery_id": str(recovery_id),
+            "attempt_id": events[0]["attempt_id"] if events else None,
+            "events": events,
+            "head_hash": result["head_hash"],
+        }
+
+    @classmethod
+    def verify_artifact(cls, artifact):
+        """Verify a portable artifact without a database or chain instance."""
+        if not isinstance(artifact, dict):
+            return {"valid": False, "error": "artifact_must_be_dict"}
+        if artifact.get("schema_version") != SCHEMA_VERSION:
+            return {"valid": False, "error": "unsupported_schema_version"}
+        recovery_id = artifact.get("recovery_id")
+        events = artifact.get("events")
+        if not isinstance(recovery_id, str) or not recovery_id.strip():
+            return {"valid": False, "error": "recovery_id_required"}
+        if not isinstance(events, list):
+            return {"valid": False, "error": "events_must_be_list"}
+        expected_prev = GENESIS_HASH
+        attempt_id = artifact.get("attempt_id")
+        for event in events:
+            if not isinstance(event, dict):
+                return {"valid": False, "error": "event_must_be_dict"}
+            if event.get("recovery_id") != recovery_id:
+                return {"valid": False, "error": "recovery_id_mismatch"}
+            if attempt_id is not None and event.get("attempt_id") != attempt_id:
+                return {"valid": False, "error": "attempt_id_mismatch"}
+            if event.get("prev_hash") != expected_prev:
+                return {
+                    "valid": False,
+                    "events": len(events),
+                    "error": "broken_prev_hash",
+                    "event_hash": event.get("event_hash"),
+                }
+            required = ("attempt_id", "event_type", "payload", "occurred_at", "prev_hash", "event_hash")
+            if any(field not in event for field in required):
+                return {"valid": False, "error": "event_field_missing"}
+            expected_hash = cls._hash_event(
+                event["recovery_id"],
+                event["attempt_id"],
+                event["event_type"],
+                event["payload"],
+                event["occurred_at"],
+                event["prev_hash"],
+            )
+            if event["event_hash"] != expected_hash:
+                return {
+                    "valid": False,
+                    "events": len(events),
+                    "error": "event_hash_mismatch",
+                    "event_hash": event["event_hash"],
+                }
+            expected_prev = event["event_hash"]
+        if artifact.get("head_hash") != expected_prev:
+            return {
+                "valid": False,
+                "events": len(events),
+                "error": "head_hash_mismatch",
+            }
+        return {"valid": True, "events": len(events), "head_hash": expected_prev}
+
     def verify(self, recovery_id):
         events = self.events(recovery_id)
         expected_prev = GENESIS_HASH

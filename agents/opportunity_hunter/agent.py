@@ -1,5 +1,3 @@
-[Reading 285 lines from start (total: 285 lines, 0 remaining)]
-
 from shared.task import Task
 
 
@@ -285,5 +283,3 @@ class OpportunityHunter:
             }
 
         return task
-
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

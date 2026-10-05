@@ -95,6 +95,15 @@ def test_validation_updates_confidence_and_score():
     assert opportunity["commercial_readiness"] == "VALIDATE"
 
 
+def test_partial_commercial_validation_does_not_increase_confidence():
+    opportunity = {"name": "acme/project", "opportunity_score": 70, "uncertainties": ["willingness to pay and buyer demand are not validated"]}
+    update = Validator._apply_validation_update(opportunity, {"status": "PARTIAL", "validation_type": "commercial", "experiment_metric": "public_commercial_signal", "experiment_value": 4})
+    assert update["after"] == update["before"]
+    assert opportunity["confidence_delta"] == 0.0
+    assert opportunity["opportunity_score"] == 70
+    assert "willingness to pay" in opportunity["uncertainties"][0]
+
+
 def test_failed_validation_reduces_confidence():
     opportunity = {"name": "acme/project", "opportunity_score": 60, "uncertainties": ["security posture requires further validation"]}
     update = Validator._apply_validation_update(opportunity, {"status": "BLOCKED", "validation_type": "security", "experiment_metric": "security_control_surfaces", "experiment_value": 0})

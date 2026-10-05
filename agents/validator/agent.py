@@ -351,7 +351,7 @@ class Validator:
         before = max(0.0, min(1.0, float(opportunity.get("confidence", opportunity.get("opportunity_score", 0) / 100.0) or 0.0)))
         if status == "VALIDATED":
             delta = {"technical": 0.12, "adoption": 0.10, "dependency": 0.10, "security": 0.08, "commercial": 0.08}.get(validation_type, 0.06)
-        elif status == "PARTIAL": delta = 0.02
+        elif status == "PARTIAL": delta = 0.0
         elif status == "DEFERRED": delta = 0.0
         else: delta = -0.10
         after = max(0.0, min(1.0, before + delta))

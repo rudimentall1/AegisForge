@@ -81,3 +81,15 @@ def test_dossiers_change_with_repository_capability():
     assert robotics["validation_experiment"] != security["validation_experiment"]
     assert "simulation" in robotics["domain"]
     assert "security" in security["domain"]
+
+
+def test_stars_are_not_labeled_as_adoption():
+    hunter = OpportunityHunter()
+    analysis = hunter._score_repo(
+        {"name": "popular/project", "description": "developer tool", "stars": 50000},
+        {},
+        {},
+    )
+
+    assert all("adoption" not in reason.lower() for reason in analysis["reasons"])
+    assert any("public interest" in reason.lower() for reason in analysis["reasons"])

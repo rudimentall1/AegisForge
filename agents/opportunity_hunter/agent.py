@@ -47,14 +47,16 @@ class OpportunityHunter:
 
         stars = repo.get("stars", 0)
 
+        # Stars are a public-interest signal, not proof of adoption or buyer demand.
         if stars >= 10000:
             score += 20
-            reasons.append("large community")
+            reasons.append("strong public interest signal")
         elif stars >= 1000:
             score += 15
-            reasons.append("good adoption")
+            reasons.append("meaningful public interest signal")
         elif stars >= 100:
             score += 8
+            reasons.append("public interest signal")
 
         maturity = technical.get(
             "technical_maturity_score",

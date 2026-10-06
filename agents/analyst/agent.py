@@ -5,6 +5,49 @@ class Analyst:
     name = "analyst"
 
     @staticmethod
+    def _refined_opportunity(repo, opportunity):
+        """Add a repository-grounded analytical layer to an existing dossier."""
+        description = str(repo.get("description") or "").strip()
+        language = repo.get("language") or "unknown"
+        topics = repo.get("topics") or []
+        evidence = opportunity.get("evidence") or {}
+        technical_maturity = evidence.get("technical_maturity_score")
+        tests = evidence.get("has_tests")
+        ci = evidence.get("has_ci")
+        security = evidence.get("security_score")
+        capability = description or "Repository capability requires direct inspection."
+        if tests is False:
+            operational_gap = "Production confidence is constrained by the absence of repository tests; runtime behavior needs independent verification."
+        elif ci and technical_maturity is not None and technical_maturity >= 7:
+            operational_gap = "Repository maturity is stronger, so the key uncertainty shifts from basic implementation to deployment, integration, and measurable operational value."
+        else:
+            operational_gap = "The demonstrated capability is not yet equivalent to production readiness; verify behavior in a real workflow under operational constraints."
+        criteria = [
+            "Can the demonstrated capability be reproduced in a real user workflow?",
+            "What measurable failure, cost, latency, or reliability problem does it remove?",
+            "Which existing tool or workflow would a buyer replace or augment?",
+        ]
+        return {
+            **opportunity,
+            "analysis_layer": "independent_technical_reanalysis",
+            "observed_capability": capability,
+            "observed_stack": {"language": language, "topics": topics[:12]},
+            "operational_gap": operational_gap,
+            "decision_criteria": criteria,
+            "analyst_assessment": "The repository demonstrates a technical capability, but the commercial thesis remains a hypothesis. This pass separates observed implementation signals from inference and identifies the next evidence required for a decision.",
+            "uncertainties": list(opportunity.get("uncertainties") or []) + criteria,
+            "evidence": {
+                **evidence,
+                "repository_description": description,
+                "language": language,
+                "has_tests": tests,
+                "has_ci": ci,
+                "security_score": security,
+                "technical_maturity_score": technical_maturity,
+            },
+        }
+
+    @staticmethod
     def _opportunity(repo, analysis):
         text = (
             f"{repo.get('name', '')} {repo.get('description', '')} "
@@ -48,8 +91,20 @@ class Analyst:
         try:
             result = task.result or {}
             repositories = result.get("repositories", [])
+            existing_opportunities = result.get("opportunities", [])
             analysis = []
             opportunities = []
+
+            if existing_opportunities:
+                by_name = {
+                    str(item.get("name") or item.get("target")): item
+                    for item in existing_opportunities
+                    if isinstance(item, dict)
+                }
+                for repo in repositories:
+                    existing = by_name.get(str(repo.get("name") or ""))
+                    if existing:
+                        opportunities.append(self._refined_opportunity(repo, existing))
 
             for repo in repositories:
                 stars = int(repo.get("stars", 0) or 0)
@@ -71,7 +126,8 @@ class Analyst:
                     "activity_signal": "recent" if repo.get("updated") else "unknown",
                 }
                 analysis.append(item)
-                opportunities.append(self._opportunity(repo, item))
+                if not existing_opportunities:
+                    opportunities.append(self._opportunity(repo, item))
 
             task.result = {
                 "agent": self.name,

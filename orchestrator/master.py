@@ -1485,12 +1485,18 @@ class AutonomousPlanner:
             limit=4,
         ) else 1.0
 
+        contextual = self.contextual_action_history(task, next_role, history)
+        contextual_penalty = 1.0
+        if contextual["samples"] >= 2 and contextual["recent_ratio"] < 0.75:
+            contextual_penalty = max(0.50, contextual["recent_ratio"])
+
         estimate = (
             base
             * novelty_factor
             * quality_factor
             * coverage_factor
             * repeat_penalty
+            * contextual_penalty
         )
         return max(0.0, min(1.0, estimate))
 
@@ -2033,6 +2039,44 @@ class AutonomousPlanner:
             for item in history[:limit]
             if item.get("role")
         ]
+
+    def contextual_action_history(self, task, action_role, history=None):
+        """Measure recent realized value of an action within the current branch."""
+        if history is None:
+            history = self.branch_history(
+                task,
+                getattr(self, "_planning_tasks", {}),
+                max_depth=8,
+            )
+        child_ids = {item.get("id") for item in history if item.get("id")}
+        if not child_ids:
+            return {"uses": 0, "recent_ratio": 1.0, "samples": 0}
+
+        placeholders = ",".join("?" for _ in child_ids)
+        params = [action_role, *child_ids]
+        rows = self.queue.db.execute(
+            f"""
+            SELECT expected_evidence_gain, actual_evidence_gain
+            FROM planner_action_outcomes
+            WHERE action_role = ?
+              AND parent_task_id IN ({placeholders})
+            ORDER BY observed_at DESC
+            LIMIT 8
+            """,
+            params,
+        ).fetchall()
+        ratios = []
+        for expected, actual in rows:
+            expected = float(expected or 0.0)
+            if expected > 0.05:
+                ratios.append(
+                    max(0.0, min(1.5, float(actual or 0.0) / expected))
+                )
+        return {
+            "uses": len(rows),
+            "recent_ratio": round(sum(ratios) / len(ratios), 4) if ratios else 1.0,
+            "samples": len(ratios),
+        }
 
     @staticmethod
     def alternate_role(current_role, recent_roles):

@@ -126,3 +126,25 @@ def test_opportunity_hunter_exposes_learning_branch_before_validation():
     candidates = planner.candidate_decisions(task, primary)
     assert primary[1] == "validator"
     assert {candidate[1] for candidate in candidates} == {"validator", "analyst"}
+
+
+def test_contextual_action_history_detects_diminishing_returns():
+    import sqlite3
+
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE planner_action_outcomes (action_role TEXT, parent_task_id TEXT, expected_evidence_gain REAL, actual_evidence_gain REAL, observed_at TEXT)")
+    db.executemany("INSERT INTO planner_action_outcomes VALUES (?, ?, ?, ?, ?)", [
+        ("analyst", "p1", 0.1282, 0.0, "2"),
+        ("analyst", "p2", 0.1282, 0.0, "1"),
+    ])
+    planner.queue = type("Queue", (), {"db": db})()
+
+    result = planner.contextual_action_history(
+        {"id": "current"},
+        "analyst",
+        history=[{"id": "p1"}, {"id": "p2"}],
+    )
+
+    assert result["samples"] == 2
+    assert result["recent_ratio"] == 0.0

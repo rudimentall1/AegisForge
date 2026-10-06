@@ -1,3 +1,5 @@
+import threading
+
 import shared.queue as queue_module
 from shared.queue import TaskQueue
 
@@ -65,6 +67,39 @@ def test_action_outcome_records_bounded_calibration_feedback(tmp_path, monkeypat
     assert summary["samples"] == 1
     assert summary["by_role"]["analyst"]["samples"] == 1
     q.db.close()
+
+
+def test_action_outcome_serializes_concurrent_attribution(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("parent", "researcher")
+    child_a = q.add("child-a", "analyst", parent_task_id=parent)
+    child_b = q.add("child-b", "analyst", parent_task_id=parent)
+    q.mark_planner_decision(parent, "CONTINUE", 0.6, "fp", "analyst", 0.7, 0.35, 2.0)
+    q.db.execute("UPDATE queue SET status='completed' WHERE id IN (?, ?)", (child_a, child_b))
+    q.db.commit()
+    q.db.close()
+
+    q1 = TaskQueue(tmp_path / "queue.db")
+    q2 = TaskQueue(tmp_path / "queue.db")
+    barrier = threading.Barrier(2)
+    results = []
+
+    def record(q, child):
+        barrier.wait()
+        results.append(q.record_action_outcome(child, 0.5, 0.8, 4, 5))
+
+    t1 = threading.Thread(target=record, args=(q1, child_a))
+    t2 = threading.Thread(target=record, args=(q2, child_b))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert sorted(results) == [False, True]
+    assert q1.db.execute("SELECT COUNT(*) FROM planner_action_outcomes").fetchone()[0] == 1
+    q1.db.close()
+    q2.db.close()
 
 
 def _insert_planner_outcome(q, idx, role, expected, actual):

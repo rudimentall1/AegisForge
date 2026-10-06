@@ -670,71 +670,83 @@ class TaskQueue:
         max_rows=200,
     ):
         """Record bounded feedback for a planner action once its child completes."""
-        current_id = child_task_id
-        origin = None
-        while current_id:
-            current = self.db.execute(
-                """
-                SELECT id, parent_task_id, action_role, expected_evidence_gain,
-                       action_cost, action_efficiency, status
-                FROM queue WHERE id = ?
-                """,
-                (current_id,),
+        # Attribution is a cross-process critical section: two master/worker
+        # paths can finish descendants at nearly the same time. Serialize the
+        # parent lookup + deduplication + insert so exactly one logical planner
+        # action becomes a calibration sample and duplicate writers are a safe
+        # no-op rather than a PRIMARY KEY race on child_task_id.
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            current_id = child_task_id
+            origin = None
+            while current_id:
+                current = self.db.execute(
+                    """
+                    SELECT id, parent_task_id, action_role, expected_evidence_gain,
+                           action_cost, action_efficiency, status
+                    FROM queue WHERE id = ?
+                    """,
+                    (current_id,),
+                ).fetchone()
+                if current is None:
+                    break
+                if current[2]:
+                    origin = current
+                    break
+                current_id = current[1]
+
+            if origin is None:
+                self.db.rollback()
+                return False
+
+            # The planner action itself may remain pending while its descendant
+            # completes, so its status is intentionally not used as a gate.
+
+            # One calibration sample belongs to one logical planner action, not
+            # to every validator/executor descendant in its provenance chain.
+            existing = self.db.execute(
+                "SELECT 1 FROM planner_action_outcomes WHERE parent_task_id = ?",
+                (origin[0],),
             ).fetchone()
-            if current is None:
-                break
-            if current[2]:
-                origin = current
-                break
-            current_id = current[1]
+            if existing:
+                self.db.rollback()
+                return False
 
-        if origin is None:
-            return False
+            row = origin
 
-        # The planner action itself may remain pending while its descendant
-        # completes, so its status is intentionally not used as a gate.
-
-        # One calibration sample belongs to one logical planner action, not
-        # to every validator/executor descendant in its provenance chain.
-        existing = self.db.execute(
-            "SELECT 1 FROM planner_action_outcomes WHERE parent_task_id = ?",
-            (origin[0],),
-        ).fetchone()
-        if existing:
-            return False
-
-        row = origin
-
-        actual = max(0.0, min(1.0, float(actual_evidence_gain)))
-        expected = max(0.0, min(1.0, float(row[3] or 0.0)))
-        now = observed_at or datetime.now(timezone.utc).isoformat()
-        self.db.execute(
-            """
-            INSERT INTO planner_action_outcomes
-            (child_task_id, parent_task_id, action_role, expected_evidence_gain,
-             action_cost, action_efficiency, actual_evidence_gain, novelty,
-             novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
-            """,
-            (
-                child_task_id, row[0], row[2], expected, float(row[4] or 0.0),
-                float(row[5] or 0.0), actual, max(0.0, min(1.0, float(novelty))),
-                int(novel_atom_count), int(atom_count), actual - expected, now,
-            ),
-        )
-        self.db.execute(
-            """
-            DELETE FROM planner_action_outcomes
-            WHERE child_task_id IN (
-                SELECT child_task_id FROM planner_action_outcomes
-                ORDER BY observed_at DESC
-                LIMIT -1 OFFSET ?
+            actual = max(0.0, min(1.0, float(actual_evidence_gain)))
+            expected = max(0.0, min(1.0, float(row[3] or 0.0)))
+            now = observed_at or datetime.now(timezone.utc).isoformat()
+            self.db.execute(
+                """
+                INSERT INTO planner_action_outcomes
+                (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+                 action_cost, action_efficiency, actual_evidence_gain, novelty,
+                 novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+                """,
+                (
+                    child_task_id, row[0], row[2], expected, float(row[4] or 0.0),
+                    float(row[5] or 0.0), actual, max(0.0, min(1.0, float(novelty))),
+                    int(novel_atom_count), int(atom_count), actual - expected, now,
+                ),
             )
-            """,
-            (int(max_rows),),
-        )
-        self.db.commit()
-        return True
+            self.db.execute(
+                """
+                DELETE FROM planner_action_outcomes
+                WHERE child_task_id IN (
+                    SELECT child_task_id FROM planner_action_outcomes
+                    ORDER BY observed_at DESC
+                    LIMIT -1 OFFSET ?
+                )
+                """,
+                (int(max_rows),),
+            )
+            self.db.commit()
+            return True
+        except Exception:
+            self.db.rollback()
+            raise
 
     def record_verified_outcome_feedback(
         self,

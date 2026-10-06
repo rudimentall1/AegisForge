@@ -179,3 +179,40 @@ def test_contextual_action_history_detects_diminishing_returns():
 
     assert result["samples"] == 2
     assert result["recent_ratio"] == 0.0
+
+
+
+def test_contextual_action_history_falls_back_to_same_parent_role(tmp_path, monkeypatch):
+    import shared.queue as queue_module
+
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    queue = queue_module.TaskQueue()
+    planner = AutonomousPlanner(queue)
+
+    current = queue.add("current opportunity hunt", role="opportunity_hunter")
+    prior_one = queue.add("prior opportunity hunt 1", role="opportunity_hunter")
+    prior_two = queue.add("prior opportunity hunt 2", role="opportunity_hunter")
+    queue.db.executemany(
+        """
+        INSERT INTO planner_action_outcomes
+        (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+         action_cost, action_efficiency, actual_evidence_gain, novelty,
+         novel_atom_count, atom_count, prediction_error, observed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("child-1", prior_one, "analyst", 0.20, 0.35, 0.57, 0.02, 0.10, 1, 10, -0.18, "2"),
+            ("child-2", prior_two, "analyst", 0.20, 0.35, 0.57, 0.04, 0.20, 2, 10, -0.16, "1"),
+        ],
+    )
+    queue.db.commit()
+
+    result = planner.contextual_action_history(
+        {"id": current, "role": "opportunity_hunter"},
+        "analyst",
+        history=[{"id": current, "role": "opportunity_hunter"}],
+    )
+
+    assert result["samples"] == 2
+    assert result["recent_ratio"] == 0.15
+    queue.db.close()

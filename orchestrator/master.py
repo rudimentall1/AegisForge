@@ -2082,7 +2082,7 @@ class AutonomousPlanner:
         params = [action_role, *child_ids]
         rows = self.queue.db.execute(
             f"""
-            SELECT expected_evidence_gain, actual_evidence_gain
+            SELECT parent_task_id, expected_evidence_gain, actual_evidence_gain
             FROM planner_action_outcomes
             WHERE action_role = ?
               AND parent_task_id IN ({placeholders})
@@ -2091,8 +2091,37 @@ class AutonomousPlanner:
             """,
             params,
         ).fetchall()
+
+        # Autonomous cycles are intentionally rooted as separate researcher
+        # tasks. That means the current branch normally contains only one
+        # Analyst action, even when the same Opportunity Hunter decision has
+        # already been tested repeatedly across earlier cycles. A branch-only
+        # sample would therefore miss real stagnation until it is too late.
+        # When local context is sparse, extend the sample to recent outcomes
+        # for the same parent role. This preserves contextuality (Analyst
+        # actions taken for Opportunity Hunter decisions) without falling back
+        # to a completely global role average.
+        if len(rows) < 2 and task.get("role"):
+            excluded_ids = {row[0] for row in rows}
+            fallback_rows = self.queue.db.execute(
+                """
+                SELECT o.parent_task_id, o.expected_evidence_gain, o.actual_evidence_gain
+                FROM planner_action_outcomes o
+                JOIN queue p ON p.id = o.parent_task_id
+                WHERE o.action_role = ?
+                  AND p.role = ?
+                ORDER BY o.observed_at DESC
+                LIMIT 8
+                """,
+                (action_role, task.get("role")),
+            ).fetchall()
+            rows.extend(
+                row for row in fallback_rows
+                if row[0] not in excluded_ids
+            )
+
         ratios = []
-        for expected, actual in rows:
+        for _parent_id, expected, actual in rows:
             expected = float(expected or 0.0)
             if expected > 0.05:
                 ratios.append(

@@ -105,3 +105,24 @@ def test_commercial_shortcut_allowed_after_technical_review():
     candidates = planner.candidate_decisions(task, primary)
     assert primary[1] == "developer"
     assert {candidate[1] for candidate in candidates} == {"developer", "opportunity_hunter"}
+
+
+def test_opportunity_hunter_exposes_learning_branch_before_validation():
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    task = {
+        "role": "opportunity_hunter",
+        "result": {
+            "opportunities": [
+                {
+                    "target": "acme/project",
+                    "product_thesis": "test",
+                    "problem_signal": "specific pain",
+                    "validation_experiment": "commercial probe",
+                }
+            ]
+        },
+    }
+    primary = planner._choose_next_raw(task)
+    candidates = planner.candidate_decisions(task, primary)
+    assert primary[1] == "validator"
+    assert {candidate[1] for candidate in candidates} == {"validator", "analyst"}

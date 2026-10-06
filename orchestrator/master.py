@@ -1580,6 +1580,43 @@ class AutonomousPlanner:
                 max(0.55, min(0.80, float(gain or 0.0))),
             ))
 
+        if role == "opportunity_hunter" and opportunities and isinstance(result, dict) and not result.get("validation_results"):
+            dossier_quality = getattr(self, "intelligence_quality", IntelligenceQualityEvaluator()).evaluate_batch(
+                opportunities
+            )
+            duplicate_rate = dossier_quality["duplicate_rate"]
+
+            # The raw planner already has a deterministic quality gate. When
+            # duplication is not high enough to require Analyst, expose both
+            # contract-safe paths so historical calibration can choose between
+            # independent analysis and direct validation. This is the first
+            # real branching point for Planner Learning.
+            if duplicate_rate < 0.50:
+                candidates.append((
+                    "REFINE",
+                    "validator",
+                    (
+                        "Execute the validation experiment selected for each "
+                        "opportunity based on its unresolved uncertainty. "
+                        f"Opportunities: {self.format_items(opportunities[:10])}"
+                    ),
+                    "Candidate generated from commercial dossiers that are not dominated by duplicate evidence.",
+                    max(0.55, min(0.70, float(gain or 0.0))),
+                ))
+                candidates.append((
+                    "REFINE",
+                    "analyst",
+                    (
+                        "Independently re-analyze the commercial dossiers before "
+                        "spending validation resources. Identify materially "
+                        "different technical capabilities, failure modes, users, "
+                        "and workflows. "
+                        f"Opportunities: {self.format_items(opportunities[:10])}"
+                    ),
+                    "Candidate generated as a lower-cost evidence-refinement alternative to direct validation.",
+                    max(0.40, min(0.60, float(gain or 0.0))),
+                ))
+
         if role == "analyst":
             if findings and repositories:
                 candidates.append((

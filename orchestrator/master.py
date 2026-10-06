@@ -2395,6 +2395,17 @@ class AutonomousPlanner:
             result = task.get("result")
             result_dict = result if isinstance(result, dict) else {}
             parent_task = self._planning_tasks.get(parent_id) if parent_id else None
+            if parent_task is None and parent_id:
+                parent_row = self.queue.db.execute(
+                    "SELECT id, role, action_role FROM queue WHERE id = ?",
+                    (parent_id,),
+                ).fetchone()
+                if parent_row is not None:
+                    parent_task = {
+                        "id": parent_row[0],
+                        "role": parent_row[1],
+                        "action_role": parent_row[2],
+                    }
             direct_planner_child = bool(parent_task and parent_task.get("action_role"))
             capability_validator = result_dict.get("validation_mode") == "capability_evidence"
             execution_terminal = result_dict.get("execution_mode") == "capability_grant"

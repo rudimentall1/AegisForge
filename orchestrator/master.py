@@ -1696,6 +1696,28 @@ class AutonomousPlanner:
 
         scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
         selected = scored[0][2]
+
+        trace = []
+        for rank, item in enumerate(scored, start=1):
+            economics = item[3]
+            trace.append({
+                "decision": item[2][0],
+                "candidate_role": item[2][1],
+                "raw_expected_gain": economics["raw_expected_evidence_gain"],
+                "expected_evidence_gain": economics["expected_evidence_gain"],
+                "cost": economics["cost"],
+                "efficiency": economics["efficiency"],
+                "selected": item[2] == selected,
+                "selection_rank": rank,
+            })
+        queue = getattr(self, "queue", None)
+        if queue is not None and hasattr(queue, "record_planner_decision_trace"):
+            queue.record_planner_decision_trace(
+                task.get("id"),
+                task.get("role"),
+                trace,
+            )
+
         return selected, [item[3] for item in scored]
 
     def _evidence_quality_policy(self, task, quality):

@@ -230,3 +230,39 @@ def test_select_action_prefers_higher_evidence_per_cost():
     assert selected[1] == "analyst"
     assert len(options) >= 2
     assert options[0]["efficiency"] >= options[1]["efficiency"]
+
+
+def test_select_action_records_candidate_decision_trace(tmp_path):
+    from shared.queue import TaskQueue
+
+    q = TaskQueue(tmp_path / "planner.db")
+    planner = AutonomousPlanner(q)
+    current = task(
+        {"repositories": ["org/repo"], "status": "research_completed"},
+        role="researcher",
+    ) | {"id": "trace-task"}
+
+    primary = (
+        "ESCALATE",
+        "model_researcher",
+        "expensive path",
+        "candidate",
+        0.60,
+    )
+    selected, options = planner.select_action(current, primary)
+
+    rows = q.db.execute(
+        """
+        SELECT task_id, source_role, candidate_role, decision, selected, selection_rank
+        FROM planner_decision_traces
+        WHERE task_id = ?
+        ORDER BY selection_rank
+        """,
+        ("trace-task",),
+    ).fetchall()
+    assert len(rows) == len(options)
+    assert rows[0][0:4] == ("trace-task", "researcher", selected[1], selected[0])
+    assert rows[0][4:] == (1, 1)
+    assert sum(row[4] for row in rows) == 1
+    assert [row[5] for row in rows] == list(range(1, len(rows) + 1))
+    q.db.close()

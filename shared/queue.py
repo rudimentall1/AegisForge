@@ -155,6 +155,27 @@ class TaskQueue:
             ON planner_action_outcomes(action_role, metric_version, observed_at)
         """)
 
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS planner_decision_traces (
+                id TEXT PRIMARY KEY,
+                task_id TEXT,
+                source_role TEXT,
+                candidate_role TEXT NOT NULL,
+                decision TEXT NOT NULL,
+                raw_expected_gain REAL NOT NULL,
+                expected_evidence_gain REAL NOT NULL,
+                action_cost REAL NOT NULL,
+                efficiency REAL NOT NULL,
+                selected INTEGER NOT NULL,
+                selection_rank INTEGER NOT NULL,
+                observed_at TEXT NOT NULL
+            )
+        """)
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_planner_decision_traces_task
+            ON planner_decision_traces(task_id, observed_at)
+        """)
+
         self.db.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_queue_parent_task_id
@@ -808,6 +829,42 @@ class TaskQueue:
         )
         self.db.commit()
         return True
+
+    def record_planner_decision_trace(self, task_id, source_role, candidates, observed_at=None):
+        """Persist candidate economics without changing planner policy."""
+        if not candidates:
+            return 0
+
+        now = observed_at or datetime.now(timezone.utc).isoformat()
+        rows = []
+        for rank, item in enumerate(candidates, start=1):
+            rows.append((
+                str(uuid.uuid4()),
+                task_id,
+                source_role,
+                item.get("candidate_role") or "unknown",
+                item.get("decision") or "",
+                float(item.get("raw_expected_gain", 0.0)),
+                float(item.get("expected_evidence_gain", 0.0)),
+                float(item.get("cost", 0.0)),
+                float(item.get("efficiency", 0.0)),
+                1 if item.get("selected") else 0,
+                rank,
+                now,
+            ))
+
+        self.db.executemany(
+            """
+            INSERT INTO planner_decision_traces
+            (id, task_id, source_role, candidate_role, decision,
+             raw_expected_gain, expected_evidence_gain, action_cost, efficiency,
+             selected, selection_rank, observed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        self.db.commit()
+        return len(rows)
 
     def action_outcome_summary(self, limit=200, metric_version=2):
         rows = self.db.execute(

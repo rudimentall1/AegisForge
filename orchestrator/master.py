@@ -2052,6 +2052,10 @@ class AutonomousPlanner:
         if not child_ids:
             return {"uses": 0, "recent_ratio": 1.0, "samples": 0}
 
+        queue = getattr(self, "queue", None)
+        if queue is None or not hasattr(queue, "db"):
+            return {"uses": 0, "recent_ratio": 1.0, "samples": 0}
+
         placeholders = ",".join("?" for _ in child_ids)
         params = [action_role, *child_ids]
         rows = self.queue.db.execute(

@@ -1597,6 +1597,12 @@ class AutonomousPlanner:
             # contract-safe paths so historical calibration can choose between
             # independent analysis and direct validation. This is the first
             # real branching point for Planner Learning.
+            analyst_context = self.contextual_action_history(task, "analyst")
+            analyst_stagnating = (
+                analyst_context["samples"] >= 2
+                and analyst_context["recent_ratio"] < 0.75
+            )
+
             if duplicate_rate < 0.50:
                 candidates.append((
                     "REFINE",
@@ -1621,6 +1627,22 @@ class AutonomousPlanner:
                     ),
                     "Candidate generated as a lower-cost evidence-refinement alternative to direct validation.",
                     max(0.40, min(0.60, float(gain or 0.0))),
+                ))
+
+            if duplicate_rate >= 0.50 and analyst_stagnating:
+                candidates.append((
+                    "CONTINUE",
+                    "researcher",
+                    (
+                        "Refresh the evidence base with genuinely new external research "
+                        "because repeated Analyst passes in this branch are producing "
+                        "diminishing evidence returns. Seek new sources, targets, "
+                        "technical signals, or market evidence rather than rephrasing "
+                        "the existing dossiers. "
+                        f"Opportunities: {self.format_items(opportunities[:10])}"
+                    ),
+                    "Analyst contextual learning shows diminishing returns; escape the stagnating reanalysis path with fresh research.",
+                    0.60,
                 ))
 
         if role == "analyst":

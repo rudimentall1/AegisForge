@@ -1538,6 +1538,7 @@ class AutonomousPlanner:
         return {
             "action": next_role,
             "cost": cost,
+            "raw_expected_evidence_gain": round(raw_expected, 4),
             "expected_evidence_gain": round(expected, 4),
             "efficiency": round(efficiency, 4),
             "calibration": calibration,
@@ -2492,6 +2493,7 @@ class AutonomousPlanner:
                 selected_economics["expected_evidence_gain"],
                 selected_economics["cost"],
                 selected_economics["efficiency"],
+                selected_economics.get("raw_expected_evidence_gain", 0.0),
             )
 
             record = {

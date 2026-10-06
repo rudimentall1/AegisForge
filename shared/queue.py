@@ -96,6 +96,7 @@ class TaskQueue:
         for column, sql_type in (
             ("action_role", "TEXT"),
             ("expected_evidence_gain", "REAL"),
+            ("raw_expected_evidence_gain", "REAL"),
             ("action_cost", "REAL"),
             ("action_efficiency", "REAL"),
         ):
@@ -626,6 +627,7 @@ class TaskQueue:
         expected_evidence_gain=0.0,
         action_cost=0.0,
         action_efficiency=0.0,
+        raw_expected_evidence_gain=None,
     ):
         self.db.execute(
             """
@@ -637,6 +639,7 @@ class TaskQueue:
                 fingerprint = ?,
                 action_role = ?,
                 expected_evidence_gain = ?,
+                raw_expected_evidence_gain = ?,
                 action_cost = ?,
                 action_efficiency = ?
             WHERE id = ?
@@ -648,6 +651,7 @@ class TaskQueue:
                 fingerprint,
                 action_role,
                 float(expected_evidence_gain or 0.0),
+                float(raw_expected_evidence_gain if raw_expected_evidence_gain is not None else expected_evidence_gain or 0.0),
                 float(action_cost or 0.0),
                 float(action_efficiency or 0.0),
                 task_id,
@@ -875,7 +879,8 @@ class TaskQueue:
             if signature_role:
                 return self.db.execute(
                     """
-                    SELECT o.expected_evidence_gain, o.actual_evidence_gain
+                    SELECT COALESCE(p.raw_expected_evidence_gain, o.expected_evidence_gain),
+                           o.actual_evidence_gain
                     FROM planner_action_outcomes o
                     JOIN queue p ON p.id = o.parent_task_id
                     WHERE o.action_role = ?
@@ -888,11 +893,13 @@ class TaskQueue:
                 ).fetchall()
             return self.db.execute(
                 """
-                SELECT expected_evidence_gain, actual_evidence_gain
-                FROM planner_action_outcomes
-                WHERE action_role = ?
-                  AND metric_version = ?
-                ORDER BY observed_at DESC
+                SELECT COALESCE(p.raw_expected_evidence_gain, o.expected_evidence_gain),
+                       o.actual_evidence_gain
+                FROM planner_action_outcomes o
+                LEFT JOIN queue p ON p.id = o.parent_task_id
+                WHERE o.action_role = ?
+                  AND o.metric_version = ?
+                ORDER BY o.observed_at DESC
                 LIMIT 200
                 """,
                 (role, metric_version),

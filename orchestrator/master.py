@@ -1692,7 +1692,20 @@ class AutonomousPlanner:
         scored = []
         for candidate in candidates:
             economics = self.action_economics(task, candidate)
-            scored.append((economics["efficiency"], economics["expected_evidence_gain"], candidate, economics))
+            viability = {"viable": True, "samples": 0, "recent_samples": 0, "recent_ratio": 1.0}
+            queue = getattr(self, "queue", None)
+            if queue is not None and hasattr(queue, "candidate_viability"):
+                viability = queue.candidate_viability(
+                    task.get("role"),
+                    candidate[1],
+                )
+            economics["candidate_viability"] = viability
+            # Candidate viability is a bounded policy penalty, not an
+            # evidence-gain multiplier. Keep weak candidates visible so they
+            # can recover when recent outcomes improve.
+            selection_efficiency = economics["efficiency"] * viability.get("penalty", 1.0)
+            economics["selection_score"] = selection_efficiency
+            scored.append((selection_efficiency, economics["expected_evidence_gain"], candidate, economics))
 
         scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
         selected = scored[0][2]
@@ -1707,6 +1720,8 @@ class AutonomousPlanner:
                 "expected_evidence_gain": economics["expected_evidence_gain"],
                 "cost": economics["cost"],
                 "efficiency": economics["efficiency"],
+                "selection_score": economics["selection_score"],
+                "candidate_penalty": economics["candidate_viability"].get("penalty", 1.0),
                 "selected": item[2] == selected,
                 "selection_rank": rank,
             })

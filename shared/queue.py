@@ -166,11 +166,28 @@ class TaskQueue:
                 expected_evidence_gain REAL NOT NULL,
                 action_cost REAL NOT NULL,
                 efficiency REAL NOT NULL,
+                selection_score REAL NOT NULL DEFAULT 0.0,
+                candidate_penalty REAL NOT NULL DEFAULT 1.0,
                 selected INTEGER NOT NULL,
                 selection_rank INTEGER NOT NULL,
                 observed_at TEXT NOT NULL
             )
         """)
+        trace_columns = {
+            row[1] for row in self.db.execute(
+                "PRAGMA table_info(planner_decision_traces)"
+            ).fetchall()
+        }
+        if "selection_score" not in trace_columns:
+            self.db.execute(
+                "ALTER TABLE planner_decision_traces "
+                "ADD COLUMN selection_score REAL NOT NULL DEFAULT 0.0"
+            )
+        if "candidate_penalty" not in trace_columns:
+            self.db.execute(
+                "ALTER TABLE planner_decision_traces "
+                "ADD COLUMN candidate_penalty REAL NOT NULL DEFAULT 1.0"
+            )
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_planner_decision_traces_task
             ON planner_decision_traces(task_id, observed_at)
@@ -848,6 +865,8 @@ class TaskQueue:
                 float(item.get("expected_evidence_gain", 0.0)),
                 float(item.get("cost", 0.0)),
                 float(item.get("efficiency", 0.0)),
+                float(item.get("selection_score", item.get("efficiency", 0.0))),
+                float(item.get("candidate_penalty", 1.0)),
                 1 if item.get("selected") else 0,
                 rank,
                 now,
@@ -858,13 +877,102 @@ class TaskQueue:
             INSERT INTO planner_decision_traces
             (id, task_id, source_role, candidate_role, decision,
              raw_expected_gain, expected_evidence_gain, action_cost, efficiency,
-             selected, selection_rank, observed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             selection_score, candidate_penalty, selected, selection_rank, observed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
         self.db.commit()
         return len(rows)
+
+    def historical_action_baseline(
+        self,
+        source_role,
+        selected_role,
+        selected_actual,
+        alternative_roles=None,
+        min_samples=3,
+        limit=200,
+    ):
+        """Compare a selected action with historical alternative outcomes.
+
+        This is Historical Selection Uplift (HSU), not counterfactual regret:
+        unselected candidates do not execute, so the baseline is observational.
+        Results are reported per alternative role and never influence policy.
+        """
+        source = str(source_role or "").strip()
+        selected = str(selected_role or "").strip()
+        selected_value = max(0.0, min(1.0, float(selected_actual or 0.0)))
+        if not source or not selected:
+            return {
+                "source_role": source,
+                "selected_role": selected,
+                "selected_actual": round(selected_value, 4),
+                "alternatives": [],
+            }
+
+        if alternative_roles is None:
+            rows = self.db.execute(
+                """
+                SELECT DISTINCT action_task.action_role
+                FROM planner_action_outcomes o
+                JOIN queue action_task ON action_task.id = o.parent_task_id
+                WHERE action_task.role = ?
+                  AND action_task.action_role IS NOT NULL
+                  AND action_task.action_role != ?
+                  AND o.metric_version = 2
+                ORDER BY action_task.action_role
+                """,
+                (source, selected),
+            ).fetchall()
+            roles = [str(row[0]).strip() for row in rows if row[0]]
+        else:
+            roles = sorted({
+                str(role).strip()
+                for role in alternative_roles
+                if str(role).strip() and str(role).strip() != selected
+            })
+
+        alternatives = []
+        for role in roles:
+            rows = self.db.execute(
+                """
+                SELECT o.actual_evidence_gain
+                FROM planner_action_outcomes o
+                JOIN queue action_task ON action_task.id = o.parent_task_id
+                WHERE action_task.role = ?
+                  AND action_task.action_role = ?
+                  AND o.metric_version = 2
+                ORDER BY o.observed_at DESC
+                LIMIT ?
+                """,
+                (source, role, int(limit)),
+            ).fetchall()
+            values = sorted(float(row[0]) for row in rows if row[0] is not None)
+            count = len(values)
+            mean = sum(values) / count if count else None
+            median = None
+            if count >= int(min_samples):
+                mid = count // 2
+                median = values[mid] if count % 2 else (values[mid - 1] + values[mid]) / 2.0
+
+            item = {
+                "role": role,
+                "samples": count,
+                "mean": round(mean, 4) if mean is not None else None,
+                "median": round(median, 4) if median is not None else None,
+                "uplift_mean": round(selected_value - mean, 4) if mean is not None and count >= int(min_samples) else None,
+                "uplift_median": round(selected_value - median, 4) if median is not None else None,
+                "confidence": "HISTORICAL_BASELINE" if count >= int(min_samples) else "INSUFFICIENT",
+            }
+            alternatives.append(item)
+
+        return {
+            "source_role": source,
+            "selected_role": selected,
+            "selected_actual": round(selected_value, 4),
+            "alternatives": alternatives,
+        }
 
     def action_outcome_summary(self, limit=200, metric_version=2):
         rows = self.db.execute(
@@ -1032,6 +1140,76 @@ class TaskQueue:
             "scope": scope,
             "signature_samples": signature_samples,
             "role_samples": role_samples,
+        }
+
+    def candidate_viability(
+        self,
+        source_role,
+        candidate_role,
+        min_samples=10,
+        recent_samples=5,
+        recovery_ratio=0.75,
+    ):
+        """Return a conservative source->candidate viability signal.
+
+        This is a policy gate, not a second outcome multiplier. A candidate
+        remains viable until enough source-specific history exists and its
+        recent realized/expected ratio is persistently poor. Because the
+        recent window is explicit, improving outcomes can recover a candidate
+        without waiting for the full historical window to age out.
+        """
+        source = str(source_role or "").strip()
+        candidate = str(candidate_role or "").strip()
+        if not source or not candidate:
+            return {"viable": True, "samples": 0, "recent_samples": 0, "recent_ratio": 1.0}
+
+        metric_version = 2
+        rows = self.db.execute(
+            """
+            SELECT COALESCE(p.raw_expected_evidence_gain, o.expected_evidence_gain),
+                   o.actual_evidence_gain
+            FROM planner_action_outcomes o
+            JOIN queue p ON p.id = o.parent_task_id
+            WHERE o.action_role = ?
+              AND p.role = ?
+              AND o.metric_version = ?
+            ORDER BY o.observed_at DESC
+            LIMIT 200
+            """,
+            (candidate, source, metric_version),
+        ).fetchall()
+
+        samples = len(rows)
+        recent = rows[: int(recent_samples)]
+        ratios = []
+        for expected, actual in recent:
+            expected_value = float(expected or 0.0)
+            if expected_value <= 0.05:
+                continue
+            ratios.append(max(0.0, min(1.5, float(actual or 0.0) / expected_value)))
+
+        recent_ratio = sum(ratios) / len(ratios) if ratios else 1.0
+        enough_history = (
+            samples >= int(min_samples)
+            and len(ratios) >= int(recent_samples)
+        )
+        viable = not (
+            enough_history
+            and recent_ratio < float(recovery_ratio)
+        )
+        penalty = 1.0
+        if enough_history and recent_ratio < float(recovery_ratio):
+            threshold = max(0.01, float(recovery_ratio))
+            penalty = max(
+                0.25,
+                min(1.0, 0.25 + (0.75 * recent_ratio / threshold)),
+            )
+        return {
+            "viable": viable,
+            "penalty": round(penalty, 4),
+            "samples": samples,
+            "recent_samples": len(ratios),
+            "recent_ratio": round(recent_ratio, 4),
         }
 
     def planner_processed(self, task_id):

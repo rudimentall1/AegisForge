@@ -144,6 +144,135 @@ def test_action_outcome_attributes_nested_executor_to_one_planner_action(tmp_pat
     q.db.close()
 
 
+def _insert_signature_outcome(q, idx, parent_id, action_role, expected, actual, observed_at):
+    q.db.execute(
+        """
+        INSERT INTO planner_action_outcomes
+        (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+         action_cost, action_efficiency, actual_evidence_gain, novelty,
+         novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+        """,
+        (
+            f"viability-child-{idx}", parent_id, action_role, expected, 0.35,
+            expected / 0.35 if expected else 0.0, actual, actual,
+            1, 1, actual - expected, observed_at,
+        ),
+    )
+    q.db.commit()
+
+
+def test_candidate_viability_neutral_then_suppresses_persistent_poor_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("opportunity hunter", "opportunity_hunter")
+    assert q.candidate_viability("opportunity_hunter", "analyst")["viable"] is True
+    for idx in range(10):
+        _insert_signature_outcome(
+            q, idx, parent, "analyst", 0.8, 0.0,
+            f"2026-09-27T00:00:{idx:02d}+00:00",
+        )
+    viability = q.candidate_viability("opportunity_hunter", "analyst")
+    assert viability["samples"] == 10
+    assert viability["recent_ratio"] == 0.0
+    assert viability["viable"] is False
+    q.db.close()
+
+
+def test_candidate_viability_soft_penalty_scales_with_recent_ratio(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("opportunity hunter", "opportunity_hunter")
+    for idx, actual in enumerate((0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4), 1):
+        q.db.execute(
+            """
+            INSERT INTO planner_action_outcomes
+            (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+             action_cost, action_efficiency, actual_evidence_gain, novelty,
+             novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+            """,
+            (f"soft-child-{idx}", parent, "analyst", 0.8, 0.35, 2.0,
+             actual, actual, 1, 1, actual - 0.8,
+             f"2026-10-07T02:00:{idx:02d}+00:00"),
+        )
+    q.db.commit()
+    viability = q.candidate_viability("opportunity_hunter", "analyst")
+    assert viability["viable"] is False
+    assert viability["penalty"] == 0.75
+    q.db.close()
+
+
+def test_candidate_viability_soft_penalty_has_floor_for_zero_recent_gain(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("opportunity hunter", "opportunity_hunter")
+    for idx in range(10):
+        q.db.execute(
+            """
+            INSERT INTO planner_action_outcomes
+            (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+             action_cost, action_efficiency, actual_evidence_gain, novelty,
+             novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+            """,
+            (f"floor-child-{idx}", parent, "analyst", 0.8, 0.35, 2.0,
+             0.0, 0.0, 0, 1, -0.8,
+             f"2026-10-07T03:00:{idx:02d}+00:00"),
+        )
+    q.db.commit()
+    viability = q.candidate_viability("opportunity_hunter", "analyst")
+    assert viability["viable"] is False
+    assert viability["penalty"] == 0.25
+    q.db.close()
+
+
+def test_candidate_viability_has_no_penalty_without_enough_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("opportunity hunter", "opportunity_hunter")
+    for idx in range(7):
+        q.db.execute(
+            """
+            INSERT INTO planner_action_outcomes
+            (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+             action_cost, action_efficiency, actual_evidence_gain, novelty,
+             novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+            """,
+            (f"short-child-{idx}", parent, "analyst", 0.8, 0.35, 2.0,
+             0.0, 0.0, 0, 1, -0.8,
+             f"2026-10-07T04:00:{idx:02d}+00:00"),
+        )
+    q.db.commit()
+    viability = q.candidate_viability("opportunity_hunter", "analyst")
+    assert viability["viable"] is True
+    assert viability["penalty"] == 1.0
+    q.db.close()
+
+
+def test_candidate_viability_recovers_from_recent_good_outcomes(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("opportunity hunter", "opportunity_hunter")
+    for idx in range(10):
+        _insert_signature_outcome(
+            q, idx, parent, "analyst", 0.8, 0.0,
+            f"2026-09-27T00:00:{idx:02d}+00:00",
+        )
+    for idx in range(10, 15):
+        _insert_signature_outcome(
+            q, idx, parent, "analyst", 0.8, 0.8,
+            f"2026-10-07T00:00:{idx:02d}+00:00",
+        )
+    viability = q.candidate_viability("opportunity_hunter", "analyst")
+    assert viability["samples"] == 15
+    assert viability["recent_samples"] == 5
+    assert viability["recent_ratio"] == 1.0
+    assert viability["viable"] is True
+    q.db.close()
+
+
 def test_action_calibration_neutral_without_enough_history(tmp_path, monkeypatch):
     monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
     q = TaskQueue()
@@ -280,6 +409,71 @@ def test_realized_evidence_gain_uses_novelty_not_atom_density(tmp_path, monkeypa
     actual, novelty, novel_count, atom_count = planner.realized_evidence_gain({}, [])
     assert actual == 0.333
     assert (novelty, novel_count, atom_count) == (0.333, 4, 12)
+    q.db.close()
+
+
+def test_historical_action_baseline_compares_selected_action_with_alternatives(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    for idx, actual in enumerate((0.9, 0.8, 1.0), 1):
+        role = "researcher" if idx == 1 else "analyst"
+        parent = q.add(f"{role} parent {idx}", "opportunity_hunter")
+        q.mark_planner_decision(
+            parent,
+            "CONTINUE",
+            0.6,
+            f"fp-a-{idx}",
+            role,
+            0.2,
+            0.35,
+            0.57,
+        )
+        child = q.add(
+            f"child-a-{idx}",
+            role,
+            parent_task_id=parent,
+        )
+        q.db.execute("UPDATE queue SET status='completed' WHERE id=?", (child,))
+        q.db.commit()
+        assert q.record_action_outcome(child, actual, actual, 1, 1) is True
+
+    for idx, actual in enumerate((0.1, 0.0, 0.2), 1):
+        parent = q.add(f"validator parent {idx}", "opportunity_hunter")
+        q.mark_planner_decision(
+            parent,
+            "CONTINUE",
+            0.6,
+            f"fp-v-{idx}",
+            "validator",
+            0.2,
+            0.35,
+            0.57,
+        )
+        child = q.add(
+            f"child-v-{idx}",
+            "validator",
+            parent_task_id=parent,
+        )
+        q.db.execute("UPDATE queue SET status='completed' WHERE id=?", (child,))
+        q.db.commit()
+        assert q.record_action_outcome(child, actual, actual, 1, 1) is True
+
+    result = q.historical_action_baseline(
+        "opportunity_hunter",
+        "researcher",
+        0.95,
+        alternative_roles=("analyst", "validator"),
+    )
+    assert result["selected_role"] == "researcher"
+    assert result["selected_actual"] == 0.95
+    assert result["alternatives"][0]["role"] == "analyst"
+    assert result["alternatives"][0]["samples"] == 2
+    assert result["alternatives"][0]["confidence"] == "INSUFFICIENT"
+    assert result["alternatives"][0]["uplift_mean"] is None
+    assert result["alternatives"][1]["role"] == "validator"
+    assert result["alternatives"][1]["samples"] == 3
+    assert result["alternatives"][1]["mean"] == 0.1
+    assert result["alternatives"][1]["uplift_mean"] == 0.85
     q.db.close()
 
 

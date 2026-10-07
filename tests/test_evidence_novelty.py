@@ -232,6 +232,52 @@ def test_select_action_prefers_higher_evidence_per_cost():
     assert options[0]["efficiency"] >= options[1]["efficiency"]
 
 
+def test_select_action_suppresses_persistently_bad_source_candidate(tmp_path):
+    from shared.queue import TaskQueue
+
+    q = TaskQueue(tmp_path / "planner.db")
+    parent = q.add("opportunity hunter", "opportunity_hunter")
+    for idx in range(10):
+        q.db.execute(
+            """
+            INSERT INTO planner_action_outcomes
+            (child_task_id, parent_task_id, action_role, expected_evidence_gain,
+             action_cost, action_efficiency, actual_evidence_gain, novelty,
+             novel_atom_count, atom_count, prediction_error, observed_at, metric_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+            """,
+            (
+                f"viability-child-{idx}", parent, "analyst", 0.8, 0.35, 2.0,
+                0.0, 0.0, 0, 10, -0.8,
+                f"2026-10-07T00:00:{idx:02d}+00:00",
+            ),
+        )
+    q.db.commit()
+
+    planner = AutonomousPlanner(q)
+    current = task({"opportunities": [{"name": "x"}]}, role="opportunity_hunter") | {"id": "gate-task"}
+    primary = ("CONTINUE", "analyst", "bad path", "candidate", 0.6)
+    alternate = ("CONTINUE", "researcher", "fresh path", "candidate", 0.6)
+    planner.candidate_decisions = lambda _task, _primary: [primary, alternate]
+    planner.action_economics = lambda _task, decision: {
+        "action": decision[1],
+        "cost": 0.5,
+        "raw_expected_evidence_gain": 0.6,
+        "expected_evidence_gain": 0.6,
+        "efficiency": 1.2,
+        "calibration": {},
+    }
+
+    selected, options = planner.select_action(current, primary)
+    assert selected[1] == "researcher"
+    analyst = next(item for item in options if item["action"] == "analyst")
+    assert analyst["candidate_viability"]["viable"] is False
+    assert analyst["candidate_viability"]["penalty"] == 0.25
+    assert analyst["efficiency"] == 1.2
+    assert analyst["selection_score"] == 0.3
+    q.db.close()
+
+
 def test_select_action_records_candidate_decision_trace(tmp_path):
     from shared.queue import TaskQueue
 

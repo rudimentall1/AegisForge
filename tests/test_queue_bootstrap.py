@@ -509,6 +509,85 @@ def test_action_outcome_summary_excludes_legacy_metrics(tmp_path, monkeypatch):
     q.db.close()
 
 
+def test_planner_learning_report_is_read_only_and_labels_observational_selection(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+
+    def add_outcome(idx, source, role, expected, actual, observed_at):
+        parent = q.add(f"parent-{idx}", source)
+        q.mark_planner_decision(
+            parent, "CONTINUE", expected, f"fp-{idx}", role, expected, 0.35,
+            expected / 0.35 if expected else 0.0,
+        )
+        child = q.add(f"child-{idx}", role, parent_task_id=parent)
+        q.db.execute("UPDATE queue SET status='completed' WHERE id=?", (child,))
+        q.db.commit()
+        q.db.execute(
+            "UPDATE planner_action_outcomes SET observed_at=? WHERE child_task_id=?",
+            (observed_at, child),
+        ) if q.record_action_outcome(child, actual, actual, 1, 1) else None
+        return parent, child
+
+    add_outcome(1, "opportunity_hunter", "researcher", 0.5, 0.8, "2026-10-01T00:00:00+00:00")
+    add_outcome(2, "opportunity_hunter", "researcher", 0.5, 0.7, "2026-10-02T00:00:00+00:00")
+    add_outcome(3, "opportunity_hunter", "validator", 0.5, 0.2, "2026-10-03T00:00:00+00:00")
+    add_outcome(4, "opportunity_hunter", "validator", 0.5, 0.1, "2026-10-04T00:00:00+00:00")
+
+    q.record_planner_decision_trace(
+        "task-r", "opportunity_hunter", [
+            {"candidate_role": "researcher", "decision": "CONTINUE", "selected": True,
+             "raw_expected_gain": 0.5, "expected_evidence_gain": 0.5,
+             "cost": 0.35, "efficiency": 1.43, "selection_score": 1.43,
+             "candidate_penalty": 1.0},
+            {"candidate_role": "validator", "decision": "CONTINUE", "selected": False,
+             "raw_expected_gain": 0.4, "expected_evidence_gain": 0.4,
+             "cost": 0.35, "efficiency": 1.14, "selection_score": 1.14,
+             "candidate_penalty": 1.0},
+        ],
+        observed_at="2026-10-05T00:00:00+00:00",
+    )
+
+    report = q.planner_learning_report(limit=10, recent_samples=2, min_samples=2)
+    assert report["samples"] == 4
+    assert report["calibration"]["samples"] == 4
+    assert report["temporal"]["recent"]["samples"] == 2
+    assert report["temporal"]["previous"]["samples"] == 2
+    assert report["temporal"]["confidence"] == "TEMPORAL_COMPARISON"
+    researcher = next(
+        item for item in report["selection"]
+        if item["candidate_role"] == "researcher"
+    )
+    assert researcher["appearances"] == 1
+    assert researcher["selected"] == 1
+    assert researcher["outcome_samples"] == 2
+    assert researcher["alternatives"][0]["role"] == "validator"
+    assert researcher["alternatives"][0]["uplift_mean"] == 0.6
+    assert report["selection_interpretation"] == "OBSERVATIONAL_HISTORICAL_BASELINE"
+    q.db.close()
+
+
+def test_planner_learning_report_marks_insufficient_temporal_and_outcome_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("parent", "researcher")
+    q.mark_planner_decision(parent, "CONTINUE", 0.5, "fp", "analyst", 0.5, 0.35, 1.43)
+    child = q.add("child", "analyst", parent_task_id=parent)
+    q.db.execute("UPDATE queue SET status='completed' WHERE id=?", (child,))
+    q.db.commit()
+    assert q.record_action_outcome(child, 0.2, 0.2, 1, 1) is True
+    q.record_planner_decision_trace(
+        parent, "researcher", [{
+            "candidate_role": "analyst", "decision": "CONTINUE", "selected": True,
+            "raw_expected_gain": 0.5, "expected_evidence_gain": 0.5,
+            "cost": 0.35, "efficiency": 1.43,
+        }],
+    )
+    report = q.planner_learning_report(limit=10, recent_samples=2, min_samples=3)
+    assert report["temporal"]["confidence"] == "INSUFFICIENT"
+    assert report["selection"][0]["confidence"] == "INSUFFICIENT"
+    q.db.close()
+
+
 def test_capability_failures_are_not_retryable():
     from orchestrator.master import AutonomousPlanner
 

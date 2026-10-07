@@ -1039,6 +1039,146 @@ class TaskQueue:
             "by_role": by,
         }
 
+    def planner_learning_report(self, limit=200, recent_samples=20, min_samples=3):
+        """Return read-only evidence about planner learning quality.
+
+        This report is diagnostic only. It never changes planner policy.
+        Selection comparisons are observational because unselected candidates
+        do not execute; they must not be described as causal regret.
+        """
+        limit = max(1, int(limit))
+        recent_samples = max(1, int(recent_samples))
+        min_samples = max(1, int(min_samples))
+        metric_version = 2
+
+        rows = self.db.execute(
+            """
+            SELECT action_role, expected_evidence_gain, actual_evidence_gain,
+                   prediction_error, observed_at
+            FROM planner_action_outcomes
+            WHERE metric_version = ?
+            ORDER BY observed_at DESC
+            LIMIT ?
+            """,
+            (metric_version, limit),
+        ).fetchall()
+
+        def _window_stats(window):
+            if not window:
+                return {"samples": 0, "expected": 0.0, "actual": 0.0, "mae": 0.0, "bias": 0.0}
+            expected = [float(r[1]) for r in window]
+            actual = [float(r[2]) for r in window]
+            errors = [float(r[3]) for r in window]
+            return {
+                "samples": len(window),
+                "expected": round(sum(expected) / len(expected), 4),
+                "actual": round(sum(actual) / len(actual), 4),
+                "mae": round(sum(abs(x) for x in errors) / len(errors), 4),
+                "bias": round(sum(errors) / len(errors), 4),
+            }
+
+        recent = rows[:recent_samples]
+        previous = rows[recent_samples:recent_samples * 2]
+        temporal = {
+            "recent": _window_stats(recent),
+            "previous": _window_stats(previous),
+            "actual_delta": (
+                round(_window_stats(recent)["actual"] - _window_stats(previous)["actual"], 4)
+                if previous else None
+            ),
+            "mae_delta": (
+                round(_window_stats(recent)["mae"] - _window_stats(previous)["mae"], 4)
+                if previous else None
+            ),
+            "confidence": "TEMPORAL_COMPARISON" if previous else "INSUFFICIENT",
+        }
+
+        selection_rows = self.db.execute(
+            """
+            SELECT source_role, candidate_role,
+                   COUNT(*) AS appearances,
+                   SUM(selected) AS selected_count
+            FROM planner_decision_traces
+            WHERE source_role IS NOT NULL
+            GROUP BY source_role, candidate_role
+            ORDER BY source_role, candidate_role
+            """
+        ).fetchall()
+
+        transitions = []
+        for source, candidate, appearances, selected_count in selection_rows:
+            outcomes = self.db.execute(
+                """
+                SELECT o.expected_evidence_gain, o.actual_evidence_gain
+                FROM planner_action_outcomes o
+                JOIN queue p ON p.id = o.parent_task_id
+                WHERE p.role = ? AND o.action_role = ? AND o.metric_version = ?
+                ORDER BY o.observed_at DESC
+                LIMIT ?
+                """,
+                (source, candidate, metric_version, limit),
+            ).fetchall()
+            n = len(outcomes)
+            actual_mean = sum(float(r[1]) for r in outcomes) / n if n else None
+            expected_mean = sum(float(r[0]) for r in outcomes) / n if n else None
+
+            alternatives = []
+            alt_roles = self.db.execute(
+                """
+                SELECT DISTINCT o.action_role
+                FROM planner_action_outcomes o
+                JOIN queue p ON p.id = o.parent_task_id
+                WHERE p.role = ? AND o.action_role != ? AND o.metric_version = ?
+                """,
+                (source, candidate, metric_version),
+            ).fetchall()
+            for (alt_role,) in alt_roles:
+                alt = self.db.execute(
+                    """
+                    SELECT actual_evidence_gain
+                    FROM planner_action_outcomes o
+                    JOIN queue p ON p.id = o.parent_task_id
+                    WHERE p.role = ? AND o.action_role = ? AND o.metric_version = ?
+                    ORDER BY o.observed_at DESC LIMIT ?
+                    """,
+                    (source, alt_role, metric_version, limit),
+                ).fetchall()
+                values = [float(r[0]) for r in alt]
+                alt_mean = sum(values) / len(values) if values else None
+                alternatives.append({
+                    "role": alt_role,
+                    "samples": len(values),
+                    "mean_actual": round(alt_mean, 4) if alt_mean is not None else None,
+                    "uplift_mean": (
+                        round(actual_mean - alt_mean, 4)
+                        if actual_mean is not None and alt_mean is not None and len(values) >= min_samples
+                        else None
+                    ),
+                    "confidence": "HISTORICAL_BASELINE" if len(values) >= min_samples else "INSUFFICIENT",
+                })
+
+            transitions.append({
+                "source_role": source,
+                "candidate_role": candidate,
+                "appearances": int(appearances),
+                "selected": int(selected_count or 0),
+                "selection_rate": round(float(selected_count or 0) / int(appearances), 4) if appearances else 0.0,
+                "outcome_samples": n,
+                "expected_mean": round(expected_mean, 4) if expected_mean is not None else None,
+                "actual_mean": round(actual_mean, 4) if actual_mean is not None else None,
+                "confidence": "OUTCOME_BASELINE" if n >= min_samples else "INSUFFICIENT",
+                "alternatives": alternatives,
+            })
+
+        return {
+            "metric_version": metric_version,
+            "samples": len(rows),
+            "calibration": self.action_outcome_summary(limit=limit, metric_version=metric_version),
+            "temporal": temporal,
+            "selection": transitions,
+            "selection_interpretation": "OBSERVATIONAL_HISTORICAL_BASELINE",
+        }
+
     def action_calibration(
         self,
         action_role,

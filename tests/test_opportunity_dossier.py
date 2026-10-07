@@ -93,3 +93,51 @@ def test_stars_are_not_labeled_as_adoption():
 
     assert all("adoption" not in reason.lower() for reason in analysis["reasons"])
     assert any("public interest" in reason.lower() for reason in analysis["reasons"])
+
+
+
+def test_agent_dossiers_preserve_repository_specific_capability():
+    from shared.intelligence_quality import IntelligenceQualityEvaluator
+
+    hunter = OpportunityHunter()
+    analysis = {"opportunity_score": 80}
+    technical = {
+        "technical_maturity_score": 8,
+        "has_tests": True,
+        "has_ci": True,
+        "stack": ["Python"],
+    }
+
+    first = hunter._commercial_dossier(
+        {
+            "name": "acme/agent-orchestrator",
+            "description": "Distributed task scheduler for long-running scientific research jobs.",
+            "topics": ["agent", "orchestration"],
+            "stars": 1000,
+        },
+        ["AI"],
+        technical,
+        {},
+        analysis,
+    )
+    second = hunter._commercial_dossier(
+        {
+            "name": "acme/agent-browser",
+            "description": "Chromium automation toolkit for extracting structured data from websites.",
+            "topics": ["agent", "browser"],
+            "stars": 1000,
+        },
+        ["AI"],
+        technical,
+        {},
+        analysis,
+    )
+
+    assert first["problem_signal"] != second["problem_signal"]
+    assert first["product_thesis"] != second["product_thesis"]
+    assert first["validation_experiment"] != second["validation_experiment"]
+    batch = IntelligenceQualityEvaluator().evaluate_batch([
+        {"name": "first", **first},
+        {"name": "second", **second},
+    ])
+    assert batch["duplicate_rate"] == 0.0

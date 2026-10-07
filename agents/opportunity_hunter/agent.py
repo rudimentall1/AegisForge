@@ -157,11 +157,24 @@ class OpportunityHunter:
         elif has("mcp", "agent", "llm", "tool calling", "autonomous workflow", "orchestration") and not has("security", "vulnerability", "scanner", "audit", "guardian", "exploit"):
             domain = "AI-agent orchestration and control"
             technology_surface = [x for x in (stack + topics) if x][:5] or ["agent runtime"]
-            customer = "Teams deploying AI agents or tool-using workflows in production."
-            problem = f"{description or name} indicates an agent/tooling capability; the commercial pain hypothesis is controlling reliability, permissions, and operational failures as autonomous workflows gain access to real systems."
-            product = "A control and evidence layer that observes agent actions, enforces bounded capabilities, and records outcomes for debugging and audit."
-            validation = "Instrument one production-like agent workflow and measure blocked unsafe actions, prevented failures, operator time saved, and the cost of integrating the control layer."
-            model = "Usage-based API/SDK pricing by protected agent actions, with enterprise deployment and audit features."
+            observed_capability = description or readme_signal or name
+            customer = f"Users of {name}: {observed_capability}"
+            problem = (
+                f"Observed capability: {observed_capability}. "
+                "Validate its highest-cost production failure, bottleneck, or manual workflow "
+                "before asserting a broader buyer problem."
+            )
+            product = (
+                f"Operational product derived from {name}: {observed_capability}"
+            )
+            validation = (
+                f"Test {name} with real users; measure failures, operator time, workflow "
+                f"frequency, and willingness to pay around: {observed_capability}"
+            )
+            model = (
+                f"Price the measurable workflow created by {name}; choose usage, workflow, "
+                "or seat pricing only after buyer value is demonstrated."
+            )
         elif has("security", "vulnerability", "scanner", "audit", "guardian", "policy", "exploit"):
             domain = "software security and continuous assurance"
             technology_surface = [x for x in (stack + topics) if x][:5] or ["security tooling"]

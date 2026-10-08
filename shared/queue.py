@@ -513,7 +513,15 @@ class TaskQueue:
             role=shadow_role,
             parent_task_id=parent_task_id,
             capability_intent={
-                "action": "evaluate",
+                "action": {
+                    "researcher": "research",
+                    "analyst": "analyze",
+                    "developer": "inspect_code",
+                    "security_checker": "security_scan",
+                    "opportunity_hunter": "identify_opportunities",
+                    "validator": "validate",
+                    "model_researcher": "model_research",
+                }.get(shadow_role, "research"),
                 "resource": "planner_alternative",
                 "destination": "internal",
                 "read_only": True,

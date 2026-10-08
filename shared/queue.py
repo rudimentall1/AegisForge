@@ -502,13 +502,50 @@ class TaskQueue:
     def create_shadow_evaluation(self, parent_task_id, selected_child_id, selected_role, shadow_role, description):
         """Create one non-policy shadow candidate for counterfactual evaluation."""
         evaluation_id = str(uuid.uuid4())
+        role_actions = {
+            "analyst": (
+                "Independently analyze the parent evidence without repeating the selected "
+                "action. Identify materially different findings, capabilities, failure modes, "
+                "users, workflows, or technical signals that would change the decision."
+            ),
+            "researcher": (
+                "Refresh the evidence base with genuinely new external research. Seek new "
+                "sources, targets, technical signals, or market evidence rather than rephrasing "
+                "the existing parent evidence."
+            ),
+            "validator": (
+                "Execute the appropriate validation experiment for the unresolved uncertainty "
+                "in the parent evidence. Prefer authoritative evidence and record observed "
+                "metrics plus remaining uncertainty."
+            ),
+            "developer": (
+                "Perform implementation-level investigation of the parent evidence, focusing "
+                "on architecture, maturity, dependencies, security-sensitive components, and feasibility."
+            ),
+            "security_checker": (
+                "Perform a security-focused review of the parent evidence, identifying concrete "
+                "security findings, attack surfaces, and unresolved risks."
+            ),
+            "opportunity_hunter": (
+                "Translate the parent evidence into concrete commercial opportunities, identifying "
+                "target users, pain, product thesis, validation path, business model, and uncertainty."
+            ),
+            "model_researcher": (
+                "Perform focused model and AI-system research against the parent evidence, seeking "
+                "new technical evidence and meaningful model-level implications."
+            ),
+        }
+        shadow_description = role_actions.get(
+            shadow_role,
+            "Contribute independent evidence relevant to the parent decision."
+        )
         shadow_child_id = self.add(
             description=(
                 "[SHADOW EVALUATION] "
                 f"Evaluate alternative role {shadow_role} on the exact same parent evidence. "
                 "Do not execute side effects; return only the evidence and findings this role "
                 "would contribute to the decision. "
-                f"Context: {description}"
+                f"Action: {shadow_description}"
             ),
             role=shadow_role,
             parent_task_id=parent_task_id,

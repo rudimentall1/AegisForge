@@ -2831,6 +2831,7 @@ class AutonomousPlanner:
                             SELECT selected_role, shadow_role, COUNT(*) AS completed_count
                             FROM planner_shadow_evaluations
                             WHERE status = 'completed'
+                              AND method_version = 2
                             GROUP BY selected_role, shadow_role
                         ) s
                           ON s.selected_role = ?

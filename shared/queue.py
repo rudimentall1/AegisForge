@@ -582,6 +582,20 @@ class TaskQueue:
         self.db.commit()
         return True
 
+    def record_shadow_failure(self, shadow_child_id, observed_at=None):
+        row = self.db.execute(
+            "SELECT id FROM planner_shadow_evaluations WHERE shadow_child_id = ? AND status = 'pending'",
+            (shadow_child_id,),
+        ).fetchone()
+        if not row:
+            return False
+        self.db.execute(
+            "UPDATE planner_shadow_evaluations SET status='failed', observed_at=? WHERE id=?",
+            (observed_at or datetime.now(timezone.utc).isoformat(), row[0]),
+        )
+        self.db.commit()
+        return True
+
     def planner_shadow_report(self, limit=50):
         rows = self.db.execute(
             """

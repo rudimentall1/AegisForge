@@ -634,3 +634,17 @@ def test_shadow_evaluation_isolated_from_planner_and_records_uplift(tmp_path, mo
     assert report[0]["shadow_actual"] == 0.3
     assert report[0]["uplift"] == 0.5
     q.db.close()
+
+
+def test_shadow_evaluation_uses_one_experiment_per_parent(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("parent", "opportunity_hunter")
+    selected = q.add("selected", "researcher", parent_task_id=parent)
+    q.db.execute("UPDATE queue SET status='completed', result=? WHERE id=?", ('{"ok": true}', selected))
+    q.db.commit()
+    q.record_action_outcome(selected, 0.8, 0.8, 1, 1)
+    first_id, first_shadow = q.create_shadow_evaluation(parent, selected, "researcher", "analyst", "same")
+    existing = q.db.execute("SELECT COUNT(*) FROM planner_shadow_evaluations WHERE parent_task_id=? AND status IN ('pending','completed')", (parent,)).fetchone()[0]
+    assert existing == 1
+    q.db.close()

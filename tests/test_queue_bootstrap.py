@@ -595,3 +595,42 @@ def test_capability_failures_are_not_retryable():
         assert AutonomousPlanner.retryable_failure({
             "result": {"error_type": error_type}
         }) is False
+
+
+
+def test_shadow_evaluation_isolated_from_planner_and_records_uplift(tmp_path, monkeypatch):
+    monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
+    q = TaskQueue()
+    parent = q.add("parent", "opportunity_hunter")
+    selected = q.add("selected", "researcher", parent_task_id=parent)
+    q.mark_planner_decision(
+        parent, "CONTINUE", 0.6, "shadow-parent", "researcher", 0.6, 0.25, 2.4
+    )
+    shadow_eval, shadow = q.create_shadow_evaluation(
+        parent_task_id=parent,
+        selected_child_id=selected,
+        selected_role="researcher",
+        shadow_role="validator",
+        description="same evidence",
+    )
+    assert shadow_eval
+    assert shadow
+    assert q.planning_tasks() == []
+    row = q.db.execute(
+        "SELECT evaluation_only, evaluation_id, parent_task_id, role FROM queue WHERE id=?",
+        (shadow,),
+    ).fetchone()
+    assert row == (1, shadow_eval, parent, "validator")
+
+    q.db.execute("UPDATE queue SET status='completed', result=? WHERE id=?", ('{"ok": true}', selected))
+    q.db.commit()
+    assert q.record_action_outcome(selected, 0.8, 0.8, 1, 1) is True
+    q.db.execute("UPDATE queue SET status='completed', result=?, finished_at=? WHERE id=?", ('{"ok": true}', '2026-10-08T00:00:00+00:00', shadow))
+    q.db.commit()
+    assert q.record_shadow_outcome(shadow, 0.3, '2026-10-08T00:00:00+00:00') is True
+    report = q.planner_shadow_report()
+    assert report[0]["status"] == "completed"
+    assert report[0]["selected_actual"] == 0.8
+    assert report[0]["shadow_actual"] == 0.3
+    assert report[0]["uplift"] == 0.5
+    q.db.close()

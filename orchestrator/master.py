@@ -2397,8 +2397,7 @@ class AutonomousPlanner:
             FROM queue q
             JOIN planner_shadow_evaluations e ON e.shadow_child_id = q.id
             WHERE q.evaluation_only = 1
-              AND q.status = 'completed'
-              AND q.result IS NOT NULL
+              AND q.status IN ('completed', 'failed')
               AND e.status = 'pending'
             """
         ).fetchall()
@@ -2430,6 +2429,16 @@ class AutonomousPlanner:
                 "finished_at": finished_at,
             }
             try:
+                if self.queue.db.execute(
+                    "SELECT status FROM queue WHERE id = ?", (task_id,)
+                ).fetchone()[0] == "failed":
+                    if self.queue.record_shadow_failure(task_id, finished_at):
+                        processed += 1
+                        print(
+                            f"[MASTER] SHADOW FAILED task={task_id} parent={parent_id}",
+                            flush=True,
+                        )
+                    continue
                 actual_gain, _novelty, _novel_count, _atom_count = self.realized_evidence_gain(
                     shadow_task,
                     [shadow_task, parent_task],

@@ -93,6 +93,16 @@ class TaskQueue:
                 "ALTER TABLE queue ADD COLUMN allow_failed_parent INTEGER NOT NULL DEFAULT 0"
             )
 
+        if "evaluation_only" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN evaluation_only INTEGER NOT NULL DEFAULT 0"
+            )
+
+        if "evaluation_id" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN evaluation_id TEXT"
+            )
+
         for column, sql_type in (
             ("action_role", "TEXT"),
             ("expected_evidence_gain", "REAL"),
@@ -153,6 +163,27 @@ class TaskQueue:
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_planner_action_outcomes_role_metric
             ON planner_action_outcomes(action_role, metric_version, observed_at)
+        """)
+
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS planner_shadow_evaluations (
+                id TEXT PRIMARY KEY,
+                parent_task_id TEXT NOT NULL,
+                selected_child_id TEXT,
+                shadow_child_id TEXT,
+                selected_role TEXT NOT NULL,
+                shadow_role TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                selected_actual REAL,
+                shadow_actual REAL,
+                uplift REAL,
+                created_at TEXT NOT NULL,
+                observed_at TEXT
+            )
+        """)
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_planner_shadow_parent
+            ON planner_shadow_evaluations(parent_task_id, created_at)
         """)
 
         self.db.execute("""
@@ -236,6 +267,8 @@ class TaskQueue:
         parent_task_id=None,
         capability_intent=None,
         allow_failed_parent=False,
+        evaluation_only=False,
+        evaluation_id=None,
     ):
         task_id = str(uuid.uuid4())
 
@@ -266,9 +299,11 @@ class TaskQueue:
                 role,
                 parent_task_id,
                 capability_intent,
-                allow_failed_parent
+                allow_failed_parent,
+                evaluation_only,
+                evaluation_id
             )
-            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)
+            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task_id,
@@ -278,6 +313,8 @@ class TaskQueue:
                 parent_task_id,
                 intent_json,
                 1 if allow_failed_parent else 0,
+                1 if evaluation_only else 0,
+                evaluation_id,
             ),
         )
 
@@ -317,9 +354,9 @@ class TaskQueue:
             """
             SELECT 1
             FROM queue
-            WHERE status NOT IN ('completed', 'failed')
+            WHERE (status NOT IN ('completed', 'failed') AND evaluation_only = 0)
                OR (status = 'completed' AND result IS NOT NULL
-                   AND planner_decision IS NULL)
+                   AND planner_decision IS NULL AND evaluation_only = 0)
             LIMIT 1
             """
         ).fetchone()
@@ -368,7 +405,7 @@ class TaskQueue:
                 q.information_gain,
                 q.fingerprint
             FROM queue q
-            WHERE q.status = 'failed'
+            WHERE q.status = 'failed' AND q.evaluation_only = 0
 
             UNION ALL
 
@@ -386,6 +423,7 @@ class TaskQueue:
                 q.fingerprint
             FROM queue q
             WHERE q.status = 'completed'
+              AND q.evaluation_only = 0
               AND q.planner_decision IS NULL
               AND NOT EXISTS (
                   SELECT 1
@@ -409,6 +447,7 @@ class TaskQueue:
                 q.fingerprint
             FROM queue q
             WHERE q.status = 'completed'
+              AND q.evaluation_only = 0
               AND q.planner_decision IN (
                   'CONTINUE', 'REFINE', 'VERIFY', 'BRANCH', 'ESCALATE'
               )
@@ -459,6 +498,102 @@ class TaskQueue:
         ).fetchone()
 
         return row
+
+    def create_shadow_evaluation(self, parent_task_id, selected_child_id, selected_role, shadow_role, description):
+        """Create one non-policy shadow candidate for counterfactual evaluation."""
+        evaluation_id = str(uuid.uuid4())
+        shadow_child_id = self.add(
+            description=(
+                "[SHADOW EVALUATION] "
+                f"Evaluate alternative role {shadow_role} on the exact same parent evidence. "
+                "Do not execute side effects; return only the evidence and findings this role "
+                "would contribute to the decision. "
+                f"Context: {description}"
+            ),
+            role=shadow_role,
+            parent_task_id=parent_task_id,
+            capability_intent={
+                "action": "evaluate",
+                "resource": "planner_alternative",
+                "destination": "internal",
+                "read_only": True,
+                "evidence_required": False,
+            },
+            evaluation_only=True,
+            evaluation_id=evaluation_id,
+        )
+        self.db.execute(
+            """
+            INSERT INTO planner_shadow_evaluations
+            (id, parent_task_id, selected_child_id, shadow_child_id,
+             selected_role, shadow_role, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            (
+                evaluation_id, parent_task_id, selected_child_id, shadow_child_id,
+                selected_role, shadow_role, datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self.db.commit()
+        return evaluation_id, shadow_child_id
+
+    def record_shadow_outcome(self, shadow_child_id, actual_gain, observed_at=None):
+        row = self.db.execute(
+            """
+            SELECT e.id, e.selected_child_id, e.selected_role, e.shadow_role,
+                   s.result, s.status, s.finished_at
+            FROM planner_shadow_evaluations e
+            JOIN queue s ON s.id = e.shadow_child_id
+            WHERE e.shadow_child_id = ?
+            """,
+            (shadow_child_id,),
+        ).fetchone()
+        if not row or row[5] != 'completed' or row[4] is None:
+            return False
+        evaluation_id, selected_child_id, selected_role, shadow_role, _result, _status, finished_at = row
+        selected = self.db.execute(
+            "SELECT actual_evidence_gain FROM planner_action_outcomes WHERE child_task_id = ?",
+            (selected_child_id,),
+        ).fetchone()
+        if not selected:
+            return False
+        selected_actual = float(selected[0] or 0.0)
+        shadow_actual = float(actual_gain or 0.0)
+        self.db.execute(
+            """
+            UPDATE planner_shadow_evaluations
+            SET status='completed', selected_actual=?, shadow_actual=?, uplift=?, observed_at=?
+            WHERE id=?
+            """,
+            (
+                selected_actual, shadow_actual, selected_actual - shadow_actual,
+                observed_at or finished_at or datetime.now(timezone.utc).isoformat(),
+                evaluation_id,
+            ),
+        )
+        self.db.commit()
+        return True
+
+    def planner_shadow_report(self, limit=50):
+        rows = self.db.execute(
+            """
+            SELECT id, parent_task_id, selected_role, shadow_role, status,
+                   selected_actual, shadow_actual, uplift, created_at, observed_at
+            FROM planner_shadow_evaluations
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (int(limit),),
+        ).fetchall()
+        return [
+            {
+                "id": r[0], "parent_task_id": r[1], "selected_role": r[2],
+                "shadow_role": r[3], "status": r[4],
+                "selected_actual": r[5], "shadow_actual": r[6],
+                "uplift": r[7], "created_at": r[8], "observed_at": r[9],
+            }
+            for r in rows
+        ]
 
     def get_result(self, task_id):
         row = self.db.execute(

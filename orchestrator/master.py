@@ -2811,19 +2811,31 @@ class AutonomousPlanner:
                 # One bounded shadow alternative gives us real counterfactual
                 # evidence. It is isolated from planner policy and never
                 # becomes a branch of the autonomous DAG.
-                shadow_row = self.queue.db.execute(
+                shadow_existing = self.queue.db.execute(
                     """
-                    SELECT candidate_role
-                    FROM planner_decision_traces
-                    WHERE task_id = ?
-                      AND selected = 0
-                      AND action_cost <= 0.50
-                      AND candidate_role != 'executor'
-                    ORDER BY selection_rank
+                    SELECT 1
+                    FROM planner_shadow_evaluations
+                    WHERE parent_task_id = ?
+                      AND status IN ('pending', 'completed')
                     LIMIT 1
                     """,
                     (task["id"],),
                 ).fetchone()
+                shadow_row = None
+                if not shadow_existing:
+                    shadow_row = self.queue.db.execute(
+                        """
+                        SELECT candidate_role
+                        FROM planner_decision_traces
+                        WHERE task_id = ?
+                          AND selected = 0
+                          AND action_cost <= 0.50
+                          AND candidate_role != 'executor'
+                        ORDER BY selection_rank
+                        LIMIT 1
+                        """,
+                        (task["id"],),
+                    ).fetchone()
                 if shadow_row:
                     try:
                         evaluation_id, shadow_id = self.queue.create_shadow_evaluation(

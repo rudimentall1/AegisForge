@@ -178,9 +178,17 @@ class TaskQueue:
                 shadow_actual REAL,
                 uplift REAL,
                 created_at TEXT NOT NULL,
-                observed_at TEXT
+                observed_at TEXT,
+                method_version INTEGER NOT NULL DEFAULT 1
             )
         """)
+        shadow_columns = {
+            row[1] for row in self.db.execute("PRAGMA table_info(planner_shadow_evaluations)")
+        }
+        if "method_version" not in shadow_columns:
+            self.db.execute(
+                "ALTER TABLE planner_shadow_evaluations ADD COLUMN method_version INTEGER NOT NULL DEFAULT 1"
+            )
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_planner_shadow_parent
             ON planner_shadow_evaluations(parent_task_id, created_at)
@@ -571,8 +579,8 @@ class TaskQueue:
             """
             INSERT INTO planner_shadow_evaluations
             (id, parent_task_id, selected_child_id, shadow_child_id,
-             selected_role, shadow_role, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+             selected_role, shadow_role, status, created_at, method_version)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 2)
             """,
             (
                 evaluation_id, parent_task_id, selected_child_id, shadow_child_id,
@@ -637,8 +645,10 @@ class TaskQueue:
         rows = self.db.execute(
             """
             SELECT id, parent_task_id, selected_role, shadow_role, status,
-                   selected_actual, shadow_actual, uplift, created_at, observed_at
+                   selected_actual, shadow_actual, uplift, created_at, observed_at,
+                   method_version
             FROM planner_shadow_evaluations
+            WHERE method_version = 2
             ORDER BY created_at DESC
             LIMIT ?
             """,

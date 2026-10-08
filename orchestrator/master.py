@@ -2825,16 +2825,25 @@ class AutonomousPlanner:
                 if not shadow_existing:
                     shadow_row = self.queue.db.execute(
                         """
-                        SELECT candidate_role
-                        FROM planner_decision_traces
-                        WHERE task_id = ?
-                          AND selected = 0
-                          AND action_cost <= 0.50
-                          AND candidate_role != 'executor'
-                        ORDER BY selection_rank
+                        SELECT t.candidate_role
+                        FROM planner_decision_traces t
+                        LEFT JOIN (
+                            SELECT selected_role, shadow_role, COUNT(*) AS completed_count
+                            FROM planner_shadow_evaluations
+                            WHERE status = 'completed'
+                            GROUP BY selected_role, shadow_role
+                        ) s
+                          ON s.selected_role = ?
+                         AND s.shadow_role = t.candidate_role
+                        WHERE t.task_id = ?
+                          AND t.selected = 0
+                          AND t.action_cost <= 0.50
+                          AND t.candidate_role != 'executor'
+                        ORDER BY COALESCE(s.completed_count, 0) ASC,
+                                 t.selection_rank ASC
                         LIMIT 1
                         """,
-                        (task["id"],),
+                        (child_role, task["id"]),
                     ).fetchone()
                 if shadow_row:
                     try:

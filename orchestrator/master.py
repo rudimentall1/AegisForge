@@ -2389,6 +2389,65 @@ class AutonomousPlanner:
     # PLANNER
     # =========================================================
 
+    def _process_shadow_evaluations(self):
+        """Measure completed shadow candidates without feeding them into policy."""
+        rows = self.queue.db.execute(
+            """
+            SELECT q.id, q.parent_task_id, q.result, q.finished_at
+            FROM queue q
+            JOIN planner_shadow_evaluations e ON e.shadow_child_id = q.id
+            WHERE q.evaluation_only = 1
+              AND q.status = 'completed'
+              AND q.result IS NOT NULL
+              AND e.status = 'pending'
+            """
+        ).fetchall()
+        processed = 0
+        for task_id, parent_id, raw_result, finished_at in rows:
+            parent_row = self.queue.db.execute(
+                """
+                SELECT id, description, status, role, parent_task_id, finished_at, result
+                FROM queue WHERE id = ?
+                """,
+                (parent_id,),
+            ).fetchone()
+            if not parent_row:
+                continue
+            parent_task = {
+                "id": parent_row[0],
+                "description": parent_row[1],
+                "status": parent_row[2],
+                "role": parent_row[3],
+                "parent_task_id": parent_row[4],
+                "finished_at": parent_row[5],
+                "result": self.parse_result(parent_row[6]),
+            }
+            shadow_task = {
+                "id": task_id,
+                "parent_task_id": parent_id,
+                "role": None,
+                "result": self.parse_result(raw_result),
+                "finished_at": finished_at,
+            }
+            try:
+                actual_gain, _novelty, _novel_count, _atom_count = self.realized_evidence_gain(
+                    shadow_task,
+                    [shadow_task, parent_task],
+                )
+                if self.queue.record_shadow_outcome(task_id, actual_gain, finished_at):
+                    processed += 1
+                    print(
+                        f"[MASTER] SHADOW OUTCOME task={task_id} parent={parent_id} "
+                        f"actual={actual_gain:.4f}",
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(
+                    f"[MASTER] SHADOW OUTCOME ERROR task={task_id}: {exc}",
+                    flush=True,
+                )
+        return processed
+
     def plan(self):
         try:
             compacted = self.queue.compact_completed_results(
@@ -2411,6 +2470,10 @@ class AutonomousPlanner:
                 f"[MASTER] MEMORY COMPACTION ERROR: {exc}",
                 flush=True,
             )
+
+        shadow_processed = self._process_shadow_evaluations()
+        if shadow_processed:
+            print(f"[MASTER] SHADOW EVALUATIONS PROCESSED count={shadow_processed}", flush=True)
 
         tasks = self._load_tasks()
         self._planning_tasks = tasks
@@ -2735,6 +2798,43 @@ class AutonomousPlanner:
                     parent_task_id=task["id"],
                     capability_intent=default_capability_intent(child_role),
                 )
+
+                # One bounded shadow alternative gives us real counterfactual
+                # evidence. It is isolated from planner policy and never
+                # becomes a branch of the autonomous DAG.
+                shadow_row = self.queue.db.execute(
+                    """
+                    SELECT candidate_role
+                    FROM planner_decision_traces
+                    WHERE task_id = ?
+                      AND selected = 0
+                      AND action_cost <= 0.50
+                      AND candidate_role != 'executor'
+                    ORDER BY selection_rank
+                    LIMIT 1
+                    """,
+                    (task["id"],),
+                ).fetchone()
+                if shadow_row:
+                    try:
+                        evaluation_id, shadow_id = self.queue.create_shadow_evaluation(
+                            parent_task_id=task["id"],
+                            selected_child_id=child_id,
+                            selected_role=child_role,
+                            shadow_role=shadow_row[0],
+                            description=description,
+                        )
+                        print(
+                            f"[MASTER] SHADOW TASK parent={task['id']} "
+                            f"selected={child_role} alternative={shadow_row[0]} "
+                            f"evaluation={evaluation_id} id={shadow_id}",
+                            flush=True,
+                        )
+                    except Exception as exc:
+                        print(
+                            f"[MASTER] SHADOW CREATE ERROR parent={task['id']}: {exc}",
+                            flush=True,
+                        )
 
                 fingerprints.add(child_fp)
                 created += 1

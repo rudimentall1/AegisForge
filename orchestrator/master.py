@@ -550,6 +550,21 @@ class AutonomousPlanner:
                     if item.get(field) is not None
                 }
                 add("opportunity", compact or item)
+                # Analyst assessments are distinct evidence dimensions, not
+                # volatile scoring metadata. Keep them separate from the stable
+                # opportunity identity so new reasoning can earn novelty even
+                # when the underlying repository was already discovered.
+                identity = (
+                    item.get("name") or item.get("repository") or item.get("url")
+                    or "unknown-opportunity"
+                )
+                for field in (
+                    "operational_gap", "decision_criteria", "analyst_assessment",
+                    "observed_capability", "technical_risk", "market_signal",
+                ):
+                    value = item.get(field)
+                    if value is not None:
+                        add(f"opportunity_analysis:{identity}:{field}", value)
             else:
                 add("opportunity", item)
         for item in cls.extract_hypotheses(result):
@@ -2439,11 +2454,37 @@ class AutonomousPlanner:
                             flush=True,
                         )
                     continue
-                actual_gain, _novelty, _novel_count, _atom_count = self.realized_evidence_gain(
-                    shadow_task,
-                    [shadow_task, parent_task],
+                selected_id_row = self.queue.db.execute(
+                    "SELECT selected_child_id FROM planner_shadow_evaluations WHERE shadow_child_id = ?",
+                    (task_id,),
+                ).fetchone()
+                if not selected_id_row or not selected_id_row[0]:
+                    continue
+                selected_row = self.queue.db.execute(
+                    "SELECT id, role, result, finished_at FROM queue WHERE id = ?",
+                    (selected_id_row[0],),
+                ).fetchone()
+                if not selected_row:
+                    continue
+                selected_task = {
+                    "id": selected_row[0],
+                    "parent_task_id": parent_id,
+                    "role": selected_row[1],
+                    "result": self.parse_result(selected_row[2]),
+                    "finished_at": selected_row[3],
+                }
+                # Recompute both arms with the same updated atomizer. Never
+                # compare a v3 shadow score to a v2 stored score.
+                selected_gain, *_ = self.realized_evidence_gain(
+                    selected_task, [selected_task, parent_task]
                 )
-                if self.queue.record_shadow_outcome(task_id, actual_gain, finished_at):
+                shadow_gain, _novelty, _novel_count, _atom_count = self.realized_evidence_gain(
+                    shadow_task, [shadow_task, parent_task]
+                )
+                if self.queue.record_shadow_outcome(
+                    task_id, shadow_gain, finished_at,
+                    selected_actual=selected_gain, method_version=3,
+                ):
                     processed += 1
                     print(
                         f"[MASTER] SHADOW OUTCOME task={task_id} parent={parent_id} "
@@ -2831,7 +2872,7 @@ class AutonomousPlanner:
                             SELECT selected_role, shadow_role, COUNT(*) AS completed_count
                             FROM planner_shadow_evaluations
                             WHERE status = 'completed'
-                              AND method_version = 2
+                              AND method_version = 3
                             GROUP BY selected_role, shadow_role
                         ) s
                           ON s.selected_role = ?

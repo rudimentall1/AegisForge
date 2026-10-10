@@ -580,7 +580,7 @@ class TaskQueue:
             INSERT INTO planner_shadow_evaluations
             (id, parent_task_id, selected_child_id, shadow_child_id,
              selected_role, shadow_role, status, created_at, method_version)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 2)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 3)
             """,
             (
                 evaluation_id, parent_task_id, selected_child_id, shadow_child_id,
@@ -590,7 +590,10 @@ class TaskQueue:
         self.db.commit()
         return evaluation_id, shadow_child_id
 
-    def record_shadow_outcome(self, shadow_child_id, actual_gain, observed_at=None):
+    def record_shadow_outcome(
+        self, shadow_child_id, actual_gain, observed_at=None,
+        selected_actual=None, method_version=None,
+    ):
         row = self.db.execute(
             """
             SELECT e.id, e.selected_child_id, e.selected_role, e.shadow_role,
@@ -610,7 +613,9 @@ class TaskQueue:
         ).fetchone()
         if not selected:
             return False
-        selected_actual = float(selected[0] or 0.0)
+        selected_actual = float(
+            selected[0] if selected_actual is None else selected_actual
+        )
         shadow_actual = float(actual_gain or 0.0)
         self.db.execute(
             """
@@ -624,6 +629,11 @@ class TaskQueue:
                 evaluation_id,
             ),
         )
+        if method_version is not None:
+            self.db.execute(
+                "UPDATE planner_shadow_evaluations SET method_version=? WHERE id=?",
+                (int(method_version), evaluation_id),
+            )
         self.db.commit()
         return True
 
@@ -648,7 +658,7 @@ class TaskQueue:
                    selected_actual, shadow_actual, uplift, created_at, observed_at,
                    method_version
             FROM planner_shadow_evaluations
-            WHERE method_version = 2
+            WHERE method_version = 3
             ORDER BY created_at DESC
             LIMIT ?
             """,

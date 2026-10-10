@@ -2488,7 +2488,7 @@ class AutonomousPlanner:
                     processed += 1
                     print(
                         f"[MASTER] SHADOW OUTCOME task={task_id} parent={parent_id} "
-                        f"actual={actual_gain:.4f}",
+                        f"actual={shadow_gain:.4f}",
                         flush=True,
                     )
             except Exception as exc:

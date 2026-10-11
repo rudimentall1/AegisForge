@@ -250,6 +250,55 @@ def test_validator_rejects_receipt_signed_by_untrusted_key_id(monkeypatch):
     assert check["authenticity"] != "SIGNED_AND_TRUSTED"
 
 
+def test_validator_rejects_invalid_signature_from_configured_trusted_key(monkeypatch):
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from agents.validator.agent import Validator
+
+    private_key = Ed25519PrivateKey.generate()
+    private_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_bytes = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    key_id = "trusted-test-runner"
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_B64", base64.b64encode(private_bytes).decode("ascii"))
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_ID", key_id)
+    monkeypatch.setenv(
+        "AEGISFORGE_LAB_TRUSTED_PUBLIC_KEYS",
+        json.dumps({key_id: base64.b64encode(public_bytes).decode("ascii")}),
+    )
+
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    # Preserve the receipt and its digest, but corrupt only the signature bytes.
+    experiment["execution_receipt_envelope"]["signature"] = base64.b64encode(b"invalid-signature").decode("ascii")
+    report = Validator().run(Task(
+        task_id="invalid-signature-trusted-key",
+        description="Reject a corrupted signature even when key ID is trusted",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": [],
+            "hypotheses": [],
+            "lab_experiments": [experiment],
+        },
+    )).result["research_validation"]
+
+    assert report["lab_trusted_signing_key_count"] == 1
+    assert report["lab_trusted_key_configuration_error"] is None
+    assert report["historical_reproduction_confirmed"] is False
+    assert report["status"] == "INCONCLUSIVE"
+    check = report["lab_execution_receipt_checks"][0]
+    assert check["integrity_verified"] is True
+    assert check["signature_verified_against_trusted_key"] is False
+    assert check["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
+
+
 def test_validator_fails_closed_on_malformed_trusted_key_material(monkeypatch):
     from agents.validator.agent import Validator
 

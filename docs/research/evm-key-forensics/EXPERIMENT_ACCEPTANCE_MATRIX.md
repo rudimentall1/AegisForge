@@ -55,17 +55,16 @@ Stop and report `INCONCLUSIVE` if the exact historical path cannot be built safe
 - Portable integrity verifier: implemented; CI-tested; strict JSON parsing rejects duplicate keys and non-standard constants in the exported artifact and structured result payload. Unsigned artifacts remain untrusted.
 - Synthetic positive/negative control harness: implemented and covered by tests; it validates only the repository-owned toy state space.
 - Portable verification instructions: documented in `tools/evm_key_forensics/README.md`; signed artifacts require a public key trusted independently of the artifact.
-- Latest observed CI: both `EVM Key Forensics Probe` ([run](https://github.com/rudimentall1/AegisForge/actions/runs/38135028298)) and `AegisForge CI` ([run](https://github.com/rudimentall1/AegisForge/actions/runs/38135028249)) passed at commit `cd92d4386442b2be6d7509fa3b729f0f518c7ab1`. These are CI results for the checker and tests, not independent validation of the historical claim.
+- Latest observed CI: `AegisForge CI` ([run 38136331275](https://github.com/rudimentall1/AegisForge/actions/runs/38136331275)) and `EVM Key Forensics Probe` ([run 38136331264](https://github.com/rudimentall1/AegisForge/actions/runs/38136331264)) both passed at commit `d710cb26e36f4c4253dabfabbeb43e778b3e3c61`. These are CI results for the checker and tests, not independent validation of the historical claim.
 - E3 status: **synthetic harness controls pass**; this validates only the toy model and its control logic, not the historical Profanity behavior.
 - E1 build identity: not yet complete for a historical reproduction.
 - E4 historical-path reproduction: **not established**.
+- Portable artifact gate: **automated CLI coverage passes** for a valid synthetic artifact signed by a trusted key (exit `0`), an artifact mutated after signing (exit `1`), and a validly signed artifact checked against an unrelated trusted key (exit `2`). Tests exercise the verifier CLI using generated synthetic fixtures; no manually captured external artifact bundle has yet been archived. See [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/38136331275).
 - E5 independent review: pending.
 - Wallet compromise: **not tested and not claimed**.
 
 ## Next engineering gate
 
-First, exercise the portable artifact workflow end-to-end: export one synthetic experiment, verify it offline with an independently supplied trusted public key, then mutate the receipt and substitute an unrelated key; both negative cases must fail closed. Capture the exact commands and exit codes as reproducibility evidence.
-
-Only after that gate, consider a bounded, isolated build-identity and seed-construction harness around the pinned historical source, without invoking vanity search, generating wallet material, or accepting real addresses. Before implementing it, document the exact source lines, required compiler/standard-library provenance, expected observations, and independent negative control. If a safe harness cannot exercise the historical seed-construction path without running the wallet-search workload or handling key material, stop at source review and report `INCONCLUSIVE`.
+The portable verifier gate is now covered by automated CLI tests, but this does not validate the historical vulnerability. Next, prepare a design-only plan for a bounded build-identity/seed-construction harness around the pinned historical source. Before implementation, document the exact source lines, required compiler/standard-library provenance, expected observations, and an independent negative control. Do not invoke vanity search, generate wallet material, or accept real addresses. If the historical seed-construction path cannot be exercised safely without running the wallet-search workload or handling key material, stop at source review and report `INCONCLUSIVE`.
 
 Reuse the existing lab receipt/verifier architecture where it fits; do not create a parallel signature format. Never run this experiment on the production agent farm.

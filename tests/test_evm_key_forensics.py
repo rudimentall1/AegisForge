@@ -1,4 +1,5 @@
 import hashlib
+import json
 from datetime import datetime, timezone
 
 from agents.crypto_analyst.agent import CryptoAnalyst
@@ -607,3 +608,29 @@ def test_validator_rejects_artifact_with_false_execution_metadata():
         assert result["historical_reproduction_confirmed"] is False, case
         assert result["status"] == "INCONCLUSIVE", case
         assert result["verified_historical_claims"] == [], case
+
+
+
+def test_lab_runner_records_observed_synthetic_subprocess_result():
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    record = experiment["execution_record"]
+
+    assert record["schema_version"] == 1
+    assert record["record_kind"] == "local_subprocess_observation"
+    assert record["executor"] == "python-subprocess"
+    assert record["command"][0]
+    assert record["command"][1:2] == ["-c"]
+    assert record["command_sha256"] == hashlib.sha256(
+        json.dumps(
+            record["command"], ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+    assert record["exit_code"] == 0
+    assert record["timed_out"] is False
+    assert record["test_passed"] is True
+    assert record["stdout_sha256"] == hashlib.sha256(
+        record["stdout"].encode("utf-8")
+    ).hexdigest()
+    assert record["stderr_sha256"] == hashlib.sha256(b"").hexdigest()
+    assert experiment["synthetic_seed_recovered"] is True
+    assert experiment["historical_implementation_reproduced"] is False

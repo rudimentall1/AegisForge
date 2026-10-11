@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 from copy import deepcopy
 
@@ -139,3 +140,38 @@ def test_signed_envelope_must_bind_to_the_exact_receipt_being_validated(monkeypa
     assert receipt_check["signature_verified_against_trusted_key"] is False
     assert receipt_check["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
     assert validation["lab_execution_receipts_trusted"] is False
+
+
+
+def test_receipt_binds_the_observed_command_and_result_payload():
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    changed_command = deepcopy(experiment)
+    changed_command["execution_record"]["command"][-1] = "print('different command')"
+    changed_command["execution_record"]["command_sha256"] = hashlib.sha256(
+        json.dumps(
+            changed_command["execution_record"]["command"],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+    command_validation = _validate(changed_command)
+    command_check = command_validation["lab_execution_record_checks"][0]
+    receipt_check = command_validation["lab_execution_receipt_checks"][0]
+    # The record is internally self-consistent after recalculating its own hash,
+    # but it no longer matches the command committed into the receipt.
+    assert command_check["internally_consistent"] is True
+    assert receipt_check["command_matches_receipt"] is False
+    assert receipt_check["integrity_verified"] is False
+
+    changed_artifact = deepcopy(experiment)
+    changed_artifact["execution_receipt"]["artifacts"]["result_payload_sha256"] = "0" * 64
+    # Recalculate the public digest to isolate artifact binding from digest checks.
+    from shared.lab_execution_receipt import receipt_sha256
+    changed_artifact["execution_receipt_sha256"] = receipt_sha256(
+        changed_artifact["execution_receipt"]
+    )
+    artifact_validation = _validate(changed_artifact)
+    artifact_check = artifact_validation["lab_execution_receipt_checks"][0]
+    assert artifact_check["result_payload_digest_matches"] is False
+    assert artifact_check["integrity_verified"] is False

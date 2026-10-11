@@ -64,7 +64,7 @@ def _allowed_https_url(url: str) -> bool:
 
 
 def fetch_public_source(url: str, timeout: int = 12) -> dict:
-    """Fetch only allowlisted HTTPS pages; never execute downloaded content."""
+    """Fetch allowlisted HTTPS pages with a hard response-body memory bound."""
     requested_url = str(url or "").strip()
     if not _allowed_https_url(requested_url):
         raise ValueError("source_url_not_allowlisted_https")
@@ -75,7 +75,7 @@ def fetch_public_source(url: str, timeout: int = 12) -> dict:
         if not _allowed_https_url(current_url):
             raise ValueError("redirect_target_not_allowlisted_https")
         response = requests.get(
-            current_url, timeout=timeout, allow_redirects=False,
+            current_url, timeout=timeout, allow_redirects=False, stream=True,
             headers={"User-Agent": "AegisForge-Research/1.0"},
         )
         if response.status_code not in REDIRECT_CODES:
@@ -85,36 +85,62 @@ def fetch_public_source(url: str, timeout: int = 12) -> dict:
             break
         next_url = urljoin(current_url, location)
         if not _allowed_https_url(next_url):
+            response.close()
             raise ValueError("redirect_target_not_allowlisted_https")
+        response.close()
         current_url = next_url
     else:
         raise RuntimeError("too_many_public_source_redirects")
     if response is None:
         raise RuntimeError("source_fetch_no_response")
 
-    body = response.content or b""
-    digest = hashlib.sha256(body).hexdigest()
-    clipped = body[:MAX_BODY_BYTES]
     try:
-        html = clipped.decode(response.encoding or "utf-8", errors="replace")
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_BODY_BYTES:
+                    raise ValueError("source_body_exceeds_limit")
+            except ValueError as exc:
+                if str(exc) == "source_body_exceeds_limit":
+                    raise
+                # Ignore malformed Content-Length; the streaming limit remains authoritative.
+
+        chunks = []
+        body_size = 0
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                continue
+            if body_size + len(chunk) > MAX_BODY_BYTES:
+                raise ValueError("source_body_exceeds_limit")
+            chunks.append(chunk)
+            body_size += len(chunk)
+        body = b"".join(chunks)
+        response_encoding = response.encoding or "utf-8"
+        status_code = int(response.status_code)
+    finally:
+        response.close()
+
+    digest = hashlib.sha256(body).hexdigest()
+    try:
+        html = body.decode(response_encoding, errors="replace")
     except LookupError:
-        html = clipped.decode("utf-8", errors="replace")
+        html = body.decode("utf-8", errors="replace")
 
     parser = _VisibleTextParser()
-    if response.status_code == 200:
+    if status_code == 200:
         parser.feed(html)
-    visible_text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()[:MAX_TEXT_CHARS]
-    title = re.sub(r"\s+", " ", " ".join(parser.title_parts)).strip()[:300]
+    visible_text = re.sub(r"\\s+", " ", " ".join(parser.parts)).strip()[:MAX_TEXT_CHARS]
+    title = re.sub(r"\\s+", " ", " ".join(parser.title_parts)).strip()[:300]
     return {
         "source_url": requested_url,
         "final_url": current_url,
-        "status_code": int(response.status_code),
-        "fetch_status": "fetched" if response.status_code == 200 else f"http_{response.status_code}",
+        "status_code": status_code,
+        "fetch_status": "fetched" if status_code == 200 else f"http_{status_code}",
         "title": title or None,
         "text": visible_text,
         "excerpt": visible_text[:2200],
         "content_sha256": digest,
         "content_bytes": len(body),
-        "content_truncated_for_analysis": len(body) > MAX_BODY_BYTES,
+        "content_truncated_for_analysis": False,
         "retrieved_at": datetime.now(timezone.utc).isoformat(),
     }

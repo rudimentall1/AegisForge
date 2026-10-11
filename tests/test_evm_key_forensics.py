@@ -171,6 +171,9 @@ def test_validator_reports_truncated_analysis_text_without_promoting_claims():
     assert report["sources_with_unknown_analysis_text_completeness"] == 0
     assert report["status"] == "INCONCLUSIVE"
     assert report["historical_reproduction_confirmed"] is False
+    assert "source_analysis_text_truncated" in report["readiness_blockers"]
+    assert "pinned_revision_provenance_not_clean" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
     assert any("truncated excerpt" in action for action in report["next_actions"])
 
 

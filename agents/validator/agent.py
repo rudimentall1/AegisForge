@@ -437,14 +437,33 @@ class Validator:
             and item.get("historical_implementation_reproduced") is False
             for item in experiments
         )
-        historical_reproduction = any(
-            item.get("historical_implementation_reproduced") is True
-            and item.get("synthetic_test_only") is True
-            for item in experiments
-        )
+        def is_immutable_hex(value, length):
+            text = str(value or "")
+            return len(text) == length and all(char in "0123456789abcdef" for char in text.lower())
+
+        # Never trust a bare boolean asserted by a previous agent. A historical
+        # reproduction must link to an immutable revision, a synthetic test
+        # vector, a passing reproduction test and a content-addressed artifact.
+        qualified_reproductions = []
+        for item in experiments:
+            if not (
+                item.get("historical_implementation_reproduced") is True
+                and item.get("synthetic_test_only") is True
+                and item.get("uses_real_private_keys") is False
+                and item.get("uses_real_wallet_addresses") is False
+                and is_immutable_hex(item.get("pinned_source_revision"), 40)
+                and str(item.get("synthetic_test_vector_id") or "").strip()
+                and item.get("reproduction_test_passed") is True
+                and is_immutable_hex(item.get("reproduction_artifact_sha256"), 64)
+                and str(item.get("reproduction_command") or "").strip()
+            ):
+                continue
+            qualified_reproductions.append(item)
+
+        historical_reproduction = bool(qualified_reproductions)
         rechecked = sum(item.get("recheck_status") == "rechecked_http_200" for item in source_checks)
         matching = sum(item.get("content_fingerprint_matches") is True for item in source_checks)
-        status = "READY_FOR_HUMAN_REVIEW" if historical_reproduction and rechecked >= 2 else "INCONCLUSIVE"
+        status = "READY_FOR_HUMAN_REVIEW" if historical_reproduction and rechecked >= 2 and matching >= 2 else "INCONCLUSIVE"
 
         next_actions = []
         if not any(item.get("classification") == "early_client_key_generation_warning" for item in sources):
@@ -452,9 +471,11 @@ class Validator:
         if not any(item.get("classification") == "vanity_generator_entropy_weakness_report" for item in sources):
             next_actions.append("Find the primary Profanity vulnerability report and affected revision.")
         if not historical_reproduction:
-            next_actions.append("Reproduce a pinned historical implementation with synthetic test vectors; the toy demonstration is insufficient.")
+            next_actions.append("Reproduce a pinned historical implementation with synthetic test vectors, test command, passing result and SHA-256 artifact evidence; the toy demonstration is insufficient.")
         if rechecked < 2:
             next_actions.append("Independently re-fetch at least two allowlisted primary sources.")
+        if matching < 2:
+            next_actions.append("Require matching SHA-256 fingerprints for at least two independently re-fetched primary sources.")
         next_actions.append("Keep address-cohort claims unproven until tested against an aggregate control sample.")
 
         result["research_track"] = "evm_key_forensics"

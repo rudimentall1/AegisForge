@@ -393,6 +393,9 @@ class Validator:
         source_ids = {item.get("source_id") for item in sources if item.get("source_id")}
         source_checks = []
 
+        repository_pins = [item for item in result.get("repository_pins", []) if isinstance(item, dict)]
+        pinned_revision_checks = []
+
         for source in sources[:self.MAX_RESEARCH_SOURCE_RECHECKS]:
             url = str(source.get("source_url") or "")
             parsed = urlparse(url)
@@ -417,6 +420,37 @@ class Validator:
                 except Exception as exc:
                     check["recheck_status"] = "recheck_error"
                     check["recheck_error_type"] = type(exc).__name__
+            if source.get("source_kind") == "pinned_repository_source":
+                path_parts = parsed.path.strip("/").split("/")
+                revision_sha = str(source.get("revision_sha") or "").lower()
+                repository = str(source.get("repository") or "")
+                repository_ref = str(source.get("repository_ref") or "")
+                revision_role = str(source.get("revision_role") or "")
+                pin_matches = any(
+                    item.get("repository") == repository
+                    and item.get("requested_ref") == repository_ref
+                    and str(item.get("commit_sha") or "").lower() == revision_sha
+                    and item.get("revision_role") == revision_role
+                    for item in repository_pins
+                )
+                immutable_pin_valid = (
+                    parsed.scheme == "https"
+                    and parsed.hostname == "raw.githubusercontent.com"
+                    and len(path_parts) >= 4
+                    and "/".join(path_parts[:2]) == repository
+                    and len(revision_sha) == 40
+                    and all(char in "0123456789abcdef" for char in revision_sha)
+                    and path_parts[2].lower() == revision_sha
+                    and "/".join(path_parts[3:]) == str(source.get("source_file_path") or "")
+                    and source.get("revision_url") == f"https://github.com/{repository}/tree/{revision_sha}"
+                    and pin_matches
+                )
+                check["immutable_revision_pin_valid"] = immutable_pin_valid
+                pinned_revision_checks.append({
+                    "source_id": source.get("source_id"),
+                    "revision_sha": revision_sha,
+                    "valid": immutable_pin_valid,
+                })
             source_checks.append(check)
 
         hypotheses = [item for item in result.get("hypotheses", []) if isinstance(item, dict)]
@@ -482,9 +516,16 @@ class Validator:
         result["research_track"] = "evm_key_forensics"
         result["stage"] = "validation"
         result["research_source_checks"] = source_checks
+        pinned_checks_passed = sum(item.get("valid") is True for item in pinned_revision_checks)
+        pinned_checks_failed = sum(item.get("valid") is False for item in pinned_revision_checks)
+        if pinned_checks_failed:
+            next_actions.append("Repair invalid pinned-revision metadata before treating historical source snapshots as reproducible evidence.")
         result["research_validation"] = {
             "schema_version": "evm-forensics-validation-v1",
             "status": status,
+            "pinned_revision_sources_checked": len(pinned_revision_checks),
+            "pinned_revision_source_checks_passed": pinned_checks_passed,
+            "pinned_revision_source_checks_failed": pinned_checks_failed,
             "decision": "CONTINUE_RESEARCH" if status == "INCONCLUSIVE" else "READY_FOR_HUMAN_REVIEW",
             "sources_in_dossier": len(sources),
             "sources_rechecked_http_200": rechecked,

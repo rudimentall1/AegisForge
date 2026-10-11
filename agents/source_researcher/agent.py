@@ -25,6 +25,7 @@ HISTORICAL_REPOSITORIES = (
         "owner": "johguse",
         "repo": "profanity",
         "ref": "v1.50",
+        "expected_commit_sha": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
         "revision_role": "pre_disclosure_release",
         "files": ("Dispatcher.cpp", "Dispatcher.hpp", "profanity.cpp", "README.md"),
     },
@@ -32,6 +33,7 @@ HISTORICAL_REPOSITORIES = (
         "owner": "johguse",
         "repo": "profanity",
         "ref": "master",
+        "expected_commit_sha": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
         "revision_role": "post_disclosure_archive",
         "files": ("Dispatcher.cpp", "Dispatcher.hpp", "profanity.cpp", "README.md"),
     },
@@ -88,8 +90,17 @@ class SourceResearcher:
         for repository in HISTORICAL_REPOSITORIES:
             owner, repo, ref = repository["owner"], repository["repo"], repository["ref"]
             pin = next((item for item in pins if item.get("repository") == f"{owner}/{repo}" and item.get("requested_ref") == ref), None)
+            expected_sha = str(repository.get("expected_commit_sha") or "").lower()
             if pin and pin.get("commit_sha"):
-                commit_sha = str(pin["commit_sha"])
+                commit_sha = str(pin["commit_sha"]).lower()
+                if expected_sha and commit_sha != expected_sha:
+                    errors.append({
+                        "repository": f"{owner}/{repo}",
+                        "requested_ref": ref,
+                        "error_type": "PinnedRevisionMismatch",
+                        "error": "stored_pin_does_not_match_expected_historical_revision",
+                    })
+                    continue
             else:
                 endpoint = f"{self.github.BASE_URL}/repos/{owner}/{repo}/commits/{ref}"
                 try:
@@ -99,10 +110,14 @@ class SourceResearcher:
                     commit_sha = str(commit.get("sha") or "")
                     if len(commit_sha) != 40 or any(ch not in "0123456789abcdefABCDEF" for ch in commit_sha):
                         raise ValueError("upstream_commit_sha_missing_or_invalid")
+                    commit_sha = commit_sha.lower()
+                    if expected_sha and commit_sha != expected_sha:
+                        raise ValueError("upstream_ref_sha_mismatch")
                     pin = {
                         "repository": f"{owner}/{repo}",
                         "requested_ref": ref,
                         "revision_role": repository.get("revision_role", "historical_reference"),
+                        "expected_commit_sha": expected_sha or None,
                         "commit_sha": commit_sha,
                         "commit_url": f"https://github.com/{owner}/{repo}/commit/{commit_sha}",
                         "source_files": list(repository["files"]),

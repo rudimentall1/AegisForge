@@ -18,14 +18,14 @@ def _fake_fetch(url):
         "https://1inch.com/blog/post/a-vulnerability-disclosed-in-profanity-an-ethereum-vanity-address-tool": "Profanity used a random 32-bit vector to seed 256-bit private keys. Researchers published proof-of-concept for the affected generator.",
         "https://blog.ethereum.org/2015/08/07/security-alert-1-windowsalethzero-2": "Key files may not be written; users should confirm the underlying key exists.",
         "https://blog.ethereum.org/2016/06/24/security-alert-smart-contract-wallets-created-in-frontier-are-vulnerable-to-phishing-attacks": "Smart contract wallets created in Frontier were vulnerable to phishing attacks.",
-        "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/Dispatcher.cpp": "Synthetic pinned historical implementation source with createSeed.",
-        "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/Dispatcher.hpp": "Synthetic pinned historical implementation header.",
-        "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/profanity.cpp": "Synthetic pinned historical implementation entrypoint.",
-        "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/README.md": "Synthetic pinned historical repository readme.",
-        "https://raw.githubusercontent.com/johguse/profanity/" + "b" * 40 + "/Dispatcher.cpp": "Synthetic pre-disclosure source with createSeed and mt19937_64.",
-        "https://raw.githubusercontent.com/johguse/profanity/" + "b" * 40 + "/Dispatcher.hpp": "Synthetic pre-disclosure source header.",
-        "https://raw.githubusercontent.com/johguse/profanity/" + "b" * 40 + "/profanity.cpp": "Synthetic pre-disclosure source entrypoint.",
-        "https://raw.githubusercontent.com/johguse/profanity/" + "b" * 40 + "/README.md": "Synthetic pre-disclosure repository readme.",
+        "https://raw.githubusercontent.com/johguse/profanity/186b9b27ab3e24a1899f648adcabcbf0e5f3131e/Dispatcher.cpp": "Synthetic pinned archived historical implementation source with createSeed.",
+        "https://raw.githubusercontent.com/johguse/profanity/186b9b27ab3e24a1899f648adcabcbf0e5f3131e/Dispatcher.hpp": "Synthetic pinned archived historical implementation header.",
+        "https://raw.githubusercontent.com/johguse/profanity/186b9b27ab3e24a1899f648adcabcbf0e5f3131e/profanity.cpp": "Synthetic pinned archived historical implementation entrypoint.",
+        "https://raw.githubusercontent.com/johguse/profanity/186b9b27ab3e24a1899f648adcabcbf0e5f3131e/README.md": "Synthetic pinned archived historical repository readme.",
+        "https://raw.githubusercontent.com/johguse/profanity/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/Dispatcher.cpp": "Synthetic pre-disclosure source with createSeed and mt19937_64.",
+        "https://raw.githubusercontent.com/johguse/profanity/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/Dispatcher.hpp": "Synthetic pre-disclosure source header.",
+        "https://raw.githubusercontent.com/johguse/profanity/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/profanity.cpp": "Synthetic pre-disclosure source entrypoint.",
+        "https://raw.githubusercontent.com/johguse/profanity/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/README.md": "Synthetic pre-disclosure repository readme.",
     }.get(url, "Synthetic test source.")
     return {
         "source_url": url, "final_url": url, "status_code": 200, "fetch_status": "fetched",
@@ -40,9 +40,9 @@ class _FakeGithub:
 
     def get_json(self, url, params=None, **kwargs):
         if url.endswith("/repos/johguse/profanity/commits/master"):
-            return {"sha": "a" * 40, "commit": {"committer": {"date": "2022-09-15T00:00:00Z"}}}
+            return {"sha": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e", "commit": {"committer": {"date": "2022-09-15T13:49:39Z"}}}
         if url.endswith("/repos/johguse/profanity/commits/v1.50"):
-            return {"sha": "b" * 40, "commit": {"committer": {"date": "2022-07-28T00:00:00Z"}}}
+            return {"sha": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6", "commit": {"committer": {"date": "2022-07-28T00:00:00Z"}}}
         query = (params or {}).get("q", "")
         return {"items": [{
             "html_url": "https://github.com/example/project/issues/1",
@@ -62,11 +62,11 @@ def test_source_researcher_preserves_provenance_and_confounds():
     assert result["source_summary"]["sources_fetched_http_200"] == 12
     assert result["source_summary"]["pinned_repository_files"] == 8
     assert result["source_summary"]["pinned_repository_revisions"] == 2
-    assert {pin["commit_sha"] for pin in result["repository_pins"]} == {"a" * 40, "b" * 40}
+    assert {pin["commit_sha"] for pin in result["repository_pins"]} == {"186b9b27ab3e24a1899f648adcabcbf0e5f3131e", "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6"}
     assert {pin["revision_role"] for pin in result["repository_pins"]} == {"pre_disclosure_release", "post_disclosure_archive"}
     pinned = [source for source in result["sources"] if source.get("source_kind") == "pinned_repository_source"]
     assert len(pinned) == 8
-    assert {source["revision_sha"] for source in pinned} == {"a" * 40, "b" * 40}
+    assert {source["revision_sha"] for source in pinned} == {"186b9b27ab3e24a1899f648adcabcbf0e5f3131e", "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6"}
     assert {source["revision_role"] for source in pinned} == {"pre_disclosure_release", "post_disclosure_archive"}
     assert all("/" + source["revision_sha"] + "/" in source["source_url"] for source in pinned)
     classes = {source["classification"] for source in result["sources"]}
@@ -229,6 +229,9 @@ def test_validator_keeps_toy_lab_inconclusive_and_rechecks_sources():
     assert report["verified_historical_claims"] == []
     assert report["sources_rechecked_http_200"] == 12
     assert report["exact_source_fingerprints_matching"] == 12
+    assert report["pinned_revision_sources_checked"] == 8
+    assert report["pinned_revision_source_checks_passed"] == 8
+    assert report["pinned_revision_source_checks_failed"] == 0
     assert report["toy_lab_scope_verified"] is True
 
 

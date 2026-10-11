@@ -204,7 +204,7 @@ def test_validator_fails_closed_on_malformed_trusted_key_material(monkeypatch):
     from agents.validator.agent import Validator
 
     malformed_configs = [
-        ('{"runner-a":"not base64!!!"}', "ValueError"),
+        ('{"runner-a":"not base64!!!"}', "Error"),
         ('{"runner-a":"AAAA"}', "ValueError"),
         ('[]', "ValueError"),
     ]

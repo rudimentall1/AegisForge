@@ -147,6 +147,29 @@ def test_lead_relevance_requires_specific_signal_or_multiple_context_signals():
     assert relevant is False
 
 
+def test_trusted_key_config_json_rejects_duplicate_keys():
+    from agents.validator.agent import _reject_duplicate_json_keys
+
+    valid = json.loads(
+        '{"runner-a":"cHVibGljLWtleQ==","runner-b":"YW5vdGhlci1rZXk="}',
+        object_pairs_hook=_reject_duplicate_json_keys,
+    )
+    assert set(valid) == {"runner-a", "runner-b"}
+
+    import pytest
+    with pytest.raises(ValueError, match="duplicate_json_key"):
+        json.loads(
+            '{"runner-a":"first","runner-a":"second"}',
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+
+    with pytest.raises(ValueError, match="duplicate_json_key"):
+        json.loads(
+            '{"outer":{"runner-a":"first","runner-a":"second"}}',
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+
+
 def test_validator_reports_truncated_analysis_text_without_promoting_claims():
     from agents.validator.agent import Validator
 

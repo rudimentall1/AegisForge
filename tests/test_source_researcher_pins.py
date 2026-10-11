@@ -61,6 +61,8 @@ def test_pinned_sources_are_bound_to_expected_immutable_revisions():
 def test_stored_pin_mismatch_skips_only_the_rejected_revision():
     pins = _pins()
     rejected_repository = pins[0]["repository"]
+    rejected_ref = pins[0]["requested_ref"]
+    rejected_expected_sha = pins[0]["expected_commit_sha"]
     pins[0]["commit_sha"] = "f" * 40
     fetched_urls = []
     researcher = SourceResearcher(github=object(), fetcher=_fake_fetcher(fetched_urls))
@@ -72,4 +74,6 @@ def test_stored_pin_mismatch_skips_only_the_rejected_revision():
     assert errors[0]["error_type"] == "PinnedRevisionMismatch"
     assert errors[0]["repository"] == rejected_repository
     assert len(sources) == len(HISTORICAL_REPOSITORIES[1]["files"])
-    assert all(rejected_repository not in url for url in fetched_urls)
+    assert all(f"/{rejected_expected_sha}/" not in url for url in fetched_urls)
+    assert any(rejected_repository in url for url in fetched_urls)  # the other pinned revision is still fetched
+    assert rejected_ref != HISTORICAL_REPOSITORIES[1]["ref"]

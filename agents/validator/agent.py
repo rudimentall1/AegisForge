@@ -475,6 +475,63 @@ class Validator:
             })
 
         experiments = [item for item in result.get("lab_experiments", []) if isinstance(item, dict)]
+
+        # Validate observed subprocess records for internal consistency. This is
+        # not an authenticity claim: a record supplied by another agent can be
+        # fabricated unless the runner itself is independently trusted/attested.
+        execution_record_checks = []
+        for item in experiments:
+            record = item.get("execution_record")
+            command = record.get("command") if isinstance(record, dict) else None
+            stdout = record.get("stdout") if isinstance(record, dict) else None
+            stderr = record.get("stderr") if isinstance(record, dict) else None
+            timed_out = record.get("timed_out") if isinstance(record, dict) else None
+            exit_code = record.get("exit_code") if isinstance(record, dict) else None
+            command_digest = (
+                hashlib.sha256(json.dumps(
+                    command, ensure_ascii=False, separators=(",", ":")
+                ).encode("utf-8")).hexdigest()
+                if isinstance(command, list) and command else None
+            )
+            stdout_digest = (
+                hashlib.sha256(stdout.encode("utf-8")).hexdigest()
+                if isinstance(stdout, str) else None
+            )
+            stderr_digest = (
+                hashlib.sha256(stderr.encode("utf-8")).hexdigest()
+                if isinstance(stderr, str) else None
+            )
+            checks = {
+                "record_present": isinstance(record, dict),
+                "record_kind_valid": isinstance(record, dict)
+                    and record.get("record_kind") == "local_subprocess_observation",
+                "executor_valid": isinstance(record, dict)
+                    and record.get("executor") == "python-subprocess",
+                "command_digest_matches": command_digest is not None
+                    and command_digest == record.get("command_sha256"),
+                "stdout_digest_matches": stdout_digest is not None
+                    and stdout_digest == record.get("stdout_sha256"),
+                "stderr_digest_matches": stderr_digest is not None
+                    and stderr_digest == record.get("stderr_sha256"),
+                "execution_outcome_well_formed": (
+                    isinstance(record, dict)
+                    and isinstance(timed_out, bool)
+                    and (
+                        (timed_out is True and exit_code is None
+                         and record.get("test_passed") is False)
+                        or
+                        (timed_out is False and isinstance(exit_code, int)
+                         and not isinstance(exit_code, bool)
+                         and (record.get("test_passed") is not True or exit_code == 0))
+                    )
+                ),
+            }
+            checks["internally_consistent"] = all(checks.values())
+            execution_record_checks.append({
+                "experiment_id": item.get("experiment_id"),
+                "checks": checks,
+                "internally_consistent": checks["internally_consistent"],
+            })
         toy_only = bool(experiments) and all(
             item.get("synthetic_test_only") is True
             and item.get("uses_real_private_keys") is False
@@ -578,6 +635,9 @@ class Validator:
             "hypothesis_checks": hypothesis_checks,
             "lab_experiment_count": len(experiments),
             "toy_lab_scope_verified": toy_only,
+            "lab_execution_records_checked": len(execution_record_checks),
+            "lab_execution_records_consistent": bool(execution_record_checks) and all(item["internally_consistent"] for item in execution_record_checks),
+            "lab_execution_record_checks": execution_record_checks,
             "historical_reproduction_confirmed": historical_reproduction,
             "verified_historical_claims": [],
             "interpretation": "Source provenance and experiment scope were checked. No historical vulnerability is marked reproduced because the lab is an illustrative toy model.",

@@ -116,3 +116,28 @@ def test_source_url_allowlist_rejects_arbitrary_hosts():
     assert _allowed_https_url("https://1inch.com/blog/post/test")
     assert not _allowed_https_url("http://blog.ethereum.org/test")
     assert not _allowed_https_url("https://example.com/test")
+
+
+def test_validator_keeps_toy_lab_inconclusive_and_rechecks_sources():
+    from agents.validator.agent import Validator
+
+    source_task = Task(task_id="source", description="Research early EVM key-generation issues")
+    source_result = SourceResearcher(github=_FakeGithub(), fetcher=_fake_fetch).run(source_task).result
+    analysis_task = Task(task_id="analysis", description="Analyze", result=source_result)
+    analysis_result = CryptoAnalyst().run(analysis_task).result
+    lab_task = Task(task_id="lab", description="Run synthetic lab", result=analysis_result)
+    lab_result = LabRunner().run(lab_task).result
+
+    validator = Validator.__new__(Validator)
+    validator.source_fetcher = _fake_fetch
+    validation_task = Task(task_id="validation", description="Validate dossier", result=lab_result)
+    validated = validator.run(validation_task)
+
+    report = validated.result["research_validation"]
+    assert validated.status == "validated"
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["historical_reproduction_confirmed"] is False
+    assert report["verified_historical_claims"] == []
+    assert report["sources_rechecked_http_200"] == 4
+    assert report["exact_source_fingerprints_matching"] == 4
+    assert report["toy_lab_scope_verified"] is True

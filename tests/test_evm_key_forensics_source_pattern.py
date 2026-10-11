@@ -39,7 +39,18 @@ def test_second_random_device_seed_call_fails_control():
     mutated = SOURCE.replace("eng(rd())", "eng(rd() + rd())")
     result = inspect_source(mutated)
     assert result["conclusion"] == "INCONCLUSIVE"
+    assert "expected_single_random_device_call" in result["errors"]
     assert "expected_single_mt19937_64_initialization_from_rd" in result["errors"]
+
+
+def test_extra_random_device_call_elsewhere_in_production_branch_fails():
+    mutated = SOURCE.replace(
+        "std::uniform_int_distribution<cl_ulong> distr;",
+        "std::uniform_int_distribution<cl_ulong> distr;\n    auto extra = rd();",
+    )
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "expected_single_random_device_call" in result["errors"]
 
 
 def test_missing_distribution_call_fails_control():
@@ -47,6 +58,7 @@ def test_missing_distribution_call_fails_control():
     result = inspect_source(mutated)
     assert result["conclusion"] == "INCONCLUSIVE"
     assert "expected_four_distribution_calls" in result["errors"]
+    assert "expected_one_distribution_assignment_for_word_3" in result["errors"]
 
 
 def test_missing_debug_branch_fails_closed():
@@ -54,6 +66,13 @@ def test_missing_debug_branch_fails_closed():
     result = inspect_source(mutated)
     assert result["conclusion"] == "INCONCLUSIVE"
     assert "debug_branch_structure_ambiguous" in result["errors"]
+
+
+def test_incomplete_debug_fixed_seed_fails_control():
+    mutated = SOURCE.replace("r.s[3] = 1;", "r.s[3] = 0;", 1)
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "debug_fixed_seed_word_3_not_recognized" in result["errors"]
 
 
 def test_unrelated_source_fails_closed():

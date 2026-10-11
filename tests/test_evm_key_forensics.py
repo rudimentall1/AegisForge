@@ -141,3 +141,50 @@ def test_validator_keeps_toy_lab_inconclusive_and_rechecks_sources():
     assert report["sources_rechecked_http_200"] == 4
     assert report["exact_source_fingerprints_matching"] == 4
     assert report["toy_lab_scope_verified"] is True
+
+
+def test_validator_does_not_trust_a_bare_historical_reproduction_boolean():
+    from agents.validator.agent import Validator
+
+    sources = [
+        {
+            "source_id": "early",
+            "source_url": "https://blog.ethereum.org/en/2015/08/04/ethereum-protocol-update-1",
+            "status_code": 200,
+            "content_sha256": hashlib.sha256(
+                "If your keys date back from Go 1.0 rc or C++ 0.9.36, regenerate all of your keys. The C++ client now relies upon boost::random_device.".encode()
+            ).hexdigest(),
+            "classification": "early_client_key_generation_warning",
+        },
+        {
+            "source_id": "prof",
+            "source_url": "https://1inch.com/blog/post/a-vulnerability-disclosed-in-profanity-an-ethereum-vanity-address-tool",
+            "status_code": 200,
+            "content_sha256": hashlib.sha256(
+                "Profanity used a random 32-bit vector to seed 256-bit private keys. Researchers published proof-of-concept for the affected generator.".encode()
+            ).hexdigest(),
+            "classification": "vanity_generator_entropy_weakness_report",
+        },
+    ]
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    experiment["historical_implementation_reproduced"] = True  # Unsupported assertion
+    experiment["synthetic_test_only"] = True
+    experiment["uses_real_private_keys"] = False
+    experiment["uses_real_wallet_addresses"] = False
+
+    validator = Validator.__new__(Validator)
+    validator.source_fetcher = _fake_fetch
+    task = Task(
+        task_id="forged",
+        description="Validate a claimed historical reproduction",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": sources,
+            "hypotheses": [],
+            "lab_experiments": [experiment],
+        },
+    )
+    result = validator.run(task).result["research_validation"]
+    assert result["historical_reproduction_confirmed"] is False
+    assert result["status"] == "INCONCLUSIVE"

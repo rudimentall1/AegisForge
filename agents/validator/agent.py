@@ -10,6 +10,11 @@ from shared.capability_grant import issue_capability_grant
 from shared.capability_signing import CapabilitySigner
 from shared.agent_authority import AgentAuthorityRegistry
 from shared.agent_identity_signing import AgentIdentitySigner
+
+EXPECTED_EVM_FORENSICS_REVISIONS = {
+    ("johguse/profanity", "v1.50"): "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+    ("johguse/profanity", "master"): "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+}
 from shared.signed_action_intent import ActionIntentSigner
 
 class Validator:
@@ -426,10 +431,12 @@ class Validator:
                 repository = str(source.get("repository") or "")
                 repository_ref = str(source.get("repository_ref") or "")
                 revision_role = str(source.get("revision_role") or "")
+                expected_revision_sha = EXPECTED_EVM_FORENSICS_REVISIONS.get((repository, repository_ref))
                 pin_matches = any(
                     item.get("repository") == repository
                     and item.get("requested_ref") == repository_ref
                     and str(item.get("commit_sha") or "").lower() == revision_sha
+                    and str(item.get("expected_commit_sha") or "").lower() == expected_revision_sha
                     and item.get("revision_role") == revision_role
                     for item in repository_pins
                 )
@@ -440,6 +447,8 @@ class Validator:
                     and "/".join(path_parts[:2]) == repository
                     and len(revision_sha) == 40
                     and all(char in "0123456789abcdef" for char in revision_sha)
+                    and expected_revision_sha is not None
+                    and revision_sha == expected_revision_sha
                     and path_parts[2].lower() == revision_sha
                     and "/".join(path_parts[3:]) == str(source.get("source_file_path") or "")
                     and source.get("revision_url") == f"https://github.com/{repository}/tree/{revision_sha}"

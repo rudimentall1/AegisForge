@@ -165,6 +165,32 @@ def test_validator_detects_tampered_immutable_revision_url():
     assert report["status"] == "INCONCLUSIVE"
 
 
+def test_validator_rejects_consistently_forged_revision_pin():
+    from agents.validator.agent import Validator
+
+    source_task = Task(task_id="source-forged-pin", description="Research historical EVM key generation")
+    source_result = SourceResearcher(github=_FakeGithub(), fetcher=_fake_fetch).run(source_task).result
+    pinned = next(source for source in source_result["sources"] if source.get("source_kind") == "pinned_repository_source")
+    original_sha = pinned["revision_sha"]
+    forged_sha = "f" * 40
+    pinned["revision_sha"] = forged_sha
+    pinned["source_url"] = pinned["source_url"].replace(original_sha, forged_sha, 1)
+    pinned["revision_url"] = f"https://github.com/{pinned['repository']}/tree/{forged_sha}"
+    for pin in source_result["repository_pins"]:
+        if pin.get("repository") == pinned["repository"] and pin.get("requested_ref") == pinned["repository_ref"]:
+            pin["commit_sha"] = forged_sha
+            pin["expected_commit_sha"] = forged_sha
+
+    validator = Validator.__new__(Validator)
+    validator.source_fetcher = _fake_fetch
+    validated = validator.run(Task(task_id="forged-pin-check", description="Validate forged pin", result=source_result))
+    report = validated.result["research_validation"]
+    check = next(item for item in validated.result["research_source_checks"] if item["source_url"] == pinned["source_url"])
+    assert check["immutable_revision_pin_valid"] is False
+    assert report["pinned_revision_source_checks_failed"] == 1
+    assert report["status"] == "INCONCLUSIVE"
+
+
 def test_crypto_analyst_does_not_mark_claims_confirmed():
     sources = [
         {"source_id": "early", "source_url": "https://blog.ethereum.org/en/2015/08/04/ethereum-protocol-update-1", "status_code": 200, "classification": "early_client_key_generation_warning"},

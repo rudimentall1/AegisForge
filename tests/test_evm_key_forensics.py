@@ -36,7 +36,7 @@ class _FakeGithub:
             "html_url": "https://github.com/example/project/issues/1",
             "url": "https://api.github.com/repos/example/project/issues/1",
             "repository_url": "https://api.github.com/repos/example/project",
-            "title": f"Lead for {query}", "body": "A discovery lead, not proof.",
+            "title": f"Ethereum key generation lead for {query}", "body": "A discovery lead, not proof.",
             "created_at": "2022-01-01T00:00:00Z", "updated_at": "2022-01-02T00:00:00Z",
         }]}
 
@@ -95,7 +95,12 @@ def test_lead_relevance_requires_specific_signal_or_multiple_context_signals():
         "Profanity key generation", "Synthetic test only"
     )
     assert relevant is True
-    assert "profanity" in signals["direct"]
+    assert "key generation" in signals["direct"]
+
+    relevant, _ = SourceResearcher._lead_relevance(
+        "Prevent profanity in generated text", "Prompt output contains profanity"
+    )
+    assert relevant is False
 
     relevant, _ = SourceResearcher._lead_relevance(
         "Wallet dashboard redesign", "Update button spacing"
@@ -103,9 +108,20 @@ def test_lead_relevance_requires_specific_signal_or_multiple_context_signals():
     assert relevant is False
 
     relevant, _ = SourceResearcher._lead_relevance(
-        "Ethereum wallet seed storage", "Key management and wallet security"
+        "Ethereum wallet weak key generation", "Key management and wallet security"
     )
     assert relevant is True
+
+    relevant, _ = SourceResearcher._lead_relevance(
+        "build(deps): bump the python-deps group", "Profanity private key entropy discussion"
+    )
+    assert relevant is False
+
+    relevant, _ = SourceResearcher._lead_relevance(
+        "Add autonomous EVM key-generation forensics research track",
+        "Research task requirements", item_url="https://github.com/rudimentall1/AegisForge/issues/31"
+    )
+    assert relevant is False
 
 
 def test_crypto_analyst_does_not_mark_claims_confirmed():

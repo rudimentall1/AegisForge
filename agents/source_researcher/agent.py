@@ -96,11 +96,11 @@ class SourceResearcher:
             }
 
     @staticmethod
-    def _lead_relevance(title, body, repository_url=""):
+    def _lead_relevance(title, body, repository_url="", item_url=""):
         """Conservative triage: discovery leads need a crypto/key-generation signal."""
         haystack = f"{title or ''} {body or ''} {repository_url or ''}".lower()
         direct_signals = (
-            "profanity", "regenerate all of your keys", "weak key generation",
+            "regenerate all of your keys", "weak key generation",
             "key generation", "private key", "seed space", "entropy",
             "secp256k1", "vanity address", "boost::random_device",
             "key derivation", "ethereum client", "wallet key",
@@ -109,13 +109,25 @@ class SourceResearcher:
             "ethereum", "evm", "wallet", "cryptography", "cryptographic",
             "randomness", "blockchain", "seed", "keypair", "key pair",
         )
+        title_text = str(title or "").lower()
+        body_text = f"{body or ''} {repository_url or ''}".lower()
         direct = [term for term in direct_signals if term in haystack]
         context = [term for term in context_signals if term in haystack]
-        relevant = (
-            len(direct) >= SourceResearcher.MIN_DIRECT_RELEVANCE_SIGNALS
-            or len(context) >= SourceResearcher.MIN_CONTEXT_RELEVANCE_SIGNALS
+        title_direct = [term for term in direct_signals if term in title_text]
+        chain_context = (
+            "ethereum", "evm", "secp256k1", "go-ethereum", "ethereum client",
+            "geth", "profanity", "vanity address", "ethereum wallet",
         )
-        return relevant, {"direct": direct, "context": context}
+        title_chain = [term for term in chain_context if term in title_text]
+        body_chain = [term for term in chain_context if term in body_text]
+        self_project = "github.com/rudimentall1/aegisforge/" in str(item_url or "").lower()
+        relevant = not self_project and bool(title_direct) and bool(title_chain or body_chain)
+        signals = {
+            "direct": direct, "context": context,
+            "title_direct": title_direct, "title_chain_context": title_chain,
+            "body_chain_context": body_chain,
+        }
+        return relevant, signals
 
     def _search_issue_leads(self, query):
         data = self.github.get_json(
@@ -132,7 +144,7 @@ class SourceResearcher:
                 continue
             title = item.get("title")
             body = str(item.get("body") or "")
-            relevant, signals = self._lead_relevance(title, body, item.get("repository_url", ""))
+            relevant, signals = self._lead_relevance(title, body, item.get("repository_url", ""), source_url)
             if not relevant:
                 filtered_count += 1
                 continue

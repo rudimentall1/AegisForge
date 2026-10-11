@@ -466,3 +466,40 @@ def test_validator_rejects_complete_reproduction_claim_with_unpinned_revision():
     assert result["historical_reproduction_confirmed"] is False
     assert result["status"] == "INCONCLUSIVE"
     assert result["verified_historical_claims"] == []
+
+def test_validator_rejects_artifact_digest_without_artifact_bytes():
+    from agents.validator.agent import Validator, EXPECTED_EVM_FORENSICS_REVISIONS
+
+    # A digest-shaped field does not prove that the artifact exists or that
+    # the digest corresponds to evidence the validator can inspect.
+    experiment = {
+        "experiment_id": "digest-without-artifact",
+        "historical_implementation_reproduced": True,
+        "synthetic_test_only": True,
+        "uses_real_private_keys": False,
+        "uses_real_wallet_addresses": False,
+        "pinned_source_revision": EXPECTED_EVM_FORENSICS_REVISIONS[("johguse/profanity", "v1.50")],
+        "reproduction_source_role": "pre_disclosure_release",
+        "synthetic_test_vector_id": "synthetic-vector-001",
+        "reproduction_test_passed": True,
+        "reproduction_artifact_sha256": "a" * 64,
+        "reproduction_command": "python reproduce.py --synthetic-only",
+    }
+    validator = Validator.__new__(Validator)
+    validator.source_fetcher = _fake_fetch
+    result = validator.run(Task(
+        task_id="digest-without-artifact",
+        description="Reject detached artifact digest",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": [],
+            "hypotheses": [],
+            "lab_experiments": [experiment],
+        },
+    )).result["research_validation"]
+
+    assert result["historical_reproduction_confirmed"] is False
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["verified_historical_claims"] == []
+

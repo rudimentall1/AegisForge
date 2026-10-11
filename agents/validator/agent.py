@@ -744,6 +744,7 @@ class Validator:
                 and artifact_digest_matches
                 and artifact_record_matches
                 and str(item.get("reproduction_command") or "").strip()
+                and item.get("experiment_id") in trusted_receipt_experiment_ids
             ):
                 continue
             qualified_reproductions.append(item)

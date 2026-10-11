@@ -248,3 +248,22 @@ def test_offline_verifier_rejects_receipt_mutation_after_signing():
     assert result["checks"]["receipt_digest_matches"] is False
     assert result["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
     assert result["signature_verified_against_trusted_key"] is False
+
+
+def test_offline_verifier_rejects_unsafe_claim_in_result_payload():
+    import hashlib
+
+    experiment = _experiment()
+    record = experiment["execution_record"]
+    payload = json.loads(record["stdout"])
+    payload["uses_real_private_keys"] = True
+    record["stdout"] = json.dumps(payload, sort_keys=True)
+    record["stdout_sha256"] = hashlib.sha256(
+        record["stdout"].encode("utf-8")
+    ).hexdigest()
+
+    result = verify_lab_artifact(experiment)
+
+    assert result["integrity_verified"] is False
+    assert result["checks"]["safety_assertions_hold"] is False
+    assert result["checks"]["result_payload_digest_matches"] is False

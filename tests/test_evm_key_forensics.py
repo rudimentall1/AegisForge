@@ -200,6 +200,56 @@ def test_validator_fails_closed_on_duplicate_trusted_key_ids(monkeypatch):
     assert check["authenticity"] != "SIGNED_AND_TRUSTED"
 
 
+def test_validator_rejects_receipt_signed_by_untrusted_key_id(monkeypatch):
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from agents.validator.agent import Validator
+
+    signer = Ed25519PrivateKey.generate()
+    trusted_but_different = Ed25519PrivateKey.generate()
+    signer_private_bytes = signer.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    trusted_public_bytes = trusted_but_different.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+
+    monkeypatch.setenv(
+        "AEGISFORGE_LAB_SIGNING_KEY_B64",
+        base64.b64encode(signer_private_bytes).decode("ascii"),
+    )
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_ID", "untrusted-runner")
+    monkeypatch.setenv(
+        "AEGISFORGE_LAB_TRUSTED_PUBLIC_KEYS",
+        json.dumps({"trusted-runner": base64.b64encode(trusted_public_bytes).decode("ascii")}),
+    )
+
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    report = Validator().run(Task(
+        task_id="untrusted-receipt-key-id",
+        description="Reject a validly signed receipt whose signer is not trusted",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": [],
+            "hypotheses": [],
+            "lab_experiments": [experiment],
+        },
+    )).result["research_validation"]
+
+    assert report["lab_trusted_signing_key_count"] == 1
+    assert report["lab_trusted_key_configuration_error"] is None
+    assert report["historical_reproduction_confirmed"] is False
+    assert report["status"] == "INCONCLUSIVE"
+    check = report["lab_execution_receipt_checks"][0]
+    assert check["signature_verified_against_trusted_key"] is False
+    assert check["authenticity"] != "SIGNED_AND_TRUSTED"
+
+
 def test_validator_fails_closed_on_malformed_trusted_key_material(monkeypatch):
     from agents.validator.agent import Validator
 

@@ -18,6 +18,10 @@ def _fake_fetch(url):
         "https://1inch.com/blog/post/a-vulnerability-disclosed-in-profanity-an-ethereum-vanity-address-tool": "Profanity used a random 32-bit vector to seed 256-bit private keys. Researchers published proof-of-concept for the affected generator.",
         "https://blog.ethereum.org/2015/08/07/security-alert-1-windowsalethzero-2": "Key files may not be written; users should confirm the underlying key exists.",
         "https://blog.ethereum.org/2016/06/24/security-alert-smart-contract-wallets-created-in-frontier-are-vulnerable-to-phishing-attacks": "Smart contract wallets created in Frontier were vulnerable to phishing attacks.",
+        "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/Dispatcher.cpp": "Synthetic pinned historical implementation source with createSeed.",
+        "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/Dispatcher.hpp": "Synthetic pinned historical implementation header.",
+        "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/profanity.cpp": "Synthetic pinned historical implementation entrypoint.",
+        "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/README.md": "Synthetic pinned historical repository readme.",
     }.get(url, "Synthetic test source.")
     return {
         "source_url": url, "final_url": url, "status_code": 200, "fetch_status": "fetched",
@@ -31,6 +35,8 @@ class _FakeGithub:
     BASE_URL = "https://api.github.com"
 
     def get_json(self, url, params=None, **kwargs):
+        if url.endswith("/repos/johguse/profanity/commits/master"):
+            return {"sha": "a" * 40, "commit": {"committer": {"date": "2022-09-15T00:00:00Z"}}}
         query = (params or {}).get("q", "")
         return {"items": [{
             "html_url": "https://github.com/example/project/issues/1",
@@ -47,12 +53,20 @@ def test_source_researcher_preserves_provenance_and_confounds():
     result = agent.run(task).result
     assert task.status == "source_researched"
     assert result["research_track"] == "evm_key_forensics"
-    assert result["source_summary"]["sources_fetched_http_200"] == 4
+    assert result["source_summary"]["sources_fetched_http_200"] == 8
+    assert result["source_summary"]["pinned_repository_files"] == 4
+    assert result["source_summary"]["pinned_repository_revisions"] == 1
+    assert result["repository_pins"][0]["commit_sha"] == "a" * 40
+    pinned = [source for source in result["sources"] if source.get("source_kind") == "pinned_repository_source"]
+    assert len(pinned) == 4
+    assert all(source["revision_sha"] == "a" * 40 for source in pinned)
+    assert all("/" + "a" * 40 + "/" in source["source_url"] for source in pinned)
     classes = {source["classification"] for source in result["sources"]}
     assert "early_client_key_generation_warning" in classes
     assert "vanity_generator_entropy_weakness_report" in classes
     assert "key_file_creation_or_storage_issue" in classes
     assert "smart_contract_wallet_logic_issue" in classes
+    assert all(source["classification"] == "pinned_historical_implementation_source" for source in pinned)
     assert result["scope_guards"]["no_real_wallet_key_recovery"] is True
     assert result["source_leads"][0]["evidence_role"] == "discovery_lead_only"
 

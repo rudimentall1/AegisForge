@@ -20,6 +20,15 @@ SEARCH_QUERY_ROUNDS = (
     ("Ethereum early client weak key generation security", "Ethereum wallet random generator vulnerability"),
 )
 
+HISTORICAL_REPOSITORIES = (
+    {
+        "owner": "johguse",
+        "repo": "profanity",
+        "ref": "master",
+        "files": ("Dispatcher.cpp", "Dispatcher.hpp", "profanity.cpp", "README.md"),
+    },
+)
+
 
 class SourceResearcher:
     """Collect primary-source candidates; retrieved text remains untrusted data."""
@@ -62,6 +71,81 @@ class SourceResearcher:
                 left = max(0, start - 180)
                 return text[left:left + maximum]
         return text[:maximum]
+
+    def _fetch_pinned_repository_sources(self, existing, existing_pins):
+        """Fingerprint source files at an immutable upstream commit; never execute downloaded code."""
+        sources = []
+        pins = list(existing_pins or [])
+        errors = []
+        for repository in HISTORICAL_REPOSITORIES:
+            owner, repo, ref = repository["owner"], repository["repo"], repository["ref"]
+            pin = next((item for item in pins if item.get("repository") == f"{owner}/{repo}"), None)
+            if pin and pin.get("commit_sha"):
+                commit_sha = str(pin["commit_sha"])
+            else:
+                endpoint = f"{self.github.BASE_URL}/repos/{owner}/{repo}/commits/{ref}"
+                try:
+                    commit = self.github.get_json(
+                        endpoint, cache_ttl=3600, timeout=20, resource="core"
+                    ) or {}
+                    commit_sha = str(commit.get("sha") or "")
+                    if len(commit_sha) != 40 or any(ch not in "0123456789abcdefABCDEF" for ch in commit_sha):
+                        raise ValueError("upstream_commit_sha_missing_or_invalid")
+                    pin = {
+                        "repository": f"{owner}/{repo}",
+                        "requested_ref": ref,
+                        "commit_sha": commit_sha,
+                        "commit_url": f"https://github.com/{owner}/{repo}/commit/{commit_sha}",
+                        "source_files": list(repository["files"]),
+                        "pin_status": "immutable_commit_sha",
+                    }
+                    pins.append(pin)
+                except Exception as exc:
+                    errors.append({
+                        "repository": f"{owner}/{repo}",
+                        "error_type": type(exc).__name__,
+                        "error": str(exc)[:240],
+                    })
+                    continue
+
+            for file_path in repository["files"]:
+                source_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{commit_sha}/{file_path}"
+                if source_url in existing and existing[source_url].get("status_code") == 200 and existing[source_url].get("content_sha256"):
+                    sources.append(dict(existing[source_url]))
+                    continue
+                try:
+                    fetched = self.fetcher(source_url)
+                    text = fetched.pop("text", "") or fetched.get("excerpt", "")
+                    sources.append({
+                        "source_id": self.source_id(source_url),
+                        "source_url": source_url,
+                        "final_url": fetched.get("final_url") or source_url,
+                        "source_family": "historical_implementation",
+                        "source_kind": "pinned_repository_source",
+                        "repository": f"{owner}/{repo}",
+                        "repository_ref": ref,
+                        "revision_sha": commit_sha,
+                        "revision_url": f"https://github.com/{owner}/{repo}/tree/{commit_sha}",
+                        "source_file_path": file_path,
+                        "title": fetched.get("title") or f"{owner}/{repo}/{file_path}",
+                        "status_code": fetched.get("status_code"),
+                        "fetch_status": fetched.get("fetch_status", "unknown"),
+                        "content_sha256": fetched.get("content_sha256"),
+                        "content_bytes": fetched.get("content_bytes"),
+                        "retrieved_at": fetched.get("retrieved_at"),
+                        "text_excerpt": self._focused_excerpt(text),
+                        "classification": "pinned_historical_implementation_source",
+                        "source_status_note": "Immutable source snapshot; retrieval and hashing do not prove vulnerability or execute code.",
+                    })
+                except Exception as exc:
+                    errors.append({
+                        "repository": f"{owner}/{repo}",
+                        "revision_sha": commit_sha,
+                        "file_path": file_path,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc)[:240],
+                    })
+        return sources, pins, errors
 
     def _fetch_seed_source(self, url, source_family, existing):
         old = existing.get(url)
@@ -177,6 +261,14 @@ class SourceResearcher:
                 source = self._fetch_seed_source(url, family, sources_by_url)
                 sources_by_url[source["source_url"]] = source
 
+        repository_pins = list(parent.get("repository_pins", []))
+        pinned_sources, repository_pins, repository_pin_errors = self._fetch_pinned_repository_sources(
+            sources_by_url, repository_pins
+        )
+        for source in pinned_sources:
+            if len(sources_by_url) < self.MAX_SOURCES:
+                sources_by_url[source["source_url"]] = source
+
         leads_by_url = {
             item.get("source_url"): dict(item)
             for item in parent.get("source_leads", [])
@@ -204,12 +296,17 @@ class SourceResearcher:
             "objective": parent.get("objective") or task.description or "Research historical EVM key-generation weaknesses from primary sources.",
             "source_search_rounds": round_number,
             "sources": list(sources_by_url.values())[:self.MAX_SOURCES],
+            "repository_pins": repository_pins,
+            "repository_pin_errors": repository_pin_errors[-12:],
             "source_leads": list(leads_by_url.values())[:self.MAX_LEADS],
             "source_queries": query_history[-12:], "source_search_errors": search_errors[-12:],
             "filtered_source_lead_count": filtered_lead_count,
             "source_summary": {
                 "sources_collected": len(sources_by_url),
                 "sources_fetched_http_200": sum(item.get("status_code") == 200 for item in sources_by_url.values()),
+                "pinned_repository_files": sum(item.get("source_kind") == "pinned_repository_source" for item in sources_by_url.values()),
+                "pinned_repository_revisions": len(repository_pins),
+                "repository_pin_errors": len(repository_pin_errors),
                 "search_leads": len(leads_by_url), "filtered_search_leads": filtered_lead_count,
                 "round": round_number,
             },

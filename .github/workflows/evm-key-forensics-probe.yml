@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - "tools/evm_key_forensics/**"
+      - "tests/test_evm_key_forensics_probe_artifact.py"
       - ".github/workflows/evm-key-forensics-probe.yml"
 
 permissions:
@@ -49,8 +50,12 @@ jobs:
           print("probe JSON and safety invariants: PASS")
           PY
 
-      - name: Create content-addressed run metadata
+      - name: Assemble portable evidence bundle
         run: |
+          mkdir -p probe-evidence
+          cp probe-output.json probe-evidence/probe-output.json
+          cp tools/evm_key_forensics/profanity_seed_environment_probe.cpp probe-evidence/probe-source.cpp
+          cp profanity_seed_environment_probe probe-evidence/probe-binary
           python - <<'PY'
           import hashlib
           import json
@@ -59,8 +64,10 @@ jobs:
           import subprocess
           from pathlib import Path
 
+          root = Path("probe-evidence")
+
           def sha256(path):
-              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+              return hashlib.sha256((root / path).read_bytes()).hexdigest()
 
           metadata = {
               "schema_version": 1,
@@ -68,27 +75,29 @@ jobs:
               "git_commit": subprocess.check_output(
                   ["git", "rev-parse", "HEAD"], text=True
               ).strip(),
-              "github_run_id": os.environ.get("GITHUB_RUN_ID"),
-              "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+              "github_run_id": os.environ["GITHUB_RUN_ID"],
+              "github_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
               "runner_os": platform.platform(),
               "compiler_version": subprocess.check_output(
                   ["g++", "--version"], text=True
               ).splitlines()[0],
-              "source_path": "tools/evm_key_forensics/profanity_seed_environment_probe.cpp",
-              "source_sha256": sha256(
-                  "tools/evm_key_forensics/profanity_seed_environment_probe.cpp"
-              ),
-              "binary_sha256": sha256("profanity_seed_environment_probe"),
-              "output_path": "probe-output.json",
+              "build_flags": ["-std=c++11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic"],
+              "source_sha256": sha256("probe-source.cpp"),
+              "binary_sha256": sha256("probe-binary"),
               "output_sha256": sha256("probe-output.json"),
               "historical_vulnerability_reproduced": False,
               "entropy_proven": False,
           }
-          Path("probe-run-metadata.json").write_text(
-              json.dumps(metadata, indent=2, sort_keys=True) + "\n"
+          (root / "probe-run-metadata.json").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
           )
           print(json.dumps(metadata, indent=2, sort_keys=True))
           PY
+
+      - name: Verify exported evidence bundle
+        run: |
+          python tools/evm_key_forensics/verify_probe_artifact.py probe-evidence
 
       - name: Reject invalid sample counts
         run: |
@@ -103,8 +112,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            probe-output.json
-            probe-run-metadata.json
+          path: probe-evidence/
           if-no-files-found: error
           retention-days: 30

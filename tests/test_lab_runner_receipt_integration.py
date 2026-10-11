@@ -145,7 +145,9 @@ def test_signed_envelope_must_bind_to_the_exact_receipt_being_validated(monkeypa
 
 def test_receipt_binds_the_observed_command_and_result_payload():
     experiment = LabRunner.run_synthetic_entropy_demo()
-    changed_command = deepcopy(experiment)
+    # JSON round-trip models the portable artifact: object aliasing from the
+    # in-memory runner result must not survive serialization as shared references.
+    changed_command = json.loads(json.dumps(experiment))
     changed_command["execution_record"]["command"][-1] = "print('different command')"
     changed_command["execution_record"]["command_sha256"] = hashlib.sha256(
         json.dumps(

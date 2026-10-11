@@ -653,8 +653,22 @@ class Validator:
                 except (LabExecutionReceiptError, TypeError, ValueError) as exc:
                     signature_error = str(exc)
             signed = isinstance(envelope, dict)
+            # A trusted signature over a generic execution receipt is not enough:
+            # bind the receipt to the exact reproduction claim and artifact.
+            receipt_inputs = receipt.get("inputs") if isinstance(receipt, dict) else None
+            receipt_artifacts = receipt.get("artifacts") if isinstance(receipt, dict) else None
+            reproduction_binding_matches = (
+                isinstance(receipt_inputs, dict)
+                and isinstance(receipt_artifacts, dict)
+                and receipt.get("experiment_id") == item.get("experiment_id")
+                and receipt_inputs.get("source_revision") == item.get("pinned_source_revision")
+                and receipt_inputs.get("test_vector_id") == item.get("synthetic_test_vector_id")
+                and receipt_inputs.get("reproduction_command") == item.get("reproduction_command")
+                and receipt_artifacts.get("reproduction_artifact_sha256") == item.get("reproduction_artifact_sha256")
+            )
             execution_receipt_checks.append({
                 "experiment_id": item.get("experiment_id"),
+                "reproduction_binding_matches": reproduction_binding_matches,
                 "receipt_present": isinstance(receipt, dict),
                 "digest_matches": digest_valid,
                 "record_matches_receipt": record_matches_receipt,

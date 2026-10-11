@@ -99,8 +99,12 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
     def test_non_finite_reported_entropy_fails_even_with_updated_hash(self):
         output_path = self.root / "probe-output.json"
         output = json.loads(output_path.read_text(encoding="utf-8"))
-        output["random_device_reported_entropy"] = float("inf")
-        output_path.write_text(json.dumps(output), encoding="utf-8")
+        output["random_device_reported_entropy"] = 0.0
+        encoded = json.dumps(output).replace(
+            '"random_device_reported_entropy": 0.0',
+            '"random_device_reported_entropy": 1e999',
+        )
+        output_path.write_text(encoded, encoding="utf-8")
 
         metadata_path = self.root / "probe-run-metadata.json"
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -110,6 +114,34 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         result = verify_artifact(self.root)
         self.assertFalse(result["integrity_verified"])
         self.assertFalse(result["checks"]["reported_entropy_is_finite_nonnegative"])
+
+
+    def test_duplicate_json_keys_are_rejected(self):
+        output_path = self.root / "probe-output.json"
+        original = output_path.read_text(encoding="utf-8")
+        output_path.write_text(
+            original[:-1] + ', "historical_profanity_code_executed": true}',
+            encoding="utf-8",
+        )
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["output_sha256"] = digest(output_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "duplicate_json_key"):
+            verify_artifact(self.root)
+
+    def test_nonstandard_json_constants_are_rejected(self):
+        output_path = self.root / "probe-output.json"
+        original = output_path.read_text(encoding="utf-8")
+        output_path.write_text(original[:-1] + ', "extra": NaN}', encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["output_sha256"] = digest(output_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "nonstandard_json_constant"):
+            verify_artifact(self.root)
 
     def test_historical_execution_claim_fails_even_with_updated_hash(self):
         output_path = self.root / "probe-output.json"

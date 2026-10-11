@@ -148,6 +148,13 @@ def verify_lab_artifact(experiment: dict, trusted_public_keys: dict[str, bytes] 
         and payload.get("uses_real_wallet_addresses") is False
         and payload.get("public_wallets_touched") == 0
         and payload.get("historical_implementation_reproduced") is False
+        # The unsigned summary is also consumed by humans/tools; do not let it
+        # contradict the signed execution payload while still reporting safe.
+        and experiment.get("synthetic_test_only") is True
+        and experiment.get("uses_real_private_keys") is False
+        and experiment.get("uses_real_wallet_addresses") is False
+        and experiment.get("public_wallets_touched") == 0
+        and experiment.get("historical_implementation_reproduced") is False
     )
 
     integrity_verified = all(checks.values())

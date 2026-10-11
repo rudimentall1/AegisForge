@@ -229,3 +229,22 @@ def test_offline_verifier_rejects_tampered_safety_assertions():
     assert result["integrity_verified"] is False
     assert result["checks"]["safety_assertions_hold"] is False
 
+
+def test_offline_verifier_rejects_receipt_mutation_after_signing():
+    experiment = _experiment()
+    private_key = Ed25519PrivateKey.generate()
+    experiment["execution_receipt_envelope"] = sign_receipt(
+        experiment["execution_receipt"],
+        private_key=private_key,
+        key_id="trusted-runner",
+    )
+    experiment["execution_receipt"]["execution"]["exit_code"] = 99
+
+    result = verify_lab_artifact(
+        experiment, {"trusted-runner": _public_bytes(private_key)}
+    )
+
+    assert result["integrity_verified"] is False
+    assert result["checks"]["receipt_digest_matches"] is False
+    assert result["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
+    assert result["signature_verified_against_trusted_key"] is False

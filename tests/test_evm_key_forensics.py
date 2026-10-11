@@ -161,7 +161,7 @@ def test_validator_detects_tampered_immutable_revision_url():
     report = validated.result["research_validation"]
     check = next(item for item in validated.result["research_source_checks"] if item["source_url"] == pinned["source_url"])
     assert check["immutable_revision_pin_valid"] is False
-    assert report["pinned_revision_source_checks_failed"] == 4
+    assert report["pinned_revision_source_checks_failed"] == 1
     assert report["status"] == "INCONCLUSIVE"
 
 
@@ -187,7 +187,7 @@ def test_validator_rejects_consistently_forged_revision_pin():
     report = validated.result["research_validation"]
     check = next(item for item in validated.result["research_source_checks"] if item["source_url"] == pinned["source_url"])
     assert check["immutable_revision_pin_valid"] is False
-    assert report["pinned_revision_source_checks_failed"] == 1
+    assert report["pinned_revision_source_checks_failed"] == 4
     assert report["status"] == "INCONCLUSIVE"
 
 

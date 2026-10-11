@@ -14,6 +14,58 @@ EXPERIMENT_ID = "evm-forensics-historical-source-pattern-v1"
 UPSTREAM_COMMIT = "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6"
 
 
+def _find_function_body(source: str, start: int) -> tuple[int | None, int | None]:
+    """Find balanced C++ braces while ignoring comments and quoted literals."""
+    brace_start = None
+    depth = 0
+    state = "code"
+    escaped = False
+    index = start
+    while index < len(source):
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < len(source) else ""
+
+        if state == "line_comment":
+            if char == "\\n":
+                state = "code"
+        elif state == "block_comment":
+            if char == "*" and nxt == "/":
+                state = "code"
+                index += 1
+        elif state in {"string", "char"}:
+            if escaped:
+                escaped = False
+            elif char == "\\\\":
+                escaped = True
+            elif (state == "string" and char == '"') or (state == "char" and char == "'"):
+                state = "code"
+        else:
+            if char == "/" and nxt == "/":
+                state = "line_comment"
+                index += 1
+            elif char == "/" and nxt == "*":
+                state = "block_comment"
+                index += 1
+            elif char == '"':
+                state = "string"
+            elif char == "'":
+                state = "char"
+            elif char == "{" :
+                if brace_start is None:
+                    brace_start = index
+                depth += 1
+            elif char == "}":
+                if brace_start is None:
+                    return None, None
+                depth -= 1
+                if depth == 0:
+                    return brace_start, index + 1
+                if depth < 0:
+                    return brace_start, None
+        index += 1
+    return brace_start, None
+
+
 def inspect_source(source: str) -> dict:
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
     marker = "cl_ulong4 Dispatcher::Device::createSeed()"
@@ -21,21 +73,11 @@ def inspect_source(source: str) -> dict:
     if start < 0:
         return _result("INCONCLUSIVE", digest, ["createSeed_function_missing"])
 
-    # Scope the check to this function, not other tokens in Dispatcher.cpp.
-    # The pinned reviewed function contains no brace-bearing string literals.
-    brace_start = source.find("{", start)
-    if brace_start < 0:
+    # Scope the check to the function body; braces in comments and quoted
+    # literals must not alter the parser's nesting depth.
+    brace_start, end = _find_function_body(source, start)
+    if brace_start is None:
         return _result("INCONCLUSIVE", digest, ["function_body_missing"])
-    depth = 0
-    end = None
-    for index in range(brace_start, len(source)):
-        if source[index] == "{":
-            depth += 1
-        elif source[index] == "}":
-            depth -= 1
-            if depth == 0:
-                end = index + 1
-                break
     if end is None:
         return _result("INCONCLUSIVE", digest, ["function_body_unbalanced"])
 

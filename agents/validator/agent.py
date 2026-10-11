@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import os
@@ -17,7 +18,7 @@ EXPECTED_EVM_FORENSICS_REVISIONS = {
     ("johguse/profanity", "master"): "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
 }
 from shared.signed_action_intent import ActionIntentSigner
-from shared.lab_execution_receipt import LabExecutionReceiptError, receipt_sha256
+from shared.lab_execution_receipt import LabExecutionReceiptError, receipt_sha256, verify_signed_receipt
 
 class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
@@ -545,8 +546,29 @@ class Validator:
                 "internally_consistent": internally_consistent,
                 "successful_execution": successful_execution,
             })
-        # A canonical receipt detects accidental or post-run mutation, but an
-        # unsigned receipt is not an authenticated statement about who ran it.
+        # Trusted keys must be explicitly provisioned by the operator as a JSON
+        # object mapping key IDs to base64-encoded raw 32-byte Ed25519 public keys.
+        trusted_lab_keys = {}
+        trusted_lab_keys_config_error = None
+        raw_trusted_keys = os.environ.get("AEGISFORGE_LAB_TRUSTED_PUBLIC_KEYS", "").strip()
+        if raw_trusted_keys:
+            try:
+                parsed_trusted_keys = json.loads(raw_trusted_keys)
+                if not isinstance(parsed_trusted_keys, dict):
+                    raise ValueError("trusted_key_map_must_be_object")
+                for key_id, encoded_key in parsed_trusted_keys.items():
+                    if not isinstance(key_id, str) or not key_id.strip() or not isinstance(encoded_key, str):
+                        raise ValueError("trusted_key_entry_malformed")
+                    decoded_key = base64.b64decode(encoded_key, validate=True)
+                    if len(decoded_key) != 32:
+                        raise ValueError("trusted_ed25519_public_key_must_be_32_bytes")
+                    trusted_lab_keys[key_id] = decoded_key
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                trusted_lab_keys = {}
+                trusted_lab_keys_config_error = type(exc).__name__
+
+        # A canonical receipt detects accidental or post-run mutation. Signature
+        # trust is a separate check against operator-provisioned public keys.
         execution_receipt_checks = []
         for item in experiments:
             receipt = item.get("execution_receipt")
@@ -573,14 +595,32 @@ class Validator:
                 and isinstance(receipt.get("inputs"), dict)
                 and receipt.get("inputs", {}).get("script_source_sha256") == record.get("script_source_sha256")
             )
-            signed = item.get("execution_receipt_signed") is True
+            envelope = item.get("execution_receipt_envelope")
+            signature_verified = False
+            signature_error = None
+            verified_signer_key_id = None
+            if isinstance(envelope, dict):
+                try:
+                    signature_result = verify_signed_receipt(
+                        envelope, trusted_public_keys=trusted_lab_keys
+                    )
+                    signature_verified = signature_result.get("valid") is True
+                    verified_signer_key_id = signature_result.get("key_id")
+                except (LabExecutionReceiptError, TypeError, ValueError) as exc:
+                    signature_error = str(exc)
+            signed = isinstance(envelope, dict)
             execution_receipt_checks.append({
                 "experiment_id": item.get("experiment_id"),
                 "receipt_present": isinstance(receipt, dict),
                 "digest_matches": digest_valid,
                 "record_matches_receipt": record_matches_receipt,
                 "integrity_verified": digest_valid and record_matches_receipt,
-                "authenticity": "SIGNATURE_NOT_VERIFIED" if signed else "UNTRUSTED_UNSIGNED",
+                "signature_present": signed,
+                "signature_verified_against_trusted_key": signature_verified,
+                "signer_key_id": verified_signer_key_id,
+                "authenticity": "SIGNED_AND_TRUSTED" if signature_verified else ("SIGNATURE_INVALID_OR_UNTRUSTED" if signed else "UNTRUSTED_UNSIGNED"),
+                "signature_error": signature_error,
+                "trusted_key_configuration_error": trusted_lab_keys_config_error,
                 "error_type": receipt_error,
             })
 
@@ -693,7 +733,9 @@ class Validator:
             "lab_execution_record_checks": execution_record_checks,
             "lab_execution_receipts_checked": len(execution_receipt_checks),
             "lab_execution_receipts_integrity_verified": bool(execution_receipt_checks) and all(item["integrity_verified"] for item in execution_receipt_checks),
-            "lab_execution_receipts_trusted": bool(execution_receipt_checks) and all(item["authenticity"] == "SIGNED_AND_TRUSTED" for item in execution_receipt_checks),
+            "lab_execution_receipts_trusted": bool(execution_receipt_checks) and all(item["integrity_verified"] and item["authenticity"] == "SIGNED_AND_TRUSTED" for item in execution_receipt_checks),
+            "lab_trusted_signing_key_count": len(trusted_lab_keys),
+            "lab_trusted_key_configuration_error": trusted_lab_keys_config_error,
             "lab_execution_receipt_checks": execution_receipt_checks,
             "historical_reproduction_confirmed": historical_reproduction,
             "verified_historical_claims": [],

@@ -501,8 +501,11 @@ class Validator:
                 hashlib.sha256(stderr.encode("utf-8")).hexdigest()
                 if isinstance(stderr, str) else None
             )
+            test_passed = record.get("test_passed") if isinstance(record, dict) else None
             checks = {
                 "record_present": isinstance(record, dict),
+                "schema_version_valid": isinstance(record, dict)
+                    and record.get("schema_version") == 1,
                 "record_kind_valid": isinstance(record, dict)
                     and record.get("record_kind") == "local_subprocess_observation",
                 "executor_valid": isinstance(record, dict)
@@ -516,21 +519,30 @@ class Validator:
                 "execution_outcome_well_formed": (
                     isinstance(record, dict)
                     and isinstance(timed_out, bool)
+                    and isinstance(test_passed, bool)
                     and (
-                        (timed_out is True and exit_code is None
-                         and record.get("test_passed") is False)
+                        (timed_out is True and exit_code is None and test_passed is False)
                         or
                         (timed_out is False and isinstance(exit_code, int)
                          and not isinstance(exit_code, bool)
-                         and (record.get("test_passed") is not True or exit_code == 0))
+                         and (exit_code == 0 or test_passed is False))
                     )
                 ),
             }
-            checks["internally_consistent"] = all(checks.values())
+            # Structural consistency and successful execution are different
+            # claims: a well-formed failed run is consistent, but never passing.
+            internally_consistent = all(checks.values())
+            successful_execution = (
+                internally_consistent
+                and timed_out is False
+                and exit_code == 0
+                and test_passed is True
+            )
             execution_record_checks.append({
                 "experiment_id": item.get("experiment_id"),
                 "checks": checks,
-                "internally_consistent": checks["internally_consistent"],
+                "internally_consistent": internally_consistent,
+                "successful_execution": successful_execution,
             })
         toy_only = bool(experiments) and all(
             item.get("synthetic_test_only") is True
@@ -637,6 +649,7 @@ class Validator:
             "toy_lab_scope_verified": toy_only,
             "lab_execution_records_checked": len(execution_record_checks),
             "lab_execution_records_consistent": bool(execution_record_checks) and all(item["internally_consistent"] for item in execution_record_checks),
+            "lab_execution_records_passed": bool(execution_record_checks) and all(item["successful_execution"] for item in execution_record_checks),
             "lab_execution_record_checks": execution_record_checks,
             "historical_reproduction_confirmed": historical_reproduction,
             "verified_historical_claims": [],

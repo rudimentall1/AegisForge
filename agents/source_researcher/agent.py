@@ -152,7 +152,7 @@ class SourceResearcher:
         result.pop("research_validation", None)
         result.update({
             "research_track": "evm_key_forensics", "stage": "sources",
-            "objective": task.description or parent.get("objective") or "Research historical EVM key-generation weaknesses from primary sources.",
+            "objective": parent.get("objective") or task.description or "Research historical EVM key-generation weaknesses from primary sources.",
             "source_search_rounds": round_number,
             "sources": list(sources_by_url.values())[:self.MAX_SOURCES],
             "source_leads": list(leads_by_url.values())[:self.MAX_LEADS],

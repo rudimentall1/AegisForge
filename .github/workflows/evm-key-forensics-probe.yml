@@ -22,7 +22,20 @@ jobs:
         run: |
           set -euo pipefail
           source_url="https://raw.githubusercontent.com/johguse/profanity/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/Dispatcher.cpp"
-          curl --fail --location --proto '=https' --tlsv1.2 "$source_url" -o /tmp/pinned-Dispatcher.cpp
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 "$source_url" -o /tmp/pinned-Dispatcher.cpp
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          source = Path("/tmp/pinned-Dispatcher.cpp").read_bytes()
+          git_blob_sha1 = hashlib.sha1(b"blob " + str(len(source)).encode() + b"\\0" + source).hexdigest()
+          expected_blob_sha1 = "c9226fc02a52633a84664cbf3aaf2b4af8a59b25"
+          assert git_blob_sha1 == expected_blob_sha1, {
+              "expected_git_blob_sha1": expected_blob_sha1,
+              "actual_git_blob_sha1": git_blob_sha1,
+          }
+          print(f"Pinned upstream Dispatcher.cpp blob: PASS ({git_blob_sha1})")
+          PY
           python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher.cpp --pretty > /tmp/source-pattern-result.json
           python - <<'PY'
           import json

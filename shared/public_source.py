@@ -128,7 +128,9 @@ def fetch_public_source(url: str, timeout: int = 12) -> dict:
     parser = _VisibleTextParser()
     if status_code == 200:
         parser.feed(html)
-    visible_text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()[:MAX_TEXT_CHARS]
+    normalized_text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()
+    content_truncated_for_analysis = len(normalized_text) > MAX_TEXT_CHARS
+    visible_text = normalized_text[:MAX_TEXT_CHARS]
     title = re.sub(r"\s+", " ", " ".join(parser.title_parts)).strip()[:300]
     return {
         "source_url": requested_url,
@@ -140,6 +142,6 @@ def fetch_public_source(url: str, timeout: int = 12) -> dict:
         "excerpt": visible_text[:2200],
         "content_sha256": digest,
         "content_bytes": len(body),
-        "content_truncated_for_analysis": False,
+        "content_truncated_for_analysis": content_truncated_for_analysis,
         "retrieved_at": datetime.now(timezone.utc).isoformat(),
     }

@@ -26,7 +26,7 @@ def _find_function_body(source: str, start: int) -> tuple[int | None, int | None
         nxt = source[index + 1] if index + 1 < len(source) else ""
 
         if state == "line_comment":
-            if char == "\\n":
+            if char == "\n":
                 state = "code"
         elif state == "block_comment":
             if char == "*" and nxt == "/":
@@ -35,7 +35,7 @@ def _find_function_body(source: str, start: int) -> tuple[int | None, int | None
         elif state in {"string", "char"}:
             if escaped:
                 escaped = False
-            elif char == "\\\\":
+            elif char == "\\":
                 escaped = True
             elif (state == "string" and char == '"') or (state == "char" and char == "'"):
                 state = "code"

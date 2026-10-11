@@ -211,3 +211,21 @@ def test_result_payload_rejects_duplicate_keys_and_nan():
         result = verify_lab_artifact(experiment)
         assert result["integrity_verified"] is False
         assert result["checks"]["result_payload_digest_matches"] is False
+
+def test_offline_verifier_detects_tampered_summary_fields():
+    experiment = _experiment()
+    experiment["synthetic_seed_recovered"] = False
+    result = verify_lab_artifact(experiment)
+
+    assert result["integrity_verified"] is False
+    assert result["checks"]["summary_matches_result_payload"] is False
+
+
+def test_offline_verifier_rejects_tampered_safety_assertions():
+    experiment = _experiment()
+    experiment["uses_real_private_keys"] = True
+    result = verify_lab_artifact(experiment)
+
+    assert result["integrity_verified"] is False
+    assert result["checks"]["safety_assertions_hold"] is False
+

@@ -1,4 +1,4 @@
-from tools.evm_key_forensics.check_historical_source_pattern import inspect_source
+from tools.evm_key_forensics.check_historical_source_pattern import inspect_source, main
 
 
 SOURCE = r"""
@@ -109,3 +109,19 @@ def test_unbalanced_real_brace_fails_closed_even_with_comment_brace():
     result = inspect_source(mutated)
     assert result["conclusion"] == "INCONCLUSIVE"
     assert "function_body_unbalanced" in result["errors"]
+
+
+
+def test_cli_rejects_matching_pattern_without_exact_pinned_source_blob(tmp_path, capsys):
+    source_path = tmp_path / "Dispatcher.cpp"
+    source_path.write_text(SOURCE, encoding="utf-8")
+
+    exit_code = main([str(source_path)])
+    captured = capsys.readouterr()
+    import json
+    result = json.loads(captured.out)
+
+    assert exit_code == 2
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert result["pinned_source_blob_matches"] is False
+    assert "pinned_upstream_blob_mismatch" in result["errors"]

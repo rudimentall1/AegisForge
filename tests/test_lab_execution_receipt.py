@@ -118,3 +118,13 @@ def test_receipt_requires_nonempty_run_and_experiment_ids():
             inputs={},
             execution={},
         )
+
+
+def test_signing_rejects_receipt_missing_required_fields():
+    private_key = Ed25519PrivateKey.generate()
+    with pytest.raises(LabExecutionReceiptError, match="run_id_required"):
+        sign_receipt(
+            {"schema_version": 1, "receipt_type": "aegisforge.lab_execution"},
+            private_key=private_key,
+            key_id="runner-a",
+        )

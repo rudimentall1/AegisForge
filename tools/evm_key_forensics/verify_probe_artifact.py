@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -47,7 +48,11 @@ def verify_artifact(root: Path) -> dict:
         "sample_count_in_bounds": type(samples) is int and 1 <= samples <= 10000,
         "distinct_count_in_bounds": type(distinct) is int and type(samples) is int and 1 <= distinct <= samples,
         "result_type_width_valid": type(type_bits) is int and type_bits > 0,
-        "reported_entropy_is_numeric": type(reported_entropy) in (int, float) and reported_entropy >= 0,
+        "reported_entropy_is_finite_nonnegative": (
+            type(reported_entropy) in (int, float)
+            and math.isfinite(reported_entropy)
+            and reported_entropy >= 0
+        ),
         "source_nonempty": source_path.is_file() and source_path.stat().st_size > 0,
         "binary_nonempty": binary_path.is_file() and binary_path.stat().st_size > 0,
         "source_hash_matches": metadata.get("source_sha256") == sha256(source_path),

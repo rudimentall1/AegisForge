@@ -604,8 +604,17 @@ class Validator:
                     signature_result = verify_signed_receipt(
                         envelope, trusted_public_keys=trusted_lab_keys
                     )
-                    signature_verified = signature_result.get("valid") is True
-                    verified_signer_key_id = signature_result.get("key_id")
+                    # The authenticated envelope must bind to the exact receipt
+                    # and digest being evaluated here, not merely contain some
+                    # other validly signed receipt.
+                    signature_verified = (
+                        signature_result.get("valid") is True
+                        and envelope.get("receipt") == receipt
+                        and signature_result.get("receipt_sha256") == reported_digest
+                    )
+                    verified_signer_key_id = (
+                        signature_result.get("key_id") if signature_verified else None
+                    )
                 except (LabExecutionReceiptError, TypeError, ValueError) as exc:
                     signature_error = str(exc)
             signed = isinstance(envelope, dict)

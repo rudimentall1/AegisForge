@@ -45,7 +45,11 @@ def _receipt():
 
 def test_canonical_json_is_stable_across_key_order():
     assert canonical_json({"b": 2, "a": 1}) == canonical_json({"a": 1, "b": 2})
-    assert receipt_sha256({"b": 2, "a": 1}) == receipt_sha256({"a": 1, "b": 2})
+
+    receipt = _receipt()
+    reordered = dict(reversed(list(receipt.items())))
+    reordered["execution"] = dict(reversed(list(receipt["execution"].items())))
+    assert receipt_sha256(receipt) == receipt_sha256(reordered)
 
 
 def test_canonical_json_rejects_non_finite_numbers():

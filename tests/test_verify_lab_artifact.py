@@ -104,7 +104,7 @@ def test_offline_verifier_cli_reports_invalid_artifact(tmp_path, capsys):
     assert json.loads(captured.out)["integrity_verified"] is False
 
 
-def test_offline_verifier_cli_accepts_single_experiment_in_task_result(tmp_path, capsys):
+def test_offline_verifier_cli_reports_unsigned_artifact_as_untrusted(tmp_path, capsys):
     experiment = _experiment()
     artifact_path = tmp_path / "task-result.json"
     artifact_path.write_text(
@@ -114,7 +114,8 @@ def test_offline_verifier_cli_accepts_single_experiment_in_task_result(tmp_path,
     exit_code = main([str(artifact_path)])
     captured = capsys.readouterr()
 
-    assert exit_code == 0
+    # Exit 0 is reserved for artifacts verified against an explicitly trusted key.
+    assert exit_code == 2
     result = json.loads(captured.out)
     assert result["integrity_verified"] is True
     assert result["authenticity"] == "UNTRUSTED_UNSIGNED"

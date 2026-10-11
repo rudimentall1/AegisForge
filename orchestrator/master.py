@@ -707,6 +707,47 @@ class AutonomousPlanner:
 
         gain = self.information_gain(result)
 
+        # Dedicated bounded EVM key-forensics route takes precedence over
+        # generic repository/opportunity heuristics.
+        if isinstance(result, dict) and result.get("research_track") == "evm_key_forensics":
+            stage = result.get("stage")
+            source_rounds = int(result.get("source_search_rounds", 0) or 0)
+            if role == "source_researcher" and stage == "sources":
+                return (
+                    "CONTINUE", "crypto_analyst",
+                    "Analyze the public-source dossier. Create falsifiable hypotheses, separate weak generation from unrelated storage or contract faults, and list evidence needed for reproduction. Do not claim any live address is vulnerable. Dossier: " + self.compact_context(result),
+                    "Source collection is ready for evidence classification.",
+                    max(gain, 0.50),
+                )
+            if role == "crypto_analyst" and stage == "analysis":
+                return (
+                    "REFINE", "lab_runner",
+                    "Run only the registered synthetic entropy demonstration. Do not execute downloaded code, use real keys, inspect live-wallet candidates, or call the toy model a historical reproduction. Hypotheses: " + self.compact_context(result.get("hypotheses", [])),
+                    "Hypotheses need a controlled synthetic experiment with explicit limits.",
+                    max(gain, 0.50),
+                )
+            if role == "lab_runner" and stage == "lab":
+                return (
+                    "VERIFY", "validator",
+                    "Check source provenance, hypothesis references, experiment scope and whether the historical implementation was actually reproduced. A toy entropy demo is not historical reproduction. Dossier: " + self.compact_context(result),
+                    "The lab output is ready for independent validation.",
+                    max(gain, 0.60),
+                )
+            if role == "validator" and stage == "validation":
+                validation = result.get("research_validation") or {}
+                if not validation.get("historical_reproduction_confirmed") and source_rounds < 3:
+                    return (
+                        "REFINE", "source_researcher",
+                        "Continue with a new source-search round focused on exact historical revisions, release boundaries and source code before/after fixes. Do not enumerate live-wallet addresses. Current round: " + str(source_rounds) + ". Gaps: " + self.compact_context(validation.get("next_actions", [])),
+                        "Validation remains inconclusive; run a bounded follow-up source round.",
+                        max(gain, 0.50),
+                    )
+                return (
+                    "COMPLETE", None, None,
+                    "The bounded cycle is complete. Preserve an inconclusive verdict until a pinned historical implementation is reproduced with synthetic test material.",
+                    max(gain, 0.40),
+                )
+
         # -------------------------------------------------
         # Researcher produced concrete projects/repositories
         # -------------------------------------------------

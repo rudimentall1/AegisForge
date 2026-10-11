@@ -4,7 +4,9 @@ import hashlib
 import json
 import subprocess
 import sys
+import uuid
 
+from shared.lab_execution_receipt import build_receipt, receipt_sha256
 from shared.task import Task
 
 
@@ -58,6 +60,9 @@ print(json.dumps({
     @classmethod
     def run_synthetic_entropy_demo(cls) -> dict:
         command = [sys.executable, "-c", cls._SYNTHETIC_EXPERIMENT_SCRIPT]
+        script_bytes = cls._SYNTHETIC_EXPERIMENT_SCRIPT.encode("utf-8")
+        run_id = uuid.uuid4().hex
+        payload = None
         try:
             completed = subprocess.run(
                 command,
@@ -69,21 +74,6 @@ print(json.dumps({
             )
             stdout_bytes = completed.stdout.encode("utf-8")
             stderr_bytes = completed.stderr.encode("utf-8")
-            record = {
-                "schema_version": 1,
-                "record_kind": "local_subprocess_observation",
-                "executor": "python-subprocess",
-                "command": command,
-                "command_sha256": cls._sha256(
-                    json.dumps(command, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-                ),
-                "exit_code": completed.returncode,
-                "stdout": completed.stdout,
-                "stdout_sha256": cls._sha256(stdout_bytes),
-                "stderr": completed.stderr,
-                "stderr_sha256": cls._sha256(stderr_bytes),
-                "timed_out": False,
-            }
             try:
                 payload = json.loads(completed.stdout)
             except (TypeError, ValueError):
@@ -96,7 +86,23 @@ print(json.dumps({
                 and payload.get("synthetic_seed_recovered") is True
                 and payload.get("synthetic_test_only") is True
             )
-            record["test_passed"] = passed
+            record = {
+                "schema_version": 1,
+                "record_kind": "local_subprocess_observation",
+                "executor": "python-subprocess",
+                "command": command,
+                "command_sha256": cls._sha256(
+                    json.dumps(command, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                ),
+                "script_source_sha256": cls._sha256(script_bytes),
+                "exit_code": completed.returncode,
+                "stdout": completed.stdout,
+                "stdout_sha256": cls._sha256(stdout_bytes),
+                "stderr": completed.stderr,
+                "stderr_sha256": cls._sha256(stderr_bytes),
+                "timed_out": False,
+                "test_passed": passed,
+            }
         except subprocess.TimeoutExpired as exc:
             stdout = exc.stdout or b""
             stderr = exc.stderr or b""
@@ -112,6 +118,7 @@ print(json.dumps({
                 "command_sha256": cls._sha256(
                     json.dumps(command, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
                 ),
+                "script_source_sha256": cls._sha256(script_bytes),
                 "exit_code": None,
                 "stdout": stdout.decode("utf-8", errors="replace"),
                 "stdout_sha256": cls._sha256(stdout),
@@ -120,9 +127,35 @@ print(json.dumps({
                 "timed_out": True,
                 "test_passed": False,
             }
-            payload = None
 
         payload = payload if isinstance(payload, dict) else {}
+        result_payload_bytes = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        receipt = build_receipt(
+            run_id=run_id,
+            experiment_id="synthetic-entropy-demo-v1",
+            inputs={
+                "source_kind": "repository_owned_synthetic_demo",
+                "source_revision": None,
+                "test_vector_id": "synthetic-vector-12bit-v1",
+                "argv": command,
+                "script_source_sha256": record["script_source_sha256"],
+            },
+            execution={
+                "exit_code": record["exit_code"],
+                "timed_out": record["timed_out"],
+                "test_passed": record["test_passed"],
+                "stdout_sha256": record["stdout_sha256"],
+                "stderr_sha256": record["stderr_sha256"],
+            },
+            artifacts={
+                "script_source_sha256": record["script_source_sha256"],
+                "result_payload_sha256": cls._sha256(result_payload_bytes),
+            },
+        )
+        receipt_digest = receipt_sha256(receipt)
+
         return {
             "experiment_id": "synthetic-entropy-demo-v1",
             "model": "toy_sha256_fingerprint_over_small_synthetic_seed_space",
@@ -137,13 +170,17 @@ print(json.dumps({
             "public_wallets_touched": 0,
             "historical_implementation_reproduced": False,
             "execution_record": record,
+            "execution_receipt": receipt,
+            "execution_receipt_sha256": receipt_digest,
+            "execution_receipt_signed": False,
+            "execution_receipt_trust": "UNSIGNED_INTEGRITY_ONLY",
             "result_interpretation": (
-                "Toy result only. The local subprocess record documents this synthetic run; "
-                "it does not prove a historical generator was reproduced or provide a signed attestation."
+                "Toy result only. The canonical receipt and digest support integrity checks, "
+                "not runner authenticity or a claim that historical code was reproduced."
             ),
             "required_next_step": (
-                "Build a separately constrained historical-source experiment with synthetic test vectors "
-                "and independent verification before claiming historical reproduction."
+                "Validate this receipt in the independent Validator, then build a separately "
+                "constrained historical-source experiment with synthetic test vectors."
             ),
         }
 
@@ -162,6 +199,8 @@ print(json.dumps({
                 "live_addresses_examined": 0,
                 "claim_status": "ILLUSTRATIVE_ONLY",
                 "synthetic_subprocess_passed": experiment["execution_record"]["test_passed"],
+                "receipt_integrity_available": True,
+                "receipt_is_signed": False,
             },
         })
         task.result = result

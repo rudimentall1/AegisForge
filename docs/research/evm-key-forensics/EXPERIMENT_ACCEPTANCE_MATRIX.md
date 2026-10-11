@@ -63,6 +63,10 @@ Stop and report `INCONCLUSIVE` if the exact historical path cannot be built safe
 - E5 independent review: pending.
 - Wallet compromise: **not tested and not claimed**.
 
+## Independent runner attestation
+
+The required trust model and future integration acceptance criteria are specified in [INDEPENDENT_RUNNER_ATTESTATION_CONTRACT.md](./INDEPENDENT_RUNNER_ATTESTATION_CONTRACT.md). This is a specification only: no independent attestation provider is implemented, and a dossier boolean must never substitute for cryptographic verification of an actual attestation envelope. Until that integration and its negative tests exist, independent runner attestation is `NOT IMPLEMENTED / NOT VERIFIED` and historical reproduction remains `INCONCLUSIVE`.
+
 ## Next engineering gate
 
 The portable verifier gate is now covered by automated CLI tests, but this does not validate the historical vulnerability. The pinned source review locates `Dispatcher::Device::createSeed()` at `Dispatcher.cpp:102–120`: the non-debug branch initializes `std::mt19937_64` from `rd()` and assigns four distribution outputs to the returned seed vector; the debug branch returns four fixed values. Because executing that function creates seed material used by wallet-key generation, do not run the historical function or build an operational harness around it. The next safe gate is a source-only, independently reviewed analysis of the pinned code plus generic environment diagnostics that never emit or retain seed values. Record compiler/library/OS provenance only for the diagnostic. Historical runtime reproduction remains `INCONCLUSIVE`; do not promote the claim from source semantics alone.

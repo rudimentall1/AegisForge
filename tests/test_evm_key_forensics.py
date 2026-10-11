@@ -200,6 +200,40 @@ def test_validator_fails_closed_on_duplicate_trusted_key_ids(monkeypatch):
     assert check["authenticity"] != "SIGNED_AND_TRUSTED"
 
 
+def test_validator_fails_closed_on_malformed_trusted_key_material(monkeypatch):
+    from agents.validator.agent import Validator
+
+    malformed_configs = [
+        ('{"runner-a":"not base64!!!"}', "ValueError"),
+        ('{"runner-a":"AAAA"}', "ValueError"),
+        ('[]', "ValueError"),
+    ]
+    experiment = LabRunner.run_synthetic_entropy_demo()
+
+    for raw_config, expected_error in malformed_configs:
+        monkeypatch.setenv("AEGISFORGE_LAB_TRUSTED_PUBLIC_KEYS", raw_config)
+        task = Task(
+            task_id="malformed-trusted-key-material",
+            description="Reject malformed trusted key material",
+            result={
+                "research_track": "evm_key_forensics",
+                "stage": "lab",
+                "sources": [],
+                "hypotheses": [],
+                "lab_experiments": [experiment],
+            },
+        )
+
+        report = Validator().run(task).result["research_validation"]
+        assert report["lab_trusted_signing_key_count"] == 0
+        assert report["lab_trusted_key_configuration_error"] == expected_error
+        assert report["historical_reproduction_confirmed"] is False
+        assert report["status"] == "INCONCLUSIVE"
+        check = report["lab_execution_receipt_checks"][0]
+        assert check["signature_verified_against_trusted_key"] is False
+        assert check["authenticity"] != "SIGNED_AND_TRUSTED"
+
+
 def test_validator_reports_truncated_analysis_text_without_promoting_claims():
     from agents.validator.agent import Validator
 

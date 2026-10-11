@@ -551,3 +551,60 @@ def test_validator_rejects_artifact_with_mismatched_source_revision():
     assert result["historical_reproduction_confirmed"] is False
     assert result["status"] == "INCONCLUSIVE"
     assert result["verified_historical_claims"] == []
+
+
+def test_validator_rejects_artifact_with_false_execution_metadata():
+    import json
+    import pytest
+    from agents.validator.agent import Validator, EXPECTED_EVM_FORENSICS_REVISIONS
+
+    revision = EXPECTED_EVM_FORENSICS_REVISIONS[("johguse/profanity", "v1.50")]
+    command = "python reproduce.py --synthetic-only"
+    vector_id = "synthetic-vector-002"
+
+    for case, artifact_fields in [
+        ("wrong-vector", {"test_vector_id": "other-vector"}),
+        ("wrong-command", {"command": "python fabricated.py"}),
+        ("nonzero-exit", {"exit_code": 1, "test_passed": False}),
+    ]:
+        fields = {
+            "schema_version": 1,
+            "source_revision": revision,
+            "test_vector_id": vector_id,
+            "command": command,
+            "exit_code": 0,
+            "test_passed": True,
+        }
+        fields.update(artifact_fields)
+        artifact = json.dumps(fields, sort_keys=True)
+        experiment = {
+            "experiment_id": case,
+            "historical_implementation_reproduced": True,
+            "synthetic_test_only": True,
+            "uses_real_private_keys": False,
+            "uses_real_wallet_addresses": False,
+            "pinned_source_revision": revision,
+            "reproduction_source_role": "pre_disclosure_release",
+            "synthetic_test_vector_id": vector_id,
+            "reproduction_test_passed": True,
+            "reproduction_artifact": artifact,
+            "reproduction_artifact_sha256": hashlib.sha256(artifact.encode("utf-8")).hexdigest(),
+            "reproduction_command": command,
+        }
+        validator = Validator.__new__(Validator)
+        validator.source_fetcher = _fake_fetch
+        result = validator.run(Task(
+            task_id=f"artifact-metadata-{case}",
+            description="Reject inconsistent execution metadata in reproduction artifact",
+            result={
+                "research_track": "evm_key_forensics",
+                "stage": "lab",
+                "sources": [],
+                "hypotheses": [],
+                "lab_experiments": [experiment],
+            },
+        )).result["research_validation"]
+
+        assert result["historical_reproduction_confirmed"] is False, case
+        assert result["status"] == "INCONCLUSIVE", case
+        assert result["verified_historical_claims"] == [], case

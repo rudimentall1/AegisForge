@@ -147,6 +147,33 @@ def test_lead_relevance_requires_specific_signal_or_multiple_context_signals():
     assert relevant is False
 
 
+def test_validator_reports_truncated_analysis_text_without_promoting_claims():
+    from agents.validator.agent import Validator
+
+    source_task = Task(task_id="truncated-source", description="Research historical EVM key generation")
+    source_result = SourceResearcher(github=_FakeGithub(), fetcher=_fake_fetch).run(source_task).result
+
+    def truncated_fetch(url):
+        fetched = _fake_fetch(url)
+        fetched["content_truncated_for_analysis"] = True
+        return fetched
+
+    validator = Validator.__new__(Validator)
+    validator.source_fetcher = truncated_fetch
+    validated = validator.run(Task(
+        task_id="truncated-source-check",
+        description="Validate truncated source evidence",
+        result=source_result,
+    ))
+
+    report = validated.result["research_validation"]
+    assert report["sources_with_truncated_analysis_text"] == 12
+    assert report["sources_with_unknown_analysis_text_completeness"] == 0
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["historical_reproduction_confirmed"] is False
+    assert any("truncated excerpt" in action for action in report["next_actions"])
+
+
 def test_validator_detects_tampered_immutable_revision_url():
     from agents.validator.agent import Validator
 

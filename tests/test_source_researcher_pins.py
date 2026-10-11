@@ -18,11 +18,9 @@ def _pins():
     ]
 
 
-def test_pinned_sources_are_bound_to_expected_immutable_revisions():
-    fetched_urls = []
-
+def _fake_fetcher(calls):
     def fetcher(url):
-        fetched_urls.append(url)
+        calls.append(url)
         body = f"synthetic fixture for {url}"
         return {
             "text": body,
@@ -33,8 +31,12 @@ def test_pinned_sources_are_bound_to_expected_immutable_revisions():
             "content_bytes": len(body.encode("utf-8")),
             "retrieved_at": "2026-10-11T00:00:00+00:00",
         }
+    return fetcher
 
-    researcher = SourceResearcher(github=object(), fetcher=fetcher)
+
+def test_pinned_sources_are_bound_to_expected_immutable_revisions():
+    fetched_urls = []
+    researcher = SourceResearcher(github=object(), fetcher=_fake_fetcher(fetched_urls))
     sources, pins, errors = researcher._fetch_pinned_repository_sources({}, _pins())
 
     expected_count = sum(len(item["files"]) for item in HISTORICAL_REPOSITORIES)
@@ -56,20 +58,18 @@ def test_pinned_sources_are_bound_to_expected_immutable_revisions():
         assert source["source_kind"] == "pinned_repository_source"
 
 
-def test_stored_pin_mismatch_is_rejected_without_fetching_source_files():
+def test_stored_pin_mismatch_skips_only_the_rejected_revision():
     pins = _pins()
+    rejected_repository = pins[0]["repository"]
     pins[0]["commit_sha"] = "f" * 40
-    fetch_calls = []
+    fetched_urls = []
+    researcher = SourceResearcher(github=object(), fetcher=_fake_fetcher(fetched_urls))
 
-    def fetcher(url):
-        fetch_calls.append(url)
-        raise AssertionError("source files must not be fetched for a rejected pin")
-
-    researcher = SourceResearcher(github=object(), fetcher=fetcher)
     sources, returned_pins, errors = researcher._fetch_pinned_repository_sources({}, pins)
 
-    assert sources == []
     assert returned_pins == pins
-    assert fetch_calls == []
-    assert len(errors) == 2
-    assert all(item["error_type"] == "PinnedRevisionMismatch" for item in errors)
+    assert len(errors) == 1
+    assert errors[0]["error_type"] == "PinnedRevisionMismatch"
+    assert errors[0]["repository"] == rejected_repository
+    assert len(sources) == len(HISTORICAL_REPOSITORIES[1]["files"])
+    assert all(rejected_repository not in url for url in fetched_urls)

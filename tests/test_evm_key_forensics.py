@@ -188,3 +188,107 @@ def test_validator_does_not_trust_a_bare_historical_reproduction_boolean():
     result = validator.run(task).result["research_validation"]
     assert result["historical_reproduction_confirmed"] is False
     assert result["status"] == "INCONCLUSIVE"
+
+
+
+def test_public_source_streams_response_and_closes_it(monkeypatch):
+    import shared.public_source as public_source
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"Content-Length": "48"}
+        encoding = "utf-8"
+
+        def __init__(self):
+            self.closed = False
+
+        @property
+        def content(self):
+            raise AssertionError("response.content would buffer the entire body")
+
+        def iter_content(self, chunk_size):
+            assert chunk_size == 64 * 1024
+            yield b"<html><title>Example</title><p>Hello</p></html>"
+
+        def close(self):
+            self.closed = True
+
+    response = FakeResponse()
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured.update(kwargs)
+        return response
+
+    monkeypatch.setattr(public_source.requests, "get", fake_get)
+    result = public_source.fetch_public_source("https://blog.ethereum.org/test")
+
+    assert captured["stream"] is True
+    assert response.closed is True
+    assert result["status_code"] == 200
+    assert result["title"] == "Example"
+    assert "Hello" in result["text"]
+    assert result["content_bytes"] <= public_source.MAX_BODY_BYTES
+
+
+def test_public_source_rejects_oversized_stream(monkeypatch):
+    import pytest
+    import shared.public_source as public_source
+
+    class FakeResponse:
+        status_code = 200
+        headers = {}
+        encoding = "utf-8"
+
+        def __init__(self):
+            self.closed = False
+
+        def iter_content(self, chunk_size):
+            yield b"x" * public_source.MAX_BODY_BYTES
+            yield b"y"
+
+        def close(self):
+            self.closed = True
+
+    response = FakeResponse()
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured.update(kwargs)
+        return response
+
+    monkeypatch.setattr(public_source.requests, "get", fake_get)
+    with pytest.raises(ValueError, match="source_body_exceeds_limit"):
+        public_source.fetch_public_source("https://blog.ethereum.org/test")
+
+    assert captured["stream"] is True
+    assert response.closed is True
+
+
+def test_public_source_rejects_unallowlisted_redirect(monkeypatch):
+    import pytest
+    import shared.public_source as public_source
+
+    class FakeResponse:
+        status_code = 302
+        headers = {"Location": "https://example.com/redirect-target"}
+
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    response = FakeResponse()
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return response
+
+    monkeypatch.setattr(public_source.requests, "get", fake_get)
+    with pytest.raises(ValueError, match="redirect_target_not_allowlisted_https"):
+        public_source.fetch_public_source("https://blog.ethereum.org/test")
+
+    assert calls == ["https://blog.ethereum.org/test"]
+    assert response.closed is True

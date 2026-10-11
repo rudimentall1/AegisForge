@@ -429,3 +429,40 @@ def test_public_source_rejects_unallowlisted_redirect(monkeypatch):
 
     assert calls == ["https://blog.ethereum.org/test"]
     assert response.closed is True
+
+
+def test_validator_rejects_complete_reproduction_claim_with_unpinned_revision():
+    from agents.validator.agent import Validator
+
+    # Even a fully populated evidence-shaped claim must not qualify if its
+    # revision is not the independently pinned pre-disclosure release.
+    experiment = {
+        "experiment_id": "claimed-historical-reproduction",
+        "historical_implementation_reproduced": True,
+        "synthetic_test_only": True,
+        "uses_real_private_keys": False,
+        "uses_real_wallet_addresses": False,
+        "pinned_source_revision": "f" * 40,
+        "reproduction_source_role": "pre_disclosure_release",
+        "synthetic_test_vector_id": "synthetic-vector-001",
+        "reproduction_test_passed": True,
+        "reproduction_artifact_sha256": "a" * 64,
+        "reproduction_command": "python reproduce.py --synthetic-only",
+    }
+    validator = Validator.__new__(Validator)
+    validator.source_fetcher = _fake_fetch
+    result = validator.run(Task(
+        task_id="forged-complete-reproduction",
+        description="Reject an unpinned reproduction claim",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": [],
+            "hypotheses": [],
+            "lab_experiments": [experiment],
+        },
+    )).result["research_validation"]
+
+    assert result["historical_reproduction_confirmed"] is False
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["verified_historical_claims"] == []

@@ -495,7 +495,12 @@ class Validator:
                 and item.get("synthetic_test_only") is True
                 and item.get("uses_real_private_keys") is False
                 and item.get("uses_real_wallet_addresses") is False
-                and is_immutable_hex(item.get("pinned_source_revision"), 40)
+                # A self-asserted SHA-shaped string is not enough: only the
+                # explicitly pinned pre-disclosure revision is eligible for a
+                # historical reproduction claim. The archived master snapshot
+                # is contextual evidence, not an affected-version reproduction target.
+                and item.get("pinned_source_revision") == EXPECTED_EVM_FORENSICS_REVISIONS.get(("johguse/profanity", "v1.50"))
+                and item.get("reproduction_source_role") == "pre_disclosure_release"
                 and str(item.get("synthetic_test_vector_id") or "").strip()
                 and item.get("reproduction_test_passed") is True
                 and is_immutable_hex(item.get("reproduction_artifact_sha256"), 64)

@@ -98,12 +98,11 @@ def fetch_public_source(url: str, timeout: int = 12) -> dict:
         content_length = response.headers.get("Content-Length")
         if content_length:
             try:
-                if int(content_length) > MAX_BODY_BYTES:
-                    raise ValueError("source_body_exceeds_limit")
-            except ValueError as exc:
-                if str(exc) == "source_body_exceeds_limit":
-                    raise
-                # Ignore malformed Content-Length; the streaming limit remains authoritative.
+                declared_length = int(content_length)
+            except (TypeError, ValueError):
+                declared_length = None
+            if declared_length is not None and declared_length > MAX_BODY_BYTES:
+                raise ValueError("source_body_exceeds_limit")
 
         chunks = []
         body_size = 0
@@ -129,8 +128,8 @@ def fetch_public_source(url: str, timeout: int = 12) -> dict:
     parser = _VisibleTextParser()
     if status_code == 200:
         parser.feed(html)
-    visible_text = re.sub(r"\\s+", " ", " ".join(parser.parts)).strip()[:MAX_TEXT_CHARS]
-    title = re.sub(r"\\s+", " ", " ".join(parser.title_parts)).strip()[:300]
+    visible_text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()[:MAX_TEXT_CHARS]
+    title = re.sub(r"\s+", " ", " ".join(parser.title_parts)).strip()[:300]
     return {
         "source_url": requested_url,
         "final_url": current_url,

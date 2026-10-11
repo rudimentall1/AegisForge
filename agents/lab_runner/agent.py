@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import uuid
 
-from shared.lab_execution_receipt import build_receipt, receipt_sha256
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from shared.lab_execution_receipt import build_receipt, receipt_sha256, sign_receipt
 from shared.task import Task
 
 
@@ -155,6 +158,22 @@ print(json.dumps({
             },
         )
         receipt_digest = receipt_sha256(receipt)
+        receipt_envelope = None
+        signing_key_b64 = os.environ.get("AEGISFORGE_LAB_SIGNING_KEY_B64", "").strip()
+        signing_key_id = os.environ.get("AEGISFORGE_LAB_SIGNING_KEY_ID", "").strip()
+        if signing_key_b64 or signing_key_id:
+            # Signing is opt-in. The operator must provision a raw 32-byte Ed25519
+            # private key and a stable key ID; no key is generated automatically.
+            if not signing_key_b64 or not signing_key_id:
+                raise ValueError("lab_signing_key_and_key_id_must_be_configured_together")
+            try:
+                private_bytes = base64.b64decode(signing_key_b64, validate=True)
+                private_key = Ed25519PrivateKey.from_private_bytes(private_bytes)
+            except (ValueError, TypeError) as exc:
+                raise ValueError("invalid_lab_signing_private_key") from exc
+            receipt_envelope = sign_receipt(
+                receipt, private_key=private_key, key_id=signing_key_id
+            )
 
         return {
             "experiment_id": "synthetic-entropy-demo-v1",
@@ -172,8 +191,9 @@ print(json.dumps({
             "execution_record": record,
             "execution_receipt": receipt,
             "execution_receipt_sha256": receipt_digest,
-            "execution_receipt_signed": False,
-            "execution_receipt_trust": "UNSIGNED_INTEGRITY_ONLY",
+            "execution_receipt_envelope": receipt_envelope,
+            "execution_receipt_signed": receipt_envelope is not None,
+            "execution_receipt_trust": "SIGNATURE_PRESENT_NOT_YET_TRUSTED" if receipt_envelope else "UNSIGNED_INTEGRITY_ONLY",
             "result_interpretation": (
                 "Toy result only. The canonical receipt and digest support integrity checks, "
                 "not runner authenticity or a claim that historical code was reproduced."
@@ -200,7 +220,7 @@ print(json.dumps({
                 "claim_status": "ILLUSTRATIVE_ONLY",
                 "synthetic_subprocess_passed": experiment["execution_record"]["test_passed"],
                 "receipt_integrity_available": True,
-                "receipt_is_signed": False,
+                "receipt_is_signed": experiment["execution_receipt_signed"],
             },
         })
         task.result = result

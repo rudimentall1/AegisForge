@@ -749,3 +749,72 @@ def test_validator_checks_lab_execution_record_consistency_not_authenticity():
     assert timeout_check["internally_consistent"] is True
     assert timeout_check["successful_execution"] is False
     assert timeout_result["lab_execution_records_passed"] is False
+
+
+
+def test_validator_rejects_trusted_receipt_not_bound_to_reproduction_claim(monkeypatch):
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from agents.validator.agent import Validator, EXPECTED_EVM_FORENSICS_REVISIONS
+
+    private_key = Ed25519PrivateKey.generate()
+    private_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_bytes = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    key_id = "test-runner-key"
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_B64", base64.b64encode(private_bytes).decode("ascii"))
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_ID", key_id)
+    monkeypatch.setenv("AEGISFORGE_LAB_TRUSTED_PUBLIC_KEYS", json.dumps({
+        key_id: base64.b64encode(public_bytes).decode("ascii"),
+    }))
+
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    revision = EXPECTED_EVM_FORENSICS_REVISIONS[("johguse/profanity", "v1.50")]
+    command = "python reproduce.py --synthetic-only"
+    vector_id = "historical-reproduction-vector"
+    artifact = json.dumps({
+        "schema_version": 1,
+        "source_revision": revision,
+        "test_vector_id": vector_id,
+        "command": command,
+        "exit_code": 0,
+        "test_passed": True,
+    }, sort_keys=True)
+    experiment.update({
+        "historical_implementation_reproduced": True,
+        "pinned_source_revision": revision,
+        "reproduction_source_role": "pre_disclosure_release",
+        "synthetic_test_vector_id": vector_id,
+        "reproduction_test_passed": True,
+        "reproduction_command": command,
+        "reproduction_artifact": artifact,
+        "reproduction_artifact_sha256": hashlib.sha256(artifact.encode("utf-8")).hexdigest(),
+    })
+
+    validator = Validator.__new__(Validator)
+    validator.source_fetcher = _fake_fetch
+    report = validator.run(Task(
+        task_id="trusted-receipt-unbound",
+        description="Reject a trusted receipt that does not bind the reproduction claim",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": [],
+            "hypotheses": [],
+            "lab_experiments": [experiment],
+        },
+    )).result["research_validation"]
+
+    receipt_check = report["lab_execution_receipt_checks"][0]
+    assert receipt_check["authenticity"] == "SIGNED_AND_TRUSTED"
+    assert receipt_check["reproduction_binding_matches"] is False
+    assert report["historical_reproduction_confirmed"] is False
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["verified_historical_claims"] == []

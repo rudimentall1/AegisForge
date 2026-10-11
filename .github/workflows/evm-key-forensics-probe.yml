@@ -49,6 +49,47 @@ jobs:
           print("probe JSON and safety invariants: PASS")
           PY
 
+      - name: Create content-addressed run metadata
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          def sha256(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          metadata = {
+              "schema_version": 1,
+              "purpose": "diagnostic_environment_observation_only",
+              "git_commit": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
+              "github_run_id": os.environ.get("GITHUB_RUN_ID"),
+              "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+              "runner_os": platform.platform(),
+              "compiler_version": subprocess.check_output(
+                  ["g++", "--version"], text=True
+              ).splitlines()[0],
+              "source_path": "tools/evm_key_forensics/profanity_seed_environment_probe.cpp",
+              "source_sha256": sha256(
+                  "tools/evm_key_forensics/profanity_seed_environment_probe.cpp"
+              ),
+              "binary_sha256": sha256("profanity_seed_environment_probe"),
+              "output_path": "probe-output.json",
+              "output_sha256": sha256("probe-output.json"),
+              "historical_vulnerability_reproduced": False,
+              "entropy_proven": False,
+          }
+          Path("probe-run-metadata.json").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n"
+          )
+          print(json.dumps(metadata, indent=2, sort_keys=True))
+          PY
+
       - name: Reject invalid sample counts
         run: |
           set +e
@@ -57,3 +98,13 @@ jobs:
           set -e
           test "$status" -eq 2
           grep -q "sample_count_must_be_between_1_and_10000" /tmp/probe-err.txt
+
+      - name: Upload diagnostic evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            probe-output.json
+            probe-run-metadata.json
+          if-no-files-found: error
+          retention-days: 30

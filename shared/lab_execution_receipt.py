@@ -75,7 +75,23 @@ def build_receipt(
     return receipt
 
 
+def _validate_receipt_shape(receipt: dict) -> None:
+    if not isinstance(receipt, dict):
+        raise LabExecutionReceiptError("receipt_object_required")
+    if receipt.get("schema_version") != 1 or receipt.get("receipt_type") != "aegisforge.lab_execution":
+        raise LabExecutionReceiptError("unsupported_receipt_schema")
+    for field in ("run_id", "experiment_id"):
+        value = receipt.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise LabExecutionReceiptError(f"{field}_required")
+    for field in ("inputs", "execution", "artifacts"):
+        if not isinstance(receipt.get(field), dict):
+            raise LabExecutionReceiptError(f"{field}_object_required")
+    canonical_json(receipt)
+
+
 def receipt_sha256(receipt: dict) -> str:
+    _validate_receipt_shape(receipt)
     return hashlib.sha256(canonical_json(receipt)).hexdigest()
 
 
@@ -90,8 +106,7 @@ def sign_receipt(
         raise LabExecutionReceiptError("ed25519_private_key_required")
     if not isinstance(key_id, str) or not key_id.strip():
         raise LabExecutionReceiptError("key_id_required")
-    if receipt.get("schema_version") != 1 or receipt.get("receipt_type") != "aegisforge.lab_execution":
-        raise LabExecutionReceiptError("unsupported_receipt_schema")
+    _validate_receipt_shape(receipt)
     payload_bytes = canonical_json(receipt)
     public_bytes = private_key.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
@@ -124,8 +139,7 @@ def verify_signed_receipt(
     receipt = envelope.get("receipt")
     if not isinstance(receipt, dict):
         raise LabExecutionReceiptError("receipt_object_required")
-    if receipt.get("schema_version") != 1 or receipt.get("receipt_type") != "aegisforge.lab_execution":
-        raise LabExecutionReceiptError("unsupported_receipt_schema")
+    _validate_receipt_shape(receipt)
     payload_bytes = canonical_json(receipt)
     digest = hashlib.sha256(payload_bytes).hexdigest()
     if digest != envelope.get("receipt_sha256"):

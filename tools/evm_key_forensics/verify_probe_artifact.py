@@ -60,15 +60,21 @@ def verify_artifact(root: Path) -> dict:
         "compiler_recorded": isinstance(metadata.get("compiler_version"), str) and bool(metadata["compiler_version"].strip()),
         "build_flags_recorded": isinstance(build_flags, list) and bool(build_flags) and all(isinstance(flag, str) and flag for flag in build_flags),
     }
+    integrity_verified = all(checks.values())
     return {
         "schema_version": 1,
-        "integrity_verified": all(checks.values()),
+        "integrity_verified": integrity_verified,
+        # This verifier has no signature/trust-anchor input. Never present its
+        # hash-consistency result as authenticated provenance.
+        "authenticity": "UNTRUSTED_UNSIGNED",
+        "signature_verified_against_trusted_key": False,
         "checks": checks,
         "git_commit": metadata.get("git_commit"),
         "github_run_id": metadata.get("github_run_id"),
         "limitations": [
             "Hashes prove file consistency relative to this manifest, not the truth of observations.",
-            "A hash manifest alone does not authenticate who produced the artifact.",
+            "This verifier does not authenticate who produced the artifact; authenticity is UNTRUSTED_UNSIGNED.",
+            "A hash manifest alone does not authenticate runner honesty or isolation.",
             "This diagnostic is not a reproduction of historical Profanity or a vulnerability.",
         ],
     }

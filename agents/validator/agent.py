@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from shared.task import Task
@@ -490,6 +491,14 @@ class Validator:
         # vector, a passing reproduction test and a content-addressed artifact.
         qualified_reproductions = []
         for item in experiments:
+            artifact = item.get("reproduction_artifact")
+            artifact_digest = item.get("reproduction_artifact_sha256")
+            artifact_bytes_present = isinstance(artifact, str) and bool(artifact.strip())
+            artifact_digest_matches = (
+                artifact_bytes_present
+                and is_immutable_hex(artifact_digest, 64)
+                and hashlib.sha256(artifact.encode("utf-8")).hexdigest() == str(artifact_digest).lower()
+            )
             if not (
                 item.get("historical_implementation_reproduced") is True
                 and item.get("synthetic_test_only") is True
@@ -503,7 +512,7 @@ class Validator:
                 and item.get("reproduction_source_role") == "pre_disclosure_release"
                 and str(item.get("synthetic_test_vector_id") or "").strip()
                 and item.get("reproduction_test_passed") is True
-                and is_immutable_hex(item.get("reproduction_artifact_sha256"), 64)
+                and artifact_digest_matches
                 and str(item.get("reproduction_command") or "").strip()
             ):
                 continue

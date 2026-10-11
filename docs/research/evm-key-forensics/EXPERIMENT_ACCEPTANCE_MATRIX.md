@@ -51,12 +51,17 @@ Stop and report `INCONCLUSIVE` if the exact historical path cannot be built safe
 ## Current status
 
 - Source review: complete.
-- Environment diagnostic: implemented; CI-tested.
+- Environment diagnostic: implemented; CI-tested. It records bounded environment observations, not cryptographic entropy.
 - Portable integrity verifier: implemented; CI-tested; unsigned artifacts remain untrusted.
-- Synthetic controls for a historical-path experiment: not yet implemented as a distinct experiment.
-- Historical vulnerability reproduction: **not established**.
+- Synthetic positive/negative control harness: implemented and covered by tests; both repository CI workflows passed at commit `258cc644cf1141b908e0e659d5dd313535c5bc16`.
+- E3 status: **synthetic harness controls pass**; this validates only the toy model and its control logic, not the historical Profanity behavior.
+- E1 build identity: not yet complete for a historical reproduction.
+- E4 historical-path reproduction: **not established**.
+- E5 independent review: pending.
 - Wallet compromise: **not tested and not claimed**.
 
 ## Next engineering gate
 
-Before expanding the pipeline, implement one bounded experiment that satisfies the controls above and exports a manifest. Reuse the existing lab receipt/verifier architecture where it fits; do not create a parallel signature format. Run it only in a disposable, isolated environment, never on the production agent farm.
+Do not infer historical exploitability from the synthetic control result. The next gate is to design a bounded, isolated build-identity and seed-construction harness around the pinned historical source, without invoking vanity search, generating wallet material, or accepting real addresses. Before implementing it, document the exact source lines, required compiler/standard-library provenance, expected observations, and independent negative control. If a safe harness cannot exercise the historical seed-construction path without running the wallet-search workload or handling key material, stop at source review and report `INCONCLUSIVE`.
+
+Reuse the existing lab receipt/verifier architecture where it fits; do not create a parallel signature format. Never run this experiment on the production agent farm.

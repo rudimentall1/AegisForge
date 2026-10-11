@@ -18,6 +18,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check pinned historical source pattern (inspection only)
+        run: |
+          set -euo pipefail
+          source_url="https://raw.githubusercontent.com/johguse/profanity/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/Dispatcher.cpp"
+          curl --fail --location --proto '=https' --tlsv1.2 "$source_url" -o /tmp/pinned-Dispatcher.cpp
+          python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher.cpp --pretty > /tmp/source-pattern-result.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("/tmp/source-pattern-result.json").read_text())
+          assert result["conclusion"] == "SOURCE_PATTERN_MATCHED", result
+          assert result["expected_upstream_commit"] == "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6"
+          assert result["historical_code_executed"] is False
+          assert result["wallet_material_used"] is False
+          assert result["historical_vulnerability_reproduced"] is False
+          print("Pinned historical source pattern: PASS (not a vulnerability reproduction)")
+          PY
+
       - name: Install compiler
         run: |
           sudo apt-get update

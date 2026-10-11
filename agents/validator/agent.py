@@ -26,6 +26,7 @@ class Validator:
         if self.authority_registry is None and evidence_ledger is not None:
             self.authority_registry = AgentAuthorityRegistry(evidence_ledger.db)
     MAX_OPPORTUNITIES = 4
+    MAX_RESEARCH_SOURCE_RECHECKS = 12
     PROBE_PATHS = ("README.md", "SECURITY.md", "pyproject.toml", "package.json",
                    "Cargo.toml", "go.mod", ".github/workflows")
     MANIFESTS = ("pyproject.toml", "requirements.txt", "package.json",
@@ -392,7 +393,7 @@ class Validator:
         source_ids = {item.get("source_id") for item in sources if item.get("source_id")}
         source_checks = []
 
-        for source in sources[:5]:
+        for source in sources[:self.MAX_RESEARCH_SOURCE_RECHECKS]:
             url = str(source.get("source_url") or "")
             parsed = urlparse(url)
             allowlisted = parsed.scheme == "https" and parsed.hostname in ALLOWED_SOURCE_HOSTS

@@ -666,6 +666,8 @@ def test_validator_checks_lab_execution_record_consistency_not_authenticity():
     assert valid_result["lab_execution_records_checked"] == 1
     assert valid_result["lab_execution_records_consistent"] is True
     assert valid_result["lab_execution_record_checks"][0]["internally_consistent"] is True
+    assert valid_result["lab_execution_record_checks"][0]["successful_execution"] is True
+    assert valid_result["lab_execution_records_passed"] is True
     assert valid_result["historical_reproduction_confirmed"] is False
 
     tampered = deepcopy(experiment)
@@ -674,4 +676,45 @@ def test_validator_checks_lab_execution_record_consistency_not_authenticity():
     tampered_checks = tampered_result["lab_execution_record_checks"][0]["checks"]
     assert tampered_result["lab_execution_records_consistent"] is False
     assert tampered_checks["stdout_digest_matches"] is False
+    assert tampered_result["lab_execution_records_passed"] is False
     assert tampered_result["historical_reproduction_confirmed"] is False
+
+    for field, value, failed_check in (
+        ("stderr", "unexpected stderr", "stderr_digest_matches"),
+        ("command", experiment["execution_record"]["command"] + ["tampered"], "command_digest_matches"),
+    ):
+        changed = deepcopy(experiment)
+        changed["execution_record"][field] = value
+        checked = validate(changed)
+        check = checked["lab_execution_record_checks"][0]
+        assert check["checks"][failed_check] is False
+        assert check["internally_consistent"] is False
+        assert check["successful_execution"] is False
+        assert checked["lab_execution_records_passed"] is False
+
+    missing = deepcopy(experiment)
+    missing.pop("execution_record")
+    missing_result = validate(missing)
+    missing_check = missing_result["lab_execution_record_checks"][0]
+    assert missing_check["checks"]["record_present"] is False
+    assert missing_check["successful_execution"] is False
+    assert missing_result["lab_execution_records_passed"] is False
+
+    failed_run = deepcopy(experiment)
+    failed_run["execution_record"]["exit_code"] = 2
+    failed_run["execution_record"]["test_passed"] = False
+    failed_result = validate(failed_run)
+    failed_check = failed_result["lab_execution_record_checks"][0]
+    assert failed_check["internally_consistent"] is True
+    assert failed_check["successful_execution"] is False
+    assert failed_result["lab_execution_records_passed"] is False
+
+    timed_out = deepcopy(experiment)
+    timed_out["execution_record"]["exit_code"] = None
+    timed_out["execution_record"]["timed_out"] = True
+    timed_out["execution_record"]["test_passed"] = False
+    timeout_result = validate(timed_out)
+    timeout_check = timeout_result["lab_execution_record_checks"][0]
+    assert timeout_check["internally_consistent"] is True
+    assert timeout_check["successful_execution"] is False
+    assert timeout_result["lab_execution_records_passed"] is False

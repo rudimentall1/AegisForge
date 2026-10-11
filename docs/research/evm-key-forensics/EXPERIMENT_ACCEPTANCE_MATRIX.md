@@ -52,8 +52,10 @@ Stop and report `INCONCLUSIVE` if the exact historical path cannot be built safe
 
 - Source review: complete.
 - Environment diagnostic: implemented; CI-tested. It records bounded environment observations, not cryptographic entropy.
-- Portable integrity verifier: implemented; CI-tested; unsigned artifacts remain untrusted.
-- Synthetic positive/negative control harness: implemented and covered by tests; both repository CI workflows passed at commit `258cc644cf1141b908e0e659d5dd313535c5bc16`.
+- Portable integrity verifier: implemented; CI-tested; strict JSON parsing rejects duplicate keys and non-standard constants in the exported artifact and structured result payload. Unsigned artifacts remain untrusted.
+- Synthetic positive/negative control harness: implemented and covered by tests; it validates only the repository-owned toy state space.
+- Portable verification instructions: documented in `tools/evm_key_forensics/README.md`; signed artifacts require a public key trusted independently of the artifact.
+- Latest observed CI: both `EVM Key Forensics Probe` and `AegisForge CI` passed at commit `4f73393a7a7b6bc649d350afa2e6e8ed3be2e3c6`.
 - E3 status: **synthetic harness controls pass**; this validates only the toy model and its control logic, not the historical Profanity behavior.
 - E1 build identity: not yet complete for a historical reproduction.
 - E4 historical-path reproduction: **not established**.
@@ -62,6 +64,8 @@ Stop and report `INCONCLUSIVE` if the exact historical path cannot be built safe
 
 ## Next engineering gate
 
-Do not infer historical exploitability from the synthetic control result. The next gate is to design a bounded, isolated build-identity and seed-construction harness around the pinned historical source, without invoking vanity search, generating wallet material, or accepting real addresses. Before implementing it, document the exact source lines, required compiler/standard-library provenance, expected observations, and independent negative control. If a safe harness cannot exercise the historical seed-construction path without running the wallet-search workload or handling key material, stop at source review and report `INCONCLUSIVE`.
+First, exercise the portable artifact workflow end-to-end: export one synthetic experiment, verify it offline with an independently supplied trusted public key, then mutate the receipt and substitute an unrelated key; both negative cases must fail closed. Capture the exact commands and exit codes as reproducibility evidence.
+
+Only after that gate, consider a bounded, isolated build-identity and seed-construction harness around the pinned historical source, without invoking vanity search, generating wallet material, or accepting real addresses. Before implementing it, document the exact source lines, required compiler/standard-library provenance, expected observations, and independent negative control. If a safe harness cannot exercise the historical seed-construction path without running the wallet-search workload or handling key material, stop at source review and report `INCONCLUSIVE`.
 
 Reuse the existing lab receipt/verifier architecture where it fits; do not create a parallel signature format. Never run this experiment on the production agent farm.

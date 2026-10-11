@@ -12,6 +12,7 @@ import sys
 SCHEMA_VERSION = 1
 EXPERIMENT_ID = "evm-forensics-historical-source-pattern-v1"
 UPSTREAM_COMMIT = "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6"
+EXPECTED_GIT_BLOB_SHA1 = "c9226fc02a52633a84664cbf3aaf2b4af8a59b25"
 
 
 def _find_function_body(source: str, start: int) -> tuple[int | None, int | None]:
@@ -66,20 +67,27 @@ def _find_function_body(source: str, start: int) -> tuple[int | None, int | None
     return brace_start, None
 
 
+def _git_blob_sha1(source_bytes: bytes) -> str:
+    header = f"blob {len(source_bytes)}\\0".encode("ascii")
+    return hashlib.sha1(header + source_bytes).hexdigest()
+
+
 def inspect_source(source: str) -> dict:
-    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    source_bytes = source.encode("utf-8")
+    digest = hashlib.sha256(source_bytes).hexdigest()
+    blob_sha1 = _git_blob_sha1(source_bytes)
     marker = "cl_ulong4 Dispatcher::Device::createSeed()"
     start = source.find(marker)
     if start < 0:
-        return _result("INCONCLUSIVE", digest, ["createSeed_function_missing"])
+        return _result("INCONCLUSIVE", digest, ["createSeed_function_missing"], blob_sha1)
 
     # Scope the check to the function body; braces in comments and quoted
     # literals must not alter the parser's nesting depth.
     brace_start, end = _find_function_body(source, start)
     if brace_start is None:
-        return _result("INCONCLUSIVE", digest, ["function_body_missing"])
+        return _result("INCONCLUSIVE", digest, ["function_body_missing"], blob_sha1)
     if end is None:
-        return _result("INCONCLUSIVE", digest, ["function_body_unbalanced"])
+        return _result("INCONCLUSIVE", digest, ["function_body_unbalanced"], blob_sha1)
 
     body = source[brace_start:end]
     errors = []
@@ -87,7 +95,7 @@ def inspect_source(source: str) -> dict:
     else_pos = body.find("#else", debug_pos + 1) if debug_pos >= 0 else -1
     endif_pos = body.find("#endif", else_pos + 1) if else_pos >= 0 else -1
     if min(debug_pos, else_pos, endif_pos) < 0:
-        return _result("INCONCLUSIVE", digest, ["debug_branch_structure_ambiguous"])
+        return _result("INCONCLUSIVE", digest, ["debug_branch_structure_ambiguous"], blob_sha1)
 
     debug_branch = body[debug_pos:else_pos]
     production_branch = body[else_pos:endif_pos]
@@ -112,16 +120,18 @@ def inspect_source(source: str) -> dict:
         if len(re.findall(fixed_assignment, debug_branch)) != 1:
             errors.append(f"debug_fixed_seed_word_{word_index}_not_recognized")
 
-    return _result("SOURCE_PATTERN_MATCHED" if not errors else "INCONCLUSIVE", digest, errors)
+    return _result("SOURCE_PATTERN_MATCHED" if not errors else "INCONCLUSIVE", digest, errors, blob_sha1)
 
 
-def _result(conclusion: str, source_sha256: str, errors: list[str]) -> dict:
+def _result(conclusion: str, source_sha256: str, errors: list[str], git_blob_sha1: str = "") -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
         "experiment_id": EXPERIMENT_ID,
         "upstream_repository": "https://github.com/johguse/profanity",
         "expected_upstream_commit": UPSTREAM_COMMIT,
         "source_sha256": source_sha256,
+        "git_blob_sha1": git_blob_sha1,
+        "pinned_source_blob_matches": git_blob_sha1 == EXPECTED_GIT_BLOB_SHA1,
         "conclusion": conclusion,
         "errors": errors,
         "historical_code_executed": False,
@@ -146,6 +156,11 @@ def main(argv=None) -> int:
         result = _result("INCONCLUSIVE", "", [f"source_unreadable:{type(exc).__name__}"])
     else:
         result = inspect_source(source)
+        # CLI acceptance requires the exact pinned upstream file, not merely a
+        # matching pattern in a synthetic excerpt or unrelated source file.
+        if not result["pinned_source_blob_matches"]:
+            result["conclusion"] = "INCONCLUSIVE"
+            result["errors"].append("pinned_upstream_blob_mismatch")
     print(json.dumps(result, sort_keys=True, indent=2 if args.pretty else None))
     return 0 if result["conclusion"] == "SOURCE_PATTERN_MATCHED" else 2
 

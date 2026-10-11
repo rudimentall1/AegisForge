@@ -854,3 +854,41 @@ def test_validator_rejects_trusted_receipt_not_bound_to_reproduction_claim(monke
     assert bound_report["independent_runner_attestation_available"] is False
     assert bound_report["historical_reproduction_confirmed"] is False
     assert bound_report["status"] == "INCONCLUSIVE"
+
+    
+    # Each reproduction binding dimension is independently security-critical.
+    # Re-sign altered receipts to prove that trusted signature validity alone
+    # cannot override a mismatch against the dossier.
+    mismatches = [
+        ("source_revision", lambda receipt: receipt["inputs"].update(source_revision="f" * 40)),
+        ("test_vector_id", lambda receipt: receipt["inputs"].update(test_vector_id="different-vector")),
+        ("reproduction_command", lambda receipt: receipt["inputs"].update(reproduction_command="python other.py")),
+        ("reproduction_artifact_sha256", lambda receipt: receipt["artifacts"].update(reproduction_artifact_sha256="0" * 64)),
+        ("experiment_id", lambda receipt: receipt.update(experiment_id="different-experiment")),
+    ]
+    for field_name, mutate in mismatches:
+        mismatched_experiment = deepcopy(bound_experiment)
+        mismatched_receipt = deepcopy(mismatched_experiment["execution_receipt"])
+        mutate(mismatched_receipt)
+        mismatched_experiment["execution_receipt"] = mismatched_receipt
+        mismatched_experiment["execution_receipt_sha256"] = receipt_sha256(mismatched_receipt)
+        mismatched_experiment["execution_receipt_envelope"] = sign_receipt(
+            mismatched_receipt, private_key=private_key, key_id=key_id
+        )
+        mismatch_report = validator.run(Task(
+            task_id=f"trusted-receipt-mismatch-{field_name}",
+            description=f"Reject signed receipt with mismatched {field_name}",
+            result={
+                "research_track": "evm_key_forensics",
+                "stage": "lab",
+                "sources": [],
+                "hypotheses": [],
+                "lab_experiments": [mismatched_experiment],
+            },
+        )).result["research_validation"]
+        mismatch_check = mismatch_report["lab_execution_receipt_checks"][0]
+        assert mismatch_check["authenticity"] == "SIGNED_AND_TRUSTED"
+        assert mismatch_check["reproduction_binding_matches"] is False
+        assert mismatch_check["independent_runner_attestation_verified"] is False
+        assert mismatch_report["historical_reproduction_confirmed"] is False
+        assert mismatch_report["status"] == "INCONCLUSIVE"

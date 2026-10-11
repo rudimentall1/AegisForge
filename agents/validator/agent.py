@@ -666,9 +666,15 @@ class Validator:
                 and receipt_inputs.get("reproduction_command") == item.get("reproduction_command")
                 and receipt_artifacts.get("reproduction_artifact_sha256") == item.get("reproduction_artifact_sha256")
             )
+            # A trusted Ed25519 signature only authenticates the signer's
+            # statement. This pipeline has no independent runner attestation
+            # verifier yet, so even a correctly bound receipt cannot qualify a
+            # historical reproduction by itself.
+            independent_runner_attestation_verified = False
             execution_receipt_checks.append({
                 "experiment_id": item.get("experiment_id"),
                 "reproduction_binding_matches": reproduction_binding_matches,
+                "independent_runner_attestation_verified": independent_runner_attestation_verified,
                 "receipt_present": isinstance(receipt, dict),
                 "digest_matches": digest_valid,
                 "record_matches_receipt": record_matches_receipt,
@@ -707,6 +713,7 @@ class Validator:
             and check.get("authenticity") == "SIGNED_AND_TRUSTED"
             and check.get("signature_verified_against_trusted_key") is True
             and check.get("reproduction_binding_matches") is True
+            and check.get("independent_runner_attestation_verified") is True
         }
 
         # Never trust a bare boolean asserted by a previous agent. A historical
@@ -838,8 +845,9 @@ class Validator:
             "lab_trusted_key_configuration_error": trusted_lab_keys_config_error,
             "lab_execution_receipt_checks": execution_receipt_checks,
             "historical_reproduction_confirmed": historical_reproduction,
+            "independent_runner_attestation_available": False,
             "verified_historical_claims": [],
-            "interpretation": "Source provenance and experiment scope were checked. No historical vulnerability is marked reproduced because the lab is an illustrative toy model.",
+            "interpretation": "Source provenance and experiment scope were checked. Signed receipts authenticate signer statements but do not prove isolated execution; independent runner attestation is not implemented, so historical reproduction remains unqualified.",
             "next_actions": next_actions,
             "review_type": "evm_key_forensics_dossier_validation",
         }

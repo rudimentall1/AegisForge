@@ -632,5 +632,46 @@ def test_lab_runner_records_observed_synthetic_subprocess_result():
         record["stdout"].encode("utf-8")
     ).hexdigest()
     assert record["stderr_sha256"] == hashlib.sha256(b"").hexdigest()
+    assert record["stderr"] == ""
+    assert record["stderr_sha256"] == hashlib.sha256(
+        record["stderr"].encode("utf-8")
+    ).hexdigest()
     assert experiment["synthetic_seed_recovered"] is True
     assert experiment["historical_implementation_reproduced"] is False
+
+
+
+def test_validator_checks_lab_execution_record_consistency_not_authenticity():
+    from copy import deepcopy
+    from agents.validator.agent import Validator
+
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    validator = Validator.__new__(Validator)
+    validator.source_fetcher = _fake_fetch
+
+    def validate(item):
+        return validator.run(Task(
+            task_id="lab-execution-record-check",
+            description="Check internally consistent subprocess observations",
+            result={
+                "research_track": "evm_key_forensics",
+                "stage": "lab",
+                "sources": [],
+                "hypotheses": [],
+                "lab_experiments": [item],
+            },
+        )).result["research_validation"]
+
+    valid_result = validate(deepcopy(experiment))
+    assert valid_result["lab_execution_records_checked"] == 1
+    assert valid_result["lab_execution_records_consistent"] is True
+    assert valid_result["lab_execution_record_checks"][0]["internally_consistent"] is True
+    assert valid_result["historical_reproduction_confirmed"] is False
+
+    tampered = deepcopy(experiment)
+    tampered["execution_record"]["stdout"] += "forged-after-run"
+    tampered_result = validate(tampered)
+    tampered_checks = tampered_result["lab_execution_record_checks"][0]["checks"]
+    assert tampered_result["lab_execution_records_consistent"] is False
+    assert tampered_checks["stdout_digest_matches"] is False
+    assert tampered_result["historical_reproduction_confirmed"] is False

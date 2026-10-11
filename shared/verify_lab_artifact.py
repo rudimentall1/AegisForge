@@ -136,15 +136,18 @@ def verify_lab_artifact(experiment: dict, trusted_public_keys: dict[str, bytes] 
         and experiment.get("attempts") == payload.get("attempts")
         and experiment.get("synthetic_seed_recovered") is payload.get("synthetic_seed_recovered")
         and experiment.get("synthetic_test_only") is payload.get("synthetic_test_only")
+        and experiment.get("uses_real_private_keys") is payload.get("uses_real_private_keys")
+        and experiment.get("uses_real_wallet_addresses") is payload.get("uses_real_wallet_addresses")
+        and experiment.get("public_wallets_touched") == payload.get("public_wallets_touched")
+        and experiment.get("historical_implementation_reproduced") is payload.get("historical_implementation_reproduced")
     )
     checks["safety_assertions_hold"] = (
-        experiment.get("synthetic_test_only") is True
-        and experiment.get("uses_real_private_keys") is False
-        and experiment.get("uses_real_wallet_addresses") is False
-        and experiment.get("public_wallets_touched") == 0
-        and experiment.get("historical_implementation_reproduced") is False
-        and isinstance(payload, dict)
+        isinstance(payload, dict)
         and payload.get("synthetic_test_only") is True
+        and payload.get("uses_real_private_keys") is False
+        and payload.get("uses_real_wallet_addresses") is False
+        and payload.get("public_wallets_touched") == 0
+        and payload.get("historical_implementation_reproduced") is False
     )
 
     integrity_verified = all(checks.values())

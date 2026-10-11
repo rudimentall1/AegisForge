@@ -830,6 +830,10 @@ def test_validator_rejects_trusted_receipt_not_bound_to_reproduction_claim(monke
     bound_receipt["inputs"]["test_vector_id"] = vector_id
     bound_receipt["inputs"]["reproduction_command"] = command
     bound_receipt["artifacts"]["reproduction_artifact_sha256"] = bound_experiment["reproduction_artifact_sha256"]
+    # Attestation status supplied by a dossier or a signed ordinary receipt
+    # is still untrusted input; only a future real verifier may derive it.
+    bound_receipt["independent_runner_attestation_verified"] = True
+    bound_experiment["independent_runner_attestation_verified"] = True
     bound_experiment["execution_receipt"] = bound_receipt
     bound_experiment["execution_receipt_sha256"] = receipt_sha256(bound_receipt)
     bound_experiment["execution_receipt_envelope"] = sign_receipt(

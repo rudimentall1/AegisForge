@@ -17,6 +17,16 @@ EXPECTED_EVM_FORENSICS_REVISIONS = {
     ("johguse/profanity", "v1.50"): "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
     ("johguse/profanity", "master"): "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
 }
+
+
+def _reject_duplicate_json_keys(pairs):
+    """Reject ambiguous JSON objects in operator-provisioned trust configuration."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate_json_key")
+        result[key] = value
+    return result
 from shared.signed_action_intent import ActionIntentSigner
 from shared.lab_execution_receipt import LabExecutionReceiptError, receipt_sha256, verify_signed_receipt
 
@@ -562,7 +572,9 @@ class Validator:
         raw_trusted_keys = os.environ.get("AEGISFORGE_LAB_TRUSTED_PUBLIC_KEYS", "").strip()
         if raw_trusted_keys:
             try:
-                parsed_trusted_keys = json.loads(raw_trusted_keys)
+                parsed_trusted_keys = json.loads(
+                    raw_trusted_keys, object_pairs_hook=_reject_duplicate_json_keys
+                )
                 if not isinstance(parsed_trusted_keys, dict):
                     raise ValueError("trusted_key_map_must_be_object")
                 for key_id, encoded_key in parsed_trusted_keys.items():

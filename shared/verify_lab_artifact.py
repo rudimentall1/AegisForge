@@ -23,9 +23,30 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _reject_duplicate_json_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate_json_key:{key}")
+        result[key] = value
+    return result
+
+
+def _reject_nonstandard_json_constant(value):
+    raise ValueError(f"nonstandard_json_constant:{value}")
+
+
+def _strict_json_loads(value: str):
+    return json.loads(
+        value,
+        object_pairs_hook=_reject_duplicate_json_keys,
+        parse_constant=_reject_nonstandard_json_constant,
+    )
+
+
 def _canonical_json(value) -> bytes:
     return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     ).encode("utf-8")
 
 
@@ -81,7 +102,7 @@ def verify_lab_artifact(experiment: dict, trusted_public_keys: dict[str, bytes] 
     result_payload_digest = None
     if isinstance(stdout, str):
         try:
-            result_payload_digest = _sha256(_canonical_json(json.loads(stdout)))
+            result_payload_digest = _sha256(_canonical_json(_strict_json_loads(stdout)))
         except (TypeError, ValueError):
             pass
     checks["result_payload_digest_matches"] = (
@@ -174,7 +195,7 @@ def main(argv=None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        artifact = json.loads(Path(args.artifact).read_text(encoding="utf-8"))
+        artifact = _strict_json_loads(Path(args.artifact).read_text(encoding="utf-8"))
         if isinstance(artifact, dict) and isinstance(artifact.get("lab_experiments"), list):
             experiments = artifact["lab_experiments"]
             if len(experiments) != 1:

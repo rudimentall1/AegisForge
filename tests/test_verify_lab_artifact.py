@@ -230,6 +230,35 @@ def test_offline_verifier_rejects_tampered_safety_assertions():
     assert result["checks"]["safety_assertions_hold"] is False
 
 
+def test_offline_verifier_cli_rejects_mutated_signed_receipt(tmp_path, capsys):
+    experiment = _experiment()
+    private_key = Ed25519PrivateKey.generate()
+    experiment["execution_receipt_envelope"] = sign_receipt(
+        experiment["execution_receipt"],
+        private_key=private_key,
+        key_id="trusted-runner",
+    )
+    # Mutate the receipt after signing without refreshing the signature.
+    experiment["execution_receipt"]["execution"]["exit_code"] = 99
+    artifact_path = tmp_path / "mutated-signed-experiment.json"
+    artifact_path.write_text(json.dumps(experiment), encoding="utf-8")
+    public_key_path = tmp_path / "trusted-runner.pub"
+    public_key_path.write_bytes(_public_bytes(private_key))
+
+    exit_code = main([
+        str(artifact_path),
+        "--trusted-key",
+        f"trusted-runner={public_key_path}",
+    ])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    result = json.loads(captured.out)
+    assert result["integrity_verified"] is False
+    assert result["checks"]["receipt_digest_matches"] is False
+    assert result["signature_verified_against_trusted_key"] is False
+
+
 def test_offline_verifier_rejects_receipt_mutation_after_signing():
     experiment = _experiment()
     private_key = Ed25519PrivateKey.generate()

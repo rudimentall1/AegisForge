@@ -499,6 +499,26 @@ class Validator:
                 and is_immutable_hex(artifact_digest, 64)
                 and hashlib.sha256(artifact.encode("utf-8")).hexdigest() == str(artifact_digest).lower()
             )
+            # Hash integrity alone is not enough: require a structured artifact
+            # whose claimed metadata agrees with the dossier. This is a
+            # consistency gate, not proof that the command actually ran.
+            artifact_record = None
+            if artifact_digest_matches:
+                try:
+                    parsed_artifact = json.loads(artifact)
+                    if isinstance(parsed_artifact, dict):
+                        artifact_record = parsed_artifact
+                except (TypeError, ValueError):
+                    artifact_record = None
+            artifact_record_matches = (
+                isinstance(artifact_record, dict)
+                and artifact_record.get("schema_version") == 1
+                and artifact_record.get("source_revision") == item.get("pinned_source_revision")
+                and artifact_record.get("test_vector_id") == item.get("synthetic_test_vector_id")
+                and artifact_record.get("command") == item.get("reproduction_command")
+                and artifact_record.get("exit_code") == 0
+                and artifact_record.get("test_passed") is True
+            )
             if not (
                 item.get("historical_implementation_reproduced") is True
                 and item.get("synthetic_test_only") is True
@@ -513,6 +533,7 @@ class Validator:
                 and str(item.get("synthetic_test_vector_id") or "").strip()
                 and item.get("reproduction_test_passed") is True
                 and artifact_digest_matches
+                and artifact_record_matches
                 and str(item.get("reproduction_command") or "").strip()
             ):
                 continue

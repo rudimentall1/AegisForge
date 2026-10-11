@@ -706,6 +706,7 @@ class Validator:
             if check.get("integrity_verified") is True
             and check.get("authenticity") == "SIGNED_AND_TRUSTED"
             and check.get("signature_verified_against_trusted_key") is True
+            and check.get("reproduction_binding_matches") is True
         }
 
         # Never trust a bare boolean asserted by a previous agent. A historical

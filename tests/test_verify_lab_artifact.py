@@ -147,3 +147,32 @@ def test_offline_verifier_cli_returns_success_only_for_trusted_signature(tmp_pat
     assert result["integrity_verified"] is True
     assert result["authenticity"] == "SIGNED_AND_TRUSTED"
     assert result["signature_verified_against_trusted_key"] is True
+
+
+
+def test_offline_verifier_cli_rejects_wrong_trusted_key(tmp_path, capsys):
+    experiment = _experiment()
+    signing_key = Ed25519PrivateKey.generate()
+    unrelated_key = Ed25519PrivateKey.generate()
+    experiment["execution_receipt_envelope"] = sign_receipt(
+        experiment["execution_receipt"],
+        private_key=signing_key,
+        key_id="runner-key",
+    )
+    artifact_path = tmp_path / "signed-experiment.json"
+    artifact_path.write_text(json.dumps(experiment), encoding="utf-8")
+    trusted_key_path = tmp_path / "wrong.pub"
+    trusted_key_path.write_bytes(_public_bytes(unrelated_key))
+
+    exit_code = main([
+        str(artifact_path),
+        "--trusted-key",
+        f"runner-key={trusted_key_path}",
+    ])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    result = json.loads(captured.out)
+    assert result["integrity_verified"] is True
+    assert result["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
+    assert result["signature_verified_against_trusted_key"] is False

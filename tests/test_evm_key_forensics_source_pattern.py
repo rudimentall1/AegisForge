@@ -85,7 +85,7 @@ def test_unrelated_source_fails_closed():
 def test_braces_in_comments_do_not_truncate_function_body():
     mutated = SOURCE.replace(
         "#endif",
-        "#endif\\n    // } this brace is not C++ syntax",
+        "#endif\n    // } this brace is not C++ syntax",
     )
     result = inspect_source(mutated)
     assert result["conclusion"] == "SOURCE_PATTERN_MATCHED"
@@ -93,8 +93,8 @@ def test_braces_in_comments_do_not_truncate_function_body():
 
 def test_braces_in_string_literals_do_not_truncate_function_body():
     mutated = SOURCE.replace(
-        "return r;\\n#endif",
-        'const char *note = "}";\\n    return r;\\n#endif',
+        "return r;\n#endif",
+        'const char *note = "}";\n    return r;\n#endif',
         1,
     )
     result = inspect_source(mutated)
@@ -103,8 +103,8 @@ def test_braces_in_string_literals_do_not_truncate_function_body():
 
 def test_unbalanced_real_brace_fails_closed_even_with_comment_brace():
     mutated = SOURCE.replace(
-        "return r;\\n#endif\\n}",
-        "return r;\\n#endif\\n// } comment must not balance the function\\n",
+        "return r;\n#endif\n}",
+        "return r;\n#endif\n// } comment must not balance the function\n",
     )
     result = inspect_source(mutated)
     assert result["conclusion"] == "INCONCLUSIVE"

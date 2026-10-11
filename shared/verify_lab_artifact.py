@@ -120,6 +120,33 @@ def verify_lab_artifact(experiment: dict, trusted_public_keys: dict[str, bytes] 
         and execution.get("stderr_sha256") == record.get("stderr_sha256")
     )
 
+    # Summary fields are outside the signed receipt. Bind them to the parsed
+    # execution payload and enforce the lab's safety assertions explicitly.
+    payload = None
+    if isinstance(stdout, str):
+        try:
+            payload = _strict_json_loads(stdout)
+        except (TypeError, ValueError):
+            pass
+    checks["summary_matches_result_payload"] = (
+        isinstance(payload, dict)
+        and experiment.get("experiment_id") == payload.get("experiment_id")
+        and experiment.get("seed_bits") == payload.get("seed_bits")
+        and experiment.get("candidate_space") == payload.get("candidate_space")
+        and experiment.get("attempts") == payload.get("attempts")
+        and experiment.get("synthetic_seed_recovered") is payload.get("synthetic_seed_recovered")
+        and experiment.get("synthetic_test_only") is payload.get("synthetic_test_only")
+    )
+    checks["safety_assertions_hold"] = (
+        experiment.get("synthetic_test_only") is True
+        and experiment.get("uses_real_private_keys") is False
+        and experiment.get("uses_real_wallet_addresses") is False
+        and experiment.get("public_wallets_touched") == 0
+        and experiment.get("historical_implementation_reproduced") is False
+        and isinstance(payload, dict)
+        and payload.get("synthetic_test_only") is True
+    )
+
     integrity_verified = all(checks.values())
     successful_execution = (
         integrity_verified

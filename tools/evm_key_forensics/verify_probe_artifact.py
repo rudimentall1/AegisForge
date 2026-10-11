@@ -28,20 +28,37 @@ def verify_artifact(root: Path) -> dict:
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     output = json.loads(output_path.read_text(encoding="utf-8"))
 
+    samples = output.get("samples_requested")
+    distinct = output.get("distinct_values_observed")
+    type_bits = output.get("random_device_result_type_bits")
+    reported_entropy = output.get("random_device_reported_entropy")
+    build_flags = metadata.get("build_flags")
+
     checks = {
         "schema_version_supported": metadata.get("schema_version") == 1,
         "output_schema_supported": output.get("schema_version") == 1,
+        "probe_identity_matches": output.get("probe") == "std_random_device_environment_diagnostic",
         "diagnostic_only_purpose": metadata.get("purpose") == "diagnostic_environment_observation_only",
         "historical_vulnerability_not_claimed": metadata.get("historical_vulnerability_reproduced") is False,
         "entropy_not_claimed": metadata.get("entropy_proven") is False,
         "probe_does_not_claim_historical_execution": output.get("historical_profanity_code_executed") is False,
         "probe_does_not_use_wallet_material": output.get("wallet_material_used") is False,
         "sample_observations_not_entropy_proof": output.get("observations_are_entropy_proof") is False,
+        "sample_count_in_bounds": type(samples) is int and 1 <= samples <= 10000,
+        "distinct_count_in_bounds": type(distinct) is int and type(samples) is int and 1 <= distinct <= samples,
+        "result_type_width_valid": type(type_bits) is int and type_bits > 0,
+        "reported_entropy_is_numeric": type(reported_entropy) in (int, float) and reported_entropy >= 0,
+        "source_nonempty": source_path.is_file() and source_path.stat().st_size > 0,
+        "binary_nonempty": binary_path.is_file() and binary_path.stat().st_size > 0,
         "source_hash_matches": metadata.get("source_sha256") == sha256(source_path),
         "binary_hash_matches": metadata.get("binary_sha256") == sha256(binary_path),
         "output_hash_matches": metadata.get("output_sha256") == sha256(output_path),
         "commit_recorded": isinstance(metadata.get("git_commit"), str) and len(metadata["git_commit"]) == 40,
         "run_id_recorded": isinstance(metadata.get("github_run_id"), str) and metadata["github_run_id"].isdigit(),
+        "run_attempt_recorded": isinstance(metadata.get("github_run_attempt"), str) and metadata["github_run_attempt"].isdigit(),
+        "runner_environment_recorded": isinstance(metadata.get("runner_os"), str) and bool(metadata["runner_os"].strip()),
+        "compiler_recorded": isinstance(metadata.get("compiler_version"), str) and bool(metadata["compiler_version"].strip()),
+        "build_flags_recorded": isinstance(build_flags, list) and bool(build_flags) and all(isinstance(flag, str) and flag for flag in build_flags),
     }
     return {
         "schema_version": 1,

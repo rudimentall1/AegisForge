@@ -29,3 +29,29 @@ The output records:
 ## Next research gate
 
 To move beyond this diagnostic, a separate controlled experiment must pin the historical source revision and toolchain, exercise the relevant historical code path in an isolated environment, predefine the property being tested, and export an artifact that the independent AegisForge Validator can check. Until that exists, keep the historical reproduction status `INCONCLUSIVE`.
+
+## Portable artifact verification
+
+For a lab experiment exported by the AegisForge runner, use the shared offline verifier from the repository root:
+
+```sh
+python -m shared.verify_lab_artifact path/to/experiment.json
+```
+
+To verify a signed receipt, provide the signer's public key through a trust decision made independently of the artifact:
+
+```sh
+python -m shared.verify_lab_artifact path/to/experiment.json \
+  --trusted-key runner-key=path/to/runner-key.pub
+```
+
+The key ID must match the receipt envelope. The public key must be obtained and trusted out-of-band; accepting a public key supplied only inside the same artifact would not establish trust. Never put a signing private key in the artifact or repository.
+
+Exit codes:
+
+- `0`: integrity checks pass and the receipt signature verifies against an explicitly configured trusted key.
+- `1`: malformed input or failed integrity checks.
+- `2`: internal integrity checks pass, but the artifact is unsigned or its signature is invalid/untrusted.
+
+A self-consistent artifact is not necessarily authentic: anyone able to edit an unsigned artifact can recompute its hashes. A trusted signature authenticates the signed statement under the configured key, not the honesty, isolation, or correctness of the runner. The verifier is offline and does not contact the issuer.
+

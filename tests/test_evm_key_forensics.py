@@ -555,7 +555,6 @@ def test_validator_rejects_artifact_with_mismatched_source_revision():
 
 def test_validator_rejects_artifact_with_false_execution_metadata():
     import json
-    import pytest
     from agents.validator.agent import Validator, EXPECTED_EVM_FORENSICS_REVISIONS
 
     revision = EXPECTED_EVM_FORENSICS_REVISIONS[("johguse/profanity", "v1.50")]

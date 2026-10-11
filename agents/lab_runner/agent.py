@@ -53,6 +53,10 @@ print(json.dumps({
     "attempts": attempts,
     "synthetic_seed_recovered": recovered == target_seed,
     "synthetic_test_only": True,
+    "uses_real_private_keys": False,
+    "uses_real_wallet_addresses": False,
+    "public_wallets_touched": 0,
+    "historical_implementation_reproduced": False,
 }, sort_keys=True))
 """
 

@@ -68,7 +68,7 @@ def _find_function_body(source: str, start: int) -> tuple[int | None, int | None
 
 
 def _git_blob_sha1(source_bytes: bytes) -> str:
-    header = f"blob {len(source_bytes)}\\0".encode("ascii")
+    header = f"blob {len(source_bytes)}\0".encode("ascii")
     return hashlib.sha1(header + source_bytes).hexdigest()
 
 

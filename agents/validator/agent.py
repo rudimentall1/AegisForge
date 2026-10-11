@@ -1,6 +1,8 @@
 import json
 import os
 from shared.task import Task
+from shared.public_source import ALLOWED_SOURCE_HOSTS, fetch_public_source
+from urllib.parse import urlparse
 from shared.github_client import GitHubClient
 from shared.capability_policy import ActionIntent, CapabilityDecision, CapabilityPolicy
 from shared.evidence_ledger import EvidenceLedger
@@ -14,8 +16,9 @@ class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
     name = "validator"
 
-    def __init__(self, evidence_ledger=None, capability_signer=None, authority_registry=None, agent_identity_signer=None, agent_identity_key_dir=None):
+    def __init__(self, evidence_ledger=None, capability_signer=None, authority_registry=None, agent_identity_signer=None, agent_identity_key_dir=None, source_fetcher=None):
         self.evidence_ledger = evidence_ledger
+        self.source_fetcher = source_fetcher or fetch_public_source
         self.capability_signer = capability_signer or CapabilitySigner.generate()
         self.agent_identity_signer = agent_identity_signer
         self.agent_identity_key_dir = agent_identity_key_dir or os.environ.get("AEGISFORGE_AGENT_IDENTITY_KEY_DIR", "/var/lib/aegisforge/identities")
@@ -382,9 +385,107 @@ class Validator:
         elif status in {"DEFERRED", "BLOCKED"}: opportunity["commercial_readiness"] = "EARLY_SIGNAL"
         return {"before":round(before,3), "after":round(after,3), "delta":round(after-before,3), "score_before":score_before, "score_after":score_after, "uncertainties_remaining":len(uncertainties)}
 
+    def _validate_evm_forensics_dossier(self, task: Task) -> Task:
+        """Check provenance and scope without equating source access with proof."""
+        result = dict(task.result or {})
+        sources = [item for item in result.get("sources", []) if isinstance(item, dict)]
+        source_ids = {item.get("source_id") for item in sources if item.get("source_id")}
+        source_checks = []
+
+        for source in sources[:5]:
+            url = str(source.get("source_url") or "")
+            parsed = urlparse(url)
+            allowlisted = parsed.scheme == "https" and parsed.hostname in ALLOWED_SOURCE_HOSTS
+            digest = str(source.get("content_sha256") or "")
+            digest_ok = len(digest) == 64 and all(char in "0123456789abcdef" for char in digest.lower())
+            check = {
+                "source_id": source.get("source_id"),
+                "source_url": url,
+                "allowlisted_https": allowlisted,
+                "reported_fetch_success": source.get("status_code") == 200,
+                "reported_digest_well_formed": digest_ok,
+                "recheck_status": "not_attempted",
+                "content_fingerprint_matches": False,
+            }
+            if allowlisted:
+                try:
+                    fresh = self.source_fetcher(url)
+                    check["recheck_status"] = "rechecked_http_200" if fresh.get("status_code") == 200 else f"recheck_http_{fresh.get('status_code')}"
+                    check["content_fingerprint_matches"] = bool(digest_ok) and fresh.get("content_sha256") == digest
+                    check["rechecked_at"] = fresh.get("retrieved_at")
+                except Exception as exc:
+                    check["recheck_status"] = "recheck_error"
+                    check["recheck_error_type"] = type(exc).__name__
+            source_checks.append(check)
+
+        hypotheses = [item for item in result.get("hypotheses", []) if isinstance(item, dict)]
+        hypothesis_checks = []
+        for hypothesis in hypotheses:
+            refs = hypothesis.get("source_ids") or []
+            hypothesis_checks.append({
+                "hypothesis_id": hypothesis.get("hypothesis_id"),
+                "source_reference_count": len(refs),
+                "missing_source_references": [ref for ref in refs if ref not in source_ids],
+                "has_source_reference": bool(refs),
+            })
+
+        experiments = [item for item in result.get("lab_experiments", []) if isinstance(item, dict)]
+        toy_only = bool(experiments) and all(
+            item.get("synthetic_test_only") is True
+            and item.get("uses_real_private_keys") is False
+            and item.get("uses_real_wallet_addresses") is False
+            and item.get("historical_implementation_reproduced") is False
+            for item in experiments
+        )
+        historical_reproduction = any(
+            item.get("historical_implementation_reproduced") is True
+            and item.get("synthetic_test_only") is True
+            for item in experiments
+        )
+        rechecked = sum(item.get("recheck_status") == "rechecked_http_200" for item in source_checks)
+        matching = sum(item.get("content_fingerprint_matches") is True for item in source_checks)
+        status = "READY_FOR_HUMAN_REVIEW" if historical_reproduction and rechecked >= 2 else "INCONCLUSIVE"
+
+        next_actions = []
+        if not any(item.get("classification") == "early_client_key_generation_warning" for item in sources):
+            next_actions.append("Find primary material describing exact early-client version boundaries.")
+        if not any(item.get("classification") == "vanity_generator_entropy_weakness_report" for item in sources):
+            next_actions.append("Find the primary Profanity vulnerability report and affected revision.")
+        if not historical_reproduction:
+            next_actions.append("Reproduce a pinned historical implementation with synthetic test vectors; the toy demonstration is insufficient.")
+        if rechecked < 2:
+            next_actions.append("Independently re-fetch at least two allowlisted primary sources.")
+        next_actions.append("Keep address-cohort claims unproven until tested against an aggregate control sample.")
+
+        result["research_track"] = "evm_key_forensics"
+        result["stage"] = "validation"
+        result["research_source_checks"] = source_checks
+        result["research_validation"] = {
+            "schema_version": "evm-forensics-validation-v1",
+            "status": status,
+            "decision": "CONTINUE_RESEARCH" if status == "INCONCLUSIVE" else "READY_FOR_HUMAN_REVIEW",
+            "sources_in_dossier": len(sources),
+            "sources_rechecked_http_200": rechecked,
+            "exact_source_fingerprints_matching": matching,
+            "hypotheses_checked": len(hypothesis_checks),
+            "hypothesis_checks": hypothesis_checks,
+            "lab_experiment_count": len(experiments),
+            "toy_lab_scope_verified": toy_only,
+            "historical_reproduction_confirmed": historical_reproduction,
+            "verified_historical_claims": [],
+            "interpretation": "Source provenance and experiment scope were checked. No historical vulnerability is marked reproduced because the lab is an illustrative toy model.",
+            "next_actions": next_actions,
+            "review_type": "evm_key_forensics_dossier_validation",
+        }
+        task.result = result
+        task.status = "validated"
+        return task
+
     def run(self, task: Task) -> Task:
         task.status = "validating"
         try:
+            if isinstance(task.result, dict) and task.result.get("research_track") == "evm_key_forensics":
+                return self._validate_evm_forensics_dossier(task)
             if self._is_capability_evidence_request(task):
                 task.result = self._verify_capability_request(task)
                 task.status = "validated"

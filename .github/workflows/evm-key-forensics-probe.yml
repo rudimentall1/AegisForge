@@ -1,0 +1,59 @@
+name: EVM Key Forensics Probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "tools/evm_key_forensics/**"
+      - ".github/workflows/evm-key-forensics-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compile-and-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++
+
+      - name: Compile diagnostic probe
+        run: |
+          g++ --version
+          g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic \
+            tools/evm_key_forensics/profanity_seed_environment_probe.cpp \
+            -o profanity_seed_environment_probe
+
+      - name: Validate JSON output and safety flags
+        run: |
+          ./profanity_seed_environment_probe 64 > probe-output.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("probe-output.json").read_text())
+          assert data["schema_version"] == 1
+          assert data["probe"] == "std_random_device_environment_diagnostic"
+          assert data["historical_profanity_code_executed"] is False
+          assert data["wallet_material_used"] is False
+          assert data["observations_are_entropy_proof"] is False
+          assert data["samples_requested"] == 64
+          assert 1 <= data["distinct_values_observed"] <= 64
+          assert isinstance(data["random_device_result_type_bits"], int)
+          assert isinstance(data["random_device_reported_entropy"], (int, float))
+          print("probe JSON and safety invariants: PASS")
+          PY
+
+      - name: Reject invalid sample counts
+        run: |
+          set +e
+          ./profanity_seed_environment_probe 0 >/tmp/probe-out.txt 2>/tmp/probe-err.txt
+          status=$?
+          set -e
+          test "$status" -eq 2
+          grep -q "sample_count_must_be_between_1_and_10000" /tmp/probe-err.txt

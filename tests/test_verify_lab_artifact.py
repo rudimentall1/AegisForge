@@ -119,3 +119,31 @@ def test_offline_verifier_cli_reports_unsigned_artifact_as_untrusted(tmp_path, c
     result = json.loads(captured.out)
     assert result["integrity_verified"] is True
     assert result["authenticity"] == "UNTRUSTED_UNSIGNED"
+
+
+
+def test_offline_verifier_cli_returns_success_only_for_trusted_signature(tmp_path, capsys):
+    experiment = _experiment()
+    private_key = Ed25519PrivateKey.generate()
+    experiment["execution_receipt_envelope"] = sign_receipt(
+        experiment["execution_receipt"],
+        private_key=private_key,
+        key_id="trusted-runner",
+    )
+    artifact_path = tmp_path / "signed-experiment.json"
+    artifact_path.write_text(json.dumps(experiment), encoding="utf-8")
+    public_key_path = tmp_path / "trusted-runner.pub"
+    public_key_path.write_bytes(_public_bytes(private_key))
+
+    exit_code = main([
+        str(artifact_path),
+        "--trusted-key",
+        f"trusted-runner={public_key_path}",
+    ])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    result = json.loads(captured.out)
+    assert result["integrity_verified"] is True
+    assert result["authenticity"] == "SIGNED_AND_TRUSTED"
+    assert result["signature_verified_against_trusted_key"] is True

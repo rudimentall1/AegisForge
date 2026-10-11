@@ -754,6 +754,7 @@ def test_validator_checks_lab_execution_record_consistency_not_authenticity():
 
 def test_validator_rejects_trusted_receipt_not_bound_to_reproduction_claim(monkeypatch):
     import base64
+    from copy import deepcopy
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from agents.validator.agent import Validator, EXPECTED_EVM_FORENSICS_REVISIONS

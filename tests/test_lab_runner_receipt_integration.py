@@ -108,3 +108,34 @@ def test_signed_receipt_is_not_trusted_when_key_is_not_configured(monkeypatch):
     assert receipt_check["signature_verified_against_trusted_key"] is False
     assert receipt_check["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
     assert validation["lab_execution_receipts_trusted"] is False
+
+
+
+def test_signed_envelope_must_bind_to_the_exact_receipt_being_validated(monkeypatch):
+    private_key = Ed25519PrivateKey.generate()
+    private_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_bytes = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_B64", base64.b64encode(private_bytes).decode("ascii"))
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_ID", "bound-runner")
+    monkeypatch.setenv(
+        "AEGISFORGE_LAB_TRUSTED_PUBLIC_KEYS",
+        json.dumps({"bound-runner": base64.b64encode(public_bytes).decode("ascii")}),
+    )
+
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    # Mutate the plain receipt but leave the signed envelope untouched. The
+    # validator must not treat the valid signature over the old receipt as trust
+    # for the now-different receipt in the dossier.
+    experiment["execution_receipt"]["execution"]["test_passed"] = False
+    validation = _validate(experiment)
+    receipt_check = validation["lab_execution_receipt_checks"][0]
+    assert receipt_check["signature_verified_against_trusted_key"] is False
+    assert receipt_check["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
+    assert validation["lab_execution_receipts_trusted"] is False

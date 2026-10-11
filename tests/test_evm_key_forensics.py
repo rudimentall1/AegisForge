@@ -219,8 +219,8 @@ def test_validator_keeps_toy_lab_inconclusive_and_rechecks_sources():
     assert report["status"] == "INCONCLUSIVE"
     assert report["historical_reproduction_confirmed"] is False
     assert report["verified_historical_claims"] == []
-    assert report["sources_rechecked_http_200"] == 4
-    assert report["exact_source_fingerprints_matching"] == 4
+    assert report["sources_rechecked_http_200"] == 8
+    assert report["exact_source_fingerprints_matching"] == 8
     assert report["toy_lab_scope_verified"] is True
 
 

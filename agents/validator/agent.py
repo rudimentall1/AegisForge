@@ -17,6 +17,7 @@ EXPECTED_EVM_FORENSICS_REVISIONS = {
     ("johguse/profanity", "master"): "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
 }
 from shared.signed_action_intent import ActionIntentSigner
+from shared.lab_execution_receipt import LabExecutionReceiptError, receipt_sha256
 
 class Validator:
     """Run bounded, reproducible validation experiments on opportunity dossiers."""
@@ -544,6 +545,45 @@ class Validator:
                 "internally_consistent": internally_consistent,
                 "successful_execution": successful_execution,
             })
+        # A canonical receipt detects accidental or post-run mutation, but an
+        # unsigned receipt is not an authenticated statement about who ran it.
+        execution_receipt_checks = []
+        for item in experiments:
+            receipt = item.get("execution_receipt")
+            reported_digest = item.get("execution_receipt_sha256")
+            record = item.get("execution_record")
+            digest_valid = False
+            receipt_error = None
+            try:
+                calculated_digest = receipt_sha256(receipt)
+                digest_valid = calculated_digest == reported_digest
+            except (LabExecutionReceiptError, TypeError, ValueError) as exc:
+                calculated_digest = None
+                receipt_error = type(exc).__name__
+            receipt_execution = receipt.get("execution") if isinstance(receipt, dict) else None
+            record_matches_receipt = (
+                isinstance(receipt_execution, dict)
+                and isinstance(record, dict)
+                and receipt.get("experiment_id") == item.get("experiment_id")
+                and receipt_execution.get("exit_code") == record.get("exit_code")
+                and receipt_execution.get("timed_out") == record.get("timed_out")
+                and receipt_execution.get("test_passed") == record.get("test_passed")
+                and receipt_execution.get("stdout_sha256") == record.get("stdout_sha256")
+                and receipt_execution.get("stderr_sha256") == record.get("stderr_sha256")
+                and isinstance(receipt.get("inputs"), dict)
+                and receipt.get("inputs", {}).get("script_source_sha256") == record.get("script_source_sha256")
+            )
+            signed = item.get("execution_receipt_signed") is True
+            execution_receipt_checks.append({
+                "experiment_id": item.get("experiment_id"),
+                "receipt_present": isinstance(receipt, dict),
+                "digest_matches": digest_valid,
+                "record_matches_receipt": record_matches_receipt,
+                "integrity_verified": digest_valid and record_matches_receipt,
+                "authenticity": "SIGNED_REQUIRES_TRUSTED_KEY_VERIFICATION" if signed else "UNTRUSTED_UNSIGNED",
+                "error_type": receipt_error,
+            })
+
         toy_only = bool(experiments) and all(
             item.get("synthetic_test_only") is True
             and item.get("uses_real_private_keys") is False
@@ -651,6 +691,10 @@ class Validator:
             "lab_execution_records_consistent": bool(execution_record_checks) and all(item["internally_consistent"] for item in execution_record_checks),
             "lab_execution_records_passed": bool(execution_record_checks) and all(item["successful_execution"] for item in execution_record_checks),
             "lab_execution_record_checks": execution_record_checks,
+            "lab_execution_receipts_checked": len(execution_receipt_checks),
+            "lab_execution_receipts_integrity_verified": bool(execution_receipt_checks) and all(item["integrity_verified"] for item in execution_receipt_checks),
+            "lab_execution_receipts_trusted": bool(execution_receipt_checks) and all(item["authenticity"] == "SIGNED_AND_TRUSTED" for item in execution_receipt_checks),
+            "lab_execution_receipt_checks": execution_receipt_checks,
             "historical_reproduction_confirmed": historical_reproduction,
             "verified_historical_claims": [],
             "interpretation": "Source provenance and experiment scope were checked. No historical vulnerability is marked reproduced because the lab is an illustrative toy model.",

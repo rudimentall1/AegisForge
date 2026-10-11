@@ -580,7 +580,7 @@ class Validator:
                 "digest_matches": digest_valid,
                 "record_matches_receipt": record_matches_receipt,
                 "integrity_verified": digest_valid and record_matches_receipt,
-                "authenticity": "SIGNED_REQUIRES_TRUSTED_KEY_VERIFICATION" if signed else "UNTRUSTED_UNSIGNED",
+                "authenticity": "SIGNATURE_NOT_VERIFIED" if signed else "UNTRUSTED_UNSIGNED",
                 "error_type": receipt_error,
             })
 

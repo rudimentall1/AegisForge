@@ -583,6 +583,32 @@ class Validator:
                 calculated_digest = None
                 receipt_error = type(exc).__name__
             receipt_execution = receipt.get("execution") if isinstance(receipt, dict) else None
+            receipt_inputs = receipt.get("inputs") if isinstance(receipt, dict) else None
+            receipt_artifacts = receipt.get("artifacts") if isinstance(receipt, dict) else None
+            command = record.get("command") if isinstance(record, dict) else None
+            stdout = record.get("stdout") if isinstance(record, dict) else None
+            command_matches_receipt = (
+                isinstance(record, dict)
+                and isinstance(receipt_inputs, dict)
+                and receipt_inputs.get("argv") == command
+                and receipt_inputs.get("script_source_sha256") == record.get("script_source_sha256")
+                and isinstance(receipt_artifacts, dict)
+                and receipt_artifacts.get("script_source_sha256") == record.get("script_source_sha256")
+            )
+            result_payload_digest = None
+            if isinstance(stdout, str):
+                try:
+                    parsed_stdout = json.loads(stdout)
+                    result_payload_digest = hashlib.sha256(json.dumps(
+                        parsed_stdout, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                    ).encode("utf-8")).hexdigest()
+                except (TypeError, ValueError):
+                    result_payload_digest = None
+            result_payload_digest_matches = (
+                isinstance(receipt_artifacts, dict)
+                and result_payload_digest is not None
+                and receipt_artifacts.get("result_payload_sha256") == result_payload_digest
+            )
             record_matches_receipt = (
                 isinstance(receipt_execution, dict)
                 and isinstance(record, dict)
@@ -592,8 +618,8 @@ class Validator:
                 and receipt_execution.get("test_passed") == record.get("test_passed")
                 and receipt_execution.get("stdout_sha256") == record.get("stdout_sha256")
                 and receipt_execution.get("stderr_sha256") == record.get("stderr_sha256")
-                and isinstance(receipt.get("inputs"), dict)
-                and receipt.get("inputs", {}).get("script_source_sha256") == record.get("script_source_sha256")
+                and command_matches_receipt
+                and result_payload_digest_matches
             )
             envelope = item.get("execution_receipt_envelope")
             signature_verified = False
@@ -623,6 +649,8 @@ class Validator:
                 "receipt_present": isinstance(receipt, dict),
                 "digest_matches": digest_valid,
                 "record_matches_receipt": record_matches_receipt,
+                "command_matches_receipt": command_matches_receipt,
+                "result_payload_digest_matches": result_payload_digest_matches,
                 "integrity_verified": digest_valid and record_matches_receipt,
                 "signature_present": signed,
                 "signature_verified_against_trusted_key": signature_verified,

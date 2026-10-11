@@ -424,6 +424,15 @@ class Validator:
                     fresh = self.source_fetcher(url)
                     check["recheck_status"] = "rechecked_http_200" if fresh.get("status_code") == 200 else f"recheck_http_{fresh.get('status_code')}"
                     check["content_fingerprint_matches"] = bool(digest_ok) and fresh.get("content_sha256") == digest
+                    truncation = fresh.get("content_truncated_for_analysis")
+                    check["rechecked_content_truncated_for_analysis"] = (
+                        truncation if isinstance(truncation, bool) else None
+                    )
+                    check["analysis_text_completeness"] = (
+                        "TRUNCATED" if truncation is True
+                        else "COMPLETE" if truncation is False
+                        else "UNKNOWN"
+                    )
                     check["rechecked_at"] = fresh.get("retrieved_at")
                 except Exception as exc:
                     check["recheck_status"] = "recheck_error"
@@ -741,6 +750,16 @@ class Validator:
             next_actions.append("Independently re-fetch at least two allowlisted primary sources.")
         if matching < 2:
             next_actions.append("Require matching SHA-256 fingerprints for at least two independently re-fetched primary sources.")
+        truncated_sources = sum(
+            item.get("analysis_text_completeness") == "TRUNCATED" for item in source_checks
+        )
+        unknown_completeness_sources = sum(
+            item.get("analysis_text_completeness") == "UNKNOWN" for item in source_checks
+        )
+        if truncated_sources:
+            next_actions.append("Review full source material or explicitly scope claims to the truncated excerpt; do not treat clipped text as complete analysis.")
+        if unknown_completeness_sources:
+            next_actions.append("Re-fetch sources with explicit content_truncated_for_analysis metadata before relying on analysis-text completeness.")
         next_actions.append("Keep address-cohort claims unproven until tested against an aggregate control sample.")
 
         result["research_track"] = "evm_key_forensics"
@@ -760,6 +779,8 @@ class Validator:
             "sources_in_dossier": len(sources),
             "sources_rechecked_http_200": rechecked,
             "exact_source_fingerprints_matching": matching,
+            "sources_with_truncated_analysis_text": truncated_sources,
+            "sources_with_unknown_analysis_text_completeness": unknown_completeness_sources,
             "hypotheses_checked": len(hypothesis_checks),
             "hypothesis_checks": hypothesis_checks,
             "lab_experiment_count": len(experiments),

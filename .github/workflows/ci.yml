@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   test:
-    name: Python tests
+    name: Python and EVM Key Forensics tests
     runs-on: ubuntu-latest
 
     steps:
@@ -33,6 +33,92 @@ jobs:
           fi
           pip install pytest
 
+      - name: Install C++ compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++
+
+      - name: Compile EVM Key Forensics diagnostic
+        run: |
+          g++ --version
+          g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic \
+            tools/evm_key_forensics/profanity_seed_environment_probe.cpp \
+            -o profanity_seed_environment_probe
+
+      - name: Run diagnostic and validate safety invariants
+        run: |
+          ./profanity_seed_environment_probe 64 > probe-output.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("probe-output.json").read_text())
+          assert data["schema_version"] == 1
+          assert data["probe"] == "std_random_device_environment_diagnostic"
+          assert data["historical_profanity_code_executed"] is False
+          assert data["wallet_material_used"] is False
+          assert data["observations_are_entropy_proof"] is False
+          assert data["samples_requested"] == 64
+          assert 1 <= data["distinct_values_observed"] <= 64
+          assert isinstance(data["random_device_result_type_bits"], int)
+          assert isinstance(data["random_device_reported_entropy"], (int, float))
+          print("probe JSON and safety invariants: PASS")
+          PY
+
+      - name: Assemble and verify portable probe evidence
+        run: |
+          mkdir -p probe-evidence
+          cp probe-output.json probe-evidence/probe-output.json
+          cp tools/evm_key_forensics/profanity_seed_environment_probe.cpp probe-evidence/probe-source.cpp
+          cp profanity_seed_environment_probe probe-evidence/probe-binary
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          root = Path("probe-evidence")
+
+          def sha256(name):
+              return hashlib.sha256((root / name).read_bytes()).hexdigest()
+
+          metadata = {
+              "schema_version": 1,
+              "purpose": "diagnostic_environment_observation_only",
+              "git_commit": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
+              "github_run_id": os.environ["GITHUB_RUN_ID"],
+              "github_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "runner_os": platform.platform(),
+              "compiler_version": subprocess.check_output(
+                  ["g++", "--version"], text=True
+              ).splitlines()[0],
+              "build_flags": ["-std=c++11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic"],
+              "source_sha256": sha256("probe-source.cpp"),
+              "binary_sha256": sha256("probe-binary"),
+              "output_sha256": sha256("probe-output.json"),
+              "historical_vulnerability_reproduced": False,
+              "entropy_proven": False,
+          }
+          (root / "probe-run-metadata.json").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          python tools/evm_key_forensics/verify_probe_artifact.py probe-evidence
+
+      - name: Reject invalid sample counts
+        run: |
+          set +e
+          ./profanity_seed_environment_probe 0 >/tmp/probe-out.txt 2>/tmp/probe-err.txt
+          status=$?
+          set -e
+          test "$status" -eq 2
+          grep -q "sample_count_must_be_between_1_and_10000" /tmp/probe-err.txt
+
       - name: Compile Python
         run: |
           python -m compileall -q \
@@ -41,7 +127,8 @@ jobs:
             shared \
             model_research \
             scam_intelligence \
-            tests
+            tests \
+            tools/evm_key_forensics
 
       - name: Check whitespace
         run: git diff --check
@@ -50,6 +137,15 @@ jobs:
         run: |
           set -o pipefail
           python -m pytest -q --tb=short 2>&1 | tee pytest.log
+
+      - name: Upload EVM Key Forensics evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: probe-evidence/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload pytest failure log
         if: failure()

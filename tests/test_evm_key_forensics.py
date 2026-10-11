@@ -503,3 +503,51 @@ def test_validator_rejects_artifact_digest_without_artifact_bytes():
     assert result["status"] == "INCONCLUSIVE"
     assert result["verified_historical_claims"] == []
 
+
+
+def test_validator_rejects_artifact_with_mismatched_source_revision():
+    import json
+    from agents.validator.agent import Validator, EXPECTED_EVM_FORENSICS_REVISIONS
+
+    revision = EXPECTED_EVM_FORENSICS_REVISIONS[("johguse/profanity", "v1.50")]
+    command = "python reproduce.py --synthetic-only"
+    vector_id = "synthetic-vector-001"
+    artifact = json.dumps({
+        "schema_version": 1,
+        "source_revision": "f" * 40,
+        "test_vector_id": vector_id,
+        "command": command,
+        "exit_code": 0,
+        "test_passed": True,
+    }, sort_keys=True)
+    experiment = {
+        "experiment_id": "artifact-revision-mismatch",
+        "historical_implementation_reproduced": True,
+        "synthetic_test_only": True,
+        "uses_real_private_keys": False,
+        "uses_real_wallet_addresses": False,
+        "pinned_source_revision": revision,
+        "reproduction_source_role": "pre_disclosure_release",
+        "synthetic_test_vector_id": vector_id,
+        "reproduction_test_passed": True,
+        "reproduction_artifact": artifact,
+        "reproduction_artifact_sha256": hashlib.sha256(artifact.encode("utf-8")).hexdigest(),
+        "reproduction_command": command,
+    }
+    validator = Validator.__new__(Validator)
+    validator.source_fetcher = _fake_fetch
+    result = validator.run(Task(
+        task_id="artifact-revision-mismatch",
+        description="Reject artifact metadata that disagrees with the pinned source",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": [],
+            "hypotheses": [],
+            "lab_experiments": [experiment],
+        },
+    )).result["research_validation"]
+
+    assert result["historical_reproduction_confirmed"] is False
+    assert result["status"] == "INCONCLUSIVE"
+    assert result["verified_historical_claims"] == []

@@ -24,7 +24,15 @@ HISTORICAL_REPOSITORIES = (
     {
         "owner": "johguse",
         "repo": "profanity",
+        "ref": "v1.50",
+        "revision_role": "pre_disclosure_release",
+        "files": ("Dispatcher.cpp", "Dispatcher.hpp", "profanity.cpp", "README.md"),
+    },
+    {
+        "owner": "johguse",
+        "repo": "profanity",
         "ref": "master",
+        "revision_role": "post_disclosure_archive",
         "files": ("Dispatcher.cpp", "Dispatcher.hpp", "profanity.cpp", "README.md"),
     },
 )
@@ -79,7 +87,7 @@ class SourceResearcher:
         errors = []
         for repository in HISTORICAL_REPOSITORIES:
             owner, repo, ref = repository["owner"], repository["repo"], repository["ref"]
-            pin = next((item for item in pins if item.get("repository") == f"{owner}/{repo}"), None)
+            pin = next((item for item in pins if item.get("repository") == f"{owner}/{repo}" and item.get("requested_ref") == ref), None)
             if pin and pin.get("commit_sha"):
                 commit_sha = str(pin["commit_sha"])
             else:
@@ -94,6 +102,7 @@ class SourceResearcher:
                     pin = {
                         "repository": f"{owner}/{repo}",
                         "requested_ref": ref,
+                        "revision_role": repository.get("revision_role", "historical_reference"),
                         "commit_sha": commit_sha,
                         "commit_url": f"https://github.com/{owner}/{repo}/commit/{commit_sha}",
                         "source_files": list(repository["files"]),
@@ -124,6 +133,7 @@ class SourceResearcher:
                         "source_kind": "pinned_repository_source",
                         "repository": f"{owner}/{repo}",
                         "repository_ref": ref,
+                        "revision_role": repository.get("revision_role", "historical_reference"),
                         "revision_sha": commit_sha,
                         "revision_url": f"https://github.com/{owner}/{repo}/tree/{commit_sha}",
                         "source_file_path": file_path,

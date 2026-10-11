@@ -22,6 +22,10 @@ def _fake_fetch(url):
         "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/Dispatcher.hpp": "Synthetic pinned historical implementation header.",
         "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/profanity.cpp": "Synthetic pinned historical implementation entrypoint.",
         "https://raw.githubusercontent.com/johguse/profanity/" + "a" * 40 + "/README.md": "Synthetic pinned historical repository readme.",
+        "https://raw.githubusercontent.com/johguse/profanity/" + "b" * 40 + "/Dispatcher.cpp": "Synthetic pre-disclosure source with createSeed and mt19937_64.",
+        "https://raw.githubusercontent.com/johguse/profanity/" + "b" * 40 + "/Dispatcher.hpp": "Synthetic pre-disclosure source header.",
+        "https://raw.githubusercontent.com/johguse/profanity/" + "b" * 40 + "/profanity.cpp": "Synthetic pre-disclosure source entrypoint.",
+        "https://raw.githubusercontent.com/johguse/profanity/" + "b" * 40 + "/README.md": "Synthetic pre-disclosure repository readme.",
     }.get(url, "Synthetic test source.")
     return {
         "source_url": url, "final_url": url, "status_code": 200, "fetch_status": "fetched",
@@ -37,6 +41,8 @@ class _FakeGithub:
     def get_json(self, url, params=None, **kwargs):
         if url.endswith("/repos/johguse/profanity/commits/master"):
             return {"sha": "a" * 40, "commit": {"committer": {"date": "2022-09-15T00:00:00Z"}}}
+        if url.endswith("/repos/johguse/profanity/commits/v1.50"):
+            return {"sha": "b" * 40, "commit": {"committer": {"date": "2022-07-28T00:00:00Z"}}}
         query = (params or {}).get("q", "")
         return {"items": [{
             "html_url": "https://github.com/example/project/issues/1",
@@ -53,14 +59,16 @@ def test_source_researcher_preserves_provenance_and_confounds():
     result = agent.run(task).result
     assert task.status == "source_researched"
     assert result["research_track"] == "evm_key_forensics"
-    assert result["source_summary"]["sources_fetched_http_200"] == 8
-    assert result["source_summary"]["pinned_repository_files"] == 4
-    assert result["source_summary"]["pinned_repository_revisions"] == 1
-    assert result["repository_pins"][0]["commit_sha"] == "a" * 40
+    assert result["source_summary"]["sources_fetched_http_200"] == 12
+    assert result["source_summary"]["pinned_repository_files"] == 8
+    assert result["source_summary"]["pinned_repository_revisions"] == 2
+    assert {pin["commit_sha"] for pin in result["repository_pins"]} == {"a" * 40, "b" * 40}
+    assert {pin["revision_role"] for pin in result["repository_pins"]} == {"pre_disclosure_release", "post_disclosure_archive"}
     pinned = [source for source in result["sources"] if source.get("source_kind") == "pinned_repository_source"]
-    assert len(pinned) == 4
-    assert all(source["revision_sha"] == "a" * 40 for source in pinned)
-    assert all("/" + "a" * 40 + "/" in source["source_url"] for source in pinned)
+    assert len(pinned) == 8
+    assert {source["revision_sha"] for source in pinned} == {"a" * 40, "b" * 40}
+    assert {source["revision_role"] for source in pinned} == {"pre_disclosure_release", "post_disclosure_archive"}
+    assert all("/" + source["revision_sha"] + "/" in source["source_url"] for source in pinned)
     classes = {source["classification"] for source in result["sources"]}
     assert "early_client_key_generation_warning" in classes
     assert "vanity_generator_entropy_weakness_report" in classes
@@ -219,8 +227,8 @@ def test_validator_keeps_toy_lab_inconclusive_and_rechecks_sources():
     assert report["status"] == "INCONCLUSIVE"
     assert report["historical_reproduction_confirmed"] is False
     assert report["verified_historical_claims"] == []
-    assert report["sources_rechecked_http_200"] == 8
-    assert report["exact_source_fingerprints_matching"] == 8
+    assert report["sources_rechecked_http_200"] == 12
+    assert report["exact_source_fingerprints_matching"] == 12
     assert report["toy_lab_scope_verified"] is True
 
 

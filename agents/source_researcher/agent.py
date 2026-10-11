@@ -75,7 +75,7 @@ class SourceResearcher:
     def _focused_excerpt(text, maximum=900):
         text = " ".join(str(text or "").split())
         lower = text.lower()
-        for marker in ("regenerate all of your keys", "32-bit", "4 bln", "key files", "smart contract wallet", "phishing"):
+        for marker in ("createseed", "random_device", "mt19937_64", "uniform_int_distribution", "regenerate all of your keys", "32-bit", "4 bln", "key files", "smart contract wallet", "phishing"):
             start = lower.find(marker)
             if start >= 0:
                 left = max(0, start - 180)

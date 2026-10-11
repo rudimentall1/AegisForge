@@ -146,6 +146,25 @@ def test_lead_relevance_requires_specific_signal_or_multiple_context_signals():
     assert relevant is False
 
 
+def test_validator_detects_tampered_immutable_revision_url():
+    from agents.validator.agent import Validator
+
+    source_task = Task(task_id="source-tamper", description="Research historical EVM key generation")
+    source_result = SourceResearcher(github=_FakeGithub(), fetcher=_fake_fetch).run(source_task).result
+    pinned = next(source for source in source_result["sources"] if source.get("source_kind") == "pinned_repository_source")
+    original_url = pinned["source_url"]
+    pinned["source_url"] = original_url.replace(pinned["revision_sha"], "f" * 40, 1)
+
+    validator = Validator.__new__(Validator)
+    validator.source_fetcher = _fake_fetch
+    validated = validator.run(Task(task_id="tamper-check", description="Validate tampered pin", result=source_result))
+    report = validated.result["research_validation"]
+    check = next(item for item in validated.result["research_source_checks"] if item["source_url"] == pinned["source_url"])
+    assert check["immutable_revision_pin_valid"] is False
+    assert report["pinned_revision_source_checks_failed"] == 1
+    assert report["status"] == "INCONCLUSIVE"
+
+
 def test_crypto_analyst_does_not_mark_claims_confirmed():
     sources = [
         {"source_id": "early", "source_url": "https://blog.ethereum.org/en/2015/08/04/ethereum-protocol-update-1", "status_code": 200, "classification": "early_client_key_generation_warning"},

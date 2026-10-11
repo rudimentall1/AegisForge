@@ -28,7 +28,7 @@ jobs:
           from pathlib import Path
 
           source = Path("/tmp/pinned-Dispatcher.cpp").read_bytes()
-          git_blob_sha1 = hashlib.sha1(b"blob " + str(len(source)).encode() + b"\\0" + source).hexdigest()
+          git_blob_sha1 = hashlib.sha1(b"blob " + str(len(source)).encode() + b"\0" + source).hexdigest()
           expected_blob_sha1 = "c9226fc02a52633a84664cbf3aaf2b4af8a59b25"
           assert git_blob_sha1 == expected_blob_sha1, {
               "expected_git_blob_sha1": expected_blob_sha1,

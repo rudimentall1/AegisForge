@@ -737,7 +737,26 @@ class Validator:
         historical_reproduction = bool(qualified_reproductions)
         rechecked = sum(item.get("recheck_status") == "rechecked_http_200" for item in source_checks)
         matching = sum(item.get("content_fingerprint_matches") is True for item in source_checks)
-        status = "READY_FOR_HUMAN_REVIEW" if historical_reproduction and rechecked >= 2 and matching >= 2 else "INCONCLUSIVE"
+        pinned_checks_passed = sum(item.get("valid") is True for item in pinned_revision_checks)
+        pinned_checks_failed = sum(item.get("valid") is False for item in pinned_revision_checks)
+        truncated_sources = sum(
+            item.get("analysis_text_completeness") == "TRUNCATED" for item in source_checks
+        )
+        unknown_completeness_sources = sum(
+            item.get("analysis_text_completeness") == "UNKNOWN" for item in source_checks
+        )
+        readiness_blockers = []
+        if not historical_reproduction:
+            readiness_blockers.append("historical_reproduction_not_qualified")
+        if rechecked < 2 or matching < 2:
+            readiness_blockers.append("insufficient_independent_source_rechecks")
+        if pinned_checks_passed < 1 or pinned_checks_failed:
+            readiness_blockers.append("pinned_revision_provenance_not_clean")
+        if truncated_sources:
+            readiness_blockers.append("source_analysis_text_truncated")
+        if unknown_completeness_sources:
+            readiness_blockers.append("source_analysis_text_completeness_unknown")
+        status = "READY_FOR_HUMAN_REVIEW" if not readiness_blockers else "INCONCLUSIVE"
 
         next_actions = []
         if not any(item.get("classification") == "early_client_key_generation_warning" for item in sources):
@@ -750,12 +769,6 @@ class Validator:
             next_actions.append("Independently re-fetch at least two allowlisted primary sources.")
         if matching < 2:
             next_actions.append("Require matching SHA-256 fingerprints for at least two independently re-fetched primary sources.")
-        truncated_sources = sum(
-            item.get("analysis_text_completeness") == "TRUNCATED" for item in source_checks
-        )
-        unknown_completeness_sources = sum(
-            item.get("analysis_text_completeness") == "UNKNOWN" for item in source_checks
-        )
         if truncated_sources:
             next_actions.append("Review full source material or explicitly scope claims to the truncated excerpt; do not treat clipped text as complete analysis.")
         if unknown_completeness_sources:
@@ -765,13 +778,12 @@ class Validator:
         result["research_track"] = "evm_key_forensics"
         result["stage"] = "validation"
         result["research_source_checks"] = source_checks
-        pinned_checks_passed = sum(item.get("valid") is True for item in pinned_revision_checks)
-        pinned_checks_failed = sum(item.get("valid") is False for item in pinned_revision_checks)
         if pinned_checks_failed:
             next_actions.append("Repair invalid pinned-revision metadata before treating historical source snapshots as reproducible evidence.")
         result["research_validation"] = {
             "schema_version": "evm-forensics-validation-v1",
             "status": status,
+            "readiness_blockers": readiness_blockers,
             "pinned_revision_sources_checked": len(pinned_revision_checks),
             "pinned_revision_source_checks_passed": pinned_checks_passed,
             "pinned_revision_source_checks_failed": pinned_checks_failed,

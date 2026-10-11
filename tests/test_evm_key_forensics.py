@@ -57,6 +57,57 @@ def test_source_researcher_preserves_provenance_and_confounds():
     assert result["source_leads"][0]["evidence_role"] == "discovery_lead_only"
 
 
+def test_source_researcher_filters_unrelated_github_search_results():
+    class MixedGithub:
+        BASE_URL = "https://api.github.com"
+
+        def get_json(self, url, params=None, **kwargs):
+            return {"items": [
+                {
+                    "html_url": "https://github.com/example/other/issues/1",
+                    "url": "https://api.github.com/repos/example/other/issues/1",
+                    "repository_url": "https://api.github.com/repos/example/other",
+                    "title": "Improve button layout on landing page",
+                    "body": "CSS issue with responsive spacing.",
+                },
+                {
+                    "html_url": "https://github.com/example/crypto/issues/2",
+                    "url": "https://api.github.com/repos/example/crypto/issues/2",
+                    "repository_url": "https://api.github.com/repos/example/crypto",
+                    "title": "Profanity key generation entropy analysis",
+                    "body": "Discussion of the synthetic seed space only.",
+                },
+            ]}
+
+    result = SourceResearcher(github=MixedGithub(), fetcher=_fake_fetch).run(
+        Task(task_id="filter", description="Research EVM key generation")
+    ).result
+    urls = {lead["source_url"] for lead in result["source_leads"]}
+    assert "https://github.com/example/crypto/issues/2" in urls
+    assert "https://github.com/example/other/issues/1" not in urls
+    assert result["filtered_source_lead_count"] == 2
+    assert result["source_summary"]["filtered_search_leads"] == 2
+    assert result["source_leads"][0]["relevance"] == "keyword_screened_candidate"
+
+
+def test_lead_relevance_requires_specific_signal_or_multiple_context_signals():
+    relevant, signals = SourceResearcher._lead_relevance(
+        "Profanity key generation", "Synthetic test only"
+    )
+    assert relevant is True
+    assert "profanity" in signals["direct"]
+
+    relevant, _ = SourceResearcher._lead_relevance(
+        "Wallet dashboard redesign", "Update button spacing"
+    )
+    assert relevant is False
+
+    relevant, _ = SourceResearcher._lead_relevance(
+        "Ethereum wallet seed storage", "Key management and wallet security"
+    )
+    assert relevant is True
+
+
 def test_crypto_analyst_does_not_mark_claims_confirmed():
     sources = [
         {"source_id": "early", "source_url": "https://blog.ethereum.org/en/2015/08/04/ethereum-protocol-update-1", "status_code": 200, "classification": "early_client_key_generation_warning"},

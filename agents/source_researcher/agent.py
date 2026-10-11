@@ -28,6 +28,8 @@ class SourceResearcher:
     MAX_SEARCH_RESULTS_PER_QUERY = 5
     MAX_SOURCES = 20
     MAX_LEADS = 20
+    MIN_DIRECT_RELEVANCE_SIGNALS = 1
+    MIN_CONTEXT_RELEVANCE_SIGNALS = 2
 
     def __init__(self, github=None, fetcher=fetch_public_source):
         self.github = github or GitHubClient()
@@ -93,6 +95,28 @@ class SourceResearcher:
                 "classification": "unclassified_source", "fetch_error_type": type(exc).__name__,
             }
 
+    @staticmethod
+    def _lead_relevance(title, body, repository_url=""):
+        """Conservative triage: discovery leads need a crypto/key-generation signal."""
+        haystack = f"{title or ''} {body or ''} {repository_url or ''}".lower()
+        direct_signals = (
+            "profanity", "regenerate all of your keys", "weak key generation",
+            "key generation", "private key", "seed space", "entropy",
+            "secp256k1", "vanity address", "boost::random_device",
+            "key derivation", "ethereum client", "wallet key",
+        )
+        context_signals = (
+            "ethereum", "evm", "wallet", "cryptography", "cryptographic",
+            "randomness", "blockchain", "seed", "keypair", "key pair",
+        )
+        direct = [term for term in direct_signals if term in haystack]
+        context = [term for term in context_signals if term in haystack]
+        relevant = (
+            len(direct) >= SourceResearcher.MIN_DIRECT_RELEVANCE_SIGNALS
+            or len(context) >= SourceResearcher.MIN_CONTEXT_RELEVANCE_SIGNALS
+        )
+        return relevant, {"direct": direct, "context": context}
+
     def _search_issue_leads(self, query):
         data = self.github.get_json(
             f"{self.github.BASE_URL}/search/issues",
@@ -100,21 +124,31 @@ class SourceResearcher:
             cache_ttl=3600, timeout=20, resource="search",
         ) or {}
         leads = []
+        filtered_count = 0
         for item in data.get("items", [])[:self.MAX_SEARCH_RESULTS_PER_QUERY]:
             source_url = item.get("html_url")
             if not source_url:
+                filtered_count += 1
+                continue
+            title = item.get("title")
+            body = str(item.get("body") or "")
+            relevant, signals = self._lead_relevance(title, body, item.get("repository_url", ""))
+            if not relevant:
+                filtered_count += 1
                 continue
             leads.append({
                 "lead_id": self.source_id(source_url), "source_url": source_url,
                 "api_url": item.get("url"), "repository_api_url": item.get("repository_url"),
-                "title": item.get("title"),
+                "title": title,
+                "relevance": "keyword_screened_candidate",
+                "relevance_signals": signals,
                 "kind": "pull_request" if item.get("pull_request") else "issue",
                 "created_at": item.get("created_at"), "updated_at": item.get("updated_at"),
-                "excerpt": str(item.get("body") or "")[:900],
+                "excerpt": body[:900],
                 "evidence_role": "discovery_lead_only",
                 "warning": "Search results are leads, not independently validated technical claims.",
             })
-        return leads
+        return leads, filtered_count
 
     def run(self, task: Task) -> Task:
         task.status = "researching_sources"
@@ -138,10 +172,13 @@ class SourceResearcher:
         }
         search_errors = list(parent.get("source_search_errors", []))
         query_history = list(parent.get("source_queries", []))
+        filtered_lead_count = int(parent.get("filtered_source_lead_count", 0) or 0)
         for query in queries:
             query_history.append({"round": round_number, "query": query})
             try:
-                for lead in self._search_issue_leads(query):
+                leads, filtered_count = self._search_issue_leads(query)
+                filtered_lead_count += filtered_count
+                for lead in leads:
                     leads_by_url.setdefault(lead["source_url"], lead)
                     if len(leads_by_url) >= self.MAX_LEADS:
                         break
@@ -157,10 +194,12 @@ class SourceResearcher:
             "sources": list(sources_by_url.values())[:self.MAX_SOURCES],
             "source_leads": list(leads_by_url.values())[:self.MAX_LEADS],
             "source_queries": query_history[-12:], "source_search_errors": search_errors[-12:],
+            "filtered_source_lead_count": filtered_lead_count,
             "source_summary": {
                 "sources_collected": len(sources_by_url),
                 "sources_fetched_http_200": sum(item.get("status_code") == 200 for item in sources_by_url.values()),
-                "search_leads": len(leads_by_url), "round": round_number,
+                "search_leads": len(leads_by_url), "filtered_search_leads": filtered_lead_count,
+                "round": round_number,
             },
             "scope_guards": {
                 "public_sources_only": True, "synthetic_experiments_only": True,

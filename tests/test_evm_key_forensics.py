@@ -818,3 +818,38 @@ def test_validator_rejects_trusted_receipt_not_bound_to_reproduction_claim(monke
     assert report["historical_reproduction_confirmed"] is False
     assert report["status"] == "INCONCLUSIVE"
     assert report["verified_historical_claims"] == []
+
+    # Even a receipt that is correctly signed and bound to every reproduction
+    # field must not count as independent execution attestation.
+    from shared.lab_execution_receipt import receipt_sha256, sign_receipt
+
+    bound_experiment = deepcopy(experiment)
+    bound_receipt = deepcopy(bound_experiment["execution_receipt"])
+    bound_receipt["inputs"]["source_revision"] = revision
+    bound_receipt["inputs"]["test_vector_id"] = vector_id
+    bound_receipt["inputs"]["reproduction_command"] = command
+    bound_receipt["artifacts"]["reproduction_artifact_sha256"] = bound_experiment["reproduction_artifact_sha256"]
+    bound_experiment["execution_receipt"] = bound_receipt
+    bound_experiment["execution_receipt_sha256"] = receipt_sha256(bound_receipt)
+    bound_experiment["execution_receipt_envelope"] = sign_receipt(
+        bound_receipt, private_key=private_key, key_id=key_id
+    )
+
+    bound_report = validator.run(Task(
+        task_id="trusted-receipt-bound-no-attestation",
+        description="A bound signature is not independent runner attestation",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": [],
+            "hypotheses": [],
+            "lab_experiments": [bound_experiment],
+        },
+    )).result["research_validation"]
+    bound_check = bound_report["lab_execution_receipt_checks"][0]
+    assert bound_check["authenticity"] == "SIGNED_AND_TRUSTED"
+    assert bound_check["reproduction_binding_matches"] is True
+    assert bound_check["independent_runner_attestation_verified"] is False
+    assert bound_report["independent_runner_attestation_available"] is False
+    assert bound_report["historical_reproduction_confirmed"] is False
+    assert bound_report["status"] == "INCONCLUSIVE"

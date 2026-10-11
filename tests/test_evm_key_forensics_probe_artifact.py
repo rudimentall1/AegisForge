@@ -54,7 +54,15 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
     def test_valid_artifact_passes(self):
         result = verify_artifact(self.root)
         self.assertTrue(result["integrity_verified"])
+        self.assertEqual(result["authenticity"], "UNTRUSTED_UNSIGNED")
+        self.assertFalse(result["signature_verified_against_trusted_key"])
         self.assertTrue(all(result["checks"].values()))
+
+    def test_hash_consistency_does_not_claim_authenticity(self):
+        result = verify_artifact(self.root)
+        self.assertTrue(result["integrity_verified"])
+        self.assertEqual(result["authenticity"], "UNTRUSTED_UNSIGNED")
+        self.assertFalse(result["signature_verified_against_trusted_key"])
 
     def test_tampered_output_fails(self):
         with (self.root / "probe-output.json").open("a", encoding="utf-8") as stream:

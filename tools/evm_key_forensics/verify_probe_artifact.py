@@ -13,6 +13,27 @@ import sys
 from pathlib import Path
 
 
+def _reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate_json_key:{key}")
+        result[key] = value
+    return result
+
+
+def _reject_nonstandard_constant(value):
+    raise ValueError(f"nonstandard_json_constant:{value}")
+
+
+def _load_strict_json(path: Path):
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+        parse_constant=_reject_nonstandard_constant,
+    )
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -26,8 +47,8 @@ def verify_artifact(root: Path) -> dict:
     output_path = root / "probe-output.json"
     source_path = root / "probe-source.cpp"
     binary_path = root / "probe-binary"
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    output = json.loads(output_path.read_text(encoding="utf-8"))
+    metadata = _load_strict_json(metadata_path)
+    output = _load_strict_json(output_path)
 
     samples = output.get("samples_requested")
     distinct = output.get("distinct_values_observed")

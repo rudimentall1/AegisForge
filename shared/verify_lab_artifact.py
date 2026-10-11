@@ -1,4 +1,4 @@
-"""Offline verification for exported AegisForge lab artifacts.
+""""Offline verification for exported AegisForge lab artifacts.
 
 This verifies internal consistency and optional Ed25519 trust. It cannot prove
 that the runner was isolated, honest, or that a historical vulnerability exists.
@@ -192,7 +192,9 @@ def main(argv=None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         if not result["integrity_verified"]:
             return 1
-        if result["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED":
+        # Exit 0 means both internal integrity and an explicitly trusted signature.
+        # Valid-but-unsigned or signed-by-untrusted-key artifacts are not trusted.
+        if result["authenticity"] != "SIGNED_AND_TRUSTED":
             return 2
         return 0
     except (OSError, json.JSONDecodeError, ValueError) as exc:

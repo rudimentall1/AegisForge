@@ -80,6 +80,7 @@ print(json.dumps({
                 "exit_code": completed.returncode,
                 "stdout": completed.stdout,
                 "stdout_sha256": cls._sha256(stdout_bytes),
+                "stderr": completed.stderr,
                 "stderr_sha256": cls._sha256(stderr_bytes),
                 "timed_out": False,
             }
@@ -114,6 +115,7 @@ print(json.dumps({
                 "exit_code": None,
                 "stdout": stdout.decode("utf-8", errors="replace"),
                 "stdout_sha256": cls._sha256(stdout),
+                "stderr": stderr.decode("utf-8", errors="replace"),
                 "stderr_sha256": cls._sha256(stderr),
                 "timed_out": True,
                 "test_passed": False,

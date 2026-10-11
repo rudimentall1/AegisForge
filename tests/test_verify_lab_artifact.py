@@ -176,3 +176,38 @@ def test_offline_verifier_cli_rejects_wrong_trusted_key(tmp_path, capsys):
     assert result["integrity_verified"] is True
     assert result["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
     assert result["signature_verified_against_trusted_key"] is False
+
+
+def test_offline_verifier_cli_rejects_duplicate_json_keys(tmp_path, capsys):
+    artifact_path = tmp_path / "duplicate-key.json"
+    artifact_path.write_text('{"schema_version":1,"schema_version":1}', encoding="utf-8")
+
+    exit_code = main([str(artifact_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.err)["error"] == "duplicate_json_key:schema_version"
+
+
+def test_offline_verifier_cli_rejects_nonstandard_json_numbers(tmp_path, capsys):
+    artifact_path = tmp_path / "nonstandard-number.json"
+    artifact_path.write_text('{"value":NaN}', encoding="utf-8")
+
+    exit_code = main([str(artifact_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.err)["error"] == "nonstandard_json_constant:NaN"
+
+
+def test_result_payload_rejects_duplicate_keys_and_nan():
+    import hashlib
+
+    for payload in ('{"schema_version":1,"schema_version":1}', '{"value":NaN}'):
+        experiment = _experiment()
+        record = experiment["execution_record"]
+        record["stdout"] = payload
+        record["stdout_sha256"] = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        result = verify_lab_artifact(experiment)
+        assert result["integrity_verified"] is False
+        assert result["checks"]["result_payload_digest_matches"] is False

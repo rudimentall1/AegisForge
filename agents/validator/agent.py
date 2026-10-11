@@ -681,9 +681,23 @@ class Validator:
             text = str(value or "")
             return len(text) == length and all(char in "0123456789abcdef" for char in text.lower())
 
+        # A dossier-supplied artifact is self-asserted. Historical reproduction
+        # qualification additionally requires a receipt for the same experiment
+        # whose signature verifies against an operator-provisioned trusted key.
+        # This raises provenance confidence; it still does not prove the signer
+        # operated an isolated runner or that the scientific claim is true.
+        trusted_receipt_experiment_ids = {
+            check.get("experiment_id")
+            for check in execution_receipt_checks
+            if check.get("integrity_verified") is True
+            and check.get("authenticity") == "SIGNED_AND_TRUSTED"
+            and check.get("signature_verified_against_trusted_key") is True
+        }
+
         # Never trust a bare boolean asserted by a previous agent. A historical
         # reproduction must link to an immutable revision, a synthetic test
-        # vector, a passing reproduction test and a content-addressed artifact.
+        # vector, a passing reproduction test, a content-addressed artifact,
+        # and a trusted receipt for the same experiment.
         qualified_reproductions = []
         for item in experiments:
             artifact = item.get("reproduction_artifact")

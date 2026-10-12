@@ -161,9 +161,7 @@ def test_signed_receipt_with_extra_input_claim_is_rejected():
     envelope = _envelope(dossier, key)
     receipt = copy.deepcopy(envelope["receipt"])
     receipt["inputs"]["claimed_independent"] = True
-    envelope = __import__("shared.lab_execution_receipt", fromlist=["sign_receipt"]).sign_receipt(
-        receipt, private_key=key, key_id="pinned-runner-key"
-    )
+    envelope = sign_receipt(receipt, private_key=key, key_id="pinned-runner-key")
     with pytest.raises(IndependentRunnerAttestationError, match="attested_input_fields_mismatch"):
         verify_independent_runner_attestation(
             dossier, envelope,

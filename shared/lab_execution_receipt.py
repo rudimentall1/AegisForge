@@ -78,7 +78,10 @@ def build_receipt(
 def _validate_receipt_shape(receipt: dict) -> None:
     if not isinstance(receipt, dict):
         raise LabExecutionReceiptError("receipt_object_required")
-    if receipt.get("schema_version") != 1 or receipt.get("receipt_type") != "aegisforge.lab_execution":
+    # bool is a subclass of int in Python, so equality alone would accept True.
+    if type(receipt.get("schema_version")) is not int or receipt.get("schema_version") != 1:
+        raise LabExecutionReceiptError("unsupported_receipt_schema")
+    if receipt.get("receipt_type") != "aegisforge.lab_execution":
         raise LabExecutionReceiptError("unsupported_receipt_schema")
     for field in ("run_id", "experiment_id"):
         value = receipt.get(field)
@@ -131,7 +134,10 @@ def verify_signed_receipt(
     """Verify signature and digest against an explicit key-id -> raw public-key map."""
     if not isinstance(envelope, dict):
         raise LabExecutionReceiptError("signed_receipt_object_required")
-    if envelope.get("schema_version") != 1 or envelope.get("algorithm") != "Ed25519":
+    # Keep the wire schema type strict: JSON true must not alias integer version 1.
+    if type(envelope.get("schema_version")) is not int or envelope.get("schema_version") != 1:
+        raise LabExecutionReceiptError("unsupported_signed_receipt_schema")
+    if envelope.get("algorithm") != "Ed25519":
         raise LabExecutionReceiptError("unsupported_signed_receipt_schema")
     key_id = envelope.get("key_id")
     if not isinstance(key_id, str) or key_id not in trusted_public_keys:

@@ -628,3 +628,57 @@ def test_recovery_rejects_tampered_candidate_before_anchor_cas(tmp_path):
     assert anchor.cas_calls == 0
     assert anchor.anchor["sequence"] == 0
     assert _counts(path) == (0, 1, 0)
+
+
+def test_concurrent_recovery_of_same_prepared_candidate_is_idempotent(tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    path = tmp_path / "pending-concurrent-recovery.sqlite3"
+    dossier, envelope, trusted = _signed("concurrent-recovery", "concurrent-recovery-nonce")
+    anchor = Anchor()
+
+    def lose_response(*args, **kwargs):
+        raise TimeoutError("simulated lost CAS response")
+
+    anchor.compare_and_set_anchor = lose_response
+    with pytest.raises(ReplayAnchorUnavailable, match="external_anchor_publish_outcome_unknown"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        )
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM pending_anchored_replay WHERE status='PREPARED'"
+        ).fetchone()[0]
+
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    original_cas = Anchor.compare_and_set_anchor
+
+    def synchronized_cas(provider_id, **kwargs):
+        barrier.wait(timeout=5)
+        with lock:
+            return original_cas(anchor, provider_id, **kwargs)
+
+    anchor.compare_and_set_anchor = synchronized_cas
+
+    def recover():
+        return pending.recover_pending_attestation(
+            candidate_id, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: recover(), range(2)))
+
+    assert all(result["recovered"] is True for result in outcomes)
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (1, 1, 1)
+    with sqlite3.connect(path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM accepted_runner_attestations"
+        ).fetchone()[0] == 1
+        assert db.execute(
+            "SELECT COUNT(*) FROM pending_anchored_replay WHERE status='FINALIZED'"
+        ).fetchone()[0] == 1

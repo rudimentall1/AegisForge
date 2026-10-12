@@ -214,9 +214,22 @@ def _finalize_pending(
 
     if (local_sequence, local_head) != (prior_sequence, prior_head):
         raise ReplayAnchorUnavailable("local_registry_differs_from_pending_prior_anchor")
-    result = verify_and_record_attestation(
-        dossier, envelope, trusted_public_keys=trusted_public_keys, database_path=database_path
-    )
+    try:
+        result = verify_and_record_attestation(
+            dossier, envelope, trusted_public_keys=trusted_public_keys, database_path=database_path
+        )
+    except AttestationReplayRegistryError as exc:
+        # Two recoverers can both observe the prior local head before either
+        # finalizes. If the other recoverer committed this exact candidate,
+        # re-enter the idempotent already-committed path. Do not suppress a
+        # replay conflict unless the durable journal now matches this candidate.
+        current_sequence, current_head = _local_state(database_path, provider_id)
+        if (current_sequence, current_head) != (candidate_sequence, candidate_head):
+            raise
+        return _finalize_pending(
+            database_path, candidate_id=candidate_id,
+            trusted_public_keys=trusted_public_keys,
+        )
     journal = result.get("journal", {})
     if (journal.get("sequence"), journal.get("head_sha256")) != (candidate_sequence, candidate_head):
         raise ReplayAnchorUnavailable("finalized_journal_does_not_match_anchored_candidate")

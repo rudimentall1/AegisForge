@@ -188,6 +188,10 @@ def verify_and_record_attestation(
                         raise AttestationReplayRegistryError(
                             "replay_registry_legacy_state_requires_migration"
                         )
+                    db.execute(
+                        "INSERT INTO attestation_replay_journal_state(provider_id, sequence, head_sha256) VALUES (?, 0, ?)",
+                        (provider_id, _GENESIS),
+                    )
                 db.execute(
                     """INSERT INTO accepted_runner_attestations
                        (provider_id, key_id, run_id, nonce, receipt_sha256)

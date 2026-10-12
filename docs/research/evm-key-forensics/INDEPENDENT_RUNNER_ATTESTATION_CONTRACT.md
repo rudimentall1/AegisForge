@@ -90,6 +90,14 @@ A passing result reports `input_binding=MATCHED` and `artifact_binding=MATCHED`,
 
 A successful call reports `replay_protection=RECORDED_ONCE_IN_LOCAL_SQLITE_REGISTRY`. This is local, database-scoped replay resistance, not a provider-issued freshness guarantee. Separate database copies or restored snapshots do not share replay state; operators must protect and back up the registry appropriately. The registry does not enforce timestamp freshness, key expiry/revocation, provider measurements, or independent execution. A signed provider can still lie, and qualification remains `NOT_ESTABLISHED`. The caller must still verify the actual artifact bytes independently.
 
+### Concurrency and recovery boundary
+
+The registry's `BEGIN IMMEDIATE` transaction plus unique constraints is intended to make concurrent attempts against the same writable SQLite database single-winner: one receipt is recorded and a competing duplicate is rejected. Tests exercise this contention path and ensure the nonce namespace remains provider-scoped rather than key-scoped.
+
+This is not rollback-resistant storage. If an operator restores an older database snapshot, entries written after that snapshot disappear and can be accepted again. SQLite cannot detect that rollback using only state contained in the rolled-back database. Backups must therefore be treated as security-sensitive state, and restoration must not silently resume acceptance. After a restore, keep verification disabled until an operator reconciles the registry against a separately protected checkpoint or authoritative append-only record. For automatic rollback detection across hosts or restores, the design needs an external monotonic anchor or remote append-only ledger; that component is not implemented here.
+
+Operationally, use one authoritative registry for a provider namespace, restrict write access, back up consistently, test restore procedures, and alert on any restore event. Multiple independent copies do not provide a shared replay guarantee.
+
 
 ## Runner key lifecycle and freshness policy (partial implementation)
 

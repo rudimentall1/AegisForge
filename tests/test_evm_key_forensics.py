@@ -1282,3 +1282,54 @@ def test_validator_rejects_tampered_signer_fingerprint_in_envelope(monkeypatch):
     assert check["signature_error"] == "signer_key_fingerprint_mismatch"
     assert report["historical_reproduction_confirmed"] is False
     assert report["status"] == "INCONCLUSIVE"
+
+
+
+def test_validator_rejects_tampered_reported_receipt_digest(monkeypatch):
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from agents.validator.agent import Validator
+
+    signer = Ed25519PrivateKey.generate()
+    private_bytes = signer.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_bytes = signer.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    key_id = "runner-tampered-reported-digest"
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_B64", base64.b64encode(private_bytes).decode("ascii"))
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_ID", key_id)
+    monkeypatch.setenv(
+        "AEGISFORGE_LAB_TRUSTED_PUBLIC_KEYS",
+        json.dumps({key_id: base64.b64encode(public_bytes).decode("ascii")}),
+    )
+
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    # The receipt and signed envelope remain unchanged. Only the digest reported
+    # alongside the receipt is altered, which must invalidate the validator's
+    # combined integrity/authenticity decision.
+    experiment["execution_receipt_sha256"] = "0" * 64
+    report = Validator().run(Task(
+        task_id="tampered-reported-receipt-digest",
+        description="Reject a receipt whose separately reported digest was altered",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": [],
+            "hypotheses": [],
+            "lab_experiments": [experiment],
+        },
+    )).result["research_validation"]
+
+    check = report["lab_execution_receipt_checks"][0]
+    assert check["integrity_verified"] is False
+    assert check["digest_matches"] is False
+    assert check["signature_verified_against_trusted_key"] is False
+    assert check["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
+    assert report["historical_reproduction_confirmed"] is False
+    assert report["status"] == "INCONCLUSIVE"

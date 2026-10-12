@@ -87,3 +87,58 @@ def test_recovery_plan_rejects_anchor_ahead_of_local_registry(tmp_path):
             anchor_head_sha256="a" * 64,
             trusted_public_keys={"pinned-runner-key": _public_bytes(key)},
         )
+
+
+def test_revalidation_rebuilds_plan_against_current_anchor_and_registry(tmp_path):
+    from shared.replay_registry_recovery import revalidate_replay_recovery_plan
+
+    path = tmp_path / "registry.sqlite3"
+    key = Ed25519PrivateKey.generate()
+    _, _, first = _record(path, key, "revalidate-one", "revalidate-nonce-one")
+    trusted = {"pinned-runner-key": _public_bytes(key)}
+    plan = build_replay_recovery_plan(
+        path, provider_id="test-provider", anchor_sequence=1,
+        anchor_head_sha256=first["journal"]["head_sha256"],
+        trusted_public_keys=trusted,
+    )
+
+    result = revalidate_replay_recovery_plan(
+        path, plan=plan, provider_id="test-provider",
+        current_anchor_sequence=1,
+        current_anchor_head_sha256=first["journal"]["head_sha256"],
+        trusted_public_keys=trusted,
+    )
+    assert result["valid"] is True
+    assert result["plan_sha256"] == plan["plan_sha256"]
+    assert result["writes_performed"] is False
+
+    _record(path, key, "revalidate-two", "revalidate-nonce-two")
+    with pytest.raises(ReplayRecoveryError, match="recovery_plan_stale_or_tampered"):
+        revalidate_replay_recovery_plan(
+            path, plan=plan, provider_id="test-provider",
+            current_anchor_sequence=1,
+            current_anchor_head_sha256=first["journal"]["head_sha256"],
+            trusted_public_keys=trusted,
+        )
+
+
+def test_revalidation_rejects_plan_mutation(tmp_path):
+    from shared.replay_registry_recovery import revalidate_replay_recovery_plan
+
+    path = tmp_path / "registry.sqlite3"
+    key = Ed25519PrivateKey.generate()
+    _, _, first = _record(path, key, "revalidate-tamper", "revalidate-nonce-tamper")
+    trusted = {"pinned-runner-key": _public_bytes(key)}
+    plan = build_replay_recovery_plan(
+        path, provider_id="test-provider", anchor_sequence=1,
+        anchor_head_sha256=first["journal"]["head_sha256"],
+        trusted_public_keys=trusted,
+    )
+    plan["suffix"].append({"sequence": 999})
+    with pytest.raises(ReplayRecoveryError, match="recovery_plan_stale_or_tampered"):
+        revalidate_replay_recovery_plan(
+            path, plan=plan, provider_id="test-provider",
+            current_anchor_sequence=1,
+            current_anchor_head_sha256=first["journal"]["head_sha256"],
+            trusted_public_keys=trusted,
+        )

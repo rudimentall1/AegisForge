@@ -199,3 +199,43 @@ def _make_plan(provider_id, anchor_sequence, anchor_head, terminal_sequence, ter
     }
     digest = hashlib.sha256(b"OWNERA-AEGISFORGE-RECOVERY-PLAN-V1\x00" + canonical_json(body).encode("ascii")).hexdigest()
     return {**body, "plan_sha256": digest}
+
+
+def revalidate_replay_recovery_plan(
+    database_path: str | Path,
+    *,
+    plan: Mapping,
+    provider_id: str,
+    current_anchor_sequence: int,
+    current_anchor_head_sha256: str,
+    trusted_public_keys: Mapping[str, bytes],
+) -> dict:
+    """Rebuild a recovery plan against a freshly read external anchor.
+
+    Call this immediately before presenting a plan for operator approval and
+    again before any future anchor CAS. The caller must read the anchor from
+    the authoritative external store; passing the values from the old plan
+    does not provide freshness. This function remains read-only.
+    """
+    if not isinstance(plan, Mapping):
+        raise ReplayRecoveryError("recovery_plan_invalid")
+    if plan.get("provider_id") != provider_id:
+        raise ReplayRecoveryError("recovery_plan_provider_mismatch")
+
+    current = build_replay_recovery_plan(
+        database_path,
+        provider_id=provider_id,
+        anchor_sequence=current_anchor_sequence,
+        anchor_head_sha256=current_anchor_head_sha256,
+        trusted_public_keys=trusted_public_keys,
+    )
+    if dict(plan) != current:
+        raise ReplayRecoveryError("recovery_plan_stale_or_tampered")
+    return {
+        "valid": True,
+        "plan_sha256": current["plan_sha256"],
+        "terminal": current["terminal"],
+        "writes_performed": False,
+        "anchor_updated": False,
+        "qualification": "NOT_ESTABLISHED",
+    }

@@ -156,5 +156,3 @@ def test_unsupported_schema_is_rejected():
 def test_dossier_canonicalization_rejects_nan():
     with pytest.raises(ExperimentDossierError, match="dossier_not_canonicalizable"):
         canonical_json({"x": float("nan")})
-
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

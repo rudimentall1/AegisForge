@@ -172,5 +172,5 @@ def test_anchored_registration_uses_real_signed_receipt_and_journal(tmp_path):
             _envelope(_dossier("anchored-second-run", "anchored-second-nonce"), key),
             trusted_public_keys={"pinned-runner-key": _public_bytes(key)},
             database_path=path,
-            anchor_store=FakeAnchorStore(),
+            anchor_store=FakeAnchorStore(provider_id="test-provider"),
         )

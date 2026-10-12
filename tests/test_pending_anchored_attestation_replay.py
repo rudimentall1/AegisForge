@@ -559,3 +559,43 @@ def test_recovery_fails_closed_on_corrupt_local_journal_even_when_terminal_state
         )
     assert anchor.anchor["sequence"] == 1
     assert _counts(path) == (1, 1, 1)
+
+
+def test_recovery_fails_closed_when_journal_row_is_missing(tmp_path):
+    from shared.replay_registry_recovery import ReplayRecoveryError, build_replay_recovery_plan
+
+    path = tmp_path / "pending-missing-journal-row.sqlite3"
+    dossier, envelope, trusted = _signed("missing-journal-row-run", "missing-journal-row-nonce")
+    anchor = Anchor()
+    pending.verify_and_record_attestation_pending_anchored(
+        dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+    )
+    with sqlite3.connect(path) as db:
+        db.execute("DELETE FROM attestation_replay_journal WHERE provider_id=? AND sequence=1", ("test-provider",))
+
+    with pytest.raises(ReplayRecoveryError, match="recovery_journal_or_evidence_count_mismatch"):
+        build_replay_recovery_plan(
+            path, provider_id="test-provider", anchor_sequence=anchor.anchor["sequence"],
+            anchor_head_sha256=anchor.anchor["head_sha256"], trusted_public_keys=trusted,
+        )
+    assert anchor.anchor["sequence"] == 1
+
+
+def test_recovery_fails_closed_when_evidence_row_is_missing(tmp_path):
+    from shared.replay_registry_recovery import ReplayRecoveryError, build_replay_recovery_plan
+
+    path = tmp_path / "pending-missing-evidence-row.sqlite3"
+    dossier, envelope, trusted = _signed("missing-evidence-row-run", "missing-evidence-row-nonce")
+    anchor = Anchor()
+    pending.verify_and_record_attestation_pending_anchored(
+        dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+    )
+    with sqlite3.connect(path) as db:
+        db.execute("DELETE FROM attestation_replay_evidence WHERE provider_id=? AND sequence=1", ("test-provider",))
+
+    with pytest.raises(ReplayRecoveryError, match="recovery_journal_or_evidence_count_mismatch"):
+        build_replay_recovery_plan(
+            path, provider_id="test-provider", anchor_sequence=anchor.anchor["sequence"],
+            anchor_head_sha256=anchor.anchor["head_sha256"], trusted_public_keys=trusted,
+        )
+    assert anchor.anchor["sequence"] == 1

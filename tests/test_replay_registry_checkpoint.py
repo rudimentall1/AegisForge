@@ -80,6 +80,15 @@ def test_checkpoint_signature_tampering_is_rejected():
         _verify(altered, key, minimum_sequence=0, local_sequence=13)
 
 
+@pytest.mark.parametrize("signature_value", [None, 123, [], {}])
+def test_verifier_rejects_non_string_signature_encoding(signature_value):
+    key = Ed25519PrivateKey.generate()
+    envelope = _checkpoint(key)
+    envelope["signature_base64"] = signature_value
+    with pytest.raises(ReplayCheckpointError, match="checkpoint_signature_encoding_invalid"):
+        _verify(envelope, key)
+
+
 def test_unknown_checkpoint_signer_is_rejected():
     key = Ed25519PrivateKey.generate()
     with pytest.raises(ReplayCheckpointError, match="signing_key_not_trusted"):

@@ -82,6 +82,8 @@ def verify_registry_checkpoint(
     if not isinstance(public_bytes, bytes) or len(public_bytes) != 32:
         raise ReplayCheckpointError("checkpoint_signing_key_not_trusted")
     signature_text = envelope["signature_base64"]
+    if not isinstance(signature_text, str):
+        raise ReplayCheckpointError("checkpoint_signature_encoding_invalid")
     try:
         signature = base64.b64decode(signature_text.encode("ascii"), validate=True)
         Ed25519PublicKey.from_public_bytes(public_bytes).verify(signature, _DOMAIN + _canonical(payload))

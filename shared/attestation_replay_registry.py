@@ -93,21 +93,31 @@ def _append_journal_event(
         sequence, previous_head = state
         if type(sequence) is not int or sequence < 0 or not isinstance(previous_head, str):
             raise AttestationReplayRegistryError("replay_registry_journal_state_invalid")
-        # Verify the persisted head against the last journal event before extending it.
-        if sequence == 0:
-            if previous_head != _GENESIS or db.execute(
-                "SELECT 1 FROM attestation_replay_journal WHERE provider_id = ? LIMIT 1",
-                (provider_id,),
-            ).fetchone():
-                raise AttestationReplayRegistryError("replay_registry_journal_state_corrupt")
-        else:
-            last = db.execute(
-                """SELECT sequence, head_sha256 FROM attestation_replay_journal
-                   WHERE provider_id = ? ORDER BY sequence DESC LIMIT 1""",
-                (provider_id,),
-            ).fetchone()
-            if last != (sequence, previous_head):
-                raise AttestationReplayRegistryError("replay_registry_journal_state_corrupt")
+        # Recompute every link, not only the tail. Otherwise a modified middle
+        # event could survive a later append while the stored tail still matches.
+        expected_sequence, expected_previous = 1, _GENESIS
+        rows = db.execute(
+            """SELECT sequence, previous_head_sha256, head_sha256, run_id, nonce, receipt_sha256
+               FROM attestation_replay_journal WHERE provider_id = ? ORDER BY sequence""",
+            (provider_id,),
+        ).fetchall()
+        for row in rows:
+            row_sequence, row_previous, row_head, row_run, row_nonce, row_receipt = row
+            event = {
+                "schema_version": "evm-key-forensics-replay-event-v1",
+                "provider_id": provider_id,
+                "sequence": expected_sequence,
+                "previous_head_sha256": expected_previous,
+                "run_id": row_run,
+                "nonce": row_nonce,
+                "receipt_sha256": row_receipt,
+            }
+            if row_sequence != expected_sequence or row_previous != expected_previous or row_head != _event_hash(event):
+                raise AttestationReplayRegistryError("replay_registry_journal_chain_corrupt")
+            expected_sequence += 1
+            expected_previous = row_head
+        if expected_sequence - 1 != sequence or expected_previous != previous_head:
+            raise AttestationReplayRegistryError("replay_registry_journal_state_corrupt")
 
     next_sequence = sequence + 1
     event = {

@@ -86,3 +86,7 @@ Do not silently change the existing adapter in place without a schema version an
 ## Non-goals
 
 This design does not claim that SQLite is tamper-proof, that a local operator cannot replace trusted public keys, or that the external anchor can verify the runner's business logic. It addresses ordering, crash recovery, and accepted-state semantics across two independent persistence systems. The lab remains synthetic; no live wallet key recovery or scanning is part of this work.
+
+### Negative control: split anchor authority
+
+A negative-control test gives two restored SQLite copies two independent anchor instances, each initialized at the same genesis. Both can accept a different sequence-1 head because each CAS is internally valid and neither store knows about the other. This is an expected limitation, not a client-side race that local locking can solve. A deployment must ensure all writers for one provider use the same authoritative linearizable anchor namespace, with durable monotonic state and no split-brain writes. If that property cannot be demonstrated for the chosen backend, this protocol must not be described as providing global single-winner replay protection.

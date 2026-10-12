@@ -767,3 +767,30 @@ def test_concurrent_recovery_of_same_prepared_candidate_is_idempotent(tmp_path):
         assert db.execute(
             "SELECT COUNT(*) FROM pending_anchored_replay WHERE status='FINALIZED'"
         ).fetchone()[0] == 1
+
+
+def test_independent_anchor_forks_can_each_accept_a_different_sequence_one(tmp_path):
+    # This is an explicit limit test: per-store CAS cannot coordinate two stores.
+    first_path = tmp_path / "fork-copy-a.sqlite3"
+    second_path = tmp_path / "fork-copy-b.sqlite3"
+    first_signed = _signed("fork-copy-a", "fork-nonce-a")
+    second_signed = _signed("fork-copy-b", "fork-nonce-b")
+    first_anchor = Anchor()
+    second_anchor = Anchor()
+
+    outcomes = []
+    for path, signed, anchor in (
+        (first_path, first_signed, first_anchor),
+        (second_path, second_signed, second_anchor),
+    ):
+        dossier, envelope, trusted = signed
+        outcomes.append(pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        ))
+
+    assert all(result["valid"] is True for result in outcomes)
+    assert first_anchor.anchor["sequence"] == second_anchor.anchor["sequence"] == 1
+    assert first_anchor.anchor["head_sha256"] != second_anchor.anchor["head_sha256"]
+    assert _counts(first_path) == (1, 1, 1)
+    assert _counts(second_path) == (1, 1, 1)

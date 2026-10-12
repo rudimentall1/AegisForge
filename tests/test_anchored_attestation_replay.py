@@ -141,3 +141,36 @@ def test_anchor_rejects_wrong_provider_and_invalid_genesis(tmp_path):
     store = FakeAnchorStore(head="f" * 64)
     with pytest.raises(AttestationReplayRegistryError, match="genesis_invalid"):
         _call(path, store)
+
+
+def test_anchored_registration_uses_real_signed_receipt_and_journal(tmp_path):
+    from test_attestation_replay_registry import _dossier, _envelope, _public_bytes
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    path = tmp_path / "real-registry.sqlite3"
+    key = Ed25519PrivateKey.generate()
+    dossier = _dossier("anchored-real-run", "anchored-real-nonce")
+    envelope = _envelope(dossier, key)
+    store = FakeAnchorStore()
+
+    result = anchored.verify_and_record_attestation_anchored(
+        dossier,
+        envelope,
+        trusted_public_keys={"pinned-runner-key": _public_bytes(key)},
+        database_path=path,
+        anchor_store=store,
+    )
+
+    assert result["valid"] is True
+    assert result["journal"]["sequence"] == 1
+    assert store.anchor["sequence"] == 1
+    assert store.anchor["head_sha256"] == result["journal"]["head_sha256"]
+
+    with pytest.raises(AttestationReplayRegistryError, match="local_registry_differs"):
+        anchored.verify_and_record_attestation_anchored(
+            _dossier("anchored-second-run", "anchored-second-nonce"),
+            _envelope(_dossier("anchored-second-run", "anchored-second-nonce"), key),
+            trusted_public_keys={"pinned-runner-key": _public_bytes(key)},
+            database_path=path,
+            anchor_store=FakeAnchorStore(),
+        )

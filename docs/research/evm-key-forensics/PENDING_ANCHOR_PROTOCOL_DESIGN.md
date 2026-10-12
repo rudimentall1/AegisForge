@@ -1,6 +1,6 @@
 # Pending-first protocol for externally anchored replay registration
 
-Status: design proposal. Not implemented. The current strict adapter remains fail-closed but is not crash-atomic across SQLite and the external anchor.
+Status: research prototype implemented in `shared/pending_anchored_attestation_replay.py`; not production-qualified. The legacy strict adapter remains unchanged. The prototype has targeted tests for success, CAS conflict, invalid signature, and recovery after a simulated crash following anchor CAS. It does not yet establish production crash atomicity or provider-specific operational safety.
 
 ## Problem
 
@@ -66,6 +66,8 @@ The external anchor must remain outside the SQLite database and its backup/resto
 10. Reopening the database after each injected crash point produces the same decision as uninterrupted execution.
 11. Existing recovery planner continues to reject a local suffix not covered by the authoritative anchor.
 12. Full test suite and `git diff --check` pass.
+
+The first prototype currently covers the success path, CAS conflict without accepted-state mutation, invalid signatures, and recovery after a simulated crash immediately after CAS. The remaining matrix above is still required; passing these initial tests does not qualify the protocol for production.
 
 ## Migration and rollout
 

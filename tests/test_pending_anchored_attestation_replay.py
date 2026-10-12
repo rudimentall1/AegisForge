@@ -409,3 +409,53 @@ def test_legacy_accepted_state_without_journal_head_fails_before_anchor_cas(tmp_
         assert db.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='pending_anchored_replay'"
         ).fetchone()[0] == 0
+
+
+def test_tampered_candidate_head_is_rejected_during_recovery(tmp_path, monkeypatch):
+    path = tmp_path / "pending-candidate-head-tamper.sqlite3"
+    dossier, envelope, trusted = _signed("candidate-head-tamper", "candidate-head-tamper-nonce")
+    anchor = Anchor()
+    original_finalize = pending._finalize_pending
+
+    def crash_after_anchor(*args, **kwargs):
+        raise RuntimeError("simulated crash after anchor")
+
+    monkeypatch.setattr(pending, "_finalize_pending", crash_after_anchor)
+    with pytest.raises(RuntimeError, match="after anchor"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM pending_anchored_replay"
+        ).fetchone()[0]
+        db.execute(
+            "UPDATE pending_anchored_replay SET candidate_head_sha256=? WHERE candidate_id=?",
+            ("f" * 64, candidate_id),
+        )
+
+    monkeypatch.setattr(pending, "_finalize_pending", original_finalize)
+    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_not_confirmed_by_external_anchor"):
+        pending.recover_pending_attestation(
+            candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    # The corrupted local head no longer matches the authoritative anchor, so recovery
+    # stops before evidence verification/finalization and never accepts the candidate.
+    assert _counts(path) == (0, 1, 0)
+    assert anchor.anchor["sequence"] == 1
+
+
+def test_malformed_external_anchor_fails_before_pending_state_or_cas(tmp_path):
+    path = tmp_path / "pending-malformed-anchor.sqlite3"
+    dossier, envelope, trusted = _signed("malformed-anchor", "malformed-anchor-nonce")
+    anchor = Anchor()
+    anchor.anchor = {"provider_id": "test-provider", "sequence": True, "head_sha256": GENESIS}
+
+    with pytest.raises(ReplayAnchorUnavailable, match="external_anchor_sequence_invalid"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+
+    assert anchor.cas_calls == 0
+    assert not path.exists() or not path.stat().st_size or _counts(path) == (0, 0, 0)

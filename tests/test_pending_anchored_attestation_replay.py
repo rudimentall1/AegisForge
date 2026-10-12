@@ -382,6 +382,32 @@ def test_conflicted_candidate_cannot_be_recovered_from_later_matching_head(tmp_p
     assert _counts(path) == (0, 1, 0)
 
 
+def test_recovery_detects_anchor_rollback_when_local_finalized_state_survives(tmp_path):
+    path = tmp_path / "pending-anchor-rollback.sqlite3"
+    dossier, envelope, trusted = _signed("rollback-detection", "rollback-detection-nonce")
+    anchor = Anchor()
+    result = pending.verify_and_record_attestation_pending_anchored(
+        dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+    )
+    assert result["journal"]["sequence"] == 1
+    assert _counts(path) == (1, 1, 1)
+
+    # Model a broken anchor service that regresses after a confirmed commit.
+    # The surviving local finalized state must prevent silent re-acceptance.
+    anchor.anchor = {"provider_id": "test-provider", "sequence": 0, "head_sha256": GENESIS}
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM pending_anchored_replay"
+        ).fetchone()[0]
+
+    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_conflict_requires_review"):
+        pending.recover_pending_attestation(
+            candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    assert _counts(path) == (1, 1, 1)
+    assert anchor.anchor["sequence"] == 0
+
+
 def test_legacy_accepted_state_without_journal_head_fails_before_anchor_cas(tmp_path):
     path = tmp_path / "legacy-state.sqlite3"
     dossier, envelope, trusted = _signed("new-run-after-legacy", "new-nonce-after-legacy")

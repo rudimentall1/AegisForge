@@ -52,6 +52,12 @@ The existing anchor fields `(provider_id, sequence, head_sha256)` are sufficient
 
 The external anchor must remain outside the SQLite database and its backup/restore domain. Genesis provisioning must be explicit per provider.
 
+## Rollback boundary
+
+The client protocol can detect an anchor regression when its surviving local journal or pending status proves that the observed anchor is stale. A regression from a previously confirmed candidate to its prior head is rejected for a locally `FINALIZED` candidate; recovery must not silently replay it. A targeted test covers this case.
+
+The client cannot prove that the anchor itself has not been rolled back if the anchor service violates its contract and presents a mutually consistent older view while the local database has also been restored to a compatible older snapshot. No sequence/hash comparison can distinguish that world from a legitimate earlier state without an independent non-rollbackable witness. Production rollback resistance therefore depends on the anchor backend providing durable monotonic state, authoritative reads, and linearizable CAS across failures and restores. A fake in-memory anchor validates protocol branches, not that operational guarantee.
+
 ## Acceptance tests required before enabling this protocol
 
 1. Invalid signature creates neither pending nor accepted state.

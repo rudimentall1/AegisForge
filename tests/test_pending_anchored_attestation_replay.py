@@ -121,7 +121,7 @@ def test_invalid_signature_never_creates_pending_or_accepted_state(tmp_path):
     envelope["signature"] = "00" * 64
     anchor = Anchor()
 
-    with pytest.raises(Exception, match="attestation_invalid"):
+    with pytest.raises(pending.AttestationReplayRegistryError, match="attestation_invalid"):
         pending.verify_and_record_attestation_pending_anchored(
             dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
         )
@@ -484,7 +484,7 @@ def test_accepted_run_id_or_nonce_cannot_be_replayed_through_pending_protocol(
             "fresh-run-for-duplicate-nonce", first_dossier["nonce"]
         )
 
-    with pytest.raises(Exception, match="attestation_replay_detected:run_id_or_nonce_already_seen"):
+    with pytest.raises(pending.AttestationReplayRegistryError, match="attestation_replay_detected:run_id_or_nonce_already_seen"):
         pending.verify_and_record_attestation_pending_anchored(
             second_dossier, second_envelope, trusted_public_keys=second_trusted,
             database_path=path, anchor_store=anchor,
@@ -493,3 +493,38 @@ def test_accepted_run_id_or_nonce_cannot_be_replayed_through_pending_protocol(
     assert anchor.cas_calls == 1
     assert anchor.anchor["sequence"] == 1
     assert _counts(path) == (1, 1, 1)
+
+
+def test_local_finalize_sqlite_failure_is_recoverable_after_anchor_advance(tmp_path, monkeypatch):
+    path = tmp_path / "pending-finalize-sqlite-failure.sqlite3"
+    dossier, envelope, trusted = _signed("sqlite-failure-run", "sqlite-failure-nonce")
+    anchor = Anchor()
+    original_finalize = pending.verify_and_record_attestation
+
+    def fail_once(*args, **kwargs):
+        raise sqlite3.OperationalError("simulated local finalization write failure")
+
+    monkeypatch.setattr(pending, "verify_and_record_attestation", fail_once)
+    with pytest.raises(sqlite3.OperationalError, match="simulated local finalization write failure"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        )
+
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM pending_anchored_replay WHERE status='PREPARED'"
+        ).fetchone()[0]
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (0, 1, 0)
+
+    monkeypatch.setattr(pending, "verify_and_record_attestation", original_finalize)
+    recovered = pending.recover_pending_attestation(
+        candidate_id, trusted_public_keys=trusted,
+        database_path=path, anchor_store=anchor,
+    )
+    assert recovered["valid"] is True
+    assert recovered["recovered"] is True
+    assert recovered["journal"]["sequence"] == 1
+    assert _counts(path) == (1, 1, 1)
+    assert anchor.anchor["sequence"] == 1

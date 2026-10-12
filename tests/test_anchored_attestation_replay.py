@@ -211,3 +211,74 @@ def test_post_commit_anchor_conflict_leaves_local_suffix_and_retry_fails_closed(
 
     with pytest.raises(AttestationReplayRegistryError, match="local_registry_differs_from_external_anchor"):
         anchored.verify_and_record_attestation_anchored(dossier, envelope, **kwargs)
+
+
+def test_concurrent_writers_can_create_unanchored_suffix_and_must_fail_closed(monkeypatch, tmp_path):
+    """Expose the SQLite-commit/external-CAS race; this is not a safety guarantee."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from test_attestation_replay_registry import _dossier, _envelope, _public_bytes
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    path = tmp_path / "concurrent-writers.sqlite3"
+    store = FakeAnchorStore(provider_id="test-provider")
+    original_local_state = anchored._local_state
+    both_read_genesis = Barrier(2)
+
+    def synchronized_local_state(database_path, provider_id):
+        state = original_local_state(database_path, provider_id)
+        assert state == (0, GENESIS)
+        both_read_genesis.wait(timeout=5)
+        return state
+
+    monkeypatch.setattr(anchored, "_local_state", synchronized_local_state)
+    keys = [Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()]
+    calls = []
+    for index, key in enumerate(keys):
+        dossier = _dossier(f"concurrent-run-{index}", f"concurrent-nonce-{index}")
+        calls.append((dossier, _envelope(dossier, key), {"pinned-runner-key": _public_bytes(key)}))
+
+    def submit(item):
+        dossier, envelope, trusted_keys = item
+        try:
+            return anchored.verify_and_record_attestation_anchored(
+                dossier, envelope, trusted_public_keys=trusted_keys,
+                database_path=path, anchor_store=store,
+            )
+        except AttestationReplayRegistryError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(submit, calls))
+
+    successes = [result for result in results if isinstance(result, dict)]
+    failures = [result for result in results if isinstance(result, AttestationReplayRegistryError)]
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert any(marker in str(failures[0]) for marker in (
+        "compare_and_set_conflict_reconcile_required",
+        "local_registry_unexpected_successor",
+    ))
+
+    with sqlite3.connect(path) as db:
+        local_sequence, local_head = db.execute(
+            "SELECT sequence, head_sha256 FROM attestation_replay_journal_state WHERE provider_id=?",
+            ("test-provider",),
+        ).fetchone()
+        evidence_count = db.execute(
+            "SELECT COUNT(*) FROM attestation_replay_evidence WHERE provider_id=?",
+            ("test-provider",),
+        ).fetchone()[0]
+
+    assert local_sequence == 2
+    assert local_head != store.anchor["head_sha256"]
+    assert evidence_count == 2
+    assert store.anchor["sequence"] == 1
+    monkeypatch.setattr(anchored, "_local_state", original_local_state)
+    with pytest.raises(AttestationReplayRegistryError, match="local_registry_differs_from_external_anchor"):
+        anchored.verify_and_record_attestation_anchored(
+            _dossier("after-race-run", "after-race-nonce"),
+            _envelope(_dossier("after-race-run", "after-race-nonce"), keys[0]),
+            trusted_public_keys={"pinned-runner-key": _public_bytes(keys[0])},
+            database_path=path, anchor_store=store,
+        )

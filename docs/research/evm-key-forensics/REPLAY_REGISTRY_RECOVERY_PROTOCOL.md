@@ -24,7 +24,7 @@ Missing, malformed, duplicated, or mismatched evidence is a hard failure. Do not
 
 ## Concurrency and crash boundaries
 
-SQLite transactionality does not make the local commit and external CAS a distributed transaction. Concurrent writers can leave an unanchored suffix even if the external anchor rejects one writer. Before production use, writes need per-provider serialization across processes and hosts, or a redesigned protocol that prevents unanchored commits from being treated as accepted.
+SQLite transactionality does not make the local commit and external CAS a distributed transaction. `test_concurrent_writers_can_create_unanchored_suffix_and_must_fail_closed` deterministically synchronizes two writers after each has read the same genesis state. Both then commit locally; one advances the external anchor and the other fails closed, leaving SQLite at sequence 2 while the anchor remains at sequence 1. The test demonstrates the current limitation, not a supported operating mode. Before production use, writes need per-provider serialization across processes and hosts, or a redesigned protocol that prevents unanchored commits from being treated as accepted. A process-local mutex is insufficient, and serialization alone does not eliminate the crash window after local commit but before CAS.
 
 Fault-injection tests must cover process termination before SQLite commit, after commit but before CAS, after CAS success but before returning, audit-sink failure, simultaneous writers, anchor timeout, CAS conflict, stale backup restore, deleted evidence, modified middle events, expired/revoked keys, and an anchor ahead of local SQLite.
 

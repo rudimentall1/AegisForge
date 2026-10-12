@@ -56,6 +56,10 @@ def build_replay_recovery_plan(
     try:
         with sqlite3.connect(str(database_path), timeout=5.0) as db:
             db.row_factory = sqlite3.Row
+            # Keep state, journal, accepted records, and evidence on one SQLite
+            # snapshot. Separate autocommit reads could otherwise mix states
+            # while another writer commits between SELECT statements.
+            db.execute("BEGIN")
             tables = {row[0] for row in db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
             required = {

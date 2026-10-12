@@ -127,12 +127,14 @@ def _persist_pending(
                 if accepted:
                     raise AttestationReplayRegistryError("attestation_replay_detected:run_id_or_nonce_already_seen")
                 existing = db.execute(
-                    "SELECT candidate_head_sha256 FROM pending_anchored_replay WHERE candidate_id=?",
+                    "SELECT candidate_head_sha256, status FROM pending_anchored_replay WHERE candidate_id=?",
                     (candidate_id,),
                 ).fetchone()
                 if existing:
                     if existing[0] != candidate_head:
                         raise AttestationReplayRegistryError("pending_candidate_id_collision")
+                    if existing[1] == "CONFLICT":
+                        raise ReplayAnchorUnavailable("pending_candidate_conflict_requires_review")
                     db.execute("COMMIT")
                     return
                 db.execute("""INSERT INTO pending_anchored_replay

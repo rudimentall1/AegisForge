@@ -86,6 +86,30 @@ def test_cas_conflict_keeps_candidate_pending_and_does_not_accept(tmp_path):
         assert db.execute("SELECT status FROM pending_anchored_replay").fetchone() == ("CONFLICT",)
 
 
+def test_conflicted_candidate_cannot_be_republished_by_normal_entrypoint(tmp_path):
+    path = tmp_path / "pending-conflict-republish.sqlite3"
+    dossier, envelope, trusted = _signed("conflict-republish", "conflict-republish-nonce")
+    anchor = Anchor(cas_result=False)
+
+    with pytest.raises(ReplayAnchorUnavailable, match="compare_and_set_conflict_pending_not_accepted"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    assert anchor.cas_calls == 1
+
+    # Even if the anchor later appears to return to genesis, an existing CONFLICT
+    # candidate must not be silently republished by the regular write path.
+    anchor.cas_result = True
+    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_conflict_requires_review"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+
+    assert anchor.cas_calls == 1
+    assert anchor.anchor["sequence"] == 0
+    assert _counts(path) == (0, 1, 0)
+
+
 def test_recovery_finalizes_exact_candidate_after_crash_post_cas(monkeypatch, tmp_path):
     path = tmp_path / "pending-crash.sqlite3"
     dossier, envelope, trusted = _signed("crash-after-cas", "crash-after-cas-nonce")

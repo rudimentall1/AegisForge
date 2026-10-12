@@ -219,7 +219,7 @@ def test_artifact_verifier_rejects_symlinked_parent_directory(tmp_path):
     dossier = _dossier()
     dossier["artifacts"][0]["name"] = "linked/result.json"
     dossier["artifacts"][0]["sha256"] = hashlib.sha256(content).hexdigest()
-    with pytest.raises(ExperimentDossierError, match="artifact_symlink_not_allowed"):
+    with pytest.raises(ExperimentDossierError, match="artifact_path_unavailable_or_escaped"):
         verify_experiment_dossier_artifacts(dossier, tmp_path)
 
 

@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+import sqlite3
 from http.server import ThreadingHTTPServer
 from threading import Thread
 
@@ -255,3 +256,41 @@ def test_sqlite_update_failure_returns_503_without_advancing_anchor(anchor_servi
     assert store.get_anchor("provider-test") == {
         "provider_id": "provider-test", "sequence": 0, "head_sha256": GENESIS,
     }
+
+
+def test_corrupt_persisted_anchor_fails_closed_for_read_and_cas(anchor_service):
+    store, db_path = anchor_service
+
+    # The schema constrains sequence but intentionally does not constrain hash
+    # syntax, so simulate corruption/unauthorized modification of persisted data.
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE replay_anchors SET head_sha256=? WHERE provider_id=?",
+            ("not-a-valid-hash", "provider-test"),
+        )
+
+    read_response = requests.get(
+        store._base_url + "/v1/anchors/provider-test",
+        headers={"Authorization": f"Bearer {TOKEN}"}, timeout=2,
+    )
+    assert read_response.status_code == 503
+    assert read_response.json() == {"error": "anchor_unavailable"}
+
+    cas_response = requests.post(
+        store._base_url + "/v1/anchors/provider-test/compare-and-set",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json={
+            "expected_sequence": 0,
+            "expected_head_sha256": GENESIS,
+            "new_sequence": 1,
+            "new_head_sha256": HEAD_A,
+        },
+        timeout=2,
+    )
+    assert cas_response.status_code == 503
+    assert cas_response.json() == {"error": "anchor_unavailable"}
+    with sqlite3.connect(db_path) as db:
+        assert db.execute(
+            "SELECT sequence,head_sha256 FROM replay_anchors WHERE provider_id=?",
+            ("provider-test",),
+        ).fetchone() == (0, "not-a-valid-hash")

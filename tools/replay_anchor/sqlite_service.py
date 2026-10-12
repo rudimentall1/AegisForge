@@ -30,6 +30,15 @@ def connect(path: str) -> sqlite3.Connection:
     return db
 
 
+def _valid_anchor_row(sequence: object, head_sha256: object) -> bool:
+    """Reject persisted state that violates the externally visible anchor contract."""
+    if type(sequence) is not int or sequence < 0:
+        return False
+    if not isinstance(head_sha256, str) or not HASH_RE.fullmatch(head_sha256):
+        return False
+    return sequence != 0 or head_sha256 == GENESIS
+
+
 def initialize_database(path: str) -> None:
     """Set durable journal mode and create schema during explicit initialization."""
     with closing(sqlite3.connect(path, timeout=5.0, isolation_level=None)) as db:
@@ -114,6 +123,9 @@ def make_handler(db_path: str, token: str):
                 if row is None:
                     self._send(404, {"error": "anchor_not_provisioned"})
                     return
+                if not _valid_anchor_row(row[0], row[1]):
+                    self._send(503, {"error": "anchor_unavailable"})
+                    return
                 self._send(200, {"provider_id": provider, "sequence": row[0], "head_sha256": row[1]})
             except sqlite3.Error:
                 self._send(503, {"error": "anchor_unavailable"})
@@ -159,6 +171,10 @@ def make_handler(db_path: str, token: str):
                     if row is None:
                         db.execute("ROLLBACK")
                         self._send(404, {"error": "anchor_not_provisioned"})
+                        return
+                    if not _valid_anchor_row(row[0], row[1]):
+                        db.execute("ROLLBACK")
+                        self._send(503, {"error": "anchor_unavailable"})
                         return
                     if row != (es, eh):
                         db.execute("ROLLBACK")

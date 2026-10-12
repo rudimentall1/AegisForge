@@ -1182,3 +1182,56 @@ def test_validator_rejects_trusted_key_id_with_wrong_public_key(monkeypatch):
     assert check["signature_error"] == "signer_key_fingerprint_mismatch"
     assert report["historical_reproduction_confirmed"] is False
     assert report["status"] == "INCONCLUSIVE"
+
+
+def test_validator_rejects_mutated_receipt_inside_signed_envelope(monkeypatch):
+    import base64
+    from copy import deepcopy
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from agents.validator.agent import Validator
+
+    signer = Ed25519PrivateKey.generate()
+    private_bytes = signer.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_bytes = signer.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    key_id = "runner-mutated-envelope-receipt"
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_B64", base64.b64encode(private_bytes).decode("ascii"))
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_ID", key_id)
+    monkeypatch.setenv(
+        "AEGISFORGE_LAB_TRUSTED_PUBLIC_KEYS",
+        json.dumps({key_id: base64.b64encode(public_bytes).decode("ascii")}),
+    )
+
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    # Mutate only the copy embedded in the signed envelope. Keep the separately
+    # evaluated receipt and its digest intact to isolate envelope verification.
+    experiment["execution_receipt_envelope"]["receipt"] = deepcopy(
+        experiment["execution_receipt_envelope"]["receipt"]
+    )
+    experiment["execution_receipt_envelope"]["receipt"]["execution"]["exit_code"] = 99
+    report = Validator().run(Task(
+        task_id="mutated-envelope-receipt",
+        description="Reject a mutated receipt embedded in a signed envelope",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": [],
+            "hypotheses": [],
+            "lab_experiments": [experiment],
+        },
+    )).result["research_validation"]
+
+    check = report["lab_execution_receipt_checks"][0]
+    assert check["integrity_verified"] is True
+    assert check["signature_verified_against_trusted_key"] is False
+    assert check["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
+    assert check["signature_error"] == "receipt_digest_mismatch"
+    assert report["historical_reproduction_confirmed"] is False
+    assert report["status"] == "INCONCLUSIVE"

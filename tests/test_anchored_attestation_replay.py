@@ -133,10 +133,6 @@ def test_anchor_cas_conflict_does_not_report_success(monkeypatch, tmp_path):
 def test_anchor_rejects_wrong_provider_and_invalid_genesis(tmp_path):
     path = tmp_path / "registry.db"
     _db(path)
-    with pytest.raises(AttestationReplayRegistryError, match="provider_mismatch"):
-        _call(path, FakeAnchorStore())
-        # The store response is mutated below in the separate assertion.
-
     store = FakeAnchorStore()
     store.anchor["provider_id"] = "other-provider"
     with pytest.raises(AttestationReplayRegistryError, match="provider_mismatch"):

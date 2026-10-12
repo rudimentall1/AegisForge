@@ -66,6 +66,21 @@ def _ensure_schema(db: sqlite3.Connection) -> None:
             head_sha256 TEXT NOT NULL
         )
     """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS attestation_replay_evidence (
+            provider_id TEXT NOT NULL,
+            sequence INTEGER NOT NULL CHECK(sequence > 0),
+            run_id TEXT NOT NULL,
+            nonce TEXT NOT NULL,
+            receipt_sha256 TEXT NOT NULL,
+            journal_head_sha256 TEXT NOT NULL,
+            dossier_json TEXT NOT NULL,
+            envelope_json TEXT NOT NULL,
+            PRIMARY KEY (provider_id, sequence),
+            UNIQUE (provider_id, run_id),
+            UNIQUE (provider_id, nonce)
+        )
+    """)
 
 
 def _append_journal_event(
@@ -211,6 +226,17 @@ def verify_and_record_attestation(
                 sequence, head = _append_journal_event(
                     db, provider_id=provider_id, run_id=run_id, nonce=nonce,
                     receipt_sha256=receipt_sha256,
+                )
+                # Keep the exact signed input and dossier in the same transaction
+                # as replay reservation and journal append. This is evidence to
+                # re-verify during recovery, never a substitute for verification.
+                db.execute(
+                    """INSERT INTO attestation_replay_evidence
+                       (provider_id, sequence, run_id, nonce, receipt_sha256,
+                        journal_head_sha256, dossier_json, envelope_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (provider_id, sequence, run_id, nonce, receipt_sha256, head,
+                     canonical_json(dossier), canonical_json(envelope)),
                 )
                 db.execute("COMMIT")
             except sqlite3.IntegrityError as exc:

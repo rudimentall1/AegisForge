@@ -1132,3 +1132,53 @@ def test_validator_rejects_receipt_payload_mutated_after_signing(monkeypatch):
     assert check["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
     assert report["historical_reproduction_confirmed"] is False
     assert report["status"] == "INCONCLUSIVE"
+
+
+
+def test_validator_rejects_trusted_key_id_with_wrong_public_key(monkeypatch):
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from agents.validator.agent import Validator
+
+    signer = Ed25519PrivateKey.generate()
+    wrong_key = Ed25519PrivateKey.generate()
+    signer_private_bytes = signer.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    wrong_public_bytes = wrong_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    key_id = "runner-key-fingerprint-mismatch"
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_B64", base64.b64encode(signer_private_bytes).decode("ascii"))
+    monkeypatch.setenv("AEGISFORGE_LAB_SIGNING_KEY_ID", key_id)
+    monkeypatch.setenv(
+        "AEGISFORGE_LAB_TRUSTED_PUBLIC_KEYS",
+        json.dumps({key_id: base64.b64encode(wrong_public_bytes).decode("ascii")}),
+    )
+
+    experiment = LabRunner.run_synthetic_entropy_demo()
+    report = Validator().run(Task(
+        task_id="trusted-key-fingerprint-mismatch",
+        description="Reject a trusted key ID mapped to a different public key",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "lab",
+            "sources": [],
+            "hypotheses": [],
+            "lab_experiments": [experiment],
+        },
+    )).result["research_validation"]
+
+    assert report["lab_trusted_signing_key_count"] == 1
+    assert report["lab_trusted_key_configuration_error"] is None
+    check = report["lab_execution_receipt_checks"][0]
+    assert check["integrity_verified"] is True
+    assert check["signature_verified_against_trusted_key"] is False
+    assert check["authenticity"] == "SIGNATURE_INVALID_OR_UNTRUSTED"
+    assert check["signature_error"] == "signer_key_fingerprint_mismatch"
+    assert report["historical_reproduction_confirmed"] is False
+    assert report["status"] == "INCONCLUSIVE"

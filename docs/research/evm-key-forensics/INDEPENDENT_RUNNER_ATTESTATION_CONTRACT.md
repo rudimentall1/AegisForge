@@ -43,7 +43,7 @@ The signature must cover the canonical payload, not a subset of fields. Artifact
 
 ## Current implementation boundary
 
-The existing Ed25519 lab receipt authenticates a signer statement and supports integrity verification against explicitly configured public keys. It does **not** establish runner isolation or independence. The current validator intentionally sets independent runner attestation to unavailable/unverified, so signed receipts cannot qualify a historical reproduction. This is fail-closed behavior, not a missing success flag to be manually enabled.
+The existing Ed25519 lab receipt signs a domain-separated canonical payload containing the envelope schema version, algorithm, key ID, full receipt, receipt digest, and signer public-key fingerprint. Verification uses explicitly configured public keys; changing the key ID is rejected even if an alias maps to the same public key. This authenticates the signer statement and its metadata, but it does **not** establish runner isolation or independence. The current validator intentionally sets independent runner attestation to unavailable/unverified, so signed receipts cannot qualify a historical reproduction. This is fail-closed behavior, not a missing success flag to be manually enabled.
 
 The current LabRunner executes only a fixed, repository-owned synthetic 12-bit toy exercise. Its receipt does not claim an immutable historical source revision, a reproduction command, or a historical reproduction artifact. It must not be repurposed to execute downloaded code or historical key-generation routines.
 

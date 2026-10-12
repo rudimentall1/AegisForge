@@ -859,3 +859,40 @@ def test_recovery_rejects_anchor_that_has_advanced_past_pending_candidate(tmp_pa
             "SELECT status FROM pending_anchored_replay WHERE candidate_id=?",
             (candidate_id,),
         ).fetchone() == ("CONFLICT",)
+
+
+def test_recovery_anchor_read_failure_does_not_accept_pending_candidate(tmp_path):
+    path = tmp_path / "pending-anchor-read-failure.sqlite3"
+    dossier, envelope, trusted = _signed("anchor-read-failure", "anchor-read-failure-nonce")
+    anchor = Anchor()
+
+    def lose_cas_response(*args, **kwargs):
+        raise TimeoutError("simulated lost response")
+
+    anchor.compare_and_set_anchor = lose_cas_response
+    with pytest.raises(ReplayAnchorUnavailable, match="external_anchor_publish_outcome_unknown"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        )
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM pending_anchored_replay WHERE status='PREPARED'"
+        ).fetchone()[0]
+
+    def unavailable_read(provider_id):
+        raise TimeoutError("anchor read unavailable")
+
+    anchor.get_anchor = unavailable_read
+    with pytest.raises(ReplayAnchorUnavailable, match="external_anchor_unavailable_fail_closed"):
+        pending.recover_pending_attestation(
+            candidate_id, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        )
+
+    assert _counts(path) == (0, 1, 0)
+    with sqlite3.connect(path) as db:
+        assert db.execute(
+            "SELECT status FROM pending_anchored_replay WHERE candidate_id=?",
+            (candidate_id,),
+        ).fetchone() == ("PREPARED",)

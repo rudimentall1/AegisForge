@@ -61,8 +61,10 @@ def verify_independent_runner_attestation(
         "nonce": dossier["nonce"],
         "safety": dossier["safety"],
     }
+    if set(inputs) != set(expected_inputs):
+        raise IndependentRunnerAttestationError("attested_input_fields_mismatch")
     for field, expected in expected_inputs.items():
-        if inputs.get(field) != expected:
+        if inputs[field] != expected:
             raise IndependentRunnerAttestationError(f"attested_input_mismatch:{field}")
 
     if receipt["run_id"] != dossier["run_id"]:
@@ -78,8 +80,10 @@ def verify_independent_runner_attestation(
         "test_passed": dossier["execution"]["test_passed"],
         "result_sha256": dossier["result_sha256"],
     }
+    if set(execution) != set(expected_execution):
+        raise IndependentRunnerAttestationError("attested_execution_fields_mismatch")
     for field, expected in expected_execution.items():
-        if execution.get(field) != expected:
+        if execution[field] != expected:
             raise IndependentRunnerAttestationError(
                 f"attested_execution_mismatch:{field}"
             )
@@ -88,7 +92,7 @@ def verify_independent_runner_attestation(
         {"name": item["name"], "sha256": item["sha256"]}
         for item in dossier["artifacts"]
     ]
-    if artifacts.get("items") != expected_artifacts:
+    if set(artifacts) != {"items"} or artifacts["items"] != expected_artifacts:
         raise IndependentRunnerAttestationError("attested_artifacts_mismatch")
 
     return {

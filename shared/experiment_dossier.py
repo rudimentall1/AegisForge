@@ -245,16 +245,26 @@ def verify_experiment_dossier_artifacts(dossier, artifact_root):
                         raise ExperimentDossierError("artifact_symlink_not_allowed") from exc
                     raise
 
-                metadata = os.fstat(file_fd)
-                if not stat.S_ISREG(metadata.st_mode):
+                metadata_before = os.fstat(file_fd)
+                if not stat.S_ISREG(metadata_before.st_mode):
                     raise ExperimentDossierError("artifact_not_regular_file")
 
                 digest_builder = hashlib.sha256()
+                bytes_read = 0
                 while True:
                     chunk = os.read(file_fd, 1024 * 1024)
                     if not chunk:
                         break
+                    bytes_read += len(chunk)
                     digest_builder.update(chunk)
+                metadata_after = os.fstat(file_fd)
+                stable_fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns")
+                if (
+                    any(getattr(metadata_before, field, None) != getattr(metadata_after, field, None)
+                        for field in stable_fields)
+                    or bytes_read != metadata_after.st_size
+                ):
+                    raise ExperimentDossierError("artifact_changed_during_verification")
                 digest = digest_builder.hexdigest()
             except ExperimentDossierError:
                 raise

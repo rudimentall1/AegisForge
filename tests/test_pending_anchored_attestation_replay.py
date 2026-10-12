@@ -323,3 +323,60 @@ def test_concurrent_writers_from_same_anchor_accept_exactly_one_candidate(tmp_pa
     assert journal_state == (1, anchor.anchor["head_sha256"])
     assert len(pending_rows) == 2
     assert sorted(status for _, status in pending_rows) == ["CONFLICT", "FINALIZED"]
+
+
+def test_recovery_after_database_reopen_is_idempotent(tmp_path, monkeypatch):
+    path = tmp_path / "pending-reopen.sqlite3"
+    dossier, envelope, trusted = _signed("restart-run", "restart-nonce")
+    anchor = Anchor()
+    original_finalize = pending._finalize_pending
+
+    def crash_after_anchor(*args, **kwargs):
+        raise RuntimeError("simulated process termination")
+
+    monkeypatch.setattr(pending, "_finalize_pending", crash_after_anchor)
+    with pytest.raises(RuntimeError, match="process termination"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM pending_anchored_replay WHERE status='PREPARED'"
+        ).fetchone()[0]
+
+    # Reopening through fresh SQLite connections and the recovery API models a restart.
+    monkeypatch.setattr(pending, "_finalize_pending", original_finalize)
+    first = pending.recover_pending_attestation(
+        candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+    )
+    second = pending.recover_pending_attestation(
+        candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+    )
+    assert first["recovered"] is True
+    assert second["recovered"] is True
+    assert _counts(path) == (1, 1, 1)
+    assert anchor.anchor["sequence"] == 1
+
+
+def test_conflicted_candidate_cannot_be_recovered_from_later_matching_head(tmp_path):
+    path = tmp_path / "pending-conflict-recovery.sqlite3"
+    dossier, envelope, trusted = _signed("conflict-recovery", "conflict-recovery-nonce")
+    anchor = Anchor(cas_result=False)
+    with pytest.raises(ReplayAnchorUnavailable, match="compare_and_set_conflict_pending_not_accepted"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    with sqlite3.connect(path) as db:
+        candidate_id, candidate_sequence, candidate_head = db.execute(
+            "SELECT candidate_id, candidate_sequence, candidate_head_sha256 "
+            "FROM pending_anchored_replay"
+        ).fetchone()
+    # Simulate an anchor rollback or inconsistent external implementation. A CONFLICT
+    # record is never promoted just because its old candidate hash reappears.
+    anchor.anchor = {"provider_id": "test-provider", "sequence": candidate_sequence,
+                     "head_sha256": candidate_head}
+    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_conflict_requires_review"):
+        pending.recover_pending_attestation(
+            candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    assert _counts(path) == (0, 1, 0)

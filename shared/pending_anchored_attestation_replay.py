@@ -157,6 +157,8 @@ def _finalize_pending(
         raise ReplayAnchorUnavailable("pending_candidate_missing")
     (provider_id, run_id, nonce, receipt_sha, prior_sequence, prior_head,
      candidate_sequence, candidate_head, dossier_json, envelope_json, status) = row
+    if status == "CONFLICT":
+        raise ReplayAnchorUnavailable("pending_candidate_conflict_requires_review")
     try:
         dossier = json.loads(dossier_json)
         envelope = json.loads(envelope_json)

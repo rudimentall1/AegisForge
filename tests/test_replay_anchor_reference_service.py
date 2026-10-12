@@ -65,6 +65,26 @@ def test_concurrent_competing_cas_has_exactly_one_winner(anchor_service):
     assert anchor["head_sha256"] in (HEAD_A, HEAD_B)
 
 
+def test_many_concurrent_cas_requests_have_exactly_one_winner(anchor_service):
+    store, _ = anchor_service
+    candidates = [f"{i:064x}" for i in range(1, 17)]
+
+    def attempt(head):
+        return store.compare_and_set_anchor(
+            "provider-test", expected_sequence=0, expected_head_sha256=GENESIS,
+            new_sequence=1, new_head_sha256=head,
+        )
+
+    with ThreadPoolExecutor(max_workers=len(candidates)) as pool:
+        results = list(pool.map(attempt, candidates))
+
+    assert results.count(True) == 1
+    assert results.count(False) == len(candidates) - 1
+    anchor = store.get_anchor("provider-test")
+    assert anchor["sequence"] == 1
+    assert anchor["head_sha256"] in candidates
+
+
 def test_service_requires_auth_and_explicit_genesis_provisioning(anchor_service):
     store, _ = anchor_service
     response = requests.get(
@@ -184,3 +204,27 @@ def test_committed_anchor_survives_http_server_restart(tmp_path):
         restarted.shutdown()
         restarted.server_close()
         restarted_thread.join(timeout=2)
+
+
+def test_post_database_open_failure_returns_service_unavailable(anchor_service, monkeypatch):
+    store, _ = anchor_service
+    import sqlite3
+    import tools.replay_anchor.sqlite_service as service
+
+    def fail_connect(_path):
+        raise sqlite3.OperationalError("simulated database open failure")
+
+    monkeypatch.setattr(service, "connect", fail_connect)
+    response = requests.post(
+        store._base_url + "/v1/anchors/provider-test/compare-and-set",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json={
+            "expected_sequence": 0,
+            "expected_head_sha256": GENESIS,
+            "new_sequence": 1,
+            "new_head_sha256": HEAD_A,
+        },
+        timeout=2,
+    )
+    assert response.status_code == 503
+    assert response.json() == {"error": "anchor_unavailable"}

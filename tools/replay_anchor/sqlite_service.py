@@ -7,6 +7,7 @@ restore paths, and do not claim rollback resistance for coordinated restores.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import hmac
 import json
 import os
@@ -31,7 +32,7 @@ def connect(path: str) -> sqlite3.Connection:
 
 def initialize_database(path: str) -> None:
     """Set durable journal mode and create schema during explicit initialization."""
-    with sqlite3.connect(path, timeout=5.0, isolation_level=None) as db:
+    with closing(sqlite3.connect(path, timeout=5.0, isolation_level=None)) as db:
         db.execute("PRAGMA busy_timeout=5000")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")
@@ -47,7 +48,7 @@ def provision(path: str, provider_id: str) -> None:
     if not provider_id or len(provider_id) > 256:
         raise ValueError("provider_id_invalid")
     initialize_database(path)
-    with connect(path) as db:
+    with closing(connect(path)) as db:
         db.execute("BEGIN IMMEDIATE")
         try:
             db.execute(
@@ -105,7 +106,7 @@ def make_handler(db_path: str, token: str):
                 self._send(404, {"error": "not_found"})
                 return
             try:
-                with connect(db_path) as db:
+                with closing(connect(db_path)) as db:
                     row = db.execute(
                         "SELECT sequence,head_sha256 FROM replay_anchors WHERE provider_id=?",
                         (provider,),
@@ -147,8 +148,9 @@ def make_handler(db_path: str, token: str):
                 not isinstance(nh, str) or not HASH_RE.fullmatch(nh)):
                 self._send(400, {"error": "cas_values_invalid"})
                 return
+            db = None
             try:
-                with connect(db_path) as db:
+                with closing(connect(db_path)) as db:
                     db.execute("BEGIN IMMEDIATE")
                     row = db.execute(
                         "SELECT sequence,head_sha256 FROM replay_anchors WHERE provider_id=?",
@@ -173,10 +175,14 @@ def make_handler(db_path: str, token: str):
                     db.execute("COMMIT")
                 self._send(200, {"updated": True})
             except sqlite3.Error:
-                try:
-                    db.execute("ROLLBACK")
-                except Exception:
-                    pass
+                # connect() itself can fail before a connection exists. A failed
+                # COMMIT can also leave a live transaction that needs rollback.
+                if db is not None:
+                    try:
+                        if db.in_transaction:
+                            db.execute("ROLLBACK")
+                    except sqlite3.Error:
+                        pass
                 self._send(503, {"error": "anchor_unavailable"})
 
     return Handler

@@ -5,10 +5,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from shared.attestation_replay_registry import (
-    AttestationReplayRegistryError,
-    verify_and_record_attestation,
-)
+from shared.attestation_replay_registry import AttestationReplayRegistryError, verify_and_record_attestation
 from shared.experiment_dossier import canonical_json
 from shared.lab_execution_receipt import build_receipt, sign_receipt
 
@@ -21,9 +18,7 @@ def _dossier(run_id="run-replay-test-001", nonce="nonce-replay-test-001"):
     argv = ["python", "-m", "pytest", "tests/test_synthetic_fixture.py", "-q"]
     return {
         "schema_version": "evm-key-forensics-experiment-dossier-v1",
-        "experiment_id": "synthetic-source-check-v1",
-        "run_id": run_id,
-        "nonce": nonce,
+        "experiment_id": "synthetic-source-check-v1", "run_id": run_id, "nonce": nonce,
         "source": {"repository": "https://github.com/rudimentall1/AegisForge", "revision": "a" * 40},
         "fixture": {"fixture_id": "fixture-synthetic-001", "sha256": _sha("fixture")},
         "command": {"argv": argv, "argv_sha256": _sha(canonical_json(argv))},
@@ -56,7 +51,7 @@ def _envelope(dossier, key):
             "exit_code": dossier["execution"]["exit_code"], "timed_out": dossier["execution"]["timed_out"],
             "test_passed": dossier["execution"]["test_passed"], "result_sha256": dossier["result_sha256"],
         },
-        artifacts={"items": [{"name": item["name"], "sha256": item["sha256"] for item in dossier["artifacts"]}]},
+        artifacts={"items": [{"name": item["name"], "sha256": item["sha256"]} for item in dossier["artifacts"]]},
     )
     return sign_receipt(receipt, private_key=key, key_id="pinned-runner-key")
 
@@ -82,8 +77,7 @@ def test_same_receipt_replay_is_rejected(tmp_path):
 
 def test_nonce_reuse_with_different_run_id_is_rejected(tmp_path):
     key, path = Ed25519PrivateKey.generate(), tmp_path / "registry.sqlite3"
-    first = _dossier("run-one", "shared-nonce")
-    second = _dossier("run-two", "shared-nonce")
+    first, second = _dossier("run-one", "shared-nonce"), _dossier("run-two", "shared-nonce")
     _accept(first, _envelope(first, key), key, path)
     with pytest.raises(AttestationReplayRegistryError, match="attestation_replay_detected"):
         _accept(second, _envelope(second, key), key, path)

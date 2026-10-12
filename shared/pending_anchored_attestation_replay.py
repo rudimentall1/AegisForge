@@ -102,6 +102,21 @@ def _persist_pending(
                     (provider_id,),
                 ).fetchone()
                 if current is None:
+                    # Never anchor a fresh candidate for a provider whose legacy
+                    # accepted state or journal exists without a matching head. The
+                    # legacy adapter deliberately requires explicit migration here.
+                    accepted_count = db.execute(
+                        "SELECT COUNT(*) FROM accepted_runner_attestations WHERE provider_id=?",
+                        (provider_id,),
+                    ).fetchone()[0]
+                    journal_count = db.execute(
+                        "SELECT COUNT(*) FROM attestation_replay_journal WHERE provider_id=?",
+                        (provider_id,),
+                    ).fetchone()[0]
+                    if accepted_count or journal_count:
+                        raise AttestationReplayRegistryError(
+                            "replay_registry_legacy_state_requires_migration"
+                        )
                     current = (0, _GENESIS)
                 if current != (prior_sequence, prior_head):
                     raise ReplayAnchorUnavailable("local_registry_differs_from_external_anchor")

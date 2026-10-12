@@ -380,3 +380,32 @@ def test_conflicted_candidate_cannot_be_recovered_from_later_matching_head(tmp_p
             candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
         )
     assert _counts(path) == (0, 1, 0)
+
+
+def test_legacy_accepted_state_without_journal_head_fails_before_anchor_cas(tmp_path):
+    path = tmp_path / "legacy-state.sqlite3"
+    dossier, envelope, trusted = _signed("new-run-after-legacy", "new-nonce-after-legacy")
+    anchor = Anchor()
+    # Create the legacy accepted table layout and a prior accepted row, but no
+    # journal state. This must require an explicit migration before anchoring.
+    from shared.attestation_replay_registry import _ensure_schema
+    with sqlite3.connect(path) as db:
+        _ensure_schema(db)
+        db.execute(
+            "INSERT INTO accepted_runner_attestations "
+            "(provider_id, key_id, run_id, nonce, receipt_sha256) VALUES (?, ?, ?, ?, ?)",
+            ("test-provider", "legacy-key", "legacy-run", "legacy-nonce", "a" * 64),
+        )
+
+    with pytest.raises(Exception, match="replay_registry_legacy_state_requires_migration"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+
+    assert anchor.cas_calls == 0
+    assert anchor.anchor["sequence"] == 0
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0] == 1
+        assert db.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='pending_anchored_replay'"
+        ).fetchone()[0] == 0

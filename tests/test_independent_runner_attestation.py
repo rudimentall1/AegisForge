@@ -153,3 +153,34 @@ def test_run_id_mismatch_is_rejected_even_when_receipt_is_signed():
             dossier, envelope,
             trusted_public_keys={"pinned-runner-key": _public_bytes(key)},
         )
+
+
+def test_signed_receipt_with_extra_input_claim_is_rejected():
+    dossier = _dossier()
+    key = Ed25519PrivateKey.generate()
+    envelope = _envelope(dossier, key)
+    receipt = copy.deepcopy(envelope["receipt"])
+    receipt["inputs"]["claimed_independent"] = True
+    envelope = __import__("shared.lab_execution_receipt", fromlist=["sign_receipt"]).sign_receipt(
+        receipt, private_key=key, key_id="pinned-runner-key"
+    )
+    with pytest.raises(IndependentRunnerAttestationError, match="attested_input_fields_mismatch"):
+        verify_independent_runner_attestation(
+            dossier, envelope,
+            trusted_public_keys={"pinned-runner-key": _public_bytes(key)},
+        )
+
+
+def test_missing_optional_null_claim_is_rejected():
+    dossier = _dossier()
+    key = Ed25519PrivateKey.generate()
+    envelope = _envelope(dossier, key)
+    receipt = copy.deepcopy(envelope["receipt"])
+    del receipt["inputs"]["image_digest"]
+    from shared.lab_execution_receipt import sign_receipt
+    envelope = sign_receipt(receipt, private_key=key, key_id="pinned-runner-key")
+    with pytest.raises(IndependentRunnerAttestationError, match="attested_input_fields_mismatch"):
+        verify_independent_runner_attestation(
+            dossier, envelope,
+            trusted_public_keys={"pinned-runner-key": _public_bytes(key)},
+        )

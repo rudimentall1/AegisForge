@@ -233,3 +233,27 @@ def test_artifact_verifier_rejects_fifo_without_waiting(tmp_path):
     dossier = _dossier()
     with pytest.raises(ExperimentDossierError, match="artifact_not_regular_file"):
         verify_experiment_dossier_artifacts(dossier, tmp_path)
+
+
+def test_artifact_verifier_rejects_file_mutated_during_hash(tmp_path, monkeypatch):
+    import os
+
+    path = tmp_path / "result.json"
+    original = b"stable bytes before verification"
+    path.write_bytes(original)
+    dossier = _dossier()
+    dossier["artifacts"][0]["sha256"] = hashlib.sha256(original).hexdigest()
+    real_read = os.read
+    changed = False
+
+    def read_then_mutate(fd, size):
+        nonlocal changed
+        chunk = real_read(fd, size)
+        if chunk and not changed:
+            changed = True
+            path.write_bytes(b"replacement bytes during verification")
+        return chunk
+
+    monkeypatch.setattr(os, "read", read_then_mutate)
+    with pytest.raises(ExperimentDossierError, match="artifact_changed_during_verification"):
+        verify_experiment_dossier_artifacts(dossier, tmp_path)

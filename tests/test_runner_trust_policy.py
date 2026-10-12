@@ -52,9 +52,10 @@ def _envelope(dossier, key):
 
 
 def _run(dossier, envelope, key, path, **kwargs):
-    trust = RunnerTrustKey(provider_id="test-provider", public_key=_public_bytes(key),
-                           not_before="2026-10-01T00:00:00Z", not_after="2027-01-01T00:00:00Z",
-                           **kwargs.pop("trust_overrides", {}))
+    trust_values = {"provider_id": "test-provider", "public_key": _public_bytes(key),
+                    "not_before": "2026-10-01T00:00:00Z", "not_after": "2027-01-01T00:00:00Z"}
+    trust_values.update(kwargs.pop("trust_overrides", {}))
+    trust = RunnerTrustKey(**trust_values)
     return verify_with_runner_trust_policy(
         dossier, envelope, trusted_keys={"policy-key": trust}, database_path=path,
         now=datetime(2026, 10, 12, 6, 1, tzinfo=timezone.utc), **kwargs)

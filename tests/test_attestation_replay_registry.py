@@ -173,3 +173,71 @@ def test_distinct_nonce_is_accepted_after_real_key_rotation(tmp_path):
         database_path=path,
     )
     assert result["valid"]
+
+
+
+def test_successful_acceptance_advances_hash_chain_atomically(tmp_path):
+    key, path = Ed25519PrivateKey.generate(), tmp_path / "registry.sqlite3"
+    first = _dossier("journal-run-one", "journal-nonce-one")
+    second = _dossier("journal-run-two", "journal-nonce-two")
+    result_one = _accept(first, _envelope(first, key), key, path)
+    result_two = _accept(second, _envelope(second, key), key, path)
+
+    assert result_one["journal"]["sequence"] == 1
+    assert result_two["journal"]["sequence"] == 2
+    assert result_one["journal"]["head_sha256"] != result_two["journal"]["head_sha256"]
+    with sqlite3.connect(path) as db:
+        accepted = db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0]
+        journal = db.execute(
+            "SELECT sequence, head_sha256 FROM attestation_replay_journal_state WHERE provider_id = ?",
+            ("test-provider",),
+        ).fetchone()
+        events = db.execute(
+            "SELECT sequence, previous_head_sha256, head_sha256 FROM attestation_replay_journal ORDER BY sequence"
+        ).fetchall()
+    assert accepted == 2
+    assert journal == (2, result_two["journal"]["head_sha256"])
+    assert events[0][0] == 1
+    assert events[0][1] == "0" * 64
+    assert events[0][2] == events[1][1]
+    assert events[1][0] == 2
+
+
+def test_replayed_attestation_does_not_advance_journal(tmp_path):
+    key, path = Ed25519PrivateKey.generate(), tmp_path / "registry.sqlite3"
+    dossier = _dossier("journal-replay", "journal-replay-nonce")
+    envelope = _envelope(dossier, key)
+    first = _accept(dossier, envelope, key, path)
+    with pytest.raises(AttestationReplayRegistryError, match="attestation_replay_detected"):
+        _accept(dossier, envelope, key, path)
+    with sqlite3.connect(path) as db:
+        state = db.execute(
+            "SELECT sequence, head_sha256 FROM attestation_replay_journal_state WHERE provider_id = ?",
+            ("test-provider",),
+        ).fetchone()
+        count = db.execute("SELECT COUNT(*) FROM attestation_replay_journal").fetchone()[0]
+    assert state == (1, first["journal"]["head_sha256"])
+    assert count == 1
+
+
+def test_legacy_registry_with_accepted_rows_fails_closed_without_journal_migration(tmp_path):
+    key, path = Ed25519PrivateKey.generate(), tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute("""
+            CREATE TABLE accepted_runner_attestations (
+                provider_id TEXT NOT NULL, key_id TEXT NOT NULL, run_id TEXT NOT NULL,
+                nonce TEXT NOT NULL, receipt_sha256 TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL DEFAULT 'legacy',
+                PRIMARY KEY(provider_id, run_id), UNIQUE(provider_id, nonce)
+            )
+        """)
+        db.execute(
+            "INSERT INTO accepted_runner_attestations(provider_id, key_id, run_id, nonce, receipt_sha256) VALUES (?, ?, ?, ?, ?)",
+            ("test-provider", "old-key", "legacy-run", "legacy-nonce", _sha("legacy receipt")),
+        )
+    dossier = _dossier("after-legacy", "after-legacy-nonce")
+    with pytest.raises(AttestationReplayRegistryError, match="legacy_state_requires_migration"):
+        _accept(dossier, _envelope(dossier, key), key, path)
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM attestation_replay_journal").fetchone()[0] == 0

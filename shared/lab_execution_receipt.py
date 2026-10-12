@@ -98,6 +98,27 @@ def receipt_sha256(receipt: dict) -> str:
     return hashlib.sha256(canonical_json(receipt)).hexdigest()
 
 
+def _signature_payload(
+    *,
+    schema_version: int,
+    algorithm: str,
+    key_id: str,
+    receipt: dict,
+    receipt_digest: str,
+    signer_public_key_sha256: str,
+) -> bytes:
+    """Bind signer identity and envelope metadata into the signed bytes."""
+    return canonical_json({
+        "domain": "aegisforge.lab_execution_receipt.signature.v1",
+        "schema_version": schema_version,
+        "algorithm": algorithm,
+        "key_id": key_id,
+        "receipt": receipt,
+        "receipt_sha256": receipt_digest,
+        "signer_public_key_sha256": signer_public_key_sha256,
+    })
+
+
 def sign_receipt(
     receipt: dict,
     *,
@@ -115,14 +136,24 @@ def sign_receipt(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,
     )
+    receipt_digest = hashlib.sha256(payload_bytes).hexdigest()
+    public_key_digest = hashlib.sha256(public_bytes).hexdigest()
+    signature_payload = _signature_payload(
+        schema_version=1,
+        algorithm="Ed25519",
+        key_id=key_id,
+        receipt=receipt,
+        receipt_digest=receipt_digest,
+        signer_public_key_sha256=public_key_digest,
+    )
     return {
         "schema_version": 1,
         "algorithm": "Ed25519",
         "key_id": key_id,
         "receipt": receipt,
-        "receipt_sha256": hashlib.sha256(payload_bytes).hexdigest(),
-        "signer_public_key_sha256": hashlib.sha256(public_bytes).hexdigest(),
-        "signature": base64.b64encode(private_key.sign(payload_bytes)).decode("ascii"),
+        "receipt_sha256": receipt_digest,
+        "signer_public_key_sha256": public_key_digest,
+        "signature": base64.b64encode(private_key.sign(signature_payload)).decode("ascii"),
     }
 
 
@@ -157,8 +188,16 @@ def verify_signed_receipt(
         raise LabExecutionReceiptError("signer_key_fingerprint_mismatch")
     try:
         signature = base64.b64decode(envelope.get("signature", ""), validate=True)
-        Ed25519PublicKey.from_public_bytes(public_bytes).verify(signature, payload_bytes)
-    except (ValueError, TypeError, InvalidSignature) as exc:
+        signature_payload = _signature_payload(
+            schema_version=envelope["schema_version"],
+            algorithm=envelope["algorithm"],
+            key_id=key_id,
+            receipt=receipt,
+            receipt_digest=digest,
+            signer_public_key_sha256=envelope["signer_public_key_sha256"],
+        )
+        Ed25519PublicKey.from_public_bytes(public_bytes).verify(signature, signature_payload)
+    except (ValueError, TypeError, KeyError, InvalidSignature) as exc:
         raise LabExecutionReceiptError("receipt_signature_invalid") from exc
     return {
         "valid": True,

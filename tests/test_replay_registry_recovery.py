@@ -142,3 +142,19 @@ def test_revalidation_rejects_plan_mutation(tmp_path):
             current_anchor_head_sha256=first["journal"]["head_sha256"],
             trusted_public_keys=trusted,
         )
+
+
+def test_recovery_plan_rejects_deleted_evidence_even_when_journal_remains(tmp_path):
+    path = tmp_path / "registry.sqlite3"
+    key = Ed25519PrivateKey.generate()
+    _record(path, key, "recover-missing-evidence", "recover-missing-evidence-nonce")
+    with sqlite3.connect(path) as db:
+        db.execute("DELETE FROM attestation_replay_evidence WHERE provider_id=?", ("test-provider",))
+        db.commit()
+
+    with pytest.raises(ReplayRecoveryError, match="recovery_journal_or_evidence_count_mismatch"):
+        build_replay_recovery_plan(
+            path, provider_id="test-provider", anchor_sequence=0,
+            anchor_head_sha256="0" * 64,
+            trusted_public_keys={"pinned-runner-key": _public_bytes(key)},
+        )

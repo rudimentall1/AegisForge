@@ -174,3 +174,40 @@ def test_anchored_registration_uses_real_signed_receipt_and_journal(tmp_path):
             database_path=path,
             anchor_store=FakeAnchorStore(provider_id="test-provider"),
         )
+
+
+def test_post_commit_anchor_conflict_leaves_local_suffix_and_retry_fails_closed(tmp_path):
+    from test_attestation_replay_registry import _dossier, _envelope, _public_bytes
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    path = tmp_path / "post-commit-conflict.sqlite3"
+    key = Ed25519PrivateKey.generate()
+    dossier = _dossier("post-commit-conflict-run", "post-commit-conflict-nonce")
+    envelope = _envelope(dossier, key)
+    store = FakeAnchorStore(provider_id="test-provider", cas_result=False)
+    kwargs = {
+        "trusted_public_keys": {"pinned-runner-key": _public_bytes(key)},
+        "database_path": path,
+        "anchor_store": store,
+    }
+
+    with pytest.raises(AttestationReplayRegistryError, match="compare_and_set_conflict_reconcile_required"):
+        anchored.verify_and_record_attestation_anchored(dossier, envelope, **kwargs)
+
+    with sqlite3.connect(path) as db:
+        local_sequence, local_head = db.execute(
+            "SELECT sequence, head_sha256 FROM attestation_replay_journal_state WHERE provider_id=?",
+            ("test-provider",),
+        ).fetchone()
+        evidence_count = db.execute(
+            "SELECT COUNT(*) FROM attestation_replay_evidence WHERE provider_id=?",
+            ("test-provider",),
+        ).fetchone()[0]
+
+    assert local_sequence == 1
+    assert local_head != GENESIS
+    assert evidence_count == 1
+    assert store.anchor["sequence"] == 0
+
+    with pytest.raises(AttestationReplayRegistryError, match="local_registry_differs_from_external_anchor"):
+        anchored.verify_and_record_attestation_anchored(dossier, envelope, **kwargs)

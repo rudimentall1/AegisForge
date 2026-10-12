@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 SCHEMA_VERSION = "evm-key-forensics-replay-checkpoint-v1"
 _DOMAIN = b"OWNERA-AEGISFORGE-REPLAY-CHECKPOINT-V1\x00"
 _FIELDS = {"schema_version", "provider_id", "sequence", "head_sha256", "key_id"}
+_GENESIS = "0" * 64
 
 
 class ReplayCheckpointError(ValueError):
@@ -37,6 +38,8 @@ def sign_registry_checkpoint(
         raise ReplayCheckpointError("checkpoint_sequence_invalid")
     if not isinstance(head_sha256, str) or len(head_sha256) != 64 or any(c not in "0123456789abcdef" for c in head_sha256):
         raise ReplayCheckpointError("checkpoint_head_hash_invalid")
+    if sequence == 0 and head_sha256 != _GENESIS:
+        raise ReplayCheckpointError("checkpoint_genesis_invalid")
     if not isinstance(key_id, str) or not key_id.strip():
         raise ReplayCheckpointError("checkpoint_key_id_invalid")
     payload = {"schema_version": SCHEMA_VERSION, "provider_id": provider_id, "sequence": sequence,
@@ -72,6 +75,8 @@ def verify_registry_checkpoint(
     head = payload.get("head_sha256")
     if not isinstance(head, str) or len(head) != 64 or any(c not in "0123456789abcdef" for c in head):
         raise ReplayCheckpointError("checkpoint_head_hash_invalid")
+    if sequence == 0 and head != _GENESIS:
+        raise ReplayCheckpointError("checkpoint_genesis_invalid")
     key_id = payload.get("key_id")
     public_bytes = trusted_public_keys.get(key_id) if isinstance(key_id, str) else None
     if not isinstance(public_bytes, bytes) or len(public_bytes) != 32:
@@ -84,8 +89,15 @@ def verify_registry_checkpoint(
         raise ReplayCheckpointError("checkpoint_signature_invalid") from exc
     if sequence < minimum_sequence:
         raise ReplayCheckpointError("checkpoint_behind_external_high_water_mark")
-    if externally_anchored_head_sha256 is not None and sequence == minimum_sequence and head != externally_anchored_head_sha256:
-        raise ReplayCheckpointError("checkpoint_conflicts_with_external_anchor")
+    if externally_anchored_head_sha256 is not None:
+        if (not isinstance(externally_anchored_head_sha256, str)
+                or len(externally_anchored_head_sha256) != 64
+                or any(c not in "0123456789abcdef" for c in externally_anchored_head_sha256)):
+            raise ReplayCheckpointError("external_anchor_head_hash_invalid")
+        if minimum_sequence == 0 and externally_anchored_head_sha256 != _GENESIS:
+            raise ReplayCheckpointError("external_anchor_genesis_invalid")
+        if sequence == minimum_sequence and head != externally_anchored_head_sha256:
+            raise ReplayCheckpointError("checkpoint_conflicts_with_external_anchor")
     if type(local_sequence) is not int or local_sequence < 0:
         raise ReplayCheckpointError("local_registry_sequence_invalid")
     if local_sequence != sequence or local_head_sha256 != head:

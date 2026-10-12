@@ -119,6 +119,17 @@ def validate_experiment_dossier(dossier):
     for index, artifact in enumerate(artifacts):
         artifact = _object(artifact, f"artifact_{index}", {"name", "sha256"})
         name = _text(artifact["name"], f"artifact_{index}_name")
+        # Artifact names are portable POSIX-relative paths, independent of the
+        # platform performing verification. Reject normalization ambiguities
+        # before pathlib can silently collapse "." or repeated separators.
+        if (
+            "\\" in name
+            or "\x00" in name
+            or name.startswith("/")
+            or re.match(r"^[A-Za-z]:", name)
+            or any(part in ("", ".", "..") for part in name.split("/"))
+        ):
+            raise ExperimentDossierError("artifact_path_invalid")
         if name in seen_names:
             raise ExperimentDossierError("duplicate_artifact_name")
         seen_names.add(name)

@@ -142,13 +142,34 @@ def test_concurrent_duplicate_attestation_has_exactly_one_winner(tmp_path):
         assert db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0] == 1
 
 
-def test_nonce_namespace_is_provider_scoped_not_key_scoped(tmp_path):
-    key, path = Ed25519PrivateKey.generate(), tmp_path / "registry.sqlite3"
+def test_nonce_namespace_is_provider_scoped_across_real_key_rotation(tmp_path):
+    old_key, new_key = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
+    path = tmp_path / "registry.sqlite3"
     first = _dossier("run-before-rotation", "nonce-across-rotation")
-    _accept(first, _envelope(first, key), key, path)
+    _accept(first, _envelope(first, old_key), old_key, path)
 
-    # A key rotation must not reset the provider's nonce namespace. The
-    # registry identity is provider_id + nonce, not key_id + nonce.
+    # The second receipt is signed by different key material. Reusing the
+    # provider nonce must still fail; rotation does not reset replay state.
     second = _dossier("run-after-rotation", "nonce-across-rotation")
+    second_envelope = _envelope(second, new_key)
     with pytest.raises(AttestationReplayRegistryError, match="attestation_replay_detected"):
-        _accept(second, _envelope(second, key), key, path)
+        verify_and_record_attestation(
+            second, second_envelope,
+            trusted_public_keys={"pinned-runner-key": _public_bytes(new_key)},
+            database_path=path,
+        )
+
+
+def test_distinct_nonce_is_accepted_after_real_key_rotation(tmp_path):
+    old_key, new_key = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
+    path = tmp_path / "registry.sqlite3"
+    first = _dossier("run-before-rotation", "nonce-before-rotation")
+    _accept(first, _envelope(first, old_key), old_key, path)
+
+    second = _dossier("run-after-rotation", "nonce-after-rotation")
+    result = verify_and_record_attestation(
+        second, _envelope(second, new_key),
+        trusted_public_keys={"pinned-runner-key": _public_bytes(new_key)},
+        database_path=path,
+    )
+    assert result["valid"]

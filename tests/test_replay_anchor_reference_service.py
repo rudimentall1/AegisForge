@@ -126,3 +126,61 @@ def test_lost_cas_response_is_ambiguous_but_reread_confirms_commit(anchor_servic
     assert store.get_anchor("provider-test") == {
         "provider_id": "provider-test", "sequence": 1, "head_sha256": HEAD_A,
     }
+
+
+def test_http_rejects_malformed_cas_without_mutating_anchor(anchor_service):
+    store, _ = anchor_service
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    url = store._base_url + "/v1/anchors/provider-test/compare-and-set"
+
+    missing_field = requests.post(url, headers=headers, json={"expected_sequence": 0}, timeout=2)
+    assert missing_field.status_code == 400
+    invalid_successor = requests.post(url, headers=headers, json={
+        "expected_sequence": 0, "expected_head_sha256": GENESIS,
+        "new_sequence": 2, "new_head_sha256": HEAD_A,
+    }, timeout=2)
+    assert invalid_successor.status_code == 400
+    invalid_hash = requests.post(url, headers=headers, json={
+        "expected_sequence": 0, "expected_head_sha256": GENESIS,
+        "new_sequence": 1, "new_head_sha256": "not-a-hash",
+    }, timeout=2)
+    assert invalid_hash.status_code == 400
+    assert store.get_anchor("provider-test")["sequence"] == 0
+
+
+def test_committed_anchor_survives_http_server_restart(tmp_path):
+    db_path = str(tmp_path / "restart-anchor.sqlite3")
+    provision(db_path, "provider-restart")
+
+    def start_server():
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(db_path, TOKEN))
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        return server, thread
+
+    server, thread = start_server()
+    store = HttpReplayAnchorStore(
+        f"http://127.0.0.1:{server.server_port}", bearer_token=TOKEN
+    )
+    try:
+        assert store.compare_and_set_anchor(
+            "provider-restart", expected_sequence=0, expected_head_sha256=GENESIS,
+            new_sequence=1, new_head_sha256=HEAD_B,
+        ) is True
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    restarted, restarted_thread = start_server()
+    try:
+        after_restart = HttpReplayAnchorStore(
+            f"http://127.0.0.1:{restarted.server_port}", bearer_token=TOKEN
+        )
+        assert after_restart.get_anchor("provider-restart") == {
+            "provider_id": "provider-restart", "sequence": 1, "head_sha256": HEAD_B,
+        }
+    finally:
+        restarted.shutdown()
+        restarted.server_close()
+        restarted_thread.join(timeout=2)

@@ -36,7 +36,7 @@ The server returns HTTP 200 with `{"updated":true}` only after the exact expecte
 
 ## Qualification boundary
 
-Tests in `tests/test_http_replay_anchor_store.py` validate request shape, response validation, explicit conflict handling, timeout ambiguity, and fail-closed behavior using a mocked HTTP session. They do not test a real server, linearizability, durable writes, authentication configuration, TLS deployment, failover, or rollback resistance. `qualification=NOT_ESTABLISHED` remains mandatory until a concrete service is deployed and tested under concurrency and fault injection.
+Tests in `tests/test_http_replay_anchor_store.py` validate the client adapter using a mocked HTTP session. Tests in `tests/test_replay_anchor_reference_service.py` exercise the local reference server over real HTTP, including competing CAS calls, malformed CAS requests, a lost response after commit, and persistence across an HTTP server restart. These tests do not establish multi-host linearizability, TLS deployment, failover, protection from privileged database rollback, or production operational readiness. `qualification=NOT_ESTABLISHED` remains mandatory until a concrete service is deployed and tested under broader concurrency and fault injection.
 
 ## Included single-node reference service
 

@@ -148,8 +148,38 @@ def validate_experiment_dossier(dossier):
     }
 
 
+def _validate_json_value(value):
+    """Reject Python values that do not have an unambiguous JSON representation."""
+    if value is None or type(value) in (bool, int):
+        return
+    if type(value) is str:
+        try:
+            value.encode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ExperimentDossierError("dossier_not_canonicalizable") from exc
+        return
+    if type(value) is float:
+        import math
+        if not math.isfinite(value):
+            raise ExperimentDossierError("dossier_not_canonicalizable")
+        return
+    if type(value) is list:
+        for item in value:
+            _validate_json_value(item)
+        return
+    if type(value) is dict:
+        for key, item in value.items():
+            if type(key) is not str:
+                raise ExperimentDossierError("dossier_json_object_keys_must_be_strings")
+            _validate_json_value(key)
+            _validate_json_value(item)
+        return
+    raise ExperimentDossierError("dossier_not_canonicalizable")
+
+
 def canonical_json(value):
-    """Serialize JSON-compatible values deterministically for local digests."""
+    """Serialize strict JSON values deterministically for local digests."""
+    _validate_json_value(value)
     try:
         return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
     except (TypeError, ValueError, UnicodeError) as exc:

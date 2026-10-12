@@ -200,6 +200,21 @@ def test_artifact_verifier_rejects_path_traversal(tmp_path):
         verify_experiment_dossier_artifacts(dossier, tmp_path)
 
 
+@pytest.mark.parametrize("name", [
+    "nested/./result.json",
+    "nested//result.json",
+    r"nested\\result.json",
+    r"C:\\temp\\result.json",
+    "/absolute/result.json",
+    "nested/../result.json",
+])
+def test_dossier_rejects_noncanonical_or_nonportable_artifact_paths(name):
+    dossier = _dossier()
+    dossier["artifacts"][0]["name"] = name
+    with pytest.raises(ExperimentDossierError, match="artifact_path_invalid"):
+        validate_experiment_dossier(dossier)
+
+
 def test_artifact_verifier_rejects_symlink(tmp_path):
     (tmp_path / "real.json").write_bytes(b"artifact")
     dossier = _dossier()

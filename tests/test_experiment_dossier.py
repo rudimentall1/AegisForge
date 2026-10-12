@@ -8,6 +8,7 @@ from shared.experiment_dossier import (
     canonical_json,
     dossier_sha256,
     validate_experiment_dossier,
+    verify_experiment_dossier_artifacts,
 )
 
 
@@ -173,3 +174,37 @@ def test_canonicalization_accepts_nested_json_values():
     assert canonical_json({"items": [None, True, 3, 1.5, "ok"]}) == (
         '{"items":[null,true,3,1.5,"ok"]}'
     )
+
+
+def test_artifact_verifier_hashes_actual_bytes(tmp_path):
+    content = b"immutable synthetic result"
+    (tmp_path / "result.json").write_bytes(content)
+    dossier = _dossier()
+    dossier["artifacts"][0]["sha256"] = hashlib.sha256(content).hexdigest()
+    result = verify_experiment_dossier_artifacts(dossier, tmp_path)
+    assert result["verified"] is True
+    assert result["artifact_count"] == 1
+    assert result["qualification"] == "NOT_ESTABLISHED"
+
+
+def test_artifact_verifier_rejects_modified_bytes(tmp_path):
+    (tmp_path / "result.json").write_bytes(b"modified")
+    with pytest.raises(ExperimentDossierError, match="artifact_bytes_digest_mismatch"):
+        verify_experiment_dossier_artifacts(_dossier(), tmp_path)
+
+
+def test_artifact_verifier_rejects_path_traversal(tmp_path):
+    dossier = _dossier()
+    dossier["artifacts"][0]["name"] = "../outside.json"
+    with pytest.raises(ExperimentDossierError, match="artifact_path_invalid"):
+        verify_experiment_dossier_artifacts(dossier, tmp_path)
+
+
+def test_artifact_verifier_rejects_symlink(tmp_path):
+    (tmp_path / "real.json").write_bytes(b"artifact")
+    dossier = _dossier()
+    dossier["artifacts"][0]["name"] = "link.json"
+    dossier["artifacts"][0]["sha256"] = hashlib.sha256(b"artifact").hexdigest()
+    (tmp_path / "link.json").symlink_to(tmp_path / "real.json")
+    with pytest.raises(ExperimentDossierError, match="artifact_symlink_not_allowed"):
+        verify_experiment_dossier_artifacts(dossier, tmp_path)

@@ -132,3 +132,24 @@ def test_signing_rejects_receipt_missing_required_fields():
             private_key=private_key,
             key_id="runner-a",
         )
+
+
+
+def test_receipt_rejects_boolean_schema_version():
+    receipt = _receipt()
+    receipt["schema_version"] = True
+
+    with pytest.raises(LabExecutionReceiptError, match="unsupported_receipt_schema"):
+        receipt_sha256(receipt)
+
+
+def test_signed_envelope_rejects_boolean_schema_version():
+    private_key = Ed25519PrivateKey.generate()
+    envelope = sign_receipt(_receipt(), private_key=private_key, key_id="runner-a")
+    envelope["schema_version"] = True
+
+    with pytest.raises(LabExecutionReceiptError, match="unsupported_signed_receipt_schema"):
+        verify_signed_receipt(
+            envelope,
+            trusted_public_keys={"runner-a": _public_bytes(private_key)},
+        )

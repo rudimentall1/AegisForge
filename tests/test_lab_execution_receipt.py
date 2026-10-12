@@ -153,3 +153,36 @@ def test_signed_envelope_rejects_boolean_schema_version():
             envelope,
             trusted_public_keys={"runner-a": _public_bytes(private_key)},
         )
+
+
+
+def test_signature_binds_key_id_even_when_alias_uses_same_trusted_key():
+    private_key = Ed25519PrivateKey.generate()
+    public_bytes = _public_bytes(private_key)
+    envelope = sign_receipt(_receipt(), private_key=private_key, key_id="runner-primary")
+    changed = copy.deepcopy(envelope)
+    changed["key_id"] = "runner-alias"
+
+    # Both names resolve to the same public key. The altered identity label
+    # must still fail because key_id is part of the signed payload.
+    with pytest.raises(LabExecutionReceiptError, match="receipt_signature_invalid"):
+        verify_signed_receipt(
+            changed,
+            trusted_public_keys={
+                "runner-primary": public_bytes,
+                "runner-alias": public_bytes,
+            },
+        )
+
+
+def test_signature_binds_signer_fingerprint_metadata():
+    private_key = Ed25519PrivateKey.generate()
+    envelope = sign_receipt(_receipt(), private_key=private_key, key_id="runner-primary")
+    changed = copy.deepcopy(envelope)
+    changed["signer_public_key_sha256"] = hashlib.sha256(b"another public key").hexdigest()
+
+    with pytest.raises(LabExecutionReceiptError, match="signer_key_fingerprint_mismatch"):
+        verify_signed_receipt(
+            changed,
+            trusted_public_keys={"runner-primary": _public_bytes(private_key)},
+        )

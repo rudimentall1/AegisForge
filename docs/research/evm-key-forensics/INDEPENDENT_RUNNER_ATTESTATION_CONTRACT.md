@@ -76,5 +76,3 @@ Until a real provider integration and the negative tests above exist, report:
 This is a schema and consistency check only. The runner identity fields are claims, not provider authentication. The dossier digest detects changes only when compared with a trusted expected digest; it is not a signature. Artifact digests in the dossier are not proof that the artifact bytes were independently read and hashed. The validator returns `qualification=NOT_ESTABLISHED` even for a structurally valid dossier. No independent runner provider, replay database, or historical reproduction path is enabled by this addition.
 
 The dossier safety vocabulary is intentionally limited to `synthetic_only` and `source_inspection_only`. It rejects contradictory declarations, but a JSON declaration cannot prove that a process behaved as claimed. The actual safe-execution boundary remains enforced by the harness and must be independently assessed.
-
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

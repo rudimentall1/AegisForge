@@ -228,3 +228,30 @@ def test_post_database_open_failure_returns_service_unavailable(anchor_service, 
     )
     assert response.status_code == 503
     assert response.json() == {"error": "anchor_unavailable"}
+
+
+def test_sqlite_update_failure_returns_503_without_advancing_anchor(anchor_service):
+    store, db_path = anchor_service
+    import sqlite3
+
+    with sqlite3.connect(db_path) as db:
+        db.execute("""CREATE TRIGGER reject_anchor_update
+            BEFORE UPDATE ON replay_anchors
+            BEGIN SELECT RAISE(ABORT, 'simulated storage write failure'); END""")
+
+    response = requests.post(
+        store._base_url + "/v1/anchors/provider-test/compare-and-set",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json={
+            "expected_sequence": 0,
+            "expected_head_sha256": GENESIS,
+            "new_sequence": 1,
+            "new_head_sha256": HEAD_A,
+        },
+        timeout=2,
+    )
+    assert response.status_code == 503
+    assert response.json() == {"error": "anchor_unavailable"}
+    assert store.get_anchor("provider-test") == {
+        "provider_id": "provider-test", "sequence": 0, "head_sha256": GENESIS,
+    }

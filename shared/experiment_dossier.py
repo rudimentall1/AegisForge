@@ -198,6 +198,7 @@ def verify_experiment_dossier_artifacts(dossier, artifact_root):
     swapped for a symlink between validation and opening. This binds bytes to
     declared digests only; it does not establish provenance or execution.
     """
+    import errno
     import os
     import stat
     from pathlib import Path
@@ -236,10 +237,11 @@ def verify_experiment_dossier_artifacts(dossier, artifact_root):
 
                 try:
                     file_fd = os.open(
-                        relative.parts[-1], os.O_RDONLY | nofollow, dir_fd=parent_fd
+                        relative.parts[-1], os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0),
+                        dir_fd=parent_fd,
                     )
                 except OSError as exc:
-                    if exc.errno in (getattr(os, "ELOOP", 40),):
+                    if exc.errno == errno.ELOOP:
                         raise ExperimentDossierError("artifact_symlink_not_allowed") from exc
                     raise
 
@@ -257,7 +259,7 @@ def verify_experiment_dossier_artifacts(dossier, artifact_root):
             except ExperimentDossierError:
                 raise
             except OSError as exc:
-                if exc.errno == 40:
+                if exc.errno == errno.ELOOP:
                     raise ExperimentDossierError("artifact_symlink_not_allowed") from exc
                 raise ExperimentDossierError("artifact_path_unavailable_or_escaped") from exc
             finally:

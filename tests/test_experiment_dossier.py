@@ -208,3 +208,28 @@ def test_artifact_verifier_rejects_symlink(tmp_path):
     (tmp_path / "link.json").symlink_to(tmp_path / "real.json")
     with pytest.raises(ExperimentDossierError, match="artifact_symlink_not_allowed"):
         verify_experiment_dossier_artifacts(dossier, tmp_path)
+
+
+def test_artifact_verifier_rejects_symlinked_parent_directory(tmp_path):
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    content = b"artifact"
+    (real_dir / "result.json").write_bytes(content)
+    (tmp_path / "linked").symlink_to(real_dir, target_is_directory=True)
+    dossier = _dossier()
+    dossier["artifacts"][0]["name"] = "linked/result.json"
+    dossier["artifacts"][0]["sha256"] = hashlib.sha256(content).hexdigest()
+    with pytest.raises(ExperimentDossierError, match="artifact_symlink_not_allowed"):
+        verify_experiment_dossier_artifacts(dossier, tmp_path)
+
+
+def test_artifact_verifier_rejects_fifo_without_waiting(tmp_path):
+    import os
+
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFO files are not supported on this platform")
+    fifo = tmp_path / "result.json"
+    os.mkfifo(fifo)
+    dossier = _dossier()
+    with pytest.raises(ExperimentDossierError, match="artifact_not_regular_file"):
+        verify_experiment_dossier_artifacts(dossier, tmp_path)

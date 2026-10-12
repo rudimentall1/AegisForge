@@ -48,6 +48,10 @@ def _local_state(database_path: str | Path, provider_id: str) -> tuple[int, str]
         return 0, _GENESIS
     try:
         with sqlite3.connect(str(path), timeout=5.0) as db:
+            # Read schema, journal head, and legacy-row counts from one SQLite
+            # snapshot. Separate autocommit SELECTs can straddle another writer's
+            # commit and falsely observe accepted rows without their journal state.
+            db.execute("BEGIN")
             tables = {
                 row[0]
                 for row in db.execute(

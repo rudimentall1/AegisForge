@@ -186,3 +186,38 @@ def test_signature_binds_signer_fingerprint_metadata():
             changed,
             trusted_public_keys={"runner-primary": _public_bytes(private_key)},
         )
+
+def test_signed_receipt_rejects_unsigned_extension_fields():
+    private_key = Ed25519PrivateKey.generate()
+    envelope = sign_receipt(_receipt(), private_key=private_key, key_id="runner-a")
+    envelope["provider_identity"] = "claimed-independent-runner"
+
+    with pytest.raises(LabExecutionReceiptError, match="invalid_signed_receipt_fields"):
+        verify_signed_receipt(
+            envelope,
+            trusted_public_keys={"runner-a": _public_bytes(private_key)},
+        )
+
+
+def test_signed_receipt_rejects_non_string_signature():
+    private_key = Ed25519PrivateKey.generate()
+    envelope = sign_receipt(_receipt(), private_key=private_key, key_id="runner-a")
+    envelope["signature"] = b"not-json-string"
+
+    with pytest.raises(LabExecutionReceiptError, match="receipt_signature_invalid"):
+        verify_signed_receipt(
+            envelope,
+            trusted_public_keys={"runner-a": _public_bytes(private_key)},
+        )
+
+
+def test_signed_receipt_rejects_invalid_base64_signature():
+    private_key = Ed25519PrivateKey.generate()
+    envelope = sign_receipt(_receipt(), private_key=private_key, key_id="runner-a")
+    envelope["signature"] = "%%%not-base64%%%"
+
+    with pytest.raises(LabExecutionReceiptError, match="receipt_signature_invalid"):
+        verify_signed_receipt(
+            envelope,
+            trusted_public_keys={"runner-a": _public_bytes(private_key)},
+        )

@@ -57,6 +57,23 @@ def test_canonical_json_rejects_non_finite_numbers():
         canonical_json({"value": float("nan")})
 
 
+def test_canonical_json_rejects_non_string_nested_object_keys():
+    # JSON serialization otherwise silently converts integer keys to strings,
+    # allowing distinct Python objects to share the same canonical bytes.
+    with pytest.raises(LabExecutionReceiptError, match="receipt_json_object_keys_must_be_strings"):
+        canonical_json({"nested": {1: "value"}})
+
+
+def test_canonical_json_rejects_python_tuples_instead_of_coercing_to_arrays():
+    with pytest.raises(LabExecutionReceiptError, match="receipt_not_canonicalizable"):
+        canonical_json({"value": ("one", "two")})
+
+
+def test_canonical_json_rejects_invalid_unicode_surrogates():
+    with pytest.raises(LabExecutionReceiptError, match="receipt_not_canonicalizable"):
+        canonical_json({"value": "\ud800"})
+
+
 def test_signed_receipt_verifies_against_explicit_trusted_key():
     private_key = Ed25519PrivateKey.generate()
     receipt = _receipt()

@@ -23,10 +23,28 @@ class LabExecutionReceiptError(ValueError):
     """Raised when a lab receipt is malformed or cannot be verified."""
 
 
+def _validate_json_value(value: object) -> None:
+    """Reject Python values whose meaning changes during JSON serialization."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_json_value(item)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise LabExecutionReceiptError("receipt_json_object_keys_must_be_strings")
+            _validate_json_value(item)
+        return
+    raise LabExecutionReceiptError("receipt_not_canonicalizable")
+
+
 def canonical_json(payload: dict) -> bytes:
-    """Return deterministic UTF-8 JSON bytes for a JSON object."""
+    """Return deterministic UTF-8 JSON bytes for a strict JSON object tree."""
     if not isinstance(payload, dict):
         raise LabExecutionReceiptError("receipt_object_required")
+    _validate_json_value(payload)
     try:
         encoded = json.dumps(
             payload,
@@ -35,9 +53,9 @@ def canonical_json(payload: dict) -> bytes:
             ensure_ascii=False,
             allow_nan=False,
         )
-    except (TypeError, ValueError) as exc:
+        return encoded.encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as exc:
         raise LabExecutionReceiptError("receipt_not_canonicalizable") from exc
-    return encoded.encode("utf-8")
 
 
 def build_receipt(

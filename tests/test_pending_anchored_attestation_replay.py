@@ -127,3 +127,199 @@ def test_invalid_signature_never_creates_pending_or_accepted_state(tmp_path):
         )
     assert not path.exists() or _counts(path) == (0, 0, 0)
     assert anchor.anchor["sequence"] == 0
+
+
+def test_recovery_fails_closed_when_anchor_is_unrelated(tmp_path):
+    path = tmp_path / "pending-unrelated.sqlite3"
+    dossier, envelope, trusted = _signed("unrelated-anchor", "unrelated-anchor-nonce")
+    anchor = Anchor(cas_result=False)
+    with pytest.raises(ReplayAnchorUnavailable):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    with sqlite3.connect(path) as db: candidate_id = db.execute("SELECT candidate_id FROM pending_anchored_replay").fetchone()[0]
+    anchor.anchor = {"provider_id": "test-provider", "sequence": 1, "head_sha256": "1" * 64}
+    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_not_confirmed_by_external_anchor"):
+        pending.recover_pending_attestation(
+            candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    assert _counts(path) == (0, 1, 0)
+
+
+def test_pending_dossier_tamper_is_rejected_during_recovery(tmp_path, monkeypatch):
+    original_finalize = pending._finalize_pending
+    path = tmp_path / "pending-tamper.sqlite3"
+    dossier, envelope, trusted = _signed("tamper-run", "tamper-nonce")
+    anchor = Anchor()
+    monkeypatch.setattr(pending, "_finalize_pending", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("crash")))
+    with pytest.raises(RuntimeError, match="crash"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute("SELECT candidate_id FROM pending_anchored_replay").fetchone()[0]
+        db.execute("UPDATE pending_anchored_replay SET dossier_json='{}' WHERE candidate_id=?", (candidate_id,))
+        monkeypatch.setattr(pending, "_finalize_pending", original_finalize)
+    with pytest.raises(ReplayAnchorUnavailable, match="pending_evidence_reverification_failed"):
+        pending.recover_pending_attestation(
+            candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    assert _counts(path) == (0, 1, 0)
+
+
+def test_recovery_retries_prepared_candidate_when_anchor_stays_at_prior_head(tmp_path):
+    path = tmp_path / "pending-before-cas.sqlite3"
+    dossier, envelope, trusted = _signed("crash-before-cas", "crash-before-cas-nonce")
+    anchor = Anchor()
+
+    def crash_before_cas(*args, **kwargs):
+        raise RuntimeError("simulated crash before CAS")
+
+    anchor.compare_and_set_anchor = crash_before_cas
+    with pytest.raises(ReplayAnchorUnavailable, match="external_anchor_publish_outcome_unknown"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    assert anchor.anchor["sequence"] == 0
+    assert _counts(path) == (0, 1, 0)
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute("SELECT candidate_id FROM pending_anchored_replay").fetchone()[0]
+
+    # Bind the normal CAS implementation to the same anchor object.
+    def cas(provider_id, **kwargs):
+        current = anchor.anchor
+        if (current["sequence"], current["head_sha256"]) != (kwargs["expected_sequence"], kwargs["expected_head_sha256"]):
+            return False
+        anchor.anchor = {"provider_id": provider_id, "sequence": kwargs["new_sequence"], "head_sha256": kwargs["new_head_sha256"]}
+        return True
+    anchor.compare_and_set_anchor = cas
+    recovered = pending.recover_pending_attestation(
+        candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+    )
+    assert recovered["recovered"] is True
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (1, 1, 1)
+
+
+def test_ambiguous_cas_exception_recovers_only_if_anchor_advanced_to_candidate(tmp_path):
+    path = tmp_path / "pending-ambiguous-cas.sqlite3"
+    dossier, envelope, trusted = _signed("ambiguous-cas", "ambiguous-cas-nonce")
+    anchor = Anchor()
+    original_cas = anchor.compare_and_set_anchor
+
+    def commit_then_timeout(*args, **kwargs):
+        original_cas(*args, **kwargs)
+        raise TimeoutError("response lost after commit")
+
+    anchor.compare_and_set_anchor = commit_then_timeout
+    result = pending.verify_and_record_attestation_pending_anchored(
+        dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+    )
+    assert result["valid"] is True
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (1, 1, 1)
+
+
+def test_ambiguous_cas_exception_with_unchanged_anchor_fails_closed(tmp_path):
+    path = tmp_path / "pending-ambiguous-no-commit.sqlite3"
+    dossier, envelope, trusted = _signed("ambiguous-no-commit", "ambiguous-no-commit-nonce")
+    anchor = Anchor()
+
+    def timeout_without_commit(*args, **kwargs):
+        raise TimeoutError("request outcome unknown")
+
+    anchor.compare_and_set_anchor = timeout_without_commit
+    with pytest.raises(ReplayAnchorUnavailable, match="external_anchor_publish_outcome_unknown"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    assert anchor.anchor["sequence"] == 0
+    assert _counts(path) == (0, 1, 0)
+
+
+def test_finalization_database_failure_can_be_recovered_idempotently(monkeypatch, tmp_path):
+    path = tmp_path / "pending-finalize-failure.sqlite3"
+    dossier, envelope, trusted = _signed("finalize-failure", "finalize-failure-nonce")
+    anchor = Anchor()
+    original_finalize = pending._finalize_pending
+
+    def fail_finalize(*args, **kwargs):
+        raise sqlite3.OperationalError("simulated local finalize failure")
+
+    monkeypatch.setattr(pending, "_finalize_pending", fail_finalize)
+    with pytest.raises(sqlite3.OperationalError, match="finalize failure"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (0, 1, 0)
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute("SELECT candidate_id FROM pending_anchored_replay").fetchone()[0]
+
+    monkeypatch.setattr(pending, "_finalize_pending", original_finalize)
+    recovered = pending.recover_pending_attestation(
+        candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+    )
+    assert recovered["recovered"] is True
+    assert _counts(path) == (1, 1, 1)
+
+
+def test_concurrent_writers_from_same_anchor_accept_exactly_one_candidate(tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    path = tmp_path / "pending-concurrent-writers.sqlite3"
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    anchor = Anchor()
+    original_cas = anchor.compare_and_set_anchor
+
+    def synchronized_cas(provider_id, **kwargs):
+        # Both writers must stage their candidate before either can publish.
+        barrier.wait(timeout=5)
+        with lock:
+            return original_cas(provider_id, **kwargs)
+
+    anchor.compare_and_set_anchor = synchronized_cas
+    first = _signed("concurrent-run-a", "concurrent-nonce-a")
+    second = _signed("concurrent-run-b", "concurrent-nonce-b")
+
+    def submit(signed):
+        dossier, envelope, trusted = signed
+        try:
+            result = pending.verify_and_record_attestation_pending_anchored(
+                dossier, envelope, trusted_public_keys=trusted,
+                database_path=path, anchor_store=anchor,
+            )
+            return ("accepted", result)
+        except Exception as exc:
+            return ("rejected", exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(submit, (first, second)))
+
+    accepted = [outcome for outcome in outcomes if outcome[0] == "accepted"]
+    rejected = [outcome for outcome in outcomes if outcome[0] == "rejected"]
+    assert len(accepted) == 1, outcomes
+    assert len(rejected) == 1, outcomes
+    assert isinstance(rejected[0][1], ReplayAnchorUnavailable)
+    assert anchor.anchor["sequence"] == 1
+    assert accepted[0][1]["journal"]["head_sha256"] == anchor.anchor["head_sha256"]
+
+    with sqlite3.connect(path) as db:
+        accepted_rows = db.execute(
+            "SELECT run_id, nonce FROM accepted_runner_attestations WHERE provider_id=?",
+            ("test-provider",),
+        ).fetchall()
+        pending_rows = db.execute(
+            "SELECT run_id, status FROM pending_anchored_replay ORDER BY run_id"
+        ).fetchall()
+        journal_state = db.execute(
+            "SELECT sequence, head_sha256 FROM attestation_replay_journal_state WHERE provider_id=?",
+            ("test-provider",),
+        ).fetchone()
+
+    assert len(accepted_rows) == 1
+    assert journal_state == (1, anchor.anchor["head_sha256"])
+    assert len(pending_rows) == 2
+    assert sorted(status for _, status in pending_rows) == ["CONFLICT", "FINALIZED"]

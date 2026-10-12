@@ -58,6 +58,10 @@ The client protocol can detect an anchor regression when its surviving local jou
 
 The client cannot prove that the anchor itself has not been rolled back if the anchor service violates its contract and presents a mutually consistent older view while the local database has also been restored to a compatible older snapshot. No sequence/hash comparison can distinguish that world from a legitimate earlier state without an independent non-rollbackable witness. Production rollback resistance therefore depends on the anchor backend providing durable monotonic state, authoritative reads, and linearizable CAS across failures and restores. A fake in-memory anchor validates protocol branches, not that operational guarantee.
 
+## Independent database copies
+
+Two independent SQLite copies restored to the same provider genesis can both prepare different candidates for the same next sequence. The protocol test synchronizes them at CAS against one shared anchor: exactly one candidate is anchored and finalized; the loser remains `CONFLICT` with zero accepted rows and no journal event. This establishes the single-winner property only when both copies truly share one authoritative linearizable anchor. Separate anchors, stale reads, or a backend that forks its state are outside that guarantee.
+
 ## Acceptance tests required before enabling this protocol
 
 1. Invalid signature creates neither pending nor accepted state.

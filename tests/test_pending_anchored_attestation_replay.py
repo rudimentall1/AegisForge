@@ -656,6 +656,65 @@ def test_recovery_rejects_tampered_candidate_before_anchor_cas(tmp_path):
     assert _counts(path) == (0, 1, 0)
 
 
+def test_independent_database_snapshots_compete_for_same_anchor_sequence(tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    # Two independent restored copies both start from the same provider genesis.
+    first_path = tmp_path / "restored-copy-a.sqlite3"
+    second_path = tmp_path / "restored-copy-b.sqlite3"
+    first_signed = _signed("snapshot-copy-a", "snapshot-nonce-a")
+    second_signed = _signed("snapshot-copy-b", "snapshot-nonce-b")
+    anchor = Anchor()
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    original_cas = anchor.compare_and_set_anchor
+
+    def synchronized_cas(provider_id, **kwargs):
+        # Force both independent copies to reach CAS after observing genesis.
+        barrier.wait(timeout=5)
+        with lock:
+            return original_cas(provider_id, **kwargs)
+
+    anchor.compare_and_set_anchor = synchronized_cas
+
+    def submit(path, signed):
+        dossier, envelope, trusted = signed
+        try:
+            result = pending.verify_and_record_attestation_pending_anchored(
+                dossier, envelope, trusted_public_keys=trusted,
+                database_path=path, anchor_store=anchor,
+            )
+            return ("accepted", result, path)
+        except Exception as exc:
+            return ("rejected", exc, path)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(
+            lambda args: submit(*args),
+            ((first_path, first_signed), (second_path, second_signed)),
+        ))
+
+    accepted = [item for item in outcomes if item[0] == "accepted"]
+    rejected = [item for item in outcomes if item[0] == "rejected"]
+    assert len(accepted) == 1, outcomes
+    assert len(rejected) == 1, outcomes
+    assert isinstance(rejected[0][1], ReplayAnchorUnavailable)
+    assert anchor.anchor["sequence"] == 1
+    assert accepted[0][1]["journal"]["head_sha256"] == anchor.anchor["head_sha256"]
+
+    with sqlite3.connect(accepted[0][2]) as db:
+        assert db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0] == 1
+        assert db.execute(
+            "SELECT sequence, head_sha256 FROM attestation_replay_journal_state WHERE provider_id=?",
+            ("test-provider",),
+        ).fetchone() == (1, anchor.anchor["head_sha256"])
+    with sqlite3.connect(rejected[0][2]) as db:
+        assert db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM attestation_replay_journal").fetchone()[0] == 0
+        assert db.execute("SELECT status FROM pending_anchored_replay").fetchone() == ("CONFLICT",)
+
+
 def test_concurrent_recovery_of_same_prepared_candidate_is_idempotent(tmp_path):
     import threading
     from concurrent.futures import ThreadPoolExecutor

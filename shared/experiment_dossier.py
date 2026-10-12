@@ -189,3 +189,54 @@ def canonical_json(value):
 def dossier_sha256(dossier):
     """Hash canonical dossier bytes; the digest is integrity metadata, not a signature."""
     return hashlib.sha256(canonical_json(dossier).encode("utf-8")).hexdigest()
+
+
+def verify_experiment_dossier_artifacts(dossier, artifact_root):
+    """Verify declared artifact bytes under a trusted local root.
+
+    This verifies file-to-digest binding only. It does not establish who created
+    the files, whether the runner is independent, or whether execution occurred.
+    Symlinks and paths escaping the root are rejected.
+    """
+    from pathlib import Path
+
+    validate_experiment_dossier(dossier)
+    root = Path(artifact_root).resolve(strict=True)
+    if not root.is_dir():
+        raise ExperimentDossierError("artifact_root_must_be_directory")
+
+    verified = []
+    for artifact in dossier["artifacts"]:
+        name = artifact["name"]
+        relative = Path(name)
+        if relative.is_absolute() or not relative.parts or any(part in ("", ".", "..") for part in relative.parts):
+            raise ExperimentDossierError("artifact_path_invalid")
+
+        candidate = root / relative
+        # Reject symlinks in every path component, even when the final target
+        # would resolve back inside the root.
+        current = root
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                raise ExperimentDossierError("artifact_symlink_not_allowed")
+
+        try:
+            resolved = candidate.resolve(strict=True)
+            resolved.relative_to(root)
+        except (OSError, ValueError) as exc:
+            raise ExperimentDossierError("artifact_path_unavailable_or_escaped") from exc
+        if not resolved.is_file():
+            raise ExperimentDossierError("artifact_not_regular_file")
+
+        digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
+        if digest != artifact["sha256"]:
+            raise ExperimentDossierError("artifact_bytes_digest_mismatch")
+        verified.append({"name": name, "sha256": digest})
+
+    return {
+        "verified": True,
+        "artifact_count": len(verified),
+        "artifacts": verified,
+        "qualification": "NOT_ESTABLISHED",
+    }

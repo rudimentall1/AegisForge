@@ -22,22 +22,31 @@ MAX_BODY = 4096
 
 
 def connect(path: str) -> sqlite3.Connection:
+    """Open an already initialized database without running schema DDL per request."""
     db = sqlite3.connect(path, timeout=5.0, isolation_level=None)
     db.execute("PRAGMA busy_timeout=5000")
-    db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA synchronous=FULL")
-    db.execute("""CREATE TABLE IF NOT EXISTS replay_anchors (
-        provider_id TEXT PRIMARY KEY,
-        sequence INTEGER NOT NULL CHECK(sequence >= 0),
-        head_sha256 TEXT NOT NULL,
-        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-    )""")
     return db
+
+
+def initialize_database(path: str) -> None:
+    """Set durable journal mode and create schema during explicit initialization."""
+    with sqlite3.connect(path, timeout=5.0, isolation_level=None) as db:
+        db.execute("PRAGMA busy_timeout=5000")
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA synchronous=FULL")
+        db.execute("""CREATE TABLE IF NOT EXISTS replay_anchors (
+            provider_id TEXT PRIMARY KEY,
+            sequence INTEGER NOT NULL CHECK(sequence >= 0),
+            head_sha256 TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )""")
 
 
 def provision(path: str, provider_id: str) -> None:
     if not provider_id or len(provider_id) > 256:
         raise ValueError("provider_id_invalid")
+    initialize_database(path)
     with connect(path) as db:
         db.execute("BEGIN IMMEDIATE")
         try:
@@ -195,6 +204,7 @@ def main() -> int:
         parser.error(f"{args.token_env} must contain at least 32 characters")
     if args.host not in ("127.0.0.1", "::1", "localhost"):
         parser.error("reference service must bind to loopback; use a TLS reverse proxy for remote access")
+    initialize_database(db_path)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(db_path, token))
     print(f"reference_anchor_service_listening_on={args.host}:{args.port}")
     try:

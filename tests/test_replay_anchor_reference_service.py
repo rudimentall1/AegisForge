@@ -93,3 +93,36 @@ def test_committed_anchor_survives_database_reopen(anchor_service):
             "SELECT sequence,head_sha256 FROM replay_anchors WHERE provider_id=?",
             ("provider-test",),
         ).fetchone() == (1, HEAD_A)
+
+
+class CommitThenLoseResponseSession:
+    """Simulate a proxy dropping the response after the server commits CAS."""
+
+    def __init__(self):
+        self.real = requests.Session()
+
+    def get(self, url, **kwargs):
+        return self.real.get(url, **kwargs)
+
+    def post(self, url, **kwargs):
+        response = self.real.post(url, **kwargs)
+        assert response.status_code == 200
+        raise requests.Timeout("response lost after remote commit")
+
+
+def test_lost_cas_response_is_ambiguous_but_reread_confirms_commit(anchor_service):
+    store, _ = anchor_service
+    uncertain = HttpReplayAnchorStore(
+        store._base_url, bearer_token=TOKEN, session=CommitThenLoseResponseSession()
+    )
+    with pytest.raises(ReplayAnchorUnavailable, match="external_anchor_cas_outcome_unknown"):
+        uncertain.compare_and_set_anchor(
+            "provider-test", expected_sequence=0, expected_head_sha256=GENESIS,
+            new_sequence=1, new_head_sha256=HEAD_A,
+        )
+
+    # Never translate a lost response into a conflict or retry blindly. Read the
+    # authoritative anchor and reconcile against the exact intended successor.
+    assert store.get_anchor("provider-test") == {
+        "provider_id": "provider-test", "sequence": 1, "head_sha256": HEAD_A,
+    }

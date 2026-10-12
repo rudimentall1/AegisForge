@@ -159,5 +159,3 @@ def canonical_json(value):
 def dossier_sha256(dossier):
     """Hash canonical dossier bytes; the digest is integrity metadata, not a signature."""
     return hashlib.sha256(canonical_json(dossier).encode("utf-8")).hexdigest()
-
-[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

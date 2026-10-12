@@ -96,3 +96,10 @@ A successful call reports `replay_protection=RECORDED_ONCE_IN_LOCAL_SQLITE_REGIS
 `shared/runner_trust_policy.py` adds an opt-in policy wrapper. Trust records are supplied out-of-band and bind a key to one `provider_id`, a validity interval, and an optional revocation timestamp. The wrapper rejects unknown keys, provider mismatch, revoked or expired keys, timezone-naive timestamps, receipts outside the key validity interval, stale receipts, and timestamps beyond the configured future-skew allowance. Policy checks happen before the replay registry is written, so rejected receipts do not consume a nonce.
 
 Defaults are a 15-minute maximum receipt age and 30-second future skew; callers may explicitly override them. These checks use the runner's signed `completed_at` claim and the verifier's local clock. They reduce accidental replay and stale-evidence acceptance but cannot prove the runner's clock or execution claims are truthful. Revocation is immediate in this version, including for receipts signed before the revocation timestamp. Trust records, system time, and the SQLite database remain operator responsibilities. Qualification and runner independence remain `NOT_ESTABLISHED`.
+
+
+## External trust bundle format (partial implementation)
+
+`shared/runner_trust_bundle.py` parses an explicit JSON bundle (`evm-key-forensics-runner-trust-v1`) containing public Ed25519 keys, provider IDs, validity intervals, and optional revocation timestamps. It rejects unknown fields, duplicate JSON object keys, duplicate key IDs, malformed Base64, keys that are not 32-byte raw Ed25519 public keys, timezone-naive dates, and invalid validity intervals. This prevents common configuration mistakes from being silently accepted.
+
+The loader does **not** authenticate the bundle. It must be delivered or pinned through an independent trusted channel, and its write permissions must be restricted. Do not store private keys in this bundle. Key revocation is currently an immediate deny, not a historical signature-validation service. The parser is a configuration boundary, not evidence that a runner is independent or honest.

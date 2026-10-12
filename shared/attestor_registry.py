@@ -17,9 +17,15 @@ def canonical_json(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 def _b64(value, field):
+    if not isinstance(value, str):
+        raise AttestorError(f"invalid_base64:{field}")
     try:
-        return base64.urlsafe_b64decode(str(value).encode("ascii"))
-    except Exception as exc:
+        raw = value.encode("ascii")
+        # urlsafe_b64decode is permissive about non-alphabet characters. The
+        # trust boundary must reject malformed encodings instead of ignoring
+        # bytes that may make different textual inputs decode identically.
+        return base64.b64decode(raw, altchars=b"-_", validate=True)
+    except (UnicodeEncodeError, ValueError, TypeError) as exc:
         raise AttestorError(f"invalid_base64:{field}") from exc
 
 def _public_key(private_key):
@@ -30,9 +36,14 @@ def _public_key(private_key):
     return base64.urlsafe_b64encode(raw).decode("ascii")
 
 def _parse_time(value, field):
+    if not isinstance(value, str):
+        raise AttestorError(f"invalid_timestamp:{field}")
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except Exception as exc:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("timezone_required")
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, TypeError, OverflowError) as exc:
         raise AttestorError(f"invalid_timestamp:{field}") from exc
 
 def _active(record, now=None):
@@ -146,18 +157,36 @@ def create_registry(records, issuer_private_key, registry_id="aegisforge-root"):
         signature=signature,
     )
 
-def verify_registry(registry):
+def verify_registry(registry, *, trusted_issuer_public_keys=None):
     if not isinstance(registry, dict):
         raise AttestorError("registry_required")
     required = {"schema_version", "algorithm", "registry_id", "issuer_key_id", "issuer_public_key", "attestors", "signature"}
     missing = sorted(required - set(registry))
     if missing:
         raise AttestorError("registry_fields_missing:" + ",".join(missing))
+    if set(registry) != required:
+        raise AttestorError("invalid_registry_fields")
+    if not isinstance(registry["registry_id"], str) or not registry["registry_id"].strip():
+        raise AttestorError("registry_id_required")
+    if not isinstance(registry["attestors"], list):
+        raise AttestorError("registry_attestors_list_required")
+    if not isinstance(registry["issuer_key_id"], str) or not registry["issuer_key_id"]:
+        raise AttestorError("issuer_key_id_required")
     if registry["schema_version"] != SCHEMA_VERSION or registry["algorithm"] != ALGORITHM:
         raise AttestorError("unsupported_registry_schema_or_algorithm")
     issuer = _b64(registry["issuer_public_key"], "issuer_public_key")
     if len(issuer) != 32:
         raise AttestorError("invalid_registry_public_key")
+    expected_issuer_key_id = "registry-" + hashlib.sha256(issuer).hexdigest()[:16]
+    if registry["issuer_key_id"] != expected_issuer_key_id:
+        raise AttestorError("registry_issuer_key_id_mismatch")
+    # A signature verified against a key embedded in the same registry proves
+    # self-consistency, not issuer identity. Trust must be pinned out-of-band.
+    if not isinstance(trusted_issuer_public_keys, dict) or not trusted_issuer_public_keys:
+        raise AttestorError("registry_issuer_trust_anchor_required")
+    trusted_issuer = trusted_issuer_public_keys.get(registry["issuer_key_id"])
+    if not isinstance(trusted_issuer, bytes) or trusted_issuer != issuer:
+        raise AttestorError("registry_issuer_not_trusted")
     records = [AttestorRecord.from_dict(r) for r in registry["attestors"]]
     if len({a.attestor_id for a in records}) != len(records):
         raise AttestorError("duplicate_attestor_id")
@@ -171,8 +200,8 @@ def verify_registry(registry):
         raise AttestorError("registry_signature_invalid") from exc
     return {"valid": True, "registry_id": registry["registry_id"], "attestor_count": len(records)}
 
-def resolve_attestor(registry, attestor_id, verifier, now=None):
-    verify_registry(registry)
+def resolve_attestor(registry, attestor_id, verifier, now=None, *, trusted_issuer_public_keys=None):
+    verify_registry(registry, trusted_issuer_public_keys=trusted_issuer_public_keys)
     for raw in registry["attestors"]:
         record = AttestorRecord.from_dict(raw)
         if record.attestor_id != attestor_id:
@@ -206,18 +235,25 @@ def attest_outcome(proof, attestor_private_key, attestor_id, key_id, verifier, n
     ).decode("ascii")
     return payload
 
-def verify_attestation(attestation, proof, registry, now=None):
+def verify_attestation(attestation, proof, registry, now=None, *, trusted_issuer_public_keys=None):
     if not isinstance(attestation, dict) or not isinstance(proof, dict):
         raise AttestorError("attestation_and_proof_required")
     required = {"schema_version", "algorithm", "attestor_id", "key_id", "proof_id", "verifier", "issued_at", "signature"}
     missing = sorted(required - set(attestation))
     if missing:
         raise AttestorError("attestation_fields_missing:" + ",".join(missing))
+    if set(attestation) != required:
+        raise AttestorError("invalid_attestation_fields")
+    for field in ("attestor_id", "key_id", "proof_id", "verifier"):
+        if not isinstance(attestation[field], str) or not attestation[field].strip():
+            raise AttestorError(f"invalid_attestation_field:{field}")
+    if not isinstance(proof.get("proof_id"), str) or not proof["proof_id"].strip():
+        raise AttestorError("proof_id_required")
     if attestation["schema_version"] != ATTESTATION_SCHEMA or attestation["algorithm"] != ALGORITHM:
         raise AttestorError("unsupported_attestation_schema_or_algorithm")
     if attestation["proof_id"] != proof.get("proof_id"):
         raise AttestorError("attestation_proof_mismatch")
-    record = resolve_attestor(registry, attestation["attestor_id"], attestation["verifier"], now=now)
+    record = resolve_attestor(registry, attestation["attestor_id"], attestation["verifier"], now=now, trusted_issuer_public_keys=trusted_issuer_public_keys)
     if record.key_id != attestation["key_id"]:
         raise AttestorError("attestor_key_id_mismatch")
     issued = _parse_time(attestation["issued_at"], "issued_at")

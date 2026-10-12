@@ -47,6 +47,8 @@ The existing Ed25519 lab receipt signs a domain-separated canonical payload cont
 
 The current LabRunner executes only a fixed, repository-owned synthetic 12-bit toy exercise. Its receipt does not claim an immutable historical source revision, a reproduction command, or a historical reproduction artifact. It must not be repurposed to execute downloaded code or historical key-generation routines.
 
+The repository also contains a generic signed attestor registry used by other proof workflows. That component is not an independent runner provider and must not be treated as one. Its earlier verification path checked a registry signature against the public key embedded in that same registry, which proves self-consistency but not issuer identity. The registry API now requires an out-of-band pinned issuer key for trust decisions and rejects unsigned extension fields, malformed Base64, and timezone-naive validity timestamps. Even with that hardening, its outcome attestation binds only a proof ID and verifier scope; it does not bind the complete experiment dossier required above. It therefore cannot qualify an EVM Key Forensics historical reproduction.
+
 ## Acceptance tests required before implementation is enabled
 
 - valid attestation from configured provider and exact matching run inputs qualifies only the matching experiment;

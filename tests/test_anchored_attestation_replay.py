@@ -11,9 +11,9 @@ HEAD_1 = "1" * 64
 
 
 class FakeAnchorStore:
-    def __init__(self, *, sequence=0, head=GENESIS, available=True, cas_result=True):
+    def __init__(self, *, provider_id="provider-a", sequence=0, head=GENESIS, available=True, cas_result=True):
         self.anchor = {
-            "provider_id": "provider-a",
+            "provider_id": provider_id,
             "sequence": sequence,
             "head_sha256": head,
         }
@@ -151,7 +151,7 @@ def test_anchored_registration_uses_real_signed_receipt_and_journal(tmp_path):
     key = Ed25519PrivateKey.generate()
     dossier = _dossier("anchored-real-run", "anchored-real-nonce")
     envelope = _envelope(dossier, key)
-    store = FakeAnchorStore()
+    store = FakeAnchorStore(provider_id="test-provider")
 
     result = anchored.verify_and_record_attestation_anchored(
         dossier,

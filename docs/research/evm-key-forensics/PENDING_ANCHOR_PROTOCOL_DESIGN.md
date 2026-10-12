@@ -67,7 +67,7 @@ The external anchor must remain outside the SQLite database and its backup/resto
 11. Existing recovery planner continues to reject a local suffix not covered by the authoritative anchor.
 12. Full test suite and `git diff --check` pass.
 
-The prototype currently covers the success path, CAS conflict without accepted-state mutation, invalid signatures, ambiguous CAS outcomes, failures before and after CAS, local finalization failure, tampered pending evidence, two concurrent writers, recovery through fresh SQLite connections, idempotent repeated recovery, and refusal to promote a CONFLICT candidate even if its old head later reappears, candidate-head tampering during recovery, and malformed external-anchor rejection before CAS. The remaining matrix above is still required; passing these tests does not qualify the protocol for production.
+The prototype currently covers the success path, CAS conflict without accepted-state mutation, invalid signatures, ambiguous CAS outcomes, failures before and after CAS, local finalization failure, tampered pending evidence, two concurrent writers, recovery through fresh SQLite connections, idempotent repeated recovery, and refusal to promote a CONFLICT candidate even if its old head later reappears, candidate-head tampering during recovery, malformed external-anchor rejection before CAS, and accepted run-ID/nonce replay attempts through the pending adapter. The remaining matrix above is still required; passing these tests does not qualify the protocol for production.
 
 ## Migration and rollout
 

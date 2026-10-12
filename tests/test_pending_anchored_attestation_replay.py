@@ -459,3 +459,37 @@ def test_malformed_external_anchor_fails_before_pending_state_or_cas(tmp_path):
 
     assert anchor.cas_calls == 0
     assert not path.exists() or not path.stat().st_size or _counts(path) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("duplicate_field", ["run_id", "nonce"])
+def test_accepted_run_id_or_nonce_cannot_be_replayed_through_pending_protocol(
+    tmp_path, duplicate_field
+):
+    path = tmp_path / f"pending-replay-{duplicate_field}.sqlite3"
+    first_dossier, first_envelope, first_trusted = _signed(
+        f"replay-{duplicate_field}-run", f"replay-{duplicate_field}-nonce"
+    )
+    anchor = Anchor()
+    pending.verify_and_record_attestation_pending_anchored(
+        first_dossier, first_envelope, trusted_public_keys=first_trusted,
+        database_path=path, anchor_store=anchor,
+    )
+
+    if duplicate_field == "run_id":
+        second_dossier, second_envelope, second_trusted = _signed(
+            first_dossier["run_id"], "fresh-nonce-for-duplicate-run"
+        )
+    else:
+        second_dossier, second_envelope, second_trusted = _signed(
+            "fresh-run-for-duplicate-nonce", first_dossier["nonce"]
+        )
+
+    with pytest.raises(Exception, match="attestation_replay_detected:run_id_or_nonce_already_seen"):
+        pending.verify_and_record_attestation_pending_anchored(
+            second_dossier, second_envelope, trusted_public_keys=second_trusted,
+            database_path=path, anchor_store=anchor,
+        )
+
+    assert anchor.cas_calls == 1
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (1, 1, 1)

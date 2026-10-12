@@ -38,3 +38,9 @@ Fault-injection tests must cover process termination before SQLite commit, after
 - Replay detection, tamper evidence, rollback resistance, and runner qualification documented as distinct properties.
 
 Until these controls are implemented and tested, recovery and production rollback resistance remain `NOT_ESTABLISHED`.
+
+## Implemented read-only planner
+
+`shared/replay_registry_recovery.py` now implements a read-only recovery-plan builder. The caller must supply the anchor value read from the real external store and the independently provisioned trusted public keys. The planner checks the entire local journal, matches the supplied anchor to the exact historical head, verifies row counts and bindings across journal, accepted records, and stored evidence, and re-verifies every signed receipt/dossier pair before describing the unanchored suffix. It returns a deterministic plan digest and explicitly reports that it performed no writes and did not update the anchor.
+
+This is not the recovery executor. The plan must be revalidated against a freshly read anchor before any future operator-confirmed CAS. Cross-process writer serialization, the operator confirmation workflow, and an independent audit sink are still not implemented. A valid plan is not permission to execute or qualify a lab result.

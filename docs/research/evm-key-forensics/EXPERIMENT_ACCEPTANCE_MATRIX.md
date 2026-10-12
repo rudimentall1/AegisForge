@@ -55,7 +55,7 @@ Stop and report `INCONCLUSIVE` if the exact historical path cannot be built safe
 - Portable integrity verifier: implemented; CI-tested; strict JSON parsing rejects duplicate keys and non-standard constants in the exported artifact and structured result payload. Unsigned artifacts remain untrusted.
 - Synthetic positive/negative control harness: implemented and covered by tests; it validates only the repository-owned toy state space.
 - Portable verification instructions: documented in `tools/evm_key_forensics/README.md`; signed artifacts require a public key trusted independently of the artifact.
-- Latest observed CI: `AegisForge CI` ([run 38136331275](https://github.com/rudimentall1/AegisForge/actions/runs/38136331275)) and `EVM Key Forensics Probe` ([run 38136331264](https://github.com/rudimentall1/AegisForge/actions/runs/38136331264)) both passed at commit `d710cb26e36f4c4253dabfabbeb43e778b3e3c61`. These are CI results for the checker and tests, not independent validation of the historical claim.
+- Latest observed CI: `AegisForge CI` ([run 38206892168](https://github.com/rudimentall1/AegisForge/actions/runs/38206892168)) and `EVM Key Forensics Probe` ([run 38206892152](https://github.com/rudimentall1/AegisForge/actions/runs/38206892152)) both passed at commit `498e18a5ccb077a4c84c0742d5982771d915e97a`. These are CI results for the checker and tests, not independent validation of the historical claim.
 - E3 status: **synthetic harness controls pass**; this validates only the toy model and its control logic, not the historical Profanity behavior.
 - E1 build identity: not yet complete for a historical reproduction.
 - E4 historical-path reproduction: **not established**.

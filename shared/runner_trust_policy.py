@@ -95,7 +95,7 @@ def verify_with_runner_trust_policy(
         signed = verify_signed_receipt(envelope, trusted_public_keys={key_id: record.public_key})
     except LabExecutionReceiptError as exc:
         raise RunnerTrustPolicyError(f"attestation_invalid:{exc}") from exc
-    completed_at = _parse_utc(signed["receipt"]["execution"].get("completed_at"), "completed_at")
+    completed_at = _parse_utc(envelope["receipt"]["execution"].get("completed_at"), "completed_at")
     if completed_at < not_before or completed_at >= not_after:
         raise RunnerTrustPolicyError("receipt_outside_key_validity_interval")
     if completed_at > current + future_skew:

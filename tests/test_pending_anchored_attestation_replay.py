@@ -528,3 +528,34 @@ def test_local_finalize_sqlite_failure_is_recoverable_after_anchor_advance(tmp_p
     assert recovered["journal"]["sequence"] == 1
     assert _counts(path) == (1, 1, 1)
     assert anchor.anchor["sequence"] == 1
+
+
+def test_recovery_fails_closed_on_corrupt_local_journal_even_when_terminal_state_matches_anchor(tmp_path):
+    from shared.replay_registry_recovery import ReplayRecoveryError, build_replay_recovery_plan
+
+    path = tmp_path / "pending-corrupt-journal.sqlite3"
+    dossier, envelope, trusted = _signed("corrupt-journal-run", "corrupt-journal-nonce")
+    anchor = Anchor()
+    result = pending.verify_and_record_attestation_pending_anchored(
+        dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+    )
+    assert result["valid"] is True
+
+    # Keep the terminal state row equal to the external anchor while corrupting
+    # the underlying event. Checking only the terminal digest would miss this.
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "UPDATE attestation_replay_journal SET head_sha256=? WHERE provider_id=? AND sequence=1",
+            ("f" * 64, "test-provider"),
+        )
+
+    with pytest.raises(ReplayRecoveryError, match="recovery_journal_chain_corrupt"):
+        build_replay_recovery_plan(
+            path,
+            provider_id="test-provider",
+            anchor_sequence=anchor.anchor["sequence"],
+            anchor_head_sha256=anchor.anchor["head_sha256"],
+            trusted_public_keys=trusted,
+        )
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (1, 1, 1)

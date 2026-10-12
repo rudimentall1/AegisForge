@@ -24,7 +24,7 @@ def _entry(public_key=None, **overrides):
 
 
 def _bundle(entries=None, **overrides):
-    value = {"schema_version": SCHEMA_VERSION, "keys": entries or [_entry()]}
+    value = {"schema_version": SCHEMA_VERSION, "keys": [_entry()] if entries is None else entries}
     value.update(overrides)
     return json.dumps(value).encode("utf-8")
 

@@ -818,3 +818,44 @@ def test_independent_anchor_forks_can_each_accept_a_different_sequence_one(tmp_p
     assert first_anchor.anchor["head_sha256"] != second_anchor.anchor["head_sha256"]
     assert _counts(first_path) == (1, 1, 1)
     assert _counts(second_path) == (1, 1, 1)
+
+
+def test_recovery_rejects_anchor_that_has_advanced_past_pending_candidate(tmp_path):
+    path = tmp_path / "pending-anchor-ahead.sqlite3"
+    dossier, envelope, trusted = _signed("anchor-ahead", "anchor-ahead-nonce")
+    anchor = Anchor(cas_result=False)
+
+    with pytest.raises(ReplayAnchorUnavailable, match="compare_and_set_conflict_pending_not_accepted"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+        )
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM pending_anchored_replay"
+        ).fetchone()[0]
+
+    # The candidate was prepared for sequence 1. A later sequence is not proof
+    # that this candidate is in the authoritative chain, even if its local hash
+    # and signed evidence still verify.
+    anchor.anchor = {
+        "provider_id": "test-provider",
+        "sequence": 2,
+        "head_sha256": "2" * 64,
+    }
+    with pytest.raises(
+        ReplayAnchorUnavailable,
+        match="pending_candidate_not_confirmed_by_external_anchor",
+    ):
+        pending.recover_pending_attestation(
+            candidate_id,
+            trusted_public_keys=trusted,
+            database_path=path,
+            anchor_store=anchor,
+        )
+
+    assert _counts(path) == (0, 1, 0)
+    with sqlite3.connect(path) as db:
+        assert db.execute(
+            "SELECT status FROM pending_anchored_replay WHERE candidate_id=?",
+            (candidate_id,),
+        ).fetchone() == ("CONFLICT",)

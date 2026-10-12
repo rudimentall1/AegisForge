@@ -162,7 +162,7 @@ def test_dossier_canonicalization_rejects_nan():
     {1: "integer key"},
     {1: "integer key", "1": "string key"},
     {"nested": ({ "not": "a JSON array" },)},
-    {"nested": {"bad\\ud800": "surrogate"}},
+    {"nested": {"bad" + chr(0xD800): "surrogate"}},
 ])
 def test_canonicalization_rejects_ambiguous_or_non_json_values(value):
     with pytest.raises(ExperimentDossierError):

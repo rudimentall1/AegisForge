@@ -111,3 +111,12 @@ Defaults are a 15-minute maximum receipt age and 30-second future skew; callers 
 `shared/runner_trust_bundle.py` parses an explicit JSON bundle (`evm-key-forensics-runner-trust-v1`) containing public Ed25519 keys, provider IDs, validity intervals, and optional revocation timestamps. It rejects unknown fields, duplicate JSON object keys, duplicate key IDs, malformed Base64, keys that are not 32-byte raw Ed25519 public keys, timezone-naive dates, and invalid validity intervals. This prevents common configuration mistakes from being silently accepted.
 
 The loader does **not** authenticate the bundle. It must be delivered or pinned through an independent trusted channel, and its write permissions must be restricted. Do not store private keys in this bundle. Key revocation is currently an immediate deny, not a historical signature-validation service. The parser is a configuration boundary, not evidence that a runner is independent or honest.
+
+
+## Signed replay-registry checkpoint verifier (partial implementation)
+
+`shared/replay_registry_checkpoint.py` defines a domain-separated Ed25519-signed checkpoint statement binding a provider ID, monotonically increasing sequence, state-head SHA-256, and signing key ID. Verification checks the pinned checkpoint signing key, exact schema fields, provider scope, signature, external minimum sequence, optional externally anchored head hash, and equality with the local sequence/head.
+
+This is a verification primitive, not a complete replay-registry integration. The caller must supply the local sequence/head and the minimum sequence/head obtained from a trusted source outside the registry's backup/restore domain. Storing the checkpoint beside the SQLite database does not provide rollback resistance. The current SQLite registry does not yet maintain a canonical hash-chain head or call this verifier automatically; those integration steps remain outstanding. Do not describe the registry as rollback-resistant until state transitions update a hash chain transactionally and the service refuses acceptance whenever the external anchor is unavailable, stale, or inconsistent.
+
+Checkpoint signatures authenticate the checkpoint signer, not the truth of the claimed state. Protect the checkpoint private key, provision its public key out-of-band, and keep the high-water mark in independently protected storage. Qualification and independent runner status remain `NOT_ESTABLISHED`.

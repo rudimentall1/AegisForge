@@ -114,3 +114,41 @@ def test_registry_records_receipt_hash_and_identity(tmp_path):
     with sqlite3.connect(path) as db:
         row = db.execute("SELECT provider_id, key_id, run_id, nonce, receipt_sha256 FROM accepted_runner_attestations").fetchone()
     assert row == ("test-provider", "pinned-runner-key", dossier["run_id"], dossier["nonce"], result["receipt_sha256"])
+
+
+def test_concurrent_duplicate_attestation_has_exactly_one_winner(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    dossier, key, path = _dossier(), Ed25519PrivateKey.generate(), tmp_path / "registry.sqlite3"
+    envelope = _envelope(dossier, key)
+    barrier = Barrier(2)
+
+    def attempt():
+        barrier.wait(timeout=5)
+        try:
+            _accept(dossier, envelope, key, path)
+            return "accepted"
+        except AttestationReplayRegistryError as exc:
+            if "attestation_replay_detected" in str(exc):
+                return "replay"
+            raise
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: attempt(), range(2)))
+
+    assert sorted(outcomes) == ["accepted", "replay"]
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0] == 1
+
+
+def test_nonce_namespace_is_provider_scoped_not_key_scoped(tmp_path):
+    key, path = Ed25519PrivateKey.generate(), tmp_path / "registry.sqlite3"
+    first = _dossier("run-before-rotation", "nonce-across-rotation")
+    _accept(first, _envelope(first, key), key, path)
+
+    # A key rotation must not reset the provider's nonce namespace. The
+    # registry identity is provider_id + nonce, not key_id + nonce.
+    second = _dossier("run-after-rotation", "nonce-across-rotation")
+    with pytest.raises(AttestationReplayRegistryError, match="attestation_replay_detected"):
+        _accept(second, _envelope(second, key), key, path)

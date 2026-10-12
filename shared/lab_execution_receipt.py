@@ -168,8 +168,21 @@ def verify_signed_receipt(
     # Keep the wire schema type strict: JSON true must not alias integer version 1.
     if type(envelope.get("schema_version")) is not int or envelope.get("schema_version") != 1:
         raise LabExecutionReceiptError("unsupported_signed_receipt_schema")
+    expected_fields = {
+        "schema_version",
+        "algorithm",
+        "key_id",
+        "receipt",
+        "receipt_sha256",
+        "signer_public_key_sha256",
+        "signature",
+    }
+    if set(envelope) != expected_fields:
+        raise LabExecutionReceiptError("invalid_signed_receipt_fields")
     if envelope.get("algorithm") != "Ed25519":
         raise LabExecutionReceiptError("unsupported_signed_receipt_schema")
+    if not isinstance(envelope.get("signature"), str):
+        raise LabExecutionReceiptError("receipt_signature_invalid")
     key_id = envelope.get("key_id")
     if not isinstance(key_id, str) or key_id not in trusted_public_keys:
         raise LabExecutionReceiptError("untrusted_runner_key")

@@ -192,12 +192,14 @@ def dossier_sha256(dossier):
 
 
 def verify_experiment_dossier_artifacts(dossier, artifact_root):
-    """Verify declared artifact bytes under a trusted local root.
+    """Verify artifact bytes through file descriptors anchored to a local root.
 
-    This verifies file-to-digest binding only. It does not establish who created
-    the files, whether the runner is independent, or whether execution occurred.
-    Symlinks and paths escaping the root are rejected.
+    Directory-relative opens and O_NOFOLLOW prevent a path component from being
+    swapped for a symlink between validation and opening. This binds bytes to
+    declared digests only; it does not establish provenance or execution.
     """
+    import os
+    import stat
     from pathlib import Path
 
     validate_experiment_dossier(dossier)
@@ -205,34 +207,74 @@ def verify_experiment_dossier_artifacts(dossier, artifact_root):
     if not root.is_dir():
         raise ExperimentDossierError("artifact_root_must_be_directory")
 
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None or not hasattr(os, "supports_dir_fd") or os.open not in os.supports_dir_fd:
+        raise ExperimentDossierError("secure_artifact_open_unsupported")
+
     verified = []
-    for artifact in dossier["artifacts"]:
-        name = artifact["name"]
-        relative = Path(name)
-        if relative.is_absolute() or not relative.parts or any(part in ("", ".", "..") for part in relative.parts):
-            raise ExperimentDossierError("artifact_path_invalid")
+    root_fd = None
+    try:
+        root_fd = os.open(str(root), os.O_RDONLY | directory | nofollow)
+        for artifact in dossier["artifacts"]:
+            name = artifact["name"]
+            relative = Path(name)
+            if relative.is_absolute() or not relative.parts or any(part in ("", ".", "..") for part in relative.parts):
+                raise ExperimentDossierError("artifact_path_invalid")
 
-        candidate = root / relative
-        # Reject symlinks in every path component, even when the final target
-        # would resolve back inside the root.
-        current = root
-        for part in relative.parts:
-            current = current / part
-            if current.is_symlink():
-                raise ExperimentDossierError("artifact_symlink_not_allowed")
+            parent_fd = os.dup(root_fd)
+            file_fd = None
+            try:
+                # Walk each directory from the already-open root. A concurrent
+                # rename cannot redirect this descriptor into another tree.
+                for part in relative.parts[:-1]:
+                    next_fd = os.open(
+                        part, os.O_RDONLY | directory | nofollow, dir_fd=parent_fd
+                    )
+                    os.close(parent_fd)
+                    parent_fd = next_fd
 
-        try:
-            resolved = candidate.resolve(strict=True)
-            resolved.relative_to(root)
-        except (OSError, ValueError) as exc:
-            raise ExperimentDossierError("artifact_path_unavailable_or_escaped") from exc
-        if not resolved.is_file():
-            raise ExperimentDossierError("artifact_not_regular_file")
+                try:
+                    file_fd = os.open(
+                        relative.parts[-1], os.O_RDONLY | nofollow, dir_fd=parent_fd
+                    )
+                except OSError as exc:
+                    if exc.errno in (getattr(os, "ELOOP", 40),):
+                        raise ExperimentDossierError("artifact_symlink_not_allowed") from exc
+                    raise
 
-        digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
-        if digest != artifact["sha256"]:
-            raise ExperimentDossierError("artifact_bytes_digest_mismatch")
-        verified.append({"name": name, "sha256": digest})
+                metadata = os.fstat(file_fd)
+                if not stat.S_ISREG(metadata.st_mode):
+                    raise ExperimentDossierError("artifact_not_regular_file")
+
+                digest_builder = hashlib.sha256()
+                while True:
+                    chunk = os.read(file_fd, 1024 * 1024)
+                    if not chunk:
+                        break
+                    digest_builder.update(chunk)
+                digest = digest_builder.hexdigest()
+            except ExperimentDossierError:
+                raise
+            except OSError as exc:
+                if exc.errno == 40:
+                    raise ExperimentDossierError("artifact_symlink_not_allowed") from exc
+                raise ExperimentDossierError("artifact_path_unavailable_or_escaped") from exc
+            finally:
+                if file_fd is not None:
+                    os.close(file_fd)
+                os.close(parent_fd)
+
+            if digest != artifact["sha256"]:
+                raise ExperimentDossierError("artifact_bytes_digest_mismatch")
+            verified.append({"name": name, "sha256": digest})
+    except ExperimentDossierError:
+        raise
+    except OSError as exc:
+        raise ExperimentDossierError("artifact_root_or_path_unavailable") from exc
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
 
     return {
         "verified": True,

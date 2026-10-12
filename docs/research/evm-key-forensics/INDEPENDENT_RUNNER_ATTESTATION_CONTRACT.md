@@ -68,3 +68,13 @@ Until a real provider integration and the negative tests above exist, report:
 - independent runner attestation: **NOT IMPLEMENTED / NOT VERIFIED**;
 - historical reproduction qualification: **NOT ESTABLISHED**;
 - overall historical claim: **INCONCLUSIVE**.
+
+## Local dossier schema
+
+`shared/experiment_dossier.py` now validates a strict, unsigned experiment dossier. It binds the declared source revision, fixture digest, argument vector and its digest, harness/build-recipe digests, runner labels, execution interval and outcome, result digest, artifact names/digests, and explicit safety scope. Unknown fields are rejected so a caller cannot attach a trust-looking claim that the schema does not authenticate. The argument digest is recomputed from canonical JSON, timestamps must include a timezone, and a full Git object ID is required.
+
+This is a schema and consistency check only. The runner identity fields are claims, not provider authentication. The dossier digest detects changes only when compared with a trusted expected digest; it is not a signature. Artifact digests in the dossier are not proof that the artifact bytes were independently read and hashed. The validator returns `qualification=NOT_ESTABLISHED` even for a structurally valid dossier. No independent runner provider, replay database, or historical reproduction path is enabled by this addition.
+
+The dossier safety vocabulary is intentionally limited to `synthetic_only` and `source_inspection_only`. It rejects contradictory declarations, but a JSON declaration cannot prove that a process behaved as claimed. The actual safe-execution boundary remains enforced by the harness and must be independently assessed.
+
+[executed on device: Gensyn2.play2go.cloud (8c50b8b0-eb42-4eae-ab08-e02c92862037)]

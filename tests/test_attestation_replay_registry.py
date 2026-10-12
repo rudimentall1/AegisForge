@@ -261,3 +261,42 @@ def test_modified_middle_journal_event_fails_closed_without_accepting_new_receip
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0] == 2
         assert db.execute("SELECT sequence FROM attestation_replay_journal_state WHERE provider_id = ?", ("test-provider",)).fetchone()[0] == 2
+
+
+
+def test_signed_recovery_evidence_is_persisted_atomically_with_journal(tmp_path):
+    key, path = Ed25519PrivateKey.generate(), tmp_path / "registry.sqlite3"
+    dossier = _dossier("evidence-run", "evidence-nonce")
+    envelope = _envelope(dossier, key)
+    result = _accept(dossier, envelope, key, path)
+
+    with sqlite3.connect(path) as db:
+        row = db.execute(
+            """SELECT provider_id, sequence, run_id, nonce, receipt_sha256,
+                      journal_head_sha256, dossier_json, envelope_json
+               FROM attestation_replay_evidence"""
+        ).fetchone()
+        counts = (
+            db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0],
+            db.execute("SELECT COUNT(*) FROM attestation_replay_journal").fetchone()[0],
+            db.execute("SELECT COUNT(*) FROM attestation_replay_evidence").fetchone()[0],
+        )
+
+    assert row[:6] == (
+        "test-provider", 1, dossier["run_id"], dossier["nonce"],
+        result["receipt_sha256"], result["journal"]["head_sha256"],
+    )
+    assert row[6] == canonical_json(dossier)
+    assert row[7] == canonical_json(envelope)
+    assert counts == (1, 1, 1)
+
+
+def test_replayed_receipt_does_not_create_duplicate_recovery_evidence(tmp_path):
+    key, path = Ed25519PrivateKey.generate(), tmp_path / "registry.sqlite3"
+    dossier = _dossier("evidence-replay-run", "evidence-replay-nonce")
+    envelope = _envelope(dossier, key)
+    _accept(dossier, envelope, key, path)
+    with pytest.raises(AttestationReplayRegistryError, match="attestation_replay_detected"):
+        _accept(dossier, envelope, key, path)
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT COUNT(*) FROM attestation_replay_evidence").fetchone()[0] == 1

@@ -241,3 +241,23 @@ def test_legacy_registry_with_accepted_rows_fails_closed_without_journal_migrati
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0] == 1
         assert db.execute("SELECT COUNT(*) FROM attestation_replay_journal").fetchone()[0] == 0
+
+
+
+def test_modified_middle_journal_event_fails_closed_without_accepting_new_receipt(tmp_path):
+    key, path = Ed25519PrivateKey.generate(), tmp_path / "registry.sqlite3"
+    first = _dossier("chain-run-one", "chain-nonce-one")
+    second = _dossier("chain-run-two", "chain-nonce-two")
+    third = _dossier("chain-run-three", "chain-nonce-three")
+    _accept(first, _envelope(first, key), key, path)
+    _accept(second, _envelope(second, key), key, path)
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "UPDATE attestation_replay_journal SET run_id = ? WHERE provider_id = ? AND sequence = 1",
+            ("tampered-run-id", "test-provider"),
+        )
+    with pytest.raises(AttestationReplayRegistryError, match="journal_chain_corrupt"):
+        _accept(third, _envelope(third, key), key, path)
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0] == 2
+        assert db.execute("SELECT sequence FROM attestation_replay_journal_state WHERE provider_id = ?", ("test-provider",)).fetchone()[0] == 2

@@ -156,3 +156,20 @@ def test_unsupported_schema_is_rejected():
 def test_dossier_canonicalization_rejects_nan():
     with pytest.raises(ExperimentDossierError, match="dossier_not_canonicalizable"):
         canonical_json({"x": float("nan")})
+
+
+@pytest.mark.parametrize("value", [
+    {1: "integer key"},
+    {1: "integer key", "1": "string key"},
+    {"nested": ({ "not": "a JSON array" },)},
+    {"nested": {"bad\\ud800": "surrogate"}},
+])
+def test_canonicalization_rejects_ambiguous_or_non_json_values(value):
+    with pytest.raises(ExperimentDossierError):
+        canonical_json(value)
+
+
+def test_canonicalization_accepts_nested_json_values():
+    assert canonical_json({"items": [None, True, 3, 1.5, "ok"]}) == (
+        '{"items":[null,true,3,1.5,"ok"]}'
+    )

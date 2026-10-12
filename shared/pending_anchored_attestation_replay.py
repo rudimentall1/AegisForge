@@ -322,12 +322,34 @@ def recover_pending_attestation(
     """
     with sqlite3.connect(str(database_path), timeout=5.0) as db:
         _ensure_pending_schema(db)
-        row = db.execute("""SELECT provider_id, expected_sequence, expected_head_sha256,
-            candidate_sequence, candidate_head_sha256, status FROM pending_anchored_replay
-            WHERE candidate_id=?""", (candidate_id,)).fetchone()
+        row = db.execute("""SELECT provider_id, run_id, nonce, receipt_sha256,
+            expected_sequence, expected_head_sha256, candidate_sequence,
+            candidate_head_sha256, dossier_json, envelope_json, status
+            FROM pending_anchored_replay WHERE candidate_id=?""", (candidate_id,)).fetchone()
     if row is None:
         raise ReplayAnchorUnavailable("pending_candidate_missing")
-    provider_id, prior_sequence, prior_head, candidate_sequence, candidate_head, status = row
+    (provider_id, run_id, nonce, receipt_sha, prior_sequence, prior_head,
+     candidate_sequence, candidate_head, dossier_json, envelope_json, status) = row
+    if status in ("PREPARED", "FINALIZED"):
+        # Validate the complete candidate before CAS. Local pending rows are not
+        # an authority source: otherwise a modified candidate head could be
+        # published while the anchor is still at the prior head.
+        try:
+            dossier = json.loads(dossier_json)
+            envelope = json.loads(envelope_json)
+            verified = verify_independent_runner_attestation(
+                dossier, envelope, trusted_public_keys=trusted_public_keys
+            )
+        except (ValueError, TypeError, IndependentRunnerAttestationError) as exc:
+            raise ReplayAnchorUnavailable("pending_evidence_reverification_failed") from exc
+        if (dossier.get("runner", {}).get("provider_id"), dossier.get("run_id"),
+            dossier.get("nonce"), verified.get("receipt_sha256")) != (
+                provider_id, run_id, nonce, receipt_sha):
+            raise ReplayAnchorUnavailable("pending_evidence_binding_mismatch")
+        event, recomputed_head = _candidate(dossier, verified, prior_sequence, prior_head)
+        if event["sequence"] != candidate_sequence or recomputed_head != candidate_head:
+            raise ReplayAnchorUnavailable("pending_candidate_hash_mismatch")
+
     anchor_sequence, anchor_head = _read_anchor(anchor_store, provider_id)
     if (anchor_sequence, anchor_head) == (prior_sequence, prior_head):
         if status != "PREPARED":

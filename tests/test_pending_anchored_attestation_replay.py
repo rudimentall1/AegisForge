@@ -436,7 +436,7 @@ def test_tampered_candidate_head_is_rejected_during_recovery(tmp_path, monkeypat
         )
 
     monkeypatch.setattr(pending, "_finalize_pending", original_finalize)
-    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_not_confirmed_by_external_anchor"):
+    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_hash_mismatch"):
         pending.recover_pending_attestation(
             candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
         )
@@ -599,3 +599,32 @@ def test_recovery_fails_closed_when_evidence_row_is_missing(tmp_path):
             anchor_head_sha256=anchor.anchor["head_sha256"], trusted_public_keys=trusted,
         )
     assert anchor.anchor["sequence"] == 1
+
+
+def test_recovery_rejects_tampered_candidate_before_anchor_cas(tmp_path):
+    path = tmp_path / "pending-tampered-before-cas.sqlite3"
+    dossier, envelope, trusted = _signed("tamper-before-cas", "tamper-before-cas-nonce")
+    anchor = Anchor()
+    def unknown_cas(*args, **kwargs):
+        raise RuntimeError("simulated lost CAS response")
+    anchor.compare_and_set_anchor = unknown_cas
+    with pytest.raises(ReplayAnchorUnavailable, match="external_anchor_publish_outcome_unknown"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted, database_path=path,
+            anchor_store=anchor,
+        )
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute("SELECT candidate_id FROM pending_anchored_replay").fetchone()[0]
+        db.execute(
+            "UPDATE pending_anchored_replay SET candidate_head_sha256=? WHERE candidate_id=?",
+            ("e" * 64, candidate_id),
+        )
+
+    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_hash_mismatch"):
+        pending.recover_pending_attestation(
+            candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor,
+        )
+
+    assert anchor.cas_calls == 0
+    assert anchor.anchor["sequence"] == 0
+    assert _counts(path) == (0, 1, 0)

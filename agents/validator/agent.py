@@ -955,7 +955,10 @@ class Validator:
             for digest, source_ids in matching_source_digests.items()
             if len(source_ids) > 1
         }
-        independent_matching_fingerprints = len(matching_source_digests) - len(
+        # Count distinct matching byte sequences, not "independent sources".
+        # Duplicate records are surfaced separately and cannot establish provenance.
+        distinct_matching_fingerprints = len(matching_source_digests)
+        matching_fingerprint_groups_with_duplicates = len(
             duplicate_source_content_fingerprints
         )
         pinned_checks_passed = sum(item.get("valid") is True for item in pinned_revision_checks)
@@ -992,8 +995,8 @@ class Validator:
             readiness_blockers.append("source_recheck_limit_exceeded")
         if not historical_reproduction:
             readiness_blockers.append("historical_reproduction_not_qualified")
-        if rechecked < 2 or matching < 2 or independent_matching_fingerprints < 2:
-            readiness_blockers.append("insufficient_independent_source_rechecks")
+        if rechecked < 2 or matching < 2 or distinct_matching_fingerprints < 2:
+            readiness_blockers.append("insufficient_distinct_source_content_rechecks")
         if pinned_checks_passed < 1 or pinned_checks_failed:
             readiness_blockers.append("pinned_revision_provenance_not_clean")
         if truncated_sources:
@@ -1019,7 +1022,7 @@ class Validator:
             next_actions.append("Split the dossier into bounded validation batches or prioritize evidence; sources beyond the recheck cap were not re-fetched.")
         if rechecked < 2:
             next_actions.append("Independently re-fetch at least two allowlisted primary sources.")
-        if matching < 2 or independent_matching_fingerprints < 2:
+        if matching < 2 or distinct_matching_fingerprints < 2:
             next_actions.append("Require matching SHA-256 fingerprints for at least two distinct source contents; distinct content is not proof of independent origin.")
         next_actions.append("Establish publisher/origin independence with separately verified provenance before treating sources as independent evidence.")
         if truncated_sources:
@@ -1047,10 +1050,11 @@ class Validator:
             "duplicate_source_ids": duplicate_source_ids,
             "duplicate_source_urls": duplicate_source_urls,
             "duplicate_source_content_fingerprints": duplicate_source_content_fingerprints,
-            # Legacy metric counts distinct matching content hashes only; it does
-            # not establish epistemic or publisher independence.
-            "independent_matching_source_fingerprints": independent_matching_fingerprints,
-            "distinct_matching_source_fingerprints": independent_matching_fingerprints,
+            # Legacy field name retained for compatibility. This is a content
+            # count only and must never be interpreted as source independence.
+            "independent_matching_source_fingerprints": distinct_matching_fingerprints,
+            "distinct_matching_source_fingerprints": distinct_matching_fingerprints,
+            "matching_fingerprint_groups_with_duplicates": matching_fingerprint_groups_with_duplicates,
             "source_origin_independence_established": False,
             "source_independence_basis": "unique_content_hashes_and_distinct_urls_do_not_verify_independent_origin",
             "source_derivation_dependencies": source_derivation_dependencies,

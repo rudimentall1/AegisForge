@@ -145,12 +145,22 @@ jobs:
           def sha256(path):
               return hashlib.sha256((root / path).read_bytes()).hexdigest()
 
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+          pull_request = event.get("pull_request")
+          pull_request_head_sha = (
+              pull_request.get("head", {}).get("sha")
+              if isinstance(pull_request, dict)
+              else None
+          )
           metadata = {
               "schema_version": 1,
               "purpose": "diagnostic_environment_observation_only",
               "git_commit": subprocess.check_output(
                   ["git", "rev-parse", "HEAD"], text=True
               ).strip(),
+              "github_sha": os.environ["GITHUB_SHA"],
+              "github_ref": os.environ["GITHUB_REF"],
+              "pull_request_head_sha": pull_request_head_sha,
               "github_run_id": os.environ["GITHUB_RUN_ID"],
               "github_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
               "runner_os": platform.platform(),

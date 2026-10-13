@@ -172,6 +172,21 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
                 verify_complete_archive(self.archive)
             verifier.assert_not_called()
 
+    def test_local_header_name_mismatch_is_rejected(self):
+        member = "complete-evidence/probe-evidence/probe-source.cpp"
+        with zipfile.ZipFile(self.archive, "r") as zf:
+            info = zf.getinfo(member)
+            local_header_offset = info.header_offset
+        # The local header filename must agree with the central directory.
+        # Change one byte without changing the filename length or central entry.
+        with self.archive.open("r+b") as stream:
+            stream.seek(local_header_offset + 30)
+            stream.write(b"X")
+        with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
+            with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):
+                verify_complete_archive(self.archive)
+            verifier.assert_not_called()
+
     def test_extreme_compression_ratio_is_rejected(self):
         self.members["complete-evidence/probe-evidence/probe-source.cpp"] = b"A" * (2 * 1024 * 1024)
         self.write_archive()

@@ -103,3 +103,18 @@ Verified in [workflow run 38369462635](https://github.com/rudimentall1/AegisForg
 - Combined artifact: [evm-key-forensics-complete-evidence-38369462635-1](https://github.com/rudimentall1/AegisForge/actions/runs/38369462635/artifacts/11798177321)
 
 The offline validator deliberately returns `UNTRUSTED_UNSIGNED` and `NOT_CHECKED_OFFLINE`: archive integrity is not a substitute for independently verifying GitHub's attestation. The workflow performs that separate verification before publishing. The historical Profanity conclusion remains `INCONCLUSIVE`; historical source-to-binary provenance remains `NOT_ESTABLISHED`.
+
+## Archive-abuse regression gate
+
+Added explicit regression cases for ZIP symlink entries, extreme compression ratios, and failure propagation from the underlying probe verifier. The new tests passed in the full suite and the workflow passed against a newly generated, attested combined archive.
+
+Verified in [workflow run 38369700157](https://github.com/rudimentall1/AegisForge/actions/runs/38369700157), PR head `210c63cfac238f79686bd1655b9677e27a710f2f`:
+
+- Main CI: `826 passed, 1 warning` in [run 38369700113](https://github.com/rudimentall1/AegisForge/actions/runs/38369700113)
+- Independent clean-runner rebuild: `PASS`
+- Offline combined-archive validator: `PASS`, no failed checks
+- GitHub provenance attestation and cross-run linkage: `PASS`
+- Exact attested ZIP SHA-256: `edb3570ff2d5afeb56d5ae53880e9efc6a398dcfef5b9432405d5c612651b69b`
+- Combined artifact: [evm-key-forensics-complete-evidence-38369700157-1](https://github.com/rudimentall1/AegisForge/actions/runs/38369700157/artifacts/11797908886)
+
+The archive is still a synthetic diagnostic evidence package. This gate does not change the historical research conclusion: `INCONCLUSIVE`, with historical source-to-binary provenance `NOT_ESTABLISHED`.

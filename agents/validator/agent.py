@@ -918,7 +918,7 @@ class Validator:
             readiness_blockers.append("source_recheck_limit_exceeded")
         if not historical_reproduction:
             readiness_blockers.append("historical_reproduction_not_qualified")
-        if rechecked < 2 or matching < 2:
+        if rechecked < 2 or matching < 2 or independent_matching_fingerprints < 2:
             readiness_blockers.append("insufficient_independent_source_rechecks")
         if pinned_checks_passed < 1 or pinned_checks_failed:
             readiness_blockers.append("pinned_revision_provenance_not_clean")

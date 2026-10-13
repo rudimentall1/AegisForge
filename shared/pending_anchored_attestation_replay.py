@@ -184,7 +184,7 @@ def _finalize_pending(
         verified = verify_independent_runner_attestation(
             dossier, envelope, trusted_public_keys=trusted_public_keys
         )
-    except (ValueError, TypeError, IndependentRunnerAttestationError) as exc:
+    except (ValueError, TypeError, KeyError, AttributeError, IndexError) as exc:
         raise ReplayAnchorUnavailable("pending_evidence_reverification_failed") from exc
     if (dossier.get("runner", {}).get("provider_id"), dossier.get("run_id"), dossier.get("nonce"),
         verified.get("receipt_sha256")) != (provider_id, run_id, nonce, receipt_sha):
@@ -256,14 +256,19 @@ def verify_and_record_attestation_pending_anchored(
     anchor_store: ReplayAnchorStore,
 ) -> dict:
     """Stage evidence, anchor its exact candidate, then finalize local acceptance."""
-    provider_id = dossier.get("runner", {}).get("provider_id")
+    if not isinstance(dossier, dict) or not isinstance(envelope, dict):
+        raise AttestationReplayRegistryError("attestation_payload_invalid")
+    runner = dossier.get("runner")
+    if not isinstance(runner, dict):
+        raise AttestationReplayRegistryError("attestation_provider_id_invalid")
+    provider_id = runner.get("provider_id")
     if not isinstance(provider_id, str) or not provider_id:
         raise AttestationReplayRegistryError("attestation_provider_id_invalid")
     try:
         verified = verify_independent_runner_attestation(
             dossier, envelope, trusted_public_keys=trusted_public_keys
         )
-    except IndependentRunnerAttestationError as exc:
+    except (ValueError, TypeError, KeyError, AttributeError, IndexError) as exc:
         raise AttestationReplayRegistryError(f"attestation_invalid:{exc}") from exc
     prior_sequence, prior_head = _read_anchor(anchor_store, provider_id)
     local_sequence, local_head = _local_state(database_path, provider_id)
@@ -359,7 +364,7 @@ def recover_pending_attestation(
             verified = verify_independent_runner_attestation(
                 dossier, envelope, trusted_public_keys=trusted_public_keys
             )
-        except (ValueError, TypeError, IndependentRunnerAttestationError) as exc:
+        except (ValueError, TypeError, KeyError, AttributeError, IndexError) as exc:
             raise ReplayAnchorUnavailable("pending_evidence_reverification_failed") from exc
         if (dossier.get("runner", {}).get("provider_id"), dossier.get("run_id"),
             dossier.get("nonce"), verified.get("receipt_sha256")) != (

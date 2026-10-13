@@ -6,6 +6,7 @@ on:
     paths:
       - "tools/evm_key_forensics/**"
       - "tests/test_evm_key_forensics_probe_artifact.py"
+      - "tests/test_evm_key_forensics_source_report.py"
       - ".github/workflows/evm-key-forensics-probe.yml"
 
 permissions:
@@ -59,6 +60,13 @@ jobs:
           print("Both pinned source revisions match the reviewed pattern (source review only)")
           PY
 
+      - name: Build source evidence comparison report
+        run: |
+          python tools/evm_key_forensics/build_source_evidence_report.py \\
+            /tmp/source-pattern-pre.json /tmp/source-pattern-post.json \\
+            --output /tmp/source-evidence-report.json
+          cat /tmp/source-evidence-report.json
+
       - name: Validate source evidence dossier
         run: |
           python tools/evm_key_forensics/validate_source_dossier.py docs/research/evm-key-forensics/SOURCE_EVIDENCE_DOSSIER.json
@@ -100,6 +108,7 @@ jobs:
         run: |
           mkdir -p probe-evidence
           cp probe-output.json probe-evidence/probe-output.json
+          cp /tmp/source-evidence-report.json probe-evidence/source-evidence-report.json
           cp tools/evm_key_forensics/profanity_seed_environment_probe.cpp probe-evidence/probe-source.cpp
           cp profanity_seed_environment_probe probe-evidence/probe-binary
           python - <<'PY'

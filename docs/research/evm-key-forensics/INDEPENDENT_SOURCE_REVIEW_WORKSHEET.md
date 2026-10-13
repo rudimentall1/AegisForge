@@ -36,6 +36,8 @@ sha256sum "$tmp/Dispatcher-pre.cpp" "$tmp/Dispatcher-post.cpp"
 
 python tools/evm_key_forensics/check_historical_source_pattern.py "$tmp/Dispatcher-pre.cpp" --revision pre-disclosure --pretty
 python tools/evm_key_forensics/check_historical_source_pattern.py "$tmp/Dispatcher-post.cpp" --revision post-disclosure --pretty
+
+python tools/evm_key_forensics/independent_source_body_review.py --repo "$tmp/profanity"
 ```
 
 Expected Git blob IDs:

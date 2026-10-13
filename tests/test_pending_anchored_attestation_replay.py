@@ -163,7 +163,7 @@ def test_recovery_fails_closed_when_anchor_is_unrelated(tmp_path):
         )
     with sqlite3.connect(path) as db: candidate_id = db.execute("SELECT candidate_id FROM pending_anchored_replay").fetchone()[0]
     anchor.anchor = {"provider_id": "test-provider", "sequence": 1, "head_sha256": "1" * 64}
-    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_not_confirmed_by_external_anchor"):
+    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_conflict_requires_review"):
         pending.recover_pending_attestation(
             candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
         )
@@ -853,7 +853,7 @@ def test_recovery_rejects_anchor_that_has_advanced_past_pending_candidate(tmp_pa
     }
     with pytest.raises(
         ReplayAnchorUnavailable,
-        match="pending_candidate_not_confirmed_by_external_anchor",
+        match="pending_candidate_conflict_requires_review",
     ):
         pending.recover_pending_attestation(
             candidate_id,

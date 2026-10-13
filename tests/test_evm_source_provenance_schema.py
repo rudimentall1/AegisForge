@@ -170,3 +170,101 @@ def test_validator_does_not_trust_source_supplied_verified_provenance_claims():
     assert report["source_origin_independence_established"] is False
     assert "submitted_source_provenance_requires_independent_verification" in report["readiness_blockers"]
     assert report["status"] == "INCONCLUSIVE"
+
+
+
+def test_signed_provenance_attestation_requires_operator_trusted_key(monkeypatch):
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from agents.validator.agent import Validator
+    import json
+
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    monkeypatch.setenv(
+        "AEGISFORGE_PROVENANCE_TRUSTED_PUBLIC_KEYS",
+        json.dumps({"reviewer-test-key": base64.b64encode(public_key).decode("ascii")}),
+    )
+    trusted_keys, config_error = Validator._load_provenance_trust_keys()
+    assert config_error is None
+    assert set(trusted_keys) == {"reviewer-test-key"}
+
+    payload = {
+        "attestation_version": "evm-provenance-attestation-v1",
+        "source_id": "source-a",
+        "publisher_verification_status": "VERIFIED",
+        "origin_status": "PRIMARY_ORIGIN_VERIFIED",
+        "canonical_origin_ref": "https://example.org/advisory",
+        "independence_status": "ESTABLISHED",
+        "independence_basis": "VERIFIED_DISTINCT_ORIGINS",
+        "evidence_ref": "review-record:case-17",
+        "reviewed_by": "security-reviewer-17",
+        "reviewed_at": "2026-10-13T12:00:00Z",
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    attestation = {
+        "key_id": "reviewer-test-key",
+        "payload": payload,
+        "signature": base64.b64encode(private_key.sign(canonical)).decode("ascii"),
+    }
+
+    verified = Validator._verify_provenance_attestation(attestation, "source-a", trusted_keys)
+    assert verified["status"] == "SIGNATURE_VERIFIED"
+    assert verified["trusted_signer"] is True
+    assert verified["independence_status"] == "ESTABLISHED"
+    assert "not independently re-evaluated" in verified["interpretation"]
+
+    tampered_payload = dict(payload, independence_status="UNKNOWN")
+    tampered = dict(attestation, payload=tampered_payload)
+    rejected = Validator._verify_provenance_attestation(tampered, "source-a", trusted_keys)
+    assert rejected["status"] == "INVALID_SIGNATURE"
+    assert rejected["trusted_signer"] is False
+
+    unknown_key = dict(attestation, key_id="not-in-trust-store")
+    rejected_unknown = Validator._verify_provenance_attestation(unknown_key, "source-a", trusted_keys)
+    assert rejected_unknown["status"] == "UNTRUSTED_SIGNER"
+    assert rejected_unknown["trusted_signer"] is False
+
+
+def test_signed_provenance_attestation_rejects_source_id_mismatch(monkeypatch):
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from agents.validator.agent import Validator
+    import json
+
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    monkeypatch.setenv(
+        "AEGISFORGE_PROVENANCE_TRUSTED_PUBLIC_KEYS",
+        json.dumps({"reviewer-test-key": base64.b64encode(public_key).decode("ascii")}),
+    )
+    trusted_keys, _ = Validator._load_provenance_trust_keys()
+    payload = {
+        "attestation_version": "evm-provenance-attestation-v1",
+        "source_id": "source-a",
+        "publisher_verification_status": "UNKNOWN",
+        "origin_status": "UNKNOWN",
+        "canonical_origin_ref": "",
+        "independence_status": "NOT_ESTABLISHED",
+        "independence_basis": "NO_VERIFIED_PROVENANCE",
+        "evidence_ref": "review-record:case-18",
+        "reviewed_by": "security-reviewer-18",
+        "reviewed_at": "2026-10-13T12:00:00Z",
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    attestation = {
+        "key_id": "reviewer-test-key",
+        "payload": payload,
+        "signature": base64.b64encode(private_key.sign(canonical)).decode("ascii"),
+    }
+    result = Validator._verify_provenance_attestation(attestation, "source-b", trusted_keys)
+    assert result["status"] == "INVALID_PAYLOAD"
+    assert result["trusted_signer"] is False

@@ -114,7 +114,7 @@ def _mask_comments_and_literals(source: str) -> tuple[str, str | None]:
                 return "".join(chars), str(exc)
             if raw_end is not None:
                 for position in range(index, raw_end):
-                    if chars[position] != "\\n":
+                    if chars[position] != "\n":
                         chars[position] = " "
                 index = raw_end
                 continue

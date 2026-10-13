@@ -125,3 +125,59 @@ def test_validator_keeps_empty_dossier_inconclusive():
     assert "historical_reproduction_not_qualified" in report["readiness_blockers"]
     assert report["decision"] == "CONTINUE_RESEARCH"
 
+
+
+
+def test_pipeline_surfaces_explicit_conflicting_claims_without_resolving_them():
+    """Opposing structured assertions must block readiness, not become a vote."""
+    from agents.crypto_analyst.agent import CryptoAnalyst
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    task = Task(
+        task_id="conflicting-evidence-pipeline",
+        description="Keep conflicting synthetic evidence unresolved",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [
+                {
+                    "source_id": "source-supports",
+                    "source_url": "https://example.invalid/source-a",
+                    "classification": "unclassified_source",
+                    "claim_assertions": [
+                        {"claim_id": "historical-generator-uses-rng", "stance": "SUPPORTS"}
+                    ],
+                },
+                {
+                    "source_id": "source-refutes",
+                    "source_url": "https://example.invalid/source-b",
+                    "classification": "unclassified_source",
+                    "claim_assertions": [
+                        {"claim_id": "historical-generator-uses-rng", "stance": "REFUTES"}
+                    ],
+                },
+            ],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+
+    analyzed = CryptoAnalyst().run(task)
+    validated = Validator(source_fetcher=lambda _url: {}).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert validated.status == "validated"
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"
+    assert report["explicit_claim_assertions_checked"] == 2
+    assert report["conflicting_source_claims"] == [
+        {
+            "claim_id": "historical-generator-uses-rng",
+            "supporting_source_ids": ["source-supports"],
+            "refuting_source_ids": ["source-refutes"],
+        }
+    ]
+    assert "conflicting_source_claims_require_review" in report["readiness_blockers"]
+    assert any("Resolve explicit opposing source assertions" in item for item in report["next_actions"])

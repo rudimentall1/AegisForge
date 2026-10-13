@@ -64,7 +64,7 @@ class SourceResearcher:
             return "inconclusive_missing_evidence"
         haystack = f"{url} {title or ''} {text or ''}".lower()
         # Normalize punctuation for phrases such as "vanity-address-tool".
-        normalized = " ".join(haystack.replace("-", " ").replace("_", " ").split())
+        normalized = " ".join(haystack.replace("-", " ").split())
         # Explicit negative controls must win over the presence of keywords:
         # a sentence saying a generation path is absent is not positive evidence.
         explicit_negative_context = any(
@@ -92,7 +92,7 @@ class SourceResearcher:
         rng_implementation_signal = any(
             term in haystack
             for term in (
-                "mt19937_64", "random_device", "random 32-bit vector",
+                "mt19937_64", "random_device", "random 32 bit vector",
                 "random number generator", "reduced set of rng initializations",
                 "weak prng", "weak random", "rng initialization",
             )

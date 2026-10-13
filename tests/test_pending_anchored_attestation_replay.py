@@ -1058,3 +1058,59 @@ def test_result_reports_historical_anchor_when_anchor_advances_before_local_fina
     assert anchor.anchor["sequence"] == 2
     assert _counts(path) == (1, 1, 1)
     assert result["qualification"] == "NOT_ESTABLISHED"
+
+
+def test_local_journal_advance_between_preflight_and_append_is_not_misaccepted(
+    monkeypatch, tmp_path
+):
+    path = tmp_path / "pending-local-writer-race.sqlite3"
+    dossier, envelope, trusted = _signed(
+        "anchored-candidate-race", "anchored-candidate-race-nonce"
+    )
+    intruder_dossier, intruder_envelope, intruder_trusted = _signed(
+        "uncoordinated-local-writer", "uncoordinated-local-writer-nonce"
+    )
+    anchor = Anchor()
+    original_record = pending.verify_and_record_attestation
+
+    def interleave_local_writer(*args, **kwargs):
+        # Simulate a separate local writer committing after the pending flow's
+        # preflight read but before its anchored candidate is appended.
+        original_record(
+            intruder_dossier,
+            intruder_envelope,
+            trusted_public_keys=intruder_trusted,
+            database_path=path,
+        )
+        return original_record(*args, **kwargs)
+
+    monkeypatch.setattr(pending, "verify_and_record_attestation", interleave_local_writer)
+    with pytest.raises(
+        pending.AttestationReplayRegistryError,
+        match="replay_registry_expected_state_changed",
+    ):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier,
+            envelope,
+            trusted_public_keys=trusted,
+            database_path=path,
+            anchor_store=anchor,
+        )
+
+    with sqlite3.connect(path) as db:
+        accepted = db.execute(
+            "SELECT run_id FROM accepted_runner_attestations ORDER BY run_id"
+        ).fetchall()
+        pending_status = db.execute(
+            "SELECT status FROM pending_anchored_replay"
+        ).fetchone()
+        local_state = db.execute(
+            "SELECT sequence, head_sha256 FROM attestation_replay_journal_state "
+            "WHERE provider_id='test-provider'"
+        ).fetchone()
+
+    assert accepted == [("uncoordinated-local-writer",)]
+    assert pending_status == ("PREPARED",)
+    assert local_state == (1, anchor.anchor["head_sha256"])
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (1, 1, 0)

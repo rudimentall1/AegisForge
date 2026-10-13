@@ -45,6 +45,19 @@ class IndependentSourceBodyReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(ReviewError, "createSeed_signature_not_found"):
             extract_function(source)
 
+    def test_ignores_braces_and_signature_inside_raw_string(self):
+        raw = b'R"tag( } { ' + FUNCTION_SIGNATURE + b' { decoy } )tag"'
+        source = FUNCTION_SIGNATURE + b" { const char *s = " + raw + b"; return 1; }"
+        self.assertEqual(
+            extract_function(source),
+            b"{ const char *s = " + raw + b"; return 1; }",
+        )
+
+    def test_unterminated_raw_string_fails_closed(self):
+        source = FUNCTION_SIGNATURE + b' { const char *s = R"tag( { }'
+        with self.assertRaisesRegex(ReviewError, "unterminated_raw_string_literal"):
+            extract_function(source)
+
     def test_signature_without_opening_brace_fails_closed(self):
         with self.assertRaisesRegex(ReviewError, "createSeed_opening_brace_not_found"):
             extract_function(FUNCTION_SIGNATURE + b" // no body { hidden")

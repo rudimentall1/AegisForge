@@ -225,7 +225,25 @@ def verify_artifact(root: Path) -> dict:
         "commit_recorded": (
             isinstance(metadata.get("git_commit"), str)
             and len(metadata["git_commit"]) == 40
-            and all(char in "0123456789abcdefABCDEF" for char in metadata["git_commit"])
+            and all(char in "0123456789abcdef" for char in metadata["git_commit"])
+        ),
+        "workflow_checkout_commit_matches_github_sha": (
+            metadata.get("git_commit") == metadata.get("github_sha")
+            and isinstance(metadata.get("github_sha"), str)
+            and len(metadata["github_sha"]) == 40
+            and all(char in "0123456789abcdef" for char in metadata["github_sha"])
+        ),
+        "workflow_ref_recorded": (
+            isinstance(metadata.get("github_ref"), str)
+            and bool(metadata["github_ref"].strip())
+        ),
+        "pull_request_head_sha_valid_or_null": (
+            metadata.get("pull_request_head_sha") is None
+            or (
+                isinstance(metadata.get("pull_request_head_sha"), str)
+                and len(metadata["pull_request_head_sha"]) == 40
+                and all(char in "0123456789abcdef" for char in metadata["pull_request_head_sha"])
+            )
         ),
         "run_id_recorded": (
             isinstance(metadata.get("github_run_id"), str)

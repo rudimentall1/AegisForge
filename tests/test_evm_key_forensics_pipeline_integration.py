@@ -167,3 +167,58 @@ def test_pipeline_detects_source_mutation_between_collection_and_validation():
     assert report["decision"] == "CONTINUE_RESEARCH"
     assert report["historical_reproduction_confirmed"] is False
 
+
+def test_pipeline_rejects_pinned_source_metadata_that_disagrees_with_immutable_url():
+    researched = SourceResearcher(
+        github=FakeGitHub(),
+        fetcher=fake_public_fetch,
+    ).run(Task(
+        task_id="evm-forensics-pinned-path-mismatch",
+        description="Reject source metadata that disagrees with its immutable URL",
+    ))
+    analyzed = CryptoAnalyst().run(researched)
+    result = analyzed.result
+    pinned = next(
+        source for source in result["sources"]
+        if source.get("source_kind") == "pinned_repository_source"
+    )
+    original_path = pinned["source_file_path"]
+    pinned["source_file_path"] = "tampered/" + original_path
+
+    validated = Validator(source_fetcher=fake_public_fetch).run(analyzed)
+    report = validated.result["research_validation"]
+    check = next(
+        item for item in validated.result["research_source_checks"]
+        if item["source_id"] == pinned["source_id"]
+    )
+
+    assert check["content_fingerprint_matches"] is True
+    assert check["immutable_revision_pin_valid"] is False
+    assert report["pinned_revision_source_checks_failed"] >= 1
+    assert "pinned_revision_provenance_not_clean" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["historical_reproduction_confirmed"] is False
+
+
+def test_pipeline_rejects_repository_pin_with_mutated_commit_sha():
+    researched = SourceResearcher(
+        github=FakeGitHub(),
+        fetcher=fake_public_fetch,
+    ).run(Task(
+        task_id="evm-forensics-pinned-commit-mismatch",
+        description="Reject a stored repository pin whose commit SHA was changed",
+    ))
+    analyzed = CryptoAnalyst().run(researched)
+    pins = analyzed.result["repository_pins"]
+    assert pins
+    pins[0]["commit_sha"] = "f" * 40
+
+    validated = Validator(source_fetcher=fake_public_fetch).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert report["pinned_revision_source_checks_failed"] >= 1
+    assert "pinned_revision_provenance_not_clean" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"
+    assert report["historical_reproduction_confirmed"] is False
+

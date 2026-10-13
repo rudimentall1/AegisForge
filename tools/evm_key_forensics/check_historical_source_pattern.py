@@ -138,14 +138,21 @@ def inspect_source(source: str) -> dict:
     analysis_source, lexical_error = _mask_comments_and_literals(source)
     if lexical_error:
         return _result("INCONCLUSIVE", digest, [lexical_error], blob_sha1)
-    marker = "cl_ulong4 Dispatcher::Device::createSeed()"
-    start = analysis_source.find(marker)
-    if start < 0:
+    # Match a definition, not merely a declaration. Starting brace scanning
+    # at a prototype can accidentally consume the next unrelated function body.
+    definition = re.compile(
+        r"\\bcl_ulong4\\s+Dispatcher\\s*::\\s*Device\\s*::\\s*"
+        r"createSeed\\s*\\(\\s*\\)\\s*\\{"
+    )
+    definitions = list(definition.finditer(analysis_source))
+    if not definitions:
         return _result("INCONCLUSIVE", digest, ["createSeed_function_missing"], blob_sha1)
+    if len(definitions) != 1:
+        return _result("INCONCLUSIVE", digest, ["createSeed_definition_ambiguous"], blob_sha1)
 
-    # Scope the check to the function body; braces in comments and quoted
-    # literals must not alter the parser's nesting depth.
-    brace_start, end = _find_function_body(analysis_source, start)
+    # Scope the check to the uniquely identified definition; braces in comments
+    # and quoted literals must not alter the parser's nesting depth.
+    brace_start, end = _find_function_body(analysis_source, definitions[0].end() - 1)
     if brace_start is None:
         return _result("INCONCLUSIVE", digest, ["function_body_missing"], blob_sha1)
     if end is None:

@@ -129,6 +129,25 @@ def test_unbalanced_real_brace_fails_closed_even_with_comment_brace():
 
 
 
+def test_prototype_cannot_borrow_the_next_function_body():
+    mutated = "cl_ulong4 Dispatcher::Device::createSeed();\\n" + SOURCE
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "SOURCE_PATTERN_MATCHED"
+
+
+def test_duplicate_create_seed_definitions_fail_closed():
+    mutated = SOURCE + "\\n" + SOURCE
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "createSeed_definition_ambiguous" in result["errors"]
+
+
+def test_comment_with_function_definition_does_not_create_ambiguity():
+    mutated = "/* " + SOURCE + " */\\n" + SOURCE
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "SOURCE_PATTERN_MATCHED"
+
+
 def test_cli_rejects_matching_pattern_without_exact_pinned_source_blob(tmp_path, capsys):
     source_path = tmp_path / "Dispatcher.cpp"
     source_path.write_text(SOURCE, encoding="utf-8")

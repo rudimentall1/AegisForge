@@ -6,6 +6,7 @@ on:
     paths:
       - "tools/evm_key_forensics/**"
       - "tests/test_evm_key_forensics_probe_artifact.py"
+      - "tests/test_evm_key_forensics_complete_evidence.py"
       - "tests/test_evm_key_forensics_source_report.py"
       - ".github/workflows/evm-key-forensics-probe.yml"
 
@@ -468,6 +469,7 @@ jobs:
           PY
           zip -X -r evm-key-forensics-complete-evidence.zip complete-evidence
           sha256sum evm-key-forensics-complete-evidence.zip
+          python tools/evm_key_forensics/verify_complete_evidence.py evm-key-forensics-complete-evidence.zip
 
       - name: Attest complete evidence package
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be

@@ -461,26 +461,59 @@ class Validator:
         # cannot establish independent origin.
         declared_derivations = {}
         invalid_derivation_references = []
+        self_referential_derivations = []
         for source in sources:
             source_id = str(source.get("source_id") or "").strip()
             derived_from = source.get("derived_from_source_ids", [])
             if not isinstance(derived_from, list):
                 invalid_derivation_references.append(source_id or "<missing-source-id>")
                 continue
+            # Every declared entry must be a non-empty string. Silently dropping
+            # malformed values would make a partially invalid lineage look valid.
+            malformed_entries = any(
+                not isinstance(origin, str) or not origin.strip()
+                for origin in derived_from
+            )
             normalized_origins = sorted({
-                str(origin).strip() for origin in derived_from
+                origin.strip() for origin in derived_from
                 if isinstance(origin, str) and origin.strip()
             })
-            if len(normalized_origins) != len([
-                origin for origin in derived_from
-                if isinstance(origin, str) and origin.strip()
-            ]):
+            if malformed_entries or len(normalized_origins) != len(derived_from):
                 invalid_derivation_references.append(source_id or "<missing-source-id>")
             missing_origins = [origin for origin in normalized_origins if origin not in source_ids]
             if missing_origins:
                 invalid_derivation_references.append(source_id or "<missing-source-id>")
+            if source_id and source_id in normalized_origins:
+                self_referential_derivations.append(source_id)
             if source_id and normalized_origins:
                 declared_derivations[source_id] = normalized_origins
+
+        # Detect cycles in the declared graph. This validates the metadata shape,
+        # not whether any source's asserted lineage is factually true.
+        derivation_cycles = []
+        visit_state = {}
+        stack = []
+
+        def visit_derivation(source_id):
+            state = visit_state.get(source_id, 0)
+            if state == 2:
+                return
+            if state == 1:
+                cycle_start = stack.index(source_id) if source_id in stack else 0
+                cycle = tuple(stack[cycle_start:] + [source_id])
+                if cycle not in derivation_cycles:
+                    derivation_cycles.append(cycle)
+                return
+            visit_state[source_id] = 1
+            stack.append(source_id)
+            for origin in declared_derivations.get(source_id, []):
+                if origin in declared_derivations:
+                    visit_derivation(origin)
+            stack.pop()
+            visit_state[source_id] = 2
+
+        for source_id in sorted(declared_derivations):
+            visit_derivation(source_id)
         sources_with_declared_derivations = sorted(declared_derivations)
         source_derivation_dependencies = {
             source_id: origins for source_id, origins in sorted(declared_derivations.items())
@@ -946,6 +979,10 @@ class Validator:
             readiness_blockers.append("source_derivation_dependencies_require_review")
         if invalid_derivation_references:
             readiness_blockers.append("source_derivation_references_invalid")
+        if self_referential_derivations:
+            readiness_blockers.append("source_derivation_self_reference")
+        if derivation_cycles:
+            readiness_blockers.append("source_derivation_lineage_cycle")
         if hypotheses_with_missing_sources:
             readiness_blockers.append("hypothesis_source_references_invalid")
         if sources_not_rechecked_due_to_limit:
@@ -1010,6 +1047,8 @@ class Validator:
             "source_derivation_dependencies": source_derivation_dependencies,
             "sources_with_declared_derivations": len(sources_with_declared_derivations),
             "invalid_source_derivation_references": sorted(set(invalid_derivation_references)),
+            "self_referential_source_derivations": sorted(set(self_referential_derivations)),
+            "source_derivation_cycles": [list(cycle) for cycle in derivation_cycles],
             "hypotheses_with_invalid_source_references": hypotheses_with_missing_sources,
             "source_recheck_limit": source_recheck_limit,
             "sources_not_rechecked_due_to_limit": sources_not_rechecked_due_to_limit,

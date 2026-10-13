@@ -433,6 +433,99 @@ def test_conflicting_signed_provenance_attestations_require_review(monkeypatch):
     assert report["status"] == "INCONCLUSIVE"
 
 
+def test_conflicting_signed_provenance_across_source_ids_sharing_origin_requires_review(monkeypatch):
+    """Different dossier IDs must not hide opposing claims for one exact origin ref."""
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    reviewers = {
+        "origin-reviewer-a": Ed25519PrivateKey.generate(),
+        "origin-reviewer-b": Ed25519PrivateKey.generate(),
+    }
+    public_keys = {
+        key_id: base64.b64encode(
+            private_key.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+        ).decode("ascii")
+        for key_id, private_key in reviewers.items()
+    }
+    monkeypatch.setenv("AEGISFORGE_PROVENANCE_TRUSTED_PUBLIC_KEYS", json.dumps(public_keys))
+
+    payloads = [
+        {
+            "attestation_version": "evm-provenance-attestation-v1",
+            "source_id": "dossier-source-a",
+            "publisher_verification_status": "VERIFIED",
+            "origin_status": "PRIMARY_ORIGIN_VERIFIED",
+            "canonical_origin_ref": "https://example.org/primary-advisory",
+            "independence_status": "ESTABLISHED",
+            "independence_basis": "VERIFIED_DISTINCT_ORIGINS",
+            "evidence_ref": "review-record:origin-a",
+            "reviewed_by": "reviewer-a",
+            "reviewed_at": "2026-10-13T12:00:00Z",
+        },
+        {
+            "attestation_version": "evm-provenance-attestation-v1",
+            "source_id": "dossier-source-b",
+            "publisher_verification_status": "VERIFIED",
+            "origin_status": "PRIMARY_ORIGIN_VERIFIED",
+            "canonical_origin_ref": "https://example.org/primary-advisory",
+            "independence_status": "DEPENDENT",
+            "independence_basis": "SHARED_ORIGIN",
+            "evidence_ref": "review-record:origin-b",
+            "reviewed_by": "reviewer-b",
+            "reviewed_at": "2026-10-13T12:05:00Z",
+        },
+    ]
+    sources = []
+    for (key_id, private_key), payload in zip(reviewers.items(), payloads):
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        sources.append({
+            "source_id": payload["source_id"],
+            "source_url": "",
+            "provenance_attestation": {
+                "key_id": key_id,
+                "payload": payload,
+                "signature": base64.b64encode(private_key.sign(canonical)).decode("ascii"),
+            },
+        })
+
+    task = Task(
+        task_id="origin-conflict-across-source-ids",
+        description="Contradictory provenance claims must be caught across local IDs",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": sources,
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+    validated = Validator(source_fetcher=lambda _url: {}).run(task)
+    report = validated.result["research_validation"]
+
+    assert report["signed_provenance_attestations_verified"] == 2
+    assert report["duplicate_source_ids"] == []
+    assert report["source_identity_integrity_failed"] is False
+    conflicts = report["conflicting_signed_provenance_origin_assertions"]
+    assert len(conflicts) == 1
+    assert conflicts[0]["canonical_origin_ref"] == "https://example.org/primary-advisory"
+    assert conflicts[0]["source_ids"] == ["dossier-source-a", "dossier-source-b"]
+    assert conflicts[0]["conflicting_fields"]["independence_status"] == ["DEPENDENT", "ESTABLISHED"]
+    assert conflicts[0]["resolution"] == "HUMAN_REVIEW_REQUIRED"
+    assert "conflicting_signed_provenance_origin_assertions_require_review" in report["readiness_blockers"]
+    assert report["source_origin_independence_established"] is False
+    assert report["status"] == "INCONCLUSIVE"
+
+
 def test_provenance_trust_store_fails_closed_on_duplicate_keys_and_bad_base64(monkeypatch):
     from agents.validator.agent import Validator
 

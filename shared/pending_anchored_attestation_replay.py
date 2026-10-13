@@ -225,6 +225,7 @@ def _finalize_pending(
             trusted_public_keys=trusted_public_keys,
             database_path=database_path,
             expected_journal_state=(prior_sequence, prior_head),
+            finalize_pending_candidate_id=candidate_id,
         )
     except AttestationReplayRegistryError as exc:
         # Two recoverers can both observe the prior local head before either
@@ -241,8 +242,8 @@ def _finalize_pending(
     journal = result.get("journal", {})
     if (journal.get("sequence"), journal.get("head_sha256")) != (candidate_sequence, candidate_head):
         raise ReplayAnchorUnavailable("finalized_journal_does_not_match_anchored_candidate")
-    with sqlite3.connect(str(database_path), timeout=5.0) as db:
-        db.execute("UPDATE pending_anchored_replay SET status='FINALIZED' WHERE candidate_id=?", (candidate_id,))
+    # The accepted row, journal, evidence, and pending FINALIZED status were
+    # committed together by verify_and_record_attestation.
     result["replay_protection"] = "LOCAL_REGISTRY_AND_EXTERNAL_MONOTONIC_ANCHOR"
     result["journal"] = {**journal,
         "integrity_scope": "LOCAL_HASH_CHAIN_VERIFIED_AGAINST_EXTERNAL_ANCHOR",

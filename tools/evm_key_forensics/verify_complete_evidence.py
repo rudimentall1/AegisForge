@@ -96,12 +96,18 @@ def verify_complete_archive(archive_path: Path) -> dict:
 
     with zipfile.ZipFile(archive_path, "r") as archive:
         infos = archive.infolist()
-        if len(infos) != len(EXPECTED_MEMBERS) or len(infos) > MAX_ENTRY_COUNT:
+        if len(infos) > MAX_ENTRY_COUNT:
             raise ValueError("archive_member_count_mismatch")
         names = [item.filename for item in infos]
         if len(names) != len(set(names)):
             raise ValueError("archive_duplicate_member")
-        if set(names) != EXPECTED_MEMBERS:
+        directory_members = {
+            "complete-evidence/",
+            "complete-evidence/probe-evidence/",
+        }
+        file_names = {item.filename for item in infos if not item.is_dir()}
+        actual_directories = {item.filename for item in infos if item.is_dir()}
+        if file_names != EXPECTED_MEMBERS or not actual_directories.issubset(directory_members):
             raise ValueError("archive_member_set_mismatch")
 
         total_uncompressed = 0
@@ -109,8 +115,12 @@ def verify_complete_archive(archive_path: Path) -> dict:
             if not _safe_member_name(item.filename):
                 raise ValueError("archive_unsafe_member_path")
             mode = item.external_attr >> 16
-            if stat.S_ISLNK(mode) or item.is_dir():
+            if stat.S_ISLNK(mode):
                 raise ValueError("archive_non_regular_member")
+            if item.is_dir():
+                if item.filename not in {"complete-evidence/", "complete-evidence/probe-evidence/"}:
+                    raise ValueError("archive_unexpected_directory")
+                continue
             expected_size = None
             if item.filename.startswith("complete-evidence/probe-evidence/"):
                 expected_size = PROBE_FILES[item.filename.rsplit("/", 1)[1]]
@@ -133,6 +143,8 @@ def verify_complete_archive(archive_path: Path) -> dict:
             probe_dir = root / "probe-evidence"
             probe_dir.mkdir(parents=True)
             for item in infos:
+                if item.is_dir():
+                    continue
                 relative = PurePosixPath(item.filename).relative_to("complete-evidence")
                 target = root.joinpath(*relative.parts)
                 if target.is_symlink():

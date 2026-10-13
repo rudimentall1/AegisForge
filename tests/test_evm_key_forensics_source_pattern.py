@@ -64,7 +64,7 @@ def test_missing_distribution_call_fails_control():
 def test_comment_cannot_fake_missing_distribution_call():
     mutated = SOURCE.replace(
         "r.s[3] = distr(eng);",
-        "// r.s[3] = distr(eng);\\n    r.s[3] = 0;",
+        "// r.s[3] = distr(eng);\n    r.s[3] = 0;",
     )
     result = inspect_source(mutated)
     assert result["conclusion"] == "INCONCLUSIVE"

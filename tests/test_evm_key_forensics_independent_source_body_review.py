@@ -70,7 +70,7 @@ class IndependentSourceBodyReviewTests(unittest.TestCase):
 
     def test_raw_string_prefix_inside_identifier_does_not_hide_later_code(self):
         # The R in this identifier is not a raw-string token prefix.
-        decoy = b'const char *s = fooR"tag( decoy )tag";\\n'
+        decoy = b'const char *s = fooR"tag( decoy )tag";\n'
         source = decoy + FUNCTION_SIGNATURE + b" { return 9; }"
         self.assertEqual(extract_function(source), b"{ return 9; }")
 

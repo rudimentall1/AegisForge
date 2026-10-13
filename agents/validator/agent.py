@@ -456,6 +456,36 @@ class Validator:
         source_identity_integrity_failed = bool(missing_source_id_count or duplicate_source_ids)
         source_ids = set(source_id_counts)
 
+        # Preserve explicit source-lineage declarations. Two distinct pages may
+        # repeat a single upstream report; URL and content fingerprints alone
+        # cannot establish independent origin.
+        declared_derivations = {}
+        invalid_derivation_references = []
+        for source in sources:
+            source_id = str(source.get("source_id") or "").strip()
+            derived_from = source.get("derived_from_source_ids", [])
+            if not isinstance(derived_from, list):
+                invalid_derivation_references.append(source_id or "<missing-source-id>")
+                continue
+            normalized_origins = sorted({
+                str(origin).strip() for origin in derived_from
+                if isinstance(origin, str) and origin.strip()
+            })
+            if len(normalized_origins) != len([
+                origin for origin in derived_from
+                if isinstance(origin, str) and origin.strip()
+            ]):
+                invalid_derivation_references.append(source_id or "<missing-source-id>")
+            missing_origins = [origin for origin in normalized_origins if origin not in source_ids]
+            if missing_origins:
+                invalid_derivation_references.append(source_id or "<missing-source-id>")
+            if source_id and normalized_origins:
+                declared_derivations[source_id] = normalized_origins
+        sources_with_declared_derivations = sorted(declared_derivations)
+        source_derivation_dependencies = {
+            source_id: origins for source_id, origins in sorted(declared_derivations.items())
+        }
+
         # A dossier may contain multiple records for the same URL, or silently
         # exceed the recheck budget. Surface both explicitly rather than letting
         # the report imply that every listed source was independently checked.
@@ -912,6 +942,10 @@ class Validator:
             readiness_blockers.append("duplicate_source_urls")
         if duplicate_source_content_fingerprints:
             readiness_blockers.append("duplicate_source_content_fingerprints")
+        if source_derivation_dependencies:
+            readiness_blockers.append("source_derivation_dependencies_require_review")
+        if invalid_derivation_references:
+            readiness_blockers.append("source_derivation_references_invalid")
         if hypotheses_with_missing_sources:
             readiness_blockers.append("hypothesis_source_references_invalid")
         if sources_not_rechecked_due_to_limit:
@@ -973,6 +1007,9 @@ class Validator:
             "duplicate_source_urls": duplicate_source_urls,
             "duplicate_source_content_fingerprints": duplicate_source_content_fingerprints,
             "independent_matching_source_fingerprints": independent_matching_fingerprints,
+            "source_derivation_dependencies": source_derivation_dependencies,
+            "sources_with_declared_derivations": len(sources_with_declared_derivations),
+            "invalid_source_derivation_references": sorted(set(invalid_derivation_references)),
             "hypotheses_with_invalid_source_references": hypotheses_with_missing_sources,
             "source_recheck_limit": source_recheck_limit,
             "sources_not_rechecked_due_to_limit": sources_not_rechecked_due_to_limit,

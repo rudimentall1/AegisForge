@@ -306,3 +306,88 @@ def test_pipeline_rejects_source_fingerprint_mismatch_after_successful_refetch()
     assert report["status"] == "INCONCLUSIVE"
     assert report["decision"] == "CONTINUE_RESEARCH"
     assert "insufficient_independent_source_rechecks" in report["readiness_blockers"]
+
+
+
+def test_pipeline_keeps_unavailable_and_truncated_sources_inconclusive():
+    """A failed fetch and clipped analysis text must not satisfy evidence readiness."""
+    import hashlib
+
+    from agents.crypto_analyst.agent import CryptoAnalyst
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    body_a = "Synthetic source A."
+    body_b = "Synthetic source B."
+    digest_a = hashlib.sha256(body_a.encode("utf-8")).hexdigest()
+    digest_b = hashlib.sha256(body_b.encode("utf-8")).hexdigest()
+    url_a = (
+        "https://raw.githubusercontent.com/example/repo/"
+        "0123456789012345678901234567890123456789/source-a.txt"
+    )
+    url_b = (
+        "https://raw.githubusercontent.com/example/repo/"
+        "0123456789012345678901234567890123456789/source-b.txt"
+    )
+    task = Task(
+        task_id="unavailable-and-truncated-source-pipeline",
+        description="Unavailable or clipped source material cannot establish readiness",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [
+                {
+                    "source_id": "source-unavailable",
+                    "source_url": url_a,
+                    "status_code": 200,
+                    "content_sha256": digest_a,
+                    "classification": "unclassified_source",
+                },
+                {
+                    "source_id": "source-truncated",
+                    "source_url": url_b,
+                    "status_code": 200,
+                    "content_sha256": digest_b,
+                    "classification": "unclassified_source",
+                },
+            ],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+
+    def source_fetcher(url):
+        if url == url_a:
+            return {
+                "status_code": 503,
+                "content_sha256": "",
+                "content_truncated_for_analysis": False,
+                "retrieved_at": "2026-10-13T00:00:00Z",
+            }
+        return {
+            "status_code": 200,
+            "content_sha256": digest_b,
+            "content_truncated_for_analysis": True,
+            "retrieved_at": "2026-10-13T00:00:00Z",
+        }
+
+    analyzed = CryptoAnalyst().run(task)
+    validated = Validator(source_fetcher=source_fetcher).run(analyzed)
+    report = validated.result["research_validation"]
+    checks = {
+        item["source_id"]: item
+        for item in validated.result["research_source_checks"]
+    }
+
+    assert checks["source-unavailable"]["recheck_status"] == "recheck_http_503"
+    assert checks["source-unavailable"]["content_fingerprint_matches"] is False
+    assert checks["source-truncated"]["recheck_status"] == "rechecked_http_200"
+    assert checks["source-truncated"]["analysis_text_completeness"] == "TRUNCATED"
+    assert report["sources_rechecked_http_200"] == 1
+    assert report["exact_source_fingerprints_matching"] == 1
+    assert report["sources_with_truncated_analysis_text"] == 1
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"
+    assert "insufficient_independent_source_rechecks" in report["readiness_blockers"]
+    assert "source_analysis_text_truncated" in report["readiness_blockers"]

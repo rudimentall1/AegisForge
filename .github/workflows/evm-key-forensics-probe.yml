@@ -405,3 +405,158 @@ jobs:
           path: independent-rebuild-report.json
           if-no-files-found: error
           retention-days: 30
+
+  publish-complete-evidence:
+    needs:
+      - compile-and-smoke-test
+      - independent-clean-runner-rebuild
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download probe evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: downloaded-probe
+
+      - name: Download independent rebuild report
+        uses: actions/download-artifact@v4
+        with:
+          name: evm-key-forensics-independent-rebuild-${{ github.run_id }}-${{ github.run_attempt }}
+          path: downloaded-rebuild
+
+      - name: Assemble combined evidence package
+        run: |
+          set -euo pipefail
+          mkdir -p complete-evidence
+          cp -R downloaded-probe/probe-evidence complete-evidence/probe-evidence
+          cp downloaded-rebuild/independent-rebuild-report.json complete-evidence/independent-rebuild-report.json
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path("complete-evidence")
+          metadata = json.loads((root / "probe-evidence/probe-run-metadata.json").read_text(encoding="utf-8"))
+          rebuild = json.loads((root / "independent-rebuild-report.json").read_text(encoding="utf-8"))
+          assert metadata.get("github_run_id") == rebuild.get("github_run_id"), "probe and rebuild run IDs differ"
+          assert metadata.get("github_run_attempt") == rebuild.get("github_run_attempt"), "probe and rebuild attempts differ"
+          assert metadata.get("github_sha") == rebuild.get("github_sha"), "probe and rebuild workflow SHAs differ"
+          assert metadata.get("github_ref") == rebuild.get("github_ref"), "probe and rebuild refs differ"
+          assert rebuild.get("conclusion") == "PASS" and rebuild.get("source_matches") is True and rebuild.get("binary_matches") is True
+          assert metadata.get("source_sha256") == rebuild.get("reference_source_sha256")
+          assert metadata.get("source_sha256") == rebuild.get("independent_checkout_source_sha256")
+          assert metadata.get("binary_sha256") == rebuild.get("reference_binary_sha256")
+          assert metadata.get("binary_sha256") == rebuild.get("independent_rebuild_binary_sha256")
+          report = {
+              "schema_version": 1,
+              "conclusion": "PASS",
+              "run_id": metadata["github_run_id"],
+              "run_attempt": metadata["github_run_attempt"],
+              "workflow_sha": metadata["github_sha"],
+              "workflow_ref": metadata["github_ref"],
+              "probe_source_sha256": metadata["source_sha256"],
+              "probe_binary_sha256": metadata["binary_sha256"],
+              "independent_rebuild_source_sha256": rebuild["independent_checkout_source_sha256"],
+              "independent_rebuild_binary_sha256": rebuild["independent_rebuild_binary_sha256"],
+              "probe_and_rebuild_evidence_consistent": True,
+              "historical_profanity_executed": False,
+              "historical_vulnerability_reproduced": False,
+              "note": "Consistency and provenance package for the synthetic diagnostic probe; not proof of historical runtime behavior."
+          }
+          (root / "combined-evidence-index.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          zip -X -r evm-key-forensics-complete-evidence.zip complete-evidence
+          sha256sum evm-key-forensics-complete-evidence.zip
+
+      - name: Attest complete evidence package
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: evm-key-forensics-complete-evidence.zip
+
+      - name: Verify complete package provenance and evidence linkage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_GITHUB_SHA: ${{ github.sha }}
+          EXPECTED_GITHUB_REF: ${{ github.ref }}
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          gh attestation verify evm-key-forensics-complete-evidence.zip --repo rudimentall1/AegisForge --format json > complete-attestation-verification.json
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads(Path("complete-attestation-verification.json").read_text(encoding="utf-8"))
+          assert isinstance(report, list) and report, "gh returned no verified attestations"
+          expected_sha = os.environ["EXPECTED_GITHUB_SHA"]
+          expected_ref = os.environ["EXPECTED_GITHUB_REF"]
+          expected_run_id = os.environ["EXPECTED_RUN_ID"]
+          expected_attempt = os.environ["EXPECTED_RUN_ATTEMPT"]
+          archive = Path("evm-key-forensics-complete-evidence.zip")
+          archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+          metadata = json.loads(Path("complete-evidence/probe-evidence/probe-run-metadata.json").read_text(encoding="utf-8"))
+          rebuild = json.loads(Path("complete-evidence/independent-rebuild-report.json").read_text(encoding="utf-8"))
+          index = json.loads(Path("complete-evidence/combined-evidence-index.json").read_text(encoding="utf-8"))
+          for label, data in (("probe metadata", metadata), ("rebuild report", rebuild)):
+              assert data.get("github_sha") == expected_sha, f"{label}: workflow SHA mismatch"
+              assert data.get("github_ref") == expected_ref, f"{label}: workflow ref mismatch"
+              assert data.get("github_run_id") == expected_run_id, f"{label}: run ID mismatch"
+              assert data.get("github_run_attempt") == expected_attempt, f"{label}: run attempt mismatch"
+          assert index.get("conclusion") == "PASS" and index.get("probe_and_rebuild_evidence_consistent") is True
+          assert metadata.get("source_sha256") == rebuild.get("independent_checkout_source_sha256")
+          assert metadata.get("binary_sha256") == rebuild.get("independent_rebuild_binary_sha256")
+          matched = False
+          for item in report:
+              result = item.get("verificationResult", {})
+              certificate = result.get("signature", {}).get("certificate", {})
+              statement = result.get("statement", {})
+              predicate = statement.get("predicate", {})
+              subjects = statement.get("subject", [])
+              workflow = predicate.get("buildDefinition", {}).get("externalParameters", {}).get("workflow", {})
+              subject_matches = any(
+                  subject.get("name") == archive.name and subject.get("digest", {}).get("sha256") == archive_sha
+                  for subject in subjects
+              )
+              if (
+                  certificate.get("githubWorkflowRepository") == "rudimentall1/AegisForge"
+                  and certificate.get("githubWorkflowName") == "EVM Key Forensics Probe"
+                  and certificate.get("githubWorkflowSHA") == expected_sha
+                  and certificate.get("githubWorkflowRef") == expected_ref
+                  and workflow.get("path") == ".github/workflows/evm-key-forensics-probe.yml"
+                  and workflow.get("repository") == "https://github.com/rudimentall1/AegisForge"
+                  and workflow.get("ref") == expected_ref
+                  and subject_matches
+              ):
+                  matched = True
+                  break
+          assert matched, "verified provenance identity or complete-package subject digest mismatch"
+          result = {
+              "conclusion": "PASS",
+              "subject": archive.name,
+              "subject_sha256": archive_sha,
+              "workflow_sha": expected_sha,
+              "workflow_ref": expected_ref,
+              "run_id": expected_run_id,
+              "run_attempt": expected_attempt,
+              "probe_and_independent_rebuild_linked": True,
+              "verified_attestations_examined": len(report)
+          }
+          Path("complete-attestation-summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(result, indent=2, sort_keys=True))
+          print("Complete evidence package provenance and cross-runner linkage: PASS")
+          PY
+
+      - name: Upload attested complete evidence package
+        uses: actions/upload-artifact@v4
+        with:
+          name: evm-key-forensics-complete-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evm-key-forensics-complete-evidence.zip
+            complete-attestation-verification.json
+            complete-attestation-summary.json
+          if-no-files-found: error
+          retention-days: 90

@@ -21,7 +21,9 @@ class IndependentSourceBodyReviewTests(unittest.TestCase):
             + b"} trailing"
         )
         body = extract_function(source)
-        self.assertEqual(body, source[source.index(b"{", source.index(FUNCTION_SIGNATURE) + len(FUNCTION_SIGNATURE) + 1):source.index(b"} trailing") + 1])
+        marker = b" /* declaration note { */ "
+        opening = source.index(b"{", source.index(marker) + len(marker))
+        self.assertEqual(body, source[opening:source.index(b"} trailing") + 1])
         self.assertTrue(body.startswith(b"{"))
         self.assertTrue(body.endswith(b"}"))
         self.assertIn(b"if (ready) { run(); }", body)

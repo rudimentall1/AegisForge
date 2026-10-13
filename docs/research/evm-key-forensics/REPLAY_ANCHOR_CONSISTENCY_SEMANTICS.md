@@ -30,14 +30,16 @@ The API must not conflate these claims. A later valid anchor advancement must no
 7. If the external anchor is ahead but the local journal is behind, do not synthesize missing entries, truncate a suffix, or advance the anchor automatically. Reconciliation must identify the exact intervening evidence.
 8. If two candidates compete from the same predecessor, at most one may win that anchor sequence. The loser remains pending/conflicted and requires reconciliation; it must not be silently rebased and republished.
 
-## Implementation work required before adopting this contract
+## Implementation status on the research branch
 
-- Inspect the SQLite schema and ensure database-enforced uniqueness for provider-scoped run IDs and nonces.
-- Ensure the finalizer's accepted row, journal event, journal head, and pending status are updated in one SQLite transaction where possible.
-- Add a deterministic race test that advances the anchor after candidate confirmation but before the local commit. Under this contract, the candidate may be accepted as historically anchored, but its result must not claim that it is still the current external head.
-- Add concurrent independent-connection tests for duplicate nonce and duplicate run ID.
-- Add a reconciliation test for anchor sequence N+1 while local state remains at N.
-- Keep `qualification=NOT_ESTABLISHED` until independent-anchor rollback controls and operational fault-injection testing are complete.
+- **Implemented:** accepted replay rows enforce `PRIMARY KEY (provider_id, run_id)` and `UNIQUE (provider_id, nonce)`; journal and evidence tables enforce the same provider-scoped uniqueness.
+- **Implemented:** anchored finalization passes its expected prior journal tuple into `verify_and_record_attestation`. The tuple is checked inside the same `BEGIN IMMEDIATE` transaction as the append. A concurrent local writer can no longer make this candidate append against a different predecessor after the preflight read.
+- **Implemented:** result metadata uses `HISTORICALLY_ANCHORED_CANDIDATE_HEAD_CONFIRMED`, not a claim that the candidate is still the current external head.
+- **Added, not yet executed here:** a deterministic test advances the external anchor after candidate confirmation and before local finalization.
+- **Added, not yet executed here:** a deterministic test interleaves an uncoordinated local writer between preflight and append and expects the anchored append to fail closed.
+- **Still open:** the accepted row, journal event, journal head, evidence, and pending status are not all committed in one SQLite transaction. The accepted record and journal/evidence are atomic; `FINALIZED` status is updated separately and relies on recovery if the process stops in between.
+- **Still open:** independent-connection duplicate replay tests and explicit reconciliation for anchor sequence N+1 while local state remains at N need separate review.
+- Keep `qualification=NOT_ESTABLISHED` until the tests run and independent-anchor rollback controls and operational fault-injection testing are complete.
 
 ## Explicit limitation
 

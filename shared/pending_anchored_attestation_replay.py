@@ -374,6 +374,11 @@ def recover_pending_attestation(
      candidate_sequence, candidate_head, dossier_json, envelope_json, status) = row
     if status not in ("PREPARED", "FINALIZED", "CONFLICT"):
         raise ReplayAnchorUnavailable("pending_candidate_status_invalid")
+    if status == "CONFLICT":
+        # A conflict is durable quarantine, not a transient retry state. Even if
+        # the anchor later happens to match this tuple, recovery must not silently
+        # reinterpret the quarantined candidate as authorized.
+        raise ReplayAnchorUnavailable("pending_candidate_conflict_requires_review")
     if status in ("PREPARED", "FINALIZED"):
         # Validate the complete candidate before CAS. Local pending rows are not
         # an authority source: otherwise a modified candidate head could be

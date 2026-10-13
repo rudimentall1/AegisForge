@@ -44,3 +44,9 @@ Do not treat this artifact as proof of a historical key-generation vulnerability
 - No real keys, seed phrases, signatures, or live-wallet target lists are accepted or generated.
 - A reachable source is not proof that every claim in it is correct.
 - This milestone must remain inconclusive until an exact historical implementation is pinned and reproduced in an isolated test.
+
+## Known-vulnerability benchmark
+
+The next evaluation target is a source-backed benchmark for the publicly documented Profanity key-generation weakness. It checks whether the pipeline connects immutable source evidence and the public advisory while preserving the distinction between source classification and historical exploit reproduction.
+
+See [Known-vulnerability benchmark](research/evm-key-forensics/KNOWN_VULNERABILITY_BENCHMARK.md). The benchmark is a specification at this stage, not an implemented detector or a claim that AegisForge reproduced the exploit. The historical runtime and any individual wallet remain outside the current evidence.

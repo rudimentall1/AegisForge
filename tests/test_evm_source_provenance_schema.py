@@ -669,3 +669,39 @@ def test_transitive_source_lineage_is_preserved_without_claiming_independence():
     assert report["source_origin_independence_established"] is False
     assert report["status"] == "INCONCLUSIVE"
 
+
+def test_converging_lineage_and_duplicate_edges_are_reported_fail_closed():
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    task = Task(
+        task_id="converging-source-lineage",
+        description="Converging derivations must not inflate independent evidence",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [
+                {"source_id": "source-a", "source_url": "", "derived_from_source_ids": ["source-b", "source-c"]},
+                {"source_id": "source-b", "source_url": "", "derived_from_source_ids": ["source-c"]},
+                {"source_id": "source-c", "source_url": ""},
+                {"source_id": "source-duplicate-edge", "source_url": "", "derived_from_source_ids": ["source-c", "source-c"]},
+            ],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+    validated = Validator(source_fetcher=lambda _url: {}).run(task)
+    report = validated.result["research_validation"]
+
+    assert report["source_derivation_dependencies"] == {
+        "source-a": ["source-b", "source-c"],
+        "source-b": ["source-c"],
+        "source-duplicate-edge": ["source-c"],
+    }
+    assert "source-duplicate-edge" in report["invalid_source_derivation_references"]
+    assert "source_derivation_references_invalid" in report["readiness_blockers"]
+    assert "source_derivation_dependencies_require_review" in report["readiness_blockers"]
+    assert report["source_origin_independence_established"] is False
+    assert report["status"] == "INCONCLUSIVE"
+

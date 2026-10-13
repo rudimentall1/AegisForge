@@ -60,6 +60,8 @@ def _validate_result(data: dict, role: str) -> list[str]:
         errors.append(f"{role}:pinned_source_blob_not_verified")
     if not isinstance(data.get("source_sha256"), str) or not SHA256_RE.fullmatch(data["source_sha256"]):
         errors.append(f"{role}:invalid_source_sha256")
+    if not isinstance(data.get("function_body_sha256"), str) or not SHA256_RE.fullmatch(data["function_body_sha256"]):
+        errors.append(f"{role}:invalid_function_body_sha256")
     if data.get("conclusion") != "SOURCE_PATTERN_MATCHED":
         errors.append(f"{role}:source_pattern_not_matched")
     if data.get("errors") != []:
@@ -84,6 +86,7 @@ def build_report(pre: dict, post: dict, reproducibility: dict | None = None) -> 
                 "commit": EXPECTED["pre-disclosure"]["commit"],
                 "git_blob_sha1": EXPECTED["pre-disclosure"]["blob"],
                 "source_sha256": pre.get("source_sha256"),
+                "function_body_sha256": pre.get("function_body_sha256"),
                 "checker_conclusion": pre.get("conclusion"),
                 "validated": not any(e.startswith("pre-disclosure:") for e in errors),
             },
@@ -91,12 +94,19 @@ def build_report(pre: dict, post: dict, reproducibility: dict | None = None) -> 
                 "commit": EXPECTED["post-disclosure"]["commit"],
                 "git_blob_sha1": EXPECTED["post-disclosure"]["blob"],
                 "source_sha256": post.get("source_sha256"),
+                "function_body_sha256": post.get("function_body_sha256"),
                 "checker_conclusion": post.get("conclusion"),
                 "validated": not any(e.startswith("post-disclosure:") for e in errors),
             },
             "same_source_sha256": (
                 pre.get("source_sha256") == post.get("source_sha256")
                 if isinstance(pre.get("source_sha256"), str) and isinstance(post.get("source_sha256"), str)
+                else None
+            ),
+            "same_create_seed_function_body_sha256": (
+                pre.get("function_body_sha256") == post.get("function_body_sha256")
+                if isinstance(pre.get("function_body_sha256"), str)
+                and isinstance(post.get("function_body_sha256"), str)
                 else None
             ),
             "same_git_blob_sha1": (

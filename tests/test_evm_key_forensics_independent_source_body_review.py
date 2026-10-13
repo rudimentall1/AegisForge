@@ -28,9 +28,22 @@ class IndependentSourceBodyReviewTests(unittest.TestCase):
         self.assertTrue(body.endswith(b"}"))
         self.assertIn(b"if (ready) { run(); }", body)
 
-    def test_signature_inside_comment_is_not_found(self):
+    def test_signature_inside_comment_is_not_treated_as_function(self):
+        commented = b"/* " + FUNCTION_SIGNATURE + b" { fake } */"
         with self.assertRaisesRegex(ReviewError, "createSeed_signature_not_found"):
-            extract_function(b"// no signature here")
+            extract_function(commented)
+
+    def test_skips_comment_signature_and_finds_real_function(self):
+        source = (
+            b"// " + FUNCTION_SIGNATURE + b" { fake }\n"
+            + FUNCTION_SIGNATURE + b" { return value; }"
+        )
+        self.assertEqual(extract_function(source), b"{ return value; }")
+
+    def test_signature_inside_string_is_not_treated_as_function(self):
+        source = b'const char *s = "' + FUNCTION_SIGNATURE + b' { fake }";'
+        with self.assertRaisesRegex(ReviewError, "createSeed_signature_not_found"):
+            extract_function(source)
 
     def test_signature_without_opening_brace_fails_closed(self):
         with self.assertRaisesRegex(ReviewError, "createSeed_opening_brace_not_found"):

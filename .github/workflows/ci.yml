@@ -38,12 +38,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y g++
 
-      - name: Compile EVM Key Forensics diagnostic
+      - name: Compile diagnostic twice and compare binaries
         run: |
+          set -euo pipefail
           g++ --version
-          g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic \
-            tools/evm_key_forensics/profanity_seed_environment_probe.cpp \
-            -o profanity_seed_environment_probe
+          flags=(-std=c++11 -O2 -Wall -Wextra -Werror -pedantic)
+          source=tools/evm_key_forensics/profanity_seed_environment_probe.cpp
+          g++ "${flags[@]}" "$source" -o profanity_seed_environment_probe
+          g++ "${flags[@]}" "$source" -o profanity_seed_environment_probe_repeat
+          first="$(sha256sum profanity_seed_environment_probe | cut -d ' ' -f1)"
+          second="$(sha256sum profanity_seed_environment_probe_repeat | cut -d ' ' -f1)"
+          printf 'first_build_sha256=%s\nrepeat_build_sha256=%s\n' "$first" "$second"
+          test "$first" = "$second"
 
       - name: Run diagnostic and validate safety invariants
         run: |
@@ -114,6 +120,7 @@ jobs:
           cp /tmp/independent-source-body-review.json probe-evidence/independent-source-body-review.json
           cp tools/evm_key_forensics/profanity_seed_environment_probe.cpp probe-evidence/probe-source.cpp
           cp profanity_seed_environment_probe probe-evidence/probe-binary
+          cp profanity_seed_environment_probe_repeat probe-evidence/probe-binary-repeat
           python - <<'PY'
           import hashlib
           import json
@@ -152,6 +159,9 @@ jobs:
               "build_flags": ["-std=c++11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic"],
               "source_sha256": sha256("probe-source.cpp"),
               "binary_sha256": sha256("probe-binary"),
+              "repeat_binary_sha256": sha256("probe-binary-repeat"),
+              "repeat_build_matches": sha256("probe-binary") == sha256("probe-binary-repeat"),
+              "repeat_build_scope": "same_runner_same_compiler_same_flags",
               "output_sha256": sha256("probe-output.json"),
               "source_evidence_report_sha256": sha256("source-evidence-report.json"),
               "independent_source_body_review_sha256": sha256("independent-source-body-review.json"),

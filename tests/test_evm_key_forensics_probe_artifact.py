@@ -36,6 +36,12 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         source_report = {
             "schema_version": 1,
             "report_id": "evm-key-forensics-profanity-source-comparison-v1",
+            "reproducibility": {
+                "input_checker_result_sha256": {"pre_disclosure": "a" * 64, "post_disclosure": "b" * 64},
+                "checker_script_sha256": "c" * 64,
+                "report_builder_sha256": "d" * 64,
+                "hashes_are_authenticity_proof": False,
+            },
             "upstream_repository": "https://github.com/johguse/profanity",
             "evidence_class": "PINNED_SOURCE_PATTERN_INSPECTION",
             "source_comparison": {
@@ -138,6 +144,19 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         result = verify_artifact(self.root)
         self.assertFalse(result["integrity_verified"])
         self.assertFalse(result["checks"]["source_report_post_revision_matches_pin"])
+
+    def test_source_report_requires_reproducibility_hashes(self):
+        report_path = self.root / "source-evidence-report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["reproducibility"]["checker_script_sha256"] = "not-a-hash"
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["source_evidence_report_sha256"] = digest(report_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["source_report_reproducibility_hashes_well_formed"])
 
     def test_source_report_is_bound_to_metadata_hash(self):
         report_path = self.root / "source-evidence-report.json"

@@ -85,3 +85,9 @@ def test_cli_writes_report(tmp_path):
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["report_id"] == "evm-key-forensics-profanity-source-comparison-v1"
     assert report["overall_conclusion"] == "INCONCLUSIVE"
+    reproducibility = report["reproducibility"]
+    assert set(reproducibility["input_checker_result_sha256"]) == {"pre_disclosure", "post_disclosure"}
+    assert all(len(value) == 64 for value in reproducibility["input_checker_result_sha256"].values())
+    assert len(reproducibility["checker_script_sha256"]) == 64
+    assert len(reproducibility["report_builder_sha256"]) == 64
+    assert reproducibility["hashes_are_authenticity_proof"] is False

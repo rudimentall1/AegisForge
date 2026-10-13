@@ -117,6 +117,12 @@ def verify_artifact(root: Path) -> dict:
     post_revision = source_comparison.get("post_disclosure_archive")
     if not isinstance(post_revision, dict):
         post_revision = {}
+    reproducibility = source_report.get("reproducibility")
+    if not isinstance(reproducibility, dict):
+        reproducibility = {}
+    input_hashes = reproducibility.get("input_checker_result_sha256")
+    if not isinstance(input_hashes, dict):
+        input_hashes = {}
 
     checks = {
         "schema_version_supported": type(metadata.get("schema_version")) is int and metadata.get("schema_version") == 1,
@@ -169,6 +175,21 @@ def verify_artifact(root: Path) -> dict:
             and post_revision.get("validated") is True
         ),
         "source_report_is_inconclusive": source_report.get("overall_conclusion") == "INCONCLUSIVE",
+        "source_report_reproducibility_hashes_well_formed": (
+            isinstance(input_hashes.get("pre_disclosure"), str)
+            and len(input_hashes["pre_disclosure"]) == 64
+            and all(char in "0123456789abcdef" for char in input_hashes["pre_disclosure"])
+            and isinstance(input_hashes.get("post_disclosure"), str)
+            and len(input_hashes["post_disclosure"]) == 64
+            and all(char in "0123456789abcdef" for char in input_hashes["post_disclosure"])
+            and isinstance(reproducibility.get("checker_script_sha256"), str)
+            and len(reproducibility["checker_script_sha256"]) == 64
+            and all(char in "0123456789abcdef" for char in reproducibility["checker_script_sha256"])
+            and isinstance(reproducibility.get("report_builder_sha256"), str)
+            and len(reproducibility["report_builder_sha256"]) == 64
+            and all(char in "0123456789abcdef" for char in reproducibility["report_builder_sha256"])
+            and reproducibility.get("hashes_are_authenticity_proof") is False
+        ),
         "source_report_has_no_validation_errors": source_report.get("validation_errors") == [],
         "source_report_does_not_claim_reproduction": source_report_limitations.get("historical_vulnerability_reproduced") is False,
         "source_report_does_not_claim_source_binary_provenance": source_report_limitations.get("source_to_binary_provenance") == "NOT_ESTABLISHED",

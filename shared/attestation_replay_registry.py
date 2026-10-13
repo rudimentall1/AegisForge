@@ -266,8 +266,12 @@ def verify_and_record_attestation(
                 db.execute("COMMIT")
             except sqlite3.IntegrityError as exc:
                 db.execute("ROLLBACK")
+                if "UNIQUE constraint failed" in str(exc):
+                    raise AttestationReplayRegistryError(
+                        "attestation_replay_detected:run_id_or_nonce_already_seen"
+                    ) from exc
                 raise AttestationReplayRegistryError(
-                    "attestation_replay_detected:run_id_or_nonce_already_seen"
+                    "replay_registry_integrity_constraint_failed"
                 ) from exc
             except Exception:
                 db.execute("ROLLBACK")

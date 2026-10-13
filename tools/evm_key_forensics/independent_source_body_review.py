@@ -30,6 +30,27 @@ class ReviewError(RuntimeError):
     pass
 
 
+def _raw_string_end(source: bytes, offset: int) -> int | None:
+    """Return the byte after a C++ raw string literal starting at offset."""
+    prefixes = (b'u8R"', b'uR"', b'UR"', b'LR"', b'R"')
+    prefix = next((item for item in prefixes if source.startswith(item, offset)), None)
+    if prefix is None:
+        return None
+
+    delimiter_start = offset + len(prefix)
+    opening_paren = source.find(b"(", delimiter_start, min(len(source), delimiter_start + 17))
+    if opening_paren < 0:
+        raise ReviewError("invalid_raw_string_delimiter")
+    delimiter = source[delimiter_start:opening_paren]
+    if any(char in b" ()\\\t\r\n" for char in delimiter):
+        raise ReviewError("invalid_raw_string_delimiter")
+    terminator = b")" + delimiter + b'"'
+    closing = source.find(terminator, opening_paren + 1)
+    if closing < 0:
+        raise ReviewError("unterminated_raw_string_literal")
+    return closing + len(terminator)
+
+
 def git(repo: Path, *args: str) -> bytes:
     proc = subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -57,6 +78,10 @@ def _code_brace_positions(source: bytes, start: int):
         char = source[offset]
         nxt = source[offset + 1] if offset + 1 < len(source) else 0
         if state == normal:
+            raw_end = _raw_string_end(source, offset)
+            if raw_end is not None:
+                offset = raw_end
+                continue
             if char == ord("/") and nxt == ord("/"):
                 state = line_comment
                 offset += 2
@@ -99,6 +124,10 @@ def _find_code_signature(source: bytes) -> int:
     offset = 0
     while offset < len(source):
         if state == normal:
+            raw_end = _raw_string_end(source, offset)
+            if raw_end is not None:
+                offset = raw_end
+                continue
             if source.startswith(FUNCTION_SIGNATURE, offset):
                 return offset
             char = source[offset]

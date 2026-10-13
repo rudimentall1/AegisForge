@@ -87,3 +87,19 @@ The pinned workflow completed successfully in [run 38368603773](https://github.c
 - Uploaded combined artifact: [evm-key-forensics-complete-evidence-38368603773-1](https://github.com/rudimentall1/AegisForge/actions/runs/38368603773/artifacts/11798690374)
 
 Pinning makes the action code reference immutable for this workflow revision. It does not eliminate risk in the runner image, toolchain downloads, or the actions' own dependencies; those remain separate supply-chain controls.
+
+## Offline combined-archive verifier
+
+The combined ZIP now passes a separate offline validation step inside the publication job. The validator checks the ZIP member allowlist, rejects duplicate entries and unsafe paths, bounds archive and member sizes, streams members into a temporary directory without `extractall()`, invokes the probe artifact verifier, and checks run identity plus source/binary hashes across the probe metadata, independent rebuild report, and combined index.
+
+Verified in [workflow run 38369462635](https://github.com/rudimentall1/AegisForge/actions/runs/38369462635), PR head `af4f566d5ce6f6420cfdc10bce494b2688ea2fcb`:
+
+- Main CI: `823 passed, 1 warning` in [run 38369463019](https://github.com/rudimentall1/AegisForge/actions/runs/38369463019)
+- Probe compile, smoke test, and first provenance verification: `PASS`
+- Independent clean-runner rebuild: `PASS`
+- Offline complete-archive integrity and cross-link validation: `PASS`
+- GitHub attestation identity and exact ZIP digest verification: `PASS`
+- Attested archive SHA-256: `bdeb7821426703446ca0087ed2143654abb1e07cb674a2c1b8e63a5b06a3f751`
+- Combined artifact: [evm-key-forensics-complete-evidence-38369462635-1](https://github.com/rudimentall1/AegisForge/actions/runs/38369462635/artifacts/11798177321)
+
+The offline validator deliberately returns `UNTRUSTED_UNSIGNED` and `NOT_CHECKED_OFFLINE`: archive integrity is not a substitute for independently verifying GitHub's attestation. The workflow performs that separate verification before publishing. The historical Profanity conclusion remains `INCONCLUSIVE`; historical source-to-binary provenance remains `NOT_ESTABLISHED`.

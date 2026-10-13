@@ -78,3 +78,12 @@ The source-backed Profanity benchmark defines evidence labels, negative controls
 - [Known-vulnerability benchmark](../../docs/research/evm-key-forensics/KNOWN_VULNERABILITY_BENCHMARK.md)
 
 The case is publicly documented by the upstream maintainer and CVE-2022-40769. That makes it a useful detection benchmark, not proof that this project reproduced the historical exploit. The current lab remains synthetic-only; do not use target wallet addresses or implement private-key recovery.
+
+Run the new deterministic classification benchmark from the repository root:
+
+```sh
+python -m tools.evm_key_forensics.known_vulnerability_benchmark --pretty
+pytest -q tests/test_known_vulnerability_benchmark.py
+```
+
+The benchmark includes a positive Profanity case, a generic PRNG negative, two vulnerability-class confounders, and a missing-source case. It is a small rule-based baseline with synthetic text fixtures, not a measurement of the full agent pipeline. Its report keeps historical runtime reproduction and individual-wallet exposure as `NOT_ESTABLISHED`.

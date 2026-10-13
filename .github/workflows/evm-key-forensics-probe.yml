@@ -256,6 +256,7 @@ jobs:
           zip_sha256 = hashlib.sha256(zip_path.read_bytes()).hexdigest()
 
           # Tie the attested archive to the workflow identity recorded inside it.
+          # A valid attestation for the wrong run must not pass this gate.
           with zipfile.ZipFile(zip_path) as archive:
               metadata = json.loads(
                   archive.read("probe-evidence/probe-run-metadata.json").decode("utf-8")

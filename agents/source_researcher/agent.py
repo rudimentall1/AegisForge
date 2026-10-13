@@ -65,9 +65,11 @@ class SourceResearcher:
         haystack = f"{url} {title or ''} {text or ''}".lower()
         profanity_context = "profanity" in haystack
         seed_space_signal = any(term in haystack for term in ("32-bit", "4 bln", "seed"))
+        # "private key" can appear in tests, storage notes, or unrelated
+        # documentation. Require explicit generation-path context instead.
         key_generation_context = any(
             term in haystack
-            for term in ("private key", "private-key", "key generation", "key-generation", "createseed", "vanity")
+            for term in ("key generation", "key-generation", "createseed", "vanity key", "vanity address")
         )
         # A project name plus seed/key vocabulary is not enough. Require an
         # explicit RNG/implementation signal so unrelated documentation cannot

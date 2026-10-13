@@ -557,3 +557,52 @@ def test_provenance_trust_store_fails_closed_on_duplicate_json_keys(monkeypatch)
     trusted_keys, config_error = Validator._load_provenance_trust_keys()
     assert trusted_keys == {}
     assert config_error == "ValueError"
+
+
+def test_source_lineage_cycles_and_missing_origins_are_blocked():
+    """Declared lineage is structural metadata and must fail closed when invalid."""
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    cases = [
+        (
+            "lineage-cycle",
+            [
+                {"source_id": "source-a", "source_url": "", "derived_from_source_ids": ["source-b"]},
+                {"source_id": "source-b", "source_url": "", "derived_from_source_ids": ["source-a"]},
+            ],
+            "source_derivation_lineage_cycle",
+        ),
+        (
+            "lineage-missing-origin",
+            [
+                {"source_id": "source-a", "source_url": "", "derived_from_source_ids": ["missing-source"]},
+            ],
+            "source_derivation_references_invalid",
+        ),
+    ]
+
+    for task_id, sources, expected_blocker in cases:
+        task = Task(
+            task_id=task_id,
+            description="Invalid declared lineage must not be treated as independent evidence",
+            result={
+                "research_track": "evm_key_forensics",
+                "stage": "source_research",
+                "sources": sources,
+                "source_leads": [],
+                "hypotheses": [],
+                "lab_experiments": [],
+            },
+        )
+        validated = Validator(source_fetcher=lambda _url: {}).run(task)
+        report = validated.result["research_validation"]
+
+        assert expected_blocker in report["readiness_blockers"]
+        assert report["source_origin_independence_established"] is False
+        assert report["status"] == "INCONCLUSIVE"
+        if task_id == "lineage-cycle":
+            assert report["source_derivation_cycles"]
+        else:
+            assert report["invalid_source_derivation_references"] == ["source-a"]
+

@@ -48,15 +48,18 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
                 "pre_disclosure": {
                     "commit": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
                     "git_blob_sha1": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
+                    "function_body_sha256": "e" * 64,
                     "checker_conclusion": "SOURCE_PATTERN_MATCHED",
                     "validated": True,
                 },
                 "post_disclosure_archive": {
                     "commit": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
                     "git_blob_sha1": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
+                    "function_body_sha256": "e" * 64,
                     "checker_conclusion": "SOURCE_PATTERN_MATCHED",
                     "validated": True,
                 },
+                "same_create_seed_function_body_sha256": True,
             },
             "overall_conclusion": "INCONCLUSIVE",
             "validation_errors": [],

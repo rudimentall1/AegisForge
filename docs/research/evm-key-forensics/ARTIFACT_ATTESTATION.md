@@ -133,3 +133,18 @@ Verified in [EVM Key Forensics Probe run 38370065463](https://github.com/rudimen
 - Complete artifact: [evm-key-forensics-complete-evidence-38370065463-1](https://github.com/rudimentall1/AegisForge/actions/runs/38370065463/artifacts/11798483680)
 
 This remains an archive-safety improvement. It does not change the historical Profanity conclusion, which remains `INCONCLUSIVE`, or source-to-binary provenance, which remains `NOT_ESTABLISHED`.
+
+
+## Latest PR-head run and downloaded artifact cross-check
+
+The workflow was rerun for the documentation-updated PR head `144bb1f3b5790df8ad8dfe2fbc7c50f3cbc6abbb`. Both the EVM Key Forensics Probe and main CI completed successfully:
+
+- [Probe run 38370375591](https://github.com/rudimentall1/AegisForge/actions/runs/38370375591)
+- [Main CI run 38370375578](https://github.com/rudimentall1/AegisForge/actions/runs/38370375578)
+- [Complete-evidence artifact](https://github.com/rudimentall1/AegisForge/actions/runs/38370375591/artifacts/11798504076)
+
+I downloaded the published Actions artifact and checked the wrapper ZIP against its included attestation summary and evidence package. The wrapper artifact SHA-256 was `4ae90f835017190339d2d4c728ea3dd5a57acaa6675b9e73d74d6e7f618b4f68`. The nested attested evidence ZIP SHA-256 was `411fc40c672f722240a1bd23d34f18a2edffc1d80cde030c0f1611c46fbc34e9`, matching the summary's `subject_sha256`. The included verification record identifies repository `rudimentall1/AegisForge`, workflow `EVM Key Forensics Probe`, workflow file `.github/workflows/evm-key-forensics-probe.yml`, source SHA `36c984912368326e8c3107841067f4df7b3e4e75`, and ref `refs/pull/32/merge`; its subject digest matches the nested ZIP.
+
+I also checked the downloaded package's run IDs, source hashes, binary hashes, and explicit non-reproduction flags across its metadata, rebuild report, and combined index. They agree. This is a local consistency cross-check of the downloaded artifact and the workflow-produced verification record, not a separate local Sigstore signature verification. The authoritative provenance check remains the workflow's `gh attestation verify` step.
+
+The result still covers only the synthetic diagnostic probe. It does not establish that historical Profanity was executed, that the historical vulnerability was reproduced, or that historical source-to-binary provenance is established. Those conclusions remain `INCONCLUSIVE` and `NOT_ESTABLISHED`, respectively.

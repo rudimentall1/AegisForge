@@ -172,15 +172,21 @@ def verify_complete_archive(archive_path: Path) -> dict:
                 # Stream to disk while enforcing the declared size. Never use
                 # extractall() on this untrusted archive.
                 written = 0
-                with archive.open(item, "r") as source, target.open("xb") as dest:
-                    while True:
-                        chunk = source.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        written += len(chunk)
-                        if written > item.file_size:
-                            raise ValueError("archive_member_size_overrun")
-                        dest.write(chunk)
+                try:
+                    with archive.open(item, "r") as source, target.open("xb") as dest:
+                        while True:
+                            chunk = source.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            written += len(chunk)
+                            if written > item.file_size:
+                                raise ValueError("archive_member_size_overrun")
+                            dest.write(chunk)
+                except zipfile.BadZipFile as exc:
+                    # zipfile checks the local header against the central
+                    # directory when a member is opened. Normalize that
+                    # structural failure into the verifier's stable error API.
+                    raise ValueError("archive_invalid_zip_member") from exc
                 if written != item.file_size:
                     raise ValueError("archive_member_size_mismatch")
 

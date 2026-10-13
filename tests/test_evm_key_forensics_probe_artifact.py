@@ -36,6 +36,22 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         source_report = {
             "schema_version": 1,
             "report_id": "evm-key-forensics-profanity-source-comparison-v1",
+            "upstream_repository": "https://github.com/johguse/profanity",
+            "evidence_class": "PINNED_SOURCE_PATTERN_INSPECTION",
+            "source_comparison": {
+                "pre_disclosure": {
+                    "commit": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+                    "git_blob_sha1": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
+                    "checker_conclusion": "SOURCE_PATTERN_MATCHED",
+                    "validated": True,
+                },
+                "post_disclosure_archive": {
+                    "commit": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+                    "git_blob_sha1": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
+                    "checker_conclusion": "SOURCE_PATTERN_MATCHED",
+                    "validated": True,
+                },
+            },
             "overall_conclusion": "INCONCLUSIVE",
             "validation_errors": [],
             "limitations": {
@@ -96,6 +112,32 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.assertFalse(result["integrity_verified"])
         self.assertFalse(result["checks"]["source_report_does_not_claim_reproduction"])
         self.assertFalse(result["checks"]["source_report_does_not_claim_source_binary_provenance"])
+
+    def test_source_report_rejects_wrong_pinned_revision_even_with_updated_hash(self):
+        report_path = self.root / "source-evidence-report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["source_comparison"]["pre_disclosure"]["commit"] = "f" * 40
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["source_evidence_report_sha256"] = digest(report_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["source_report_pre_revision_matches_pin"])
+
+    def test_source_report_rejects_unvalidated_revision_even_with_updated_hash(self):
+        report_path = self.root / "source-evidence-report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["source_comparison"]["post_disclosure_archive"]["validated"] = False
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["source_evidence_report_sha256"] = digest(report_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["source_report_post_revision_matches_pin"])
 
     def test_source_report_is_bound_to_metadata_hash(self):
         report_path = self.root / "source-evidence-report.json"

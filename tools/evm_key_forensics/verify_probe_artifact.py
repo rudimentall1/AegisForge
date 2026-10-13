@@ -108,6 +108,15 @@ def verify_artifact(root: Path) -> dict:
     source_report_limitations = source_report.get("limitations")
     if not isinstance(source_report_limitations, dict):
         source_report_limitations = {}
+    source_comparison = source_report.get("source_comparison")
+    if not isinstance(source_comparison, dict):
+        source_comparison = {}
+    pre_revision = source_comparison.get("pre_disclosure")
+    if not isinstance(pre_revision, dict):
+        pre_revision = {}
+    post_revision = source_comparison.get("post_disclosure_archive")
+    if not isinstance(post_revision, dict):
+        post_revision = {}
 
     checks = {
         "schema_version_supported": type(metadata.get("schema_version")) is int and metadata.get("schema_version") == 1,
@@ -142,7 +151,23 @@ def verify_artifact(root: Path) -> dict:
             source_report_path, max_bytes=MAX_JSON_FILE_BYTES
         ),
         "source_report_schema_supported": type(source_report.get("schema_version")) is int and source_report.get("schema_version") == 1,
-        "source_report_identity_matches": source_report.get("report_id") == "evm-key-forensics-profanity-source-comparison-v1",
+        "source_report_identity_matches": (
+            source_report.get("report_id") == "evm-key-forensics-profanity-source-comparison-v1"
+            and source_report.get("upstream_repository") == "https://github.com/johguse/profanity"
+            and source_report.get("evidence_class") == "PINNED_SOURCE_PATTERN_INSPECTION"
+        ),
+        "source_report_pre_revision_matches_pin": (
+            pre_revision.get("commit") == "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6"
+            and pre_revision.get("git_blob_sha1") == "c9226fc02a52633a84664cbf3aaf2b4af8a59b25"
+            and pre_revision.get("checker_conclusion") == "SOURCE_PATTERN_MATCHED"
+            and pre_revision.get("validated") is True
+        ),
+        "source_report_post_revision_matches_pin": (
+            post_revision.get("commit") == "186b9b27ab3e24a1899f648adcabcbf0e5f3131e"
+            and post_revision.get("git_blob_sha1") == "884ced30ed6e55794ea5bda0451b52e81ddec1dd"
+            and post_revision.get("checker_conclusion") == "SOURCE_PATTERN_MATCHED"
+            and post_revision.get("validated") is True
+        ),
         "source_report_is_inconclusive": source_report.get("overall_conclusion") == "INCONCLUSIVE",
         "source_report_has_no_validation_errors": source_report.get("validation_errors") == [],
         "source_report_does_not_claim_reproduction": source_report_limitations.get("historical_vulnerability_reproduced") is False,

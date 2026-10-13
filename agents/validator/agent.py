@@ -877,6 +877,24 @@ class Validator:
         historical_reproduction = bool(qualified_reproductions)
         rechecked = sum(item.get("recheck_status") == "rechecked_http_200" for item in source_checks)
         matching = sum(item.get("content_fingerprint_matches") is True for item in source_checks)
+        # Different URLs can still serve the exact same bytes (for example,
+        # mirrors or copied advisories). Treat repeated matching fingerprints
+        # as one content item, not independent evidence.
+        matching_source_digests = {}
+        for source, check in zip(sources[:source_recheck_limit], source_checks):
+            digest = str(source.get("content_sha256") or "").lower()
+            if check.get("content_fingerprint_matches") is True and digest:
+                matching_source_digests.setdefault(digest, []).append(
+                    str(source.get("source_id") or "")
+                )
+        duplicate_source_content_fingerprints = {
+            digest: sorted(source_ids)
+            for digest, source_ids in matching_source_digests.items()
+            if len(source_ids) > 1
+        }
+        independent_matching_fingerprints = len(matching_source_digests) - len(
+            duplicate_source_content_fingerprints
+        )
         pinned_checks_passed = sum(item.get("valid") is True for item in pinned_revision_checks)
         pinned_checks_failed = sum(item.get("valid") is False for item in pinned_revision_checks)
         truncated_sources = sum(
@@ -892,6 +910,8 @@ class Validator:
             readiness_blockers.append("source_identity_integrity_failed")
         if duplicate_source_urls:
             readiness_blockers.append("duplicate_source_urls")
+        if duplicate_source_content_fingerprints:
+            readiness_blockers.append("duplicate_source_content_fingerprints")
         if hypotheses_with_missing_sources:
             readiness_blockers.append("hypothesis_source_references_invalid")
         if sources_not_rechecked_due_to_limit:
@@ -925,8 +945,8 @@ class Validator:
             next_actions.append("Split the dossier into bounded validation batches or prioritize evidence; sources beyond the recheck cap were not re-fetched.")
         if rechecked < 2:
             next_actions.append("Independently re-fetch at least two allowlisted primary sources.")
-        if matching < 2:
-            next_actions.append("Require matching SHA-256 fingerprints for at least two independently re-fetched primary sources.")
+        if matching < 2 or independent_matching_fingerprints < 2:
+            next_actions.append("Require matching SHA-256 fingerprints for at least two independent source contents; different URLs serving identical bytes count as one content item.")
         if truncated_sources:
             next_actions.append("Review full source material or explicitly scope claims to the truncated excerpt; do not treat clipped text as complete analysis.")
         if unknown_completeness_sources:
@@ -951,6 +971,8 @@ class Validator:
             "sources_missing_source_id": missing_source_id_count,
             "duplicate_source_ids": duplicate_source_ids,
             "duplicate_source_urls": duplicate_source_urls,
+            "duplicate_source_content_fingerprints": duplicate_source_content_fingerprints,
+            "independent_matching_source_fingerprints": independent_matching_fingerprints,
             "hypotheses_with_invalid_source_references": hypotheses_with_missing_sources,
             "source_recheck_limit": source_recheck_limit,
             "sources_not_rechecked_due_to_limit": sources_not_rechecked_due_to_limit,

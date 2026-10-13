@@ -408,7 +408,19 @@ class Validator:
         """Check provenance and scope without equating source access with proof."""
         result = dict(task.result or {})
         sources = [item for item in result.get("sources", []) if isinstance(item, dict)]
-        source_ids = {item.get("source_id") for item in sources if item.get("source_id")}
+        source_id_counts = {}
+        for source in sources:
+            source_id = str(source.get("source_id") or "").strip()
+            if source_id:
+                source_id_counts[source_id] = source_id_counts.get(source_id, 0) + 1
+        missing_source_id_count = sum(
+            not str(source.get("source_id") or "").strip() for source in sources
+        )
+        duplicate_source_ids = sorted(
+            source_id for source_id, count in source_id_counts.items() if count > 1
+        )
+        source_identity_integrity_failed = bool(missing_source_id_count or duplicate_source_ids)
+        source_ids = set(source_id_counts)
         source_checks = []
 
         repository_pins = [item for item in result.get("repository_pins", []) if isinstance(item, dict)]
@@ -795,6 +807,8 @@ class Validator:
             item.get("analysis_text_completeness") == "UNKNOWN" for item in source_checks
         )
         readiness_blockers = []
+        if source_identity_integrity_failed:
+            readiness_blockers.append("source_identity_integrity_failed")
         if not historical_reproduction:
             readiness_blockers.append("historical_reproduction_not_qualified")
         if rechecked < 2 or matching < 2:
@@ -838,6 +852,9 @@ class Validator:
             "pinned_revision_source_checks_failed": pinned_checks_failed,
             "decision": "CONTINUE_RESEARCH" if status == "INCONCLUSIVE" else "READY_FOR_HUMAN_REVIEW",
             "sources_in_dossier": len(sources),
+            "source_identity_integrity_failed": source_identity_integrity_failed,
+            "sources_missing_source_id": missing_source_id_count,
+            "duplicate_source_ids": duplicate_source_ids,
             "sources_rechecked_http_200": rechecked,
             "exact_source_fingerprints_matching": matching,
             "sources_with_truncated_analysis_text": truncated_sources,

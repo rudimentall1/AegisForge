@@ -63,7 +63,13 @@ class SourceResearcher:
         if not any(str(value or "").strip() for value in (url, title, text)):
             return "inconclusive_missing_evidence"
         haystack = f"{url} {title or ''} {text or ''}".lower()
-        if "profanity" in haystack and ("32-bit" in haystack or "4 bln" in haystack or "seed" in haystack):
+        profanity_context = "profanity" in haystack
+        seed_space_signal = any(term in haystack for term in ("32-bit", "4 bln", "seed"))
+        key_generation_context = any(
+            term in haystack
+            for term in ("private key", "private-key", "key generation", "key-generation", "createseed", "vanity")
+        )
+        if profanity_context and seed_space_signal and key_generation_context:
             return "vanity_generator_entropy_weakness_report"
         if "regenerate all of your keys" in haystack or ("c++ 0.9.36" in haystack and "go 1.0 rc" in haystack):
             return "early_client_key_generation_warning"

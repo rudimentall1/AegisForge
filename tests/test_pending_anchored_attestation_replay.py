@@ -896,3 +896,52 @@ def test_recovery_anchor_read_failure_does_not_accept_pending_candidate(tmp_path
             "SELECT status FROM pending_anchored_replay WHERE candidate_id=?",
             (candidate_id,),
         ).fetchone() == ("PREPARED",)
+
+
+def test_recovery_rechecks_anchor_immediately_before_finalization(monkeypatch, tmp_path):
+    path = tmp_path / "pending-recovery-anchor-advance.sqlite3"
+    dossier, envelope, trusted = _signed(
+        "recovery-anchor-advance", "recovery-anchor-advance-nonce"
+    )
+    anchor = Anchor()
+    original_finalize = pending._finalize_pending
+
+    def crash_after_anchor(*args, **kwargs):
+        raise RuntimeError("simulated crash after anchor CAS")
+
+    monkeypatch.setattr(pending, "_finalize_pending", crash_after_anchor)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        )
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM pending_anchored_replay"
+        ).fetchone()[0]
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (0, 1, 0)
+
+    monkeypatch.setattr(pending, "_finalize_pending", original_finalize)
+    original_read_anchor = pending._read_anchor
+    reads = 0
+
+    def anchor_advances_between_reads(store, provider_id):
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            return original_read_anchor(store, provider_id)
+        return 2, "2" * 64
+
+    monkeypatch.setattr(pending, "_read_anchor", anchor_advances_between_reads)
+    with pytest.raises(
+        ReplayAnchorUnavailable,
+        match="external_anchor_changed_before_finalization",
+    ):
+        pending.recover_pending_attestation(
+            candidate_id, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        )
+
+    assert reads == 2
+    assert _counts(path) == (0, 1, 0)

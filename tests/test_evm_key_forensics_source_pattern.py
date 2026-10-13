@@ -214,3 +214,21 @@ def test_cli_rejects_invalid_utf8_source(tmp_path, capsys):
     assert result["conclusion"] == "INCONCLUSIVE"
     assert "source_invalid_utf8" in result["errors"]
 
+
+
+def test_revision_registry_has_distinct_immutable_source_pins():
+    from tools.evm_key_forensics.check_historical_source_pattern import PINNED_REVISIONS
+
+    pre = PINNED_REVISIONS["pre-disclosure"]
+    post = PINNED_REVISIONS["post-disclosure"]
+    assert pre["commit"] != post["commit"]
+    assert len(pre["commit"]) == len(post["commit"]) == 40
+    assert len(pre["git_blob_sha1"]) == len(post["git_blob_sha1"]) == 40
+    assert pre["git_blob_sha1"] != post["git_blob_sha1"]
+
+
+def test_unknown_source_revision_fails_closed():
+    import pytest
+
+    with pytest.raises(ValueError, match="unsupported_pinned_revision"):
+        inspect_source(SOURCE, revision="master")

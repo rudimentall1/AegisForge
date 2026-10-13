@@ -11,8 +11,17 @@ import sys
 
 SCHEMA_VERSION = 1
 EXPERIMENT_ID = "evm-forensics-historical-source-pattern-v1"
-UPSTREAM_COMMIT = "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6"
-EXPECTED_GIT_BLOB_SHA1 = "c9226fc02a52633a84664cbf3aaf2b4af8a59b25"
+PINNED_REVISIONS = {
+    "pre-disclosure": {
+        "commit": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+        "git_blob_sha1": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
+    },
+    "post-disclosure": {
+        "commit": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+        "git_blob_sha1": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
+    },
+}
+DEFAULT_REVISION = "pre-disclosure"
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
 
 
@@ -129,7 +138,9 @@ def _git_blob_sha1(source_bytes: bytes) -> str:
     return hashlib.sha1(header + source_bytes).hexdigest()
 
 
-def inspect_source(source: str) -> dict:
+def inspect_source(source: str, revision: str = DEFAULT_REVISION) -> dict:
+    if revision not in PINNED_REVISIONS:
+        raise ValueError("unsupported_pinned_revision")
     source_bytes = source.encode("utf-8")
     digest = hashlib.sha256(source_bytes).hexdigest()
     blob_sha1 = _git_blob_sha1(source_bytes)
@@ -137,7 +148,7 @@ def inspect_source(source: str) -> dict:
     # preserves offsets so the body boundaries still refer to the same region.
     analysis_source, lexical_error = _mask_comments_and_literals(source)
     if lexical_error:
-        return _result("INCONCLUSIVE", digest, [lexical_error], blob_sha1)
+        return _result("INCONCLUSIVE", digest, [lexical_error], blob_sha1, revision)
     # Match a definition, not merely a declaration. Starting brace scanning
     # at a prototype can accidentally consume the next unrelated function body.
     definition = re.compile(
@@ -146,17 +157,17 @@ def inspect_source(source: str) -> dict:
     )
     definitions = list(definition.finditer(analysis_source))
     if not definitions:
-        return _result("INCONCLUSIVE", digest, ["createSeed_function_missing"], blob_sha1)
+        return _result("INCONCLUSIVE", digest, ["createSeed_function_missing"], blob_sha1, revision)
     if len(definitions) != 1:
-        return _result("INCONCLUSIVE", digest, ["createSeed_definition_ambiguous"], blob_sha1)
+        return _result("INCONCLUSIVE", digest, ["createSeed_definition_ambiguous"], blob_sha1, revision)
 
     # Scope the check to the uniquely identified definition; braces in comments
     # and quoted literals must not alter the parser's nesting depth.
     brace_start, end = _find_function_body(analysis_source, definitions[0].end() - 1)
     if brace_start is None:
-        return _result("INCONCLUSIVE", digest, ["function_body_missing"], blob_sha1)
+        return _result("INCONCLUSIVE", digest, ["function_body_missing"], blob_sha1, revision)
     if end is None:
-        return _result("INCONCLUSIVE", digest, ["function_body_unbalanced"], blob_sha1)
+        return _result("INCONCLUSIVE", digest, ["function_body_unbalanced"], blob_sha1, revision)
 
     body = analysis_source[brace_start:end]
     errors = []
@@ -164,7 +175,7 @@ def inspect_source(source: str) -> dict:
     else_pos = body.find("#else", debug_pos + 1) if debug_pos >= 0 else -1
     endif_pos = body.find("#endif", else_pos + 1) if else_pos >= 0 else -1
     if min(debug_pos, else_pos, endif_pos) < 0:
-        return _result("INCONCLUSIVE", digest, ["debug_branch_structure_ambiguous"], blob_sha1)
+        return _result("INCONCLUSIVE", digest, ["debug_branch_structure_ambiguous"], blob_sha1, revision)
 
     debug_branch = body[debug_pos:else_pos]
     production_branch = body[else_pos:endif_pos]
@@ -189,18 +200,26 @@ def inspect_source(source: str) -> dict:
         if len(re.findall(fixed_assignment, debug_branch)) != 1:
             errors.append(f"debug_fixed_seed_word_{word_index}_not_recognized")
 
-    return _result("SOURCE_PATTERN_MATCHED" if not errors else "INCONCLUSIVE", digest, errors, blob_sha1)
+    return _result("SOURCE_PATTERN_MATCHED" if not errors else "INCONCLUSIVE", digest, errors, blob_sha1, revision)
 
 
-def _result(conclusion: str, source_sha256: str, errors: list[str], git_blob_sha1: str = "") -> dict:
+def _result(
+    conclusion: str,
+    source_sha256: str,
+    errors: list[str],
+    git_blob_sha1: str = "",
+    revision: str = DEFAULT_REVISION,
+) -> dict:
+    pin = PINNED_REVISIONS[revision]
     return {
         "schema_version": SCHEMA_VERSION,
         "experiment_id": EXPERIMENT_ID,
         "upstream_repository": "https://github.com/johguse/profanity",
-        "expected_upstream_commit": UPSTREAM_COMMIT,
+        "source_revision_role": revision,
+        "expected_upstream_commit": pin["commit"],
         "source_sha256": source_sha256,
         "git_blob_sha1": git_blob_sha1,
-        "pinned_source_blob_matches": git_blob_sha1 == EXPECTED_GIT_BLOB_SHA1,
+        "pinned_source_blob_matches": git_blob_sha1 == pin["git_blob_sha1"],
         "conclusion": conclusion,
         "errors": errors,
         "historical_code_executed": False,
@@ -217,6 +236,7 @@ def _result(conclusion: str, source_sha256: str, errors: list[str], git_blob_sha
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source_file", type=Path, help="locally obtained source file; never downloaded by this tool")
+    parser.add_argument("--revision", choices=tuple(PINNED_REVISIONS), default=DEFAULT_REVISION)
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -225,17 +245,17 @@ def main(argv=None) -> int:
         with args.source_file.open("rb") as stream:
             source_bytes = stream.read(MAX_SOURCE_BYTES + 1)
     except OSError as exc:
-        result = _result("INCONCLUSIVE", "", [f"source_unreadable:{type(exc).__name__}"])
+        result = _result("INCONCLUSIVE", "", [f"source_unreadable:{type(exc).__name__}"], revision=args.revision)
     else:
         if len(source_bytes) > MAX_SOURCE_BYTES:
-            result = _result("INCONCLUSIVE", "", ["source_exceeds_size_limit"])
+            result = _result("INCONCLUSIVE", "", ["source_exceeds_size_limit"], revision=args.revision)
         else:
             try:
                 source = source_bytes.decode("utf-8")
             except UnicodeDecodeError:
-                result = _result("INCONCLUSIVE", "", ["source_invalid_utf8"])
+                result = _result("INCONCLUSIVE", "", ["source_invalid_utf8"], revision=args.revision)
             else:
-                result = inspect_source(source)
+                result = inspect_source(source, revision=args.revision)
                 # CLI acceptance requires the exact pinned upstream file, not merely a
                 # matching pattern in a synthetic excerpt or unrelated source file.
                 if not result["pinned_source_blob_matches"]:

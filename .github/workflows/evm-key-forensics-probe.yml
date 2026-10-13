@@ -36,18 +36,27 @@ jobs:
           }
           print(f"Pinned upstream Dispatcher.cpp blob: PASS ({git_blob_sha1})")
           PY
-          python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher.cpp --pretty > /tmp/source-pattern-result.json
+          python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher.cpp --revision pre-disclosure --pretty > /tmp/source-pattern-pre.json
+          post_url="https://raw.githubusercontent.com/johguse/profanity/186b9b27ab3e24a1899f648adcabcbf0e5f3131e/Dispatcher.cpp"
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 "$post_url" -o /tmp/pinned-Dispatcher-post.cpp
+          python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher-post.cpp --revision post-disclosure --pretty > /tmp/source-pattern-post.json
           python - <<'PY'
           import json
           from pathlib import Path
 
-          result = json.loads(Path("/tmp/source-pattern-result.json").read_text())
-          assert result["conclusion"] == "SOURCE_PATTERN_MATCHED", result
-          assert result["expected_upstream_commit"] == "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6"
-          assert result["historical_code_executed"] is False
-          assert result["wallet_material_used"] is False
-          assert result["historical_vulnerability_reproduced"] is False
-          print("Pinned historical source pattern: PASS (not a vulnerability reproduction)")
+          expected = {
+              "/tmp/source-pattern-pre.json": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+              "/tmp/source-pattern-post.json": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+          }
+          for filename, commit in expected.items():
+              result = json.loads(Path(filename).read_text())
+              assert result["conclusion"] == "SOURCE_PATTERN_MATCHED", result
+              assert result["expected_upstream_commit"] == commit, result
+              assert result["pinned_source_blob_matches"] is True, result
+              assert result["historical_code_executed"] is False
+              assert result["wallet_material_used"] is False
+              assert result["historical_vulnerability_reproduced"] is False
+          print("Both pinned source revisions match the reviewed pattern (source review only)")
           PY
 
       - name: Install compiler

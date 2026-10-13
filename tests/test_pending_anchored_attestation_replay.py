@@ -1020,3 +1020,41 @@ def test_malformed_attestation_payload_fails_closed_before_anchor_cas(
     }
     assert not path.exists()
 
+
+
+def test_result_reports_historical_anchor_when_anchor_advances_before_local_finalize(
+    monkeypatch, tmp_path
+):
+    path = tmp_path / "pending-anchor-advances-before-finalize.sqlite3"
+    dossier, envelope, trusted = _signed(
+        "anchor-advances-after-confirmation", "anchor-advances-after-confirmation-nonce"
+    )
+    anchor = Anchor()
+    original_finalize = pending._finalize_pending
+
+    def advance_anchor_then_finalize(*args, **kwargs):
+        # Model an independent writer advancing the shared anchor after this
+        # candidate was confirmed but before local acceptance commits.
+        anchor.anchor = {
+            "provider_id": "test-provider",
+            "sequence": 2,
+            "head_sha256": "2" * 64,
+        }
+        return original_finalize(*args, **kwargs)
+
+    monkeypatch.setattr(pending, "_finalize_pending", advance_anchor_then_finalize)
+    result = pending.verify_and_record_attestation_pending_anchored(
+        dossier,
+        envelope,
+        trusted_public_keys=trusted,
+        database_path=path,
+        anchor_store=anchor,
+    )
+
+    assert result["journal"]["sequence"] == 1
+    assert result["journal"]["rollback_resistance"] == (
+        "HISTORICALLY_ANCHORED_CANDIDATE_HEAD_CONFIRMED"
+    )
+    assert anchor.anchor["sequence"] == 2
+    assert _counts(path) == (1, 1, 1)
+    assert result["qualification"] == "NOT_ESTABLISHED"

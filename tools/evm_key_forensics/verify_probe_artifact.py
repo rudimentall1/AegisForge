@@ -32,10 +32,18 @@ MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
 
 
 def _load_strict_json(path: Path):
-    if path.stat().st_size > MAX_JSON_FILE_BYTES:
+    # Read at most limit + 1 bytes; checking stat() first alone would leave
+    # a size-check/read race if the file changed between the two operations.
+    with path.open("rb") as stream:
+        raw = stream.read(MAX_JSON_FILE_BYTES + 1)
+    if len(raw) > MAX_JSON_FILE_BYTES:
         raise ValueError("json_file_exceeds_size_limit")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("json_file_invalid_utf8") from exc
     return json.loads(
-        path.read_text(encoding="utf-8"),
+        text,
         object_pairs_hook=_reject_duplicate_keys,
         parse_constant=_reject_nonstandard_constant,
     )

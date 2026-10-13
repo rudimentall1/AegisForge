@@ -33,6 +33,17 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
             "random_device_reported_entropy": 0.0,
         }
         (self.root / "probe-output.json").write_text(json.dumps(output), encoding="utf-8")
+        source_report = {
+            "schema_version": 1,
+            "report_id": "evm-key-forensics-profanity-source-comparison-v1",
+            "overall_conclusion": "INCONCLUSIVE",
+            "validation_errors": [],
+            "limitations": {
+                "historical_vulnerability_reproduced": False,
+                "source_to_binary_provenance": "NOT_ESTABLISHED",
+            },
+        }
+        (self.root / "source-evidence-report.json").write_text(json.dumps(source_report), encoding="utf-8")
         metadata = {
             "schema_version": 1,
             "purpose": "diagnostic_environment_observation_only",
@@ -45,6 +56,7 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
             "source_sha256": digest(self.root / "probe-source.cpp"),
             "binary_sha256": digest(self.root / "probe-binary"),
             "output_sha256": digest(self.root / "probe-output.json"),
+            "source_evidence_report_sha256": digest(self.root / "source-evidence-report.json"),
             "historical_vulnerability_reproduced": False,
             "entropy_proven": False,
         }
@@ -65,6 +77,39 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.assertTrue(result["integrity_verified"])
         self.assertEqual(result["authenticity"], "UNTRUSTED_UNSIGNED")
         self.assertFalse(result["signature_verified_against_trusted_key"])
+
+    def test_source_report_is_bound_to_metadata_hash(self):
+        report_path = self.root / "source-evidence-report.json"
+        report_path.write_text(report_path.read_text(encoding="utf-8") + " ", encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["source_report_hash_matches"])
+
+    def test_source_report_cannot_claim_historical_reproduction_even_with_updated_hash(self):
+        report_path = self.root / "source-evidence-report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["limitations"]["historical_vulnerability_reproduced"] = True
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["source_evidence_report_sha256"] = digest(report_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["source_report_does_not_claim_reproduction"])
+
+    def test_source_report_cannot_claim_binary_provenance_even_with_updated_hash(self):
+        report_path = self.root / "source-evidence-report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["limitations"]["source_to_binary_provenance"] = "VERIFIED"
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["source_evidence_report_sha256"] = digest(report_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["source_report_does_not_claim_source_binary_provenance"])
 
     def test_tampered_output_fails(self):
         with (self.root / "probe-output.json").open("a", encoding="utf-8") as stream:

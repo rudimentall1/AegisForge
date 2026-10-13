@@ -93,10 +93,12 @@ def verify_artifact(root: Path) -> dict:
     output_path = root / "probe-output.json"
     source_path = root / "probe-source.cpp"
     binary_path = root / "probe-binary"
-    for artifact_path in (metadata_path, output_path, source_path, binary_path):
+    source_report_path = root / "source-evidence-report.json"
+    for artifact_path in (metadata_path, output_path, source_path, binary_path, source_report_path):
         _require_regular_bundle_file(artifact_path)
     metadata = _load_strict_json(metadata_path)
     output = _load_strict_json(output_path)
+    source_report = _load_strict_json(source_report_path)
 
     samples = output.get("samples_requested")
     distinct = output.get("distinct_values_observed")
@@ -133,6 +135,15 @@ def verify_artifact(root: Path) -> dict:
         "output_hash_matches": metadata.get("output_sha256") == sha256(
             output_path, max_bytes=MAX_JSON_FILE_BYTES
         ),
+        "source_report_hash_matches": metadata.get("source_evidence_report_sha256") == sha256(
+            source_report_path, max_bytes=MAX_JSON_FILE_BYTES
+        ),
+        "source_report_schema_supported": type(source_report.get("schema_version")) is int and source_report.get("schema_version") == 1,
+        "source_report_identity_matches": source_report.get("report_id") == "evm-key-forensics-profanity-source-comparison-v1",
+        "source_report_is_inconclusive": source_report.get("overall_conclusion") == "INCONCLUSIVE",
+        "source_report_has_no_validation_errors": source_report.get("validation_errors") == [],
+        "source_report_does_not_claim_reproduction": source_report.get("limitations", {}).get("historical_vulnerability_reproduced") is False,
+        "source_report_does_not_claim_source_binary_provenance": source_report.get("limitations", {}).get("source_to_binary_provenance") == "NOT_ESTABLISHED",
         "commit_recorded": (
             isinstance(metadata.get("git_commit"), str)
             and len(metadata["git_commit"]) == 40

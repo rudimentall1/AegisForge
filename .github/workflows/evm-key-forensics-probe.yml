@@ -138,6 +138,7 @@ jobs:
               "source_sha256": sha256("probe-source.cpp"),
               "binary_sha256": sha256("probe-binary"),
               "output_sha256": sha256("probe-output.json"),
+              "source_evidence_report_sha256": sha256("source-evidence-report.json"),
               "historical_vulnerability_reproduced": False,
               "entropy_proven": False,
           }

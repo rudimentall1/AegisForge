@@ -63,13 +63,28 @@ class SourceResearcher:
         if not any(str(value or "").strip() for value in (url, title, text)):
             return "inconclusive_missing_evidence"
         haystack = f"{url} {title or ''} {text or ''}".lower()
-        profanity_context = "profanity" in haystack
-        seed_space_signal = any(term in haystack for term in ("32-bit", "4 bln", "seed"))
-        # "private key" can appear in tests, storage notes, or unrelated
-        # documentation. Require explicit generation-path context instead.
+        # Normalize punctuation for phrases such as "vanity-address-tool".
+        normalized = " ".join(haystack.replace("-", " ").replace("_", " ").split())
+        # Explicit negative controls must win over the presence of keywords:
+        # a sentence saying a generation path is absent is not positive evidence.
+        explicit_negative_context = any(
+            phrase in normalized
+            for phrase in (
+                "no vanity address", "no key generation",
+                "does not describe key generation", "not a key generation",
+                "no cryptographic use", "unrelated documentation",
+            )
+        )
+        if explicit_negative_context:
+            return "unclassified_source"
+        profanity_context = "profanity" in normalized
+        seed_space_signal = any(term in normalized for term in ("32 bit", "4 bln", "seed"))
+        # "private key" can appear in tests or storage notes. Require a
+        # generation-path reference, or a named vanity-generator source plus
+        # an explicit seed-space and RNG signal.
         key_generation_context = any(
-            term in haystack
-            for term in ("key generation", "key-generation", "createseed", "vanity key", "vanity address")
+            term in normalized
+            for term in ("key generation", "createseed", "vanity key", "vanity address", "vanity address tool", "affected generator")
         )
         # A project name plus seed/key vocabulary is not enough. Require an
         # explicit RNG/implementation signal so unrelated documentation cannot

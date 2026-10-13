@@ -24,10 +24,17 @@
     "content_integrity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status"],
+      "required": [
+        "status"
+      ],
       "properties": {
         "status": {
-          "enum": ["MATCHED", "MISMATCHED", "UNAVAILABLE", "UNKNOWN"]
+          "enum": [
+            "MATCHED",
+            "MISMATCHED",
+            "UNAVAILABLE",
+            "UNKNOWN"
+          ]
         },
         "expected_sha256": {
           "type": "string",
@@ -46,16 +53,30 @@
     "publisher_identity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["claimed_name", "verification_status"],
+      "required": [
+        "claimed_name",
+        "verification_status"
+      ],
       "properties": {
         "claimed_name": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "claimed_domain": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "verification_status": {
-          "enum": ["VERIFIED", "UNVERIFIED", "CONTRADICTED", "UNKNOWN"]
+          "enum": [
+            "VERIFIED",
+            "UNVERIFIED",
+            "CONTRADICTED",
+            "UNKNOWN"
+          ]
         },
         "verification_method": {
           "enum": [
@@ -68,15 +89,24 @@
           ]
         },
         "verification_evidence_ref": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Reference to a separately stored verification record; a URL or self-assertion alone is not proof."
         },
         "verified_by": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Identity of the verifier, not the source publisher."
         },
         "verified_at": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         }
       }
@@ -84,13 +114,24 @@
     "origin_relationship": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "derived_from_source_ids"],
+      "required": [
+        "status",
+        "derived_from_source_ids"
+      ],
       "properties": {
         "status": {
-          "enum": ["PRIMARY_ORIGIN_VERIFIED", "DERIVED_FROM_KNOWN_SOURCE", "UNKNOWN", "CONTRADICTED"]
+          "enum": [
+            "PRIMARY_ORIGIN_VERIFIED",
+            "DERIVED_FROM_KNOWN_SOURCE",
+            "UNKNOWN",
+            "CONTRADICTED"
+          ]
         },
         "canonical_origin_ref": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "derived_from_source_ids": {
           "type": "array",
@@ -101,7 +142,10 @@
           }
         },
         "verification_evidence_ref": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Reference to evidence supporting origin or derivation; this record does not itself validate that evidence."
         }
       }
@@ -109,10 +153,19 @@
     "independence_assessment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "basis"],
+      "required": [
+        "status",
+        "basis"
+      ],
       "properties": {
         "status": {
-          "enum": ["ESTABLISHED", "NOT_ESTABLISHED", "DEPENDENT", "CONTRADICTED", "UNKNOWN"]
+          "enum": [
+            "ESTABLISHED",
+            "NOT_ESTABLISHED",
+            "DEPENDENT",
+            "CONTRADICTED",
+            "UNKNOWN"
+          ]
         },
         "basis": {
           "enum": [
@@ -127,13 +180,22 @@
           ]
         },
         "review_record_ref": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "reviewed_by": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "reviewed_at": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         }
       }
@@ -146,5 +208,147 @@
       },
       "default": []
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "publisher_identity": {
+            "properties": {
+              "verification_status": {
+                "const": "VERIFIED"
+              }
+            },
+            "required": [
+              "verification_status"
+            ]
+          }
+        },
+        "required": [
+          "publisher_identity"
+        ]
+      },
+      "then": {
+        "properties": {
+          "publisher_identity": {
+            "required": [
+              "verification_method",
+              "verification_evidence_ref",
+              "verified_by",
+              "verified_at"
+            ],
+            "properties": {
+              "verification_method": {
+                "enum": [
+                  "DOMAIN_CONTROL",
+                  "PUBLISHER_SIGNING_KEY",
+                  "TRUSTED_REGISTRY",
+                  "MANUAL_REVIEW",
+                  "OTHER"
+                ]
+              },
+              "verification_evidence_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "verified_by": {
+                "type": "string",
+                "minLength": 1
+              },
+              "verified_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "origin_relationship": {
+            "properties": {
+              "status": {
+                "const": "PRIMARY_ORIGIN_VERIFIED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          }
+        },
+        "required": [
+          "origin_relationship"
+        ]
+      },
+      "then": {
+        "properties": {
+          "origin_relationship": {
+            "required": [
+              "canonical_origin_ref",
+              "verification_evidence_ref"
+            ],
+            "properties": {
+              "canonical_origin_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "verification_evidence_ref": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "independence_assessment": {
+            "properties": {
+              "status": {
+                "const": "ESTABLISHED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          }
+        },
+        "required": [
+          "independence_assessment"
+        ]
+      },
+      "then": {
+        "properties": {
+          "independence_assessment": {
+            "required": [
+              "review_record_ref",
+              "reviewed_by",
+              "reviewed_at"
+            ],
+            "properties": {
+              "basis": {
+                "const": "VERIFIED_DISTINCT_ORIGINS"
+              },
+              "review_record_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reviewed_by": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reviewed_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

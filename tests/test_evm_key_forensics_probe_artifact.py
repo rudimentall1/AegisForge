@@ -176,7 +176,7 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
 
     def test_non_utf8_json_is_rejected_with_clear_error(self):
         output_path = self.root / "probe-output.json"
-        output_path.write_bytes(b"\\xff")
+        output_path.write_bytes(b"\xff")
 
         with self.assertRaisesRegex(ValueError, "json_file_invalid_utf8"):
             verify_artifact(self.root)

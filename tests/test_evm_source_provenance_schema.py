@@ -61,3 +61,46 @@ def test_synthetic_unknown_provenance_example_does_not_infer_independence():
     assert example["independence_assessment"]["status"] == "NOT_ESTABLISHED"
     assert example["independence_assessment"]["basis"] == "NO_VERIFIED_PROVENANCE"
     assert any("does not authenticate" in item for item in example["limitations"])
+
+
+def test_verified_claims_require_reviewer_and_evidence_metadata():
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    conditions = schema["allOf"]
+    assert len(conditions) == 3
+
+    publisher_rule = next(
+        item for item in conditions
+        if item["if"]["properties"]["publisher_identity"]["properties"]
+        ["verification_status"]["const"] == "VERIFIED"
+    )
+    publisher_then = publisher_rule["then"]["properties"]["publisher_identity"]
+    assert {
+        "verification_method",
+        "verification_evidence_ref",
+        "verified_by",
+        "verified_at",
+    } <= set(publisher_then["required"])
+    assert "NONE" not in publisher_then["properties"]["verification_method"]["enum"]
+
+    origin_rule = next(
+        item for item in conditions
+        if item["if"]["properties"]["origin_relationship"]["properties"]
+        ["status"]["const"] == "PRIMARY_ORIGIN_VERIFIED"
+    )
+    assert {
+        "canonical_origin_ref",
+        "verification_evidence_ref",
+    } <= set(origin_rule["then"]["properties"]["origin_relationship"]["required"])
+
+    independence_rule = next(
+        item for item in conditions
+        if item["if"]["properties"]["independence_assessment"]["properties"]
+        ["status"]["const"] == "ESTABLISHED"
+    )
+    independence_then = independence_rule["then"]["properties"]["independence_assessment"]
+    assert independence_then["properties"]["basis"]["const"] == "VERIFIED_DISTINCT_ORIGINS"
+    assert {
+        "review_record_ref",
+        "reviewed_by",
+        "reviewed_at",
+    } <= set(independence_then["required"])

@@ -67,8 +67,8 @@ def _find_function_body(source: str, start: int) -> tuple[int | None, int | None
     return brace_start, None
 
 
-def _mask_comments_and_literals(source: str) -> str:
-    """Replace comments and quoted literals with spaces, preserving offsets/newlines."""
+def _mask_comments_and_literals(source: str) -> tuple[str, str | None]:
+    """Mask comments/literals while reporting unterminated lexical constructs."""
     chars = list(source)
     state = "code"
     escaped = False
@@ -113,7 +113,9 @@ def _mask_comments_and_literals(source: str) -> str:
                 chars[index] = " "
                 state = "char"
         index += 1
-    return "".join(chars)
+    if state in {"block_comment", "string", "char"}:
+        return "".join(chars), f"unterminated_{state}"
+    return "".join(chars), None
 
 
 def _git_blob_sha1(source_bytes: bytes) -> str:
@@ -127,7 +129,9 @@ def inspect_source(source: str) -> dict:
     blob_sha1 = _git_blob_sha1(source_bytes)
     # Match only C++ tokens, not comments or quoted text. The masked source
     # preserves offsets so the body boundaries still refer to the same region.
-    analysis_source = _mask_comments_and_literals(source)
+    analysis_source, lexical_error = _mask_comments_and_literals(source)
+    if lexical_error:
+        return _result("INCONCLUSIVE", digest, [lexical_error], blob_sha1)
     marker = "cl_ulong4 Dispatcher::Device::createSeed()"
     start = analysis_source.find(marker)
     if start < 0:

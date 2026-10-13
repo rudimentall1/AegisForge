@@ -34,7 +34,7 @@ The job log reports that the independent rebuild matched byte-for-byte. These va
 - [x] The independent-runner build matches the reference binary byte-for-byte.
 - [x] Compiler version and compile flags are recorded here.
 - [x] The independent runner's compiler version, runner details, source digest, binary digests, and comparison result are persisted in the separate `independent-rebuild-report.json` artifact.
-- [x] The workflow ran `gh attestation verify` against the exact packaged evidence ZIP and reported `GitHub CLI attestation verification: PASS` in [run 38367566112](https://github.com/rudimentall1/AegisForge/actions/runs/38367566112). The attested ZIP SHA-256 was `cb9bd4fcc306825648dc6c4d55519552d5f48c9bf55c655ed13e2519b5bd0043`; the verified workflow identity and source commit are recorded in [ARTIFACT_ATTESTATION.md](ARTIFACT_ATTESTATION.md). This verifies GitHub's provenance statement for that exact ZIP, not the truth of its contents.
+- [x] The workflow ran `gh attestation verify` and strict identity assertions against the packaged evidence ZIP in [run 38367831398](https://github.com/rudimentall1/AegisForge/actions/runs/38367831398). ZIP SHA-256: `89c904a57614c8d57dc50b9bbdea9625e70a10aa4cea5162eb5e0448cc23e646`; attested workflow SHA: `24e077826caa40961812ebd06bc735f6355424ca`; ref: `refs/pull/32/merge`. The full probe workflow and independent clean-runner rebuild passed. See [ARTIFACT_ATTESTATION.md](ARTIFACT_ATTESTATION.md) for details. This verifies GitHub's provenance statement for that exact ZIP, not the truth of its contents.
 
 A mismatch is a failed gate. Do not silently accept it or overwrite the reference binary. Record compiler versions, runner details, and digests before diagnosing the difference.
 

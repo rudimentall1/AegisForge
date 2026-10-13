@@ -989,7 +989,7 @@ def test_recovery_rejects_unknown_pending_status_even_when_anchor_matches(monkey
     [
         ("dossier_root", "attestation_payload_invalid"),
         ("runner_shape", "attestation_provider_id_invalid"),
-        ("envelope_root", "attestation_invalid"),
+        ("envelope_root", "attestation_payload_invalid"),
     ],
 )
 def test_malformed_attestation_payload_fails_closed_before_anchor_cas(

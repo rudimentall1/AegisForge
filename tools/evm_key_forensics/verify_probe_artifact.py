@@ -105,6 +105,9 @@ def verify_artifact(root: Path) -> dict:
     type_bits = output.get("random_device_result_type_bits")
     reported_entropy = output.get("random_device_reported_entropy")
     build_flags = metadata.get("build_flags")
+    source_report_limitations = source_report.get("limitations")
+    if not isinstance(source_report_limitations, dict):
+        source_report_limitations = {}
 
     checks = {
         "schema_version_supported": type(metadata.get("schema_version")) is int and metadata.get("schema_version") == 1,
@@ -142,8 +145,8 @@ def verify_artifact(root: Path) -> dict:
         "source_report_identity_matches": source_report.get("report_id") == "evm-key-forensics-profanity-source-comparison-v1",
         "source_report_is_inconclusive": source_report.get("overall_conclusion") == "INCONCLUSIVE",
         "source_report_has_no_validation_errors": source_report.get("validation_errors") == [],
-        "source_report_does_not_claim_reproduction": source_report.get("limitations", {}).get("historical_vulnerability_reproduced") is False,
-        "source_report_does_not_claim_source_binary_provenance": source_report.get("limitations", {}).get("source_to_binary_provenance") == "NOT_ESTABLISHED",
+        "source_report_does_not_claim_reproduction": source_report_limitations.get("historical_vulnerability_reproduced") is False,
+        "source_report_does_not_claim_source_binary_provenance": source_report_limitations.get("source_to_binary_provenance") == "NOT_ESTABLISHED",
         "commit_recorded": (
             isinstance(metadata.get("git_commit"), str)
             and len(metadata["git_commit"]) == 40

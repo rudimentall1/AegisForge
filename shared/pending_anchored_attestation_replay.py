@@ -212,7 +212,7 @@ def _finalize_pending(
         return {"valid": True, "recovered": True, "journal": {
             "sequence": candidate_sequence, "head_sha256": candidate_head,
             "integrity_scope": "LOCAL_HASH_CHAIN_VERIFIED_AGAINST_EXTERNAL_ANCHOR",
-            "rollback_resistance": "EXTERNAL_ANCHOR_CONFIRMED_FOR_RETURNED_HEAD"},
+            "rollback_resistance": "HISTORICALLY_ANCHORED_CANDIDATE_HEAD_CONFIRMED"},
             "replay_protection": "LOCAL_REGISTRY_AND_EXTERNAL_MONOTONIC_ANCHOR",
             "qualification": "NOT_ESTABLISHED"}
 
@@ -242,7 +242,7 @@ def _finalize_pending(
     result["replay_protection"] = "LOCAL_REGISTRY_AND_EXTERNAL_MONOTONIC_ANCHOR"
     result["journal"] = {**journal,
         "integrity_scope": "LOCAL_HASH_CHAIN_VERIFIED_AGAINST_EXTERNAL_ANCHOR",
-        "rollback_resistance": "EXTERNAL_ANCHOR_CONFIRMED_FOR_RETURNED_HEAD"}
+        "rollback_resistance": "HISTORICALLY_ANCHORED_CANDIDATE_HEAD_CONFIRMED"}
     result["qualification"] = "NOT_ESTABLISHED"
     return result
 

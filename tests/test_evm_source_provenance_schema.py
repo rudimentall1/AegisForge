@@ -606,3 +606,33 @@ def test_source_lineage_cycles_and_missing_origins_are_blocked():
         else:
             assert report["invalid_source_derivation_references"] == ["source-a"]
 
+
+def test_duplicate_source_ids_cannot_make_lineage_appear_unambiguous():
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    task = Task(
+        task_id="duplicate-lineage-source-ids",
+        description="Duplicate IDs make declared source lineage ambiguous",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [
+                {"source_id": "source-a", "source_url": "", "derived_from_source_ids": ["source-b"]},
+                {"source_id": "source-b", "source_url": ""},
+                {"source_id": "source-b", "source_url": ""},
+            ],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+    validated = Validator(source_fetcher=lambda _url: {}).run(task)
+    report = validated.result["research_validation"]
+
+    assert report["duplicate_source_ids"] == ["source-b"]
+    assert report["source_identity_integrity_failed"] is True
+    assert "source_identity_integrity_failed" in report["readiness_blockers"]
+    assert report["source_origin_independence_established"] is False
+    assert report["status"] == "INCONCLUSIVE"
+

@@ -386,6 +386,11 @@ def recover_pending_attestation(
                     raise ReplayAnchorUnavailable("pending_recovery_cas_conflict")
     elif (anchor_sequence, anchor_head) != (candidate_sequence, candidate_head):
         raise ReplayAnchorUnavailable("pending_candidate_not_confirmed_by_external_anchor")
+    # Recovery must confirm the exact candidate head again immediately before
+    # local finalization. The anchor may have changed after the first read or CAS.
+    final_sequence, final_head = _read_anchor(anchor_store, provider_id)
+    if (final_sequence, final_head) != (candidate_sequence, candidate_head):
+        raise ReplayAnchorUnavailable("external_anchor_changed_before_finalization")
     result = _finalize_pending(database_path, candidate_id=candidate_id,
         trusted_public_keys=trusted_public_keys)
     result["pending_candidate_id"] = candidate_id

@@ -945,3 +945,41 @@ def test_recovery_rechecks_anchor_immediately_before_finalization(monkeypatch, t
 
     assert reads == 2
     assert _counts(path) == (0, 1, 0)
+
+
+def test_recovery_rejects_unknown_pending_status_even_when_anchor_matches(monkeypatch, tmp_path):
+    path = tmp_path / "pending-invalid-status.sqlite3"
+    dossier, envelope, trusted = _signed(
+        "invalid-pending-status", "invalid-pending-status-nonce"
+    )
+    anchor = Anchor()
+    original_finalize = pending._finalize_pending
+
+    def crash_after_anchor(*args, **kwargs):
+        raise RuntimeError("simulated crash after anchor CAS")
+
+    monkeypatch.setattr(pending, "_finalize_pending", crash_after_anchor)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        )
+    with sqlite3.connect(path) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM pending_anchored_replay"
+        ).fetchone()[0]
+        db.execute("PRAGMA ignore_check_constraints=ON")
+        db.execute(
+            "UPDATE pending_anchored_replay SET status='UNKNOWN' WHERE candidate_id=?",
+            (candidate_id,),
+        )
+
+    monkeypatch.setattr(pending, "_finalize_pending", original_finalize)
+    with pytest.raises(ReplayAnchorUnavailable, match="pending_candidate_status_invalid"):
+        pending.recover_pending_attestation(
+            candidate_id, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        )
+
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (0, 1, 0)

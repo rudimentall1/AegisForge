@@ -211,6 +211,20 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
             verify_artifact(self.root)
 
 
+    def test_symlinked_artifact_file_is_rejected(self):
+        source_path = self.root / "probe-source.cpp"
+        external_source = self.root.parent / (self.root.name + "-external-source.cpp")
+        external_source.write_text("// external file\n", encoding="utf-8")
+        source_path.unlink()
+        try:
+            source_path.symlink_to(external_source)
+            with self.assertRaisesRegex(ValueError, "artifact_file_must_not_be_symlink"):
+                verify_artifact(self.root)
+        finally:
+            if source_path.is_symlink():
+                source_path.unlink()
+            external_source.unlink(missing_ok=True)
+
     def test_metadata_json_root_must_be_object(self):
         metadata_path = self.root / "probe-run-metadata.json"
         metadata_path.write_text("[]", encoding="utf-8")

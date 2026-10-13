@@ -159,5 +159,20 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.assertFalse(result["checks"]["probe_does_not_claim_historical_execution"])
 
 
+    def test_oversized_metadata_is_rejected_before_json_decode(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata_path.write_bytes(b" " * (2 * 1024 * 1024 + 1))
+
+        with self.assertRaisesRegex(ValueError, "json_file_exceeds_size_limit"):
+            verify_artifact(self.root)
+
+    def test_oversized_output_is_rejected_before_json_decode(self):
+        output_path = self.root / "probe-output.json"
+        output_path.write_bytes(b" " * (2 * 1024 * 1024 + 1))
+
+        with self.assertRaisesRegex(ValueError, "json_file_exceeds_size_limit"):
+            verify_artifact(self.root)
+
+
 if __name__ == "__main__":
     unittest.main()

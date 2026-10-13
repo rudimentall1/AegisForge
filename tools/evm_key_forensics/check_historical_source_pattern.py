@@ -200,7 +200,15 @@ def inspect_source(source: str, revision: str = DEFAULT_REVISION) -> dict:
         if len(re.findall(fixed_assignment, debug_branch)) != 1:
             errors.append(f"debug_fixed_seed_word_{word_index}_not_recognized")
 
-    return _result("SOURCE_PATTERN_MATCHED" if not errors else "INCONCLUSIVE", digest, errors, blob_sha1, revision)
+    function_body_sha256 = hashlib.sha256(source[brace_start:end].encode("utf-8")).hexdigest()
+    return _result(
+        "SOURCE_PATTERN_MATCHED" if not errors else "INCONCLUSIVE",
+        digest,
+        errors,
+        blob_sha1,
+        revision,
+        function_body_sha256=function_body_sha256,
+    )
 
 
 def _result(
@@ -209,6 +217,8 @@ def _result(
     errors: list[str],
     git_blob_sha1: str = "",
     revision: str = DEFAULT_REVISION,
+    *,
+    function_body_sha256: str | None = None,
 ) -> dict:
     pin = PINNED_REVISIONS[revision]
     return {
@@ -219,6 +229,7 @@ def _result(
         "expected_upstream_commit": pin["commit"],
         "source_sha256": source_sha256,
         "git_blob_sha1": git_blob_sha1,
+        "function_body_sha256": function_body_sha256,
         "pinned_source_blob_matches": git_blob_sha1 == pin["git_blob_sha1"],
         "conclusion": conclusion,
         "errors": errors,

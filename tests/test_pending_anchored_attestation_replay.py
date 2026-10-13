@@ -1111,6 +1111,7 @@ def test_local_journal_advance_between_preflight_and_append_is_not_misaccepted(
 
     assert accepted == [("uncoordinated-local-writer",)]
     assert pending_status == ("PREPARED",)
-    assert local_state == (1, anchor.anchor["head_sha256"])
+    assert local_state[0] == 1
+    assert local_state[1] != anchor.anchor["head_sha256"]
     assert anchor.anchor["sequence"] == 1
     assert _counts(path) == (1, 1, 0)

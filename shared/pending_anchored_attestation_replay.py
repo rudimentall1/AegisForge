@@ -220,7 +220,11 @@ def _finalize_pending(
         raise ReplayAnchorUnavailable("local_registry_differs_from_pending_prior_anchor")
     try:
         result = verify_and_record_attestation(
-            dossier, envelope, trusted_public_keys=trusted_public_keys, database_path=database_path
+            dossier,
+            envelope,
+            trusted_public_keys=trusted_public_keys,
+            database_path=database_path,
+            expected_journal_state=(prior_sequence, prior_head),
         )
     except AttestationReplayRegistryError as exc:
         # Two recoverers can both observe the prior local head before either

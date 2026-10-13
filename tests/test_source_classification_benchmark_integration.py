@@ -31,8 +31,19 @@ def test_empty_source_research_input_is_not_misreported_as_unclassified():
 def test_profane_word_and_seed_in_unrelated_context_do_not_trigger_finding():
     actual = SourceResearcher._classification(
         "https://github.com/example/profanity-docs",
-        "Profanity telemetry sampler",
-        "A text filter uses a seed value for deterministic synthetic chart colors.",
+        "Profanity private-key test documentation",
+        "A 32-bit seed is recorded beside a private-key test fixture. "
+        "This page does not describe key generation or an RNG implementation.",
+    )
+    assert actual == "unclassified_source"
+
+
+def test_profane_seed_and_key_terms_without_rng_evidence_are_not_a_finding():
+    actual = SourceResearcher._classification(
+        "https://github.com/example/profanity-docs",
+        "Profanity migration notes",
+        "The migration notes mention a seed, a 32-bit value, and a private key, "
+        "but provide no random generator or key-generation implementation details.",
     )
     assert actual == "unclassified_source"
 

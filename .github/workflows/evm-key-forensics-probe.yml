@@ -229,6 +229,22 @@ jobs:
         with:
           subject-path: evm-key-forensics-evidence.zip
 
+      - name: Verify evidence bundle provenance attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh attestation verify evm-key-forensics-evidence.zip --repo rudimentall1/AegisForge --format json > attestation-verification.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("attestation-verification.json").read_text(encoding="utf-8"))
+          assert isinstance(report, list) and report, report
+          print(json.dumps(report, indent=2, sort_keys=True))
+          print("GitHub CLI attestation verification: PASS")
+          PY
+
       - name: Upload diagnostic evidence and attested bundle
         uses: actions/upload-artifact@v4
         with:
@@ -236,6 +252,7 @@ jobs:
           path: |
             probe-evidence/
             evm-key-forensics-evidence.zip
+            attestation-verification.json
           if-no-files-found: error
           retention-days: 30
 

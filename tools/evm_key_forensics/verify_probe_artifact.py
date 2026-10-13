@@ -138,8 +138,16 @@ def verify_artifact(root: Path) -> dict:
             and len(metadata["git_commit"]) == 40
             and all(char in "0123456789abcdefABCDEF" for char in metadata["git_commit"])
         ),
-        "run_id_recorded": isinstance(metadata.get("github_run_id"), str) and metadata["github_run_id"].isdigit(),
-        "run_attempt_recorded": isinstance(metadata.get("github_run_attempt"), str) and metadata["github_run_attempt"].isdigit(),
+        "run_id_recorded": (
+            isinstance(metadata.get("github_run_id"), str)
+            and metadata["github_run_id"].isdigit()
+            and int(metadata["github_run_id"]) > 0
+        ),
+        "run_attempt_recorded": (
+            isinstance(metadata.get("github_run_attempt"), str)
+            and metadata["github_run_attempt"].isdigit()
+            and int(metadata["github_run_attempt"]) > 0
+        ),
         "runner_environment_recorded": isinstance(metadata.get("runner_os"), str) and bool(metadata["runner_os"].strip()),
         "compiler_recorded": isinstance(metadata.get("compiler_version"), str) and bool(metadata["compiler_version"].strip()),
         "build_flags_recorded": isinstance(build_flags, list) and bool(build_flags) and all(isinstance(flag, str) and flag for flag in build_flags),

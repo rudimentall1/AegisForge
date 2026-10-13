@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 
 jobs:
   compile-and-smoke-test:
@@ -196,10 +198,23 @@ jobs:
           test "$status" -eq 2
           grep -q "sample_count_must_be_between_1_and_10000" /tmp/probe-err.txt
 
-      - name: Upload diagnostic evidence
+      - name: Package evidence bundle for attestation
+        run: |
+          set -euo pipefail
+          zip -X -r evm-key-forensics-evidence.zip probe-evidence
+          sha256sum evm-key-forensics-evidence.zip
+
+      - name: Attest evidence bundle provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: evm-key-forensics-evidence.zip
+
+      - name: Upload diagnostic evidence and attested bundle
         uses: actions/upload-artifact@v4
         with:
           name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
-          path: probe-evidence/
+          path: |
+            probe-evidence/
+            evm-key-forensics-evidence.zip
           if-no-files-found: error
           retention-days: 30

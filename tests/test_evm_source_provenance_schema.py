@@ -43,3 +43,21 @@ def test_source_provenance_schema_warns_that_shape_is_not_authenticity():
     publisher = schema["properties"]["publisher_identity"]["properties"]
     assert "UNVERIFIED" in publisher["verification_status"]["enum"]
     assert "UNKNOWN" in publisher["verification_status"]["enum"]
+
+
+def test_synthetic_unknown_provenance_example_does_not_infer_independence():
+    example_path = (
+        Path(__file__).resolve().parents[1]
+        / "tools"
+        / "evm_key_forensics"
+        / "examples"
+        / "source-provenance-unknown.json"
+    )
+    example = json.loads(example_path.read_text(encoding="utf-8"))
+
+    assert example["content_integrity"]["status"] == "MATCHED"
+    assert example["publisher_identity"]["verification_status"] == "UNKNOWN"
+    assert example["origin_relationship"]["status"] == "UNKNOWN"
+    assert example["independence_assessment"]["status"] == "NOT_ESTABLISHED"
+    assert example["independence_assessment"]["basis"] == "NO_VERIFIED_PROVENANCE"
+    assert any("does not authenticate" in item for item in example["limitations"])

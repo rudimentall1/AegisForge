@@ -305,7 +305,7 @@ def test_pipeline_rejects_source_fingerprint_mismatch_after_successful_refetch()
     assert report["exact_source_fingerprints_matching"] == 1
     assert report["status"] == "INCONCLUSIVE"
     assert report["decision"] == "CONTINUE_RESEARCH"
-    assert "insufficient_independent_source_rechecks" in report["readiness_blockers"]
+    assert "insufficient_distinct_source_content_rechecks" in report["readiness_blockers"]
 
 
 
@@ -389,7 +389,7 @@ def test_pipeline_keeps_unavailable_and_truncated_sources_inconclusive():
     assert report["sources_with_truncated_analysis_text"] == 1
     assert report["status"] == "INCONCLUSIVE"
     assert report["decision"] == "CONTINUE_RESEARCH"
-    assert "insufficient_independent_source_rechecks" in report["readiness_blockers"]
+    assert "insufficient_distinct_source_content_rechecks" in report["readiness_blockers"]
     assert "source_analysis_text_truncated" in report["readiness_blockers"]
 
 
@@ -445,10 +445,13 @@ def test_pipeline_does_not_count_identical_content_at_distinct_urls_as_independe
 
     assert report["sources_rechecked_http_200"] == 2
     assert report["exact_source_fingerprints_matching"] == 2
-    assert report["independent_matching_source_fingerprints"] == 0
+    # Legacy field now counts distinct content, not independence.
+    assert report["independent_matching_source_fingerprints"] == 1
+    assert report["distinct_matching_source_fingerprints"] == 1
+    assert report["source_origin_independence_established"] is False
     assert len(report["duplicate_source_content_fingerprints"]) == 1
     assert "duplicate_source_content_fingerprints" in report["readiness_blockers"]
-    assert "insufficient_independent_source_rechecks" in report["readiness_blockers"]
+    assert "insufficient_distinct_source_content_rechecks" in report["readiness_blockers"]
     assert report["status"] == "INCONCLUSIVE"
     assert report["decision"] == "CONTINUE_RESEARCH"
 

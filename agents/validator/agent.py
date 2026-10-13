@@ -577,6 +577,30 @@ class Validator:
                     "interpretation": "Exact canonical-origin reference matches; source identity and factual correctness are not established by this match.",
                 })
 
+        # Preserve shared-origin relationships even when claims agree. Agreement
+        # is still only signed assertion data, never independent verification.
+        shared_origin_reference_groups = []
+        for origin_ref, attestations in sorted(attestations_by_origin.items()):
+            if len(attestations) < 2:
+                continue
+            statuses = {str(item.get("independence_status", "UNKNOWN")) for item in attestations}
+            if statuses == {"DEPENDENT"}:
+                relationship_assessment = "CLAIMED_DEPENDENT"
+            elif statuses == {"ESTABLISHED"}:
+                relationship_assessment = "CLAIMED_INDEPENDENT"
+            else:
+                relationship_assessment = "MIXED_OR_UNKNOWN"
+            shared_origin_reference_groups.append({
+                "canonical_origin_ref": origin_ref,
+                "source_ids": sorted({str(item.get("source_id", "")) for item in attestations}),
+                "signer_key_ids": sorted({str(item.get("key_id", "")) for item in attestations}),
+                "attestations_count": len(attestations),
+                "claimed_independence_statuses": sorted(statuses),
+                "relationship_assessment": relationship_assessment,
+                "evidence_status": "SIGNED_ASSERTIONS_ONLY_NOT_INDEPENDENTLY_VERIFIED",
+                "interpretation": "A shared reference groups claims for review; it does not prove document identity, version equivalence, or source independence.",
+            })
+
         # Contradictions are only recorded when upstream stages provide explicit,
         # structured assertions. Do not infer support/refutation from keywords.
         claim_assertions = []
@@ -1241,6 +1265,7 @@ class Validator:
             "signed_provenance_attestations_verified": len(verified_provenance_attestations),
             "conflicting_signed_provenance_attestations": conflicting_signed_provenance_attestations,
             "conflicting_signed_provenance_origin_assertions": conflicting_signed_provenance_origin_assertions,
+            "shared_origin_reference_groups": shared_origin_reference_groups,
             "signed_provenance_attestation_checks": [
                 {key: value for key, value in item.items() if key != "interpretation"}
                 for item in verified_provenance_attestations

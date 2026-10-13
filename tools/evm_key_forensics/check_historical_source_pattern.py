@@ -89,6 +89,11 @@ def _mask_comments_and_literals(source: str) -> tuple[str, str | None]:
             elif char != "\n":
                 chars[index] = " "
         elif state in {"string", "char"}:
+            if char == "\n" and not escaped:
+                # Ordinary C++ string/character literals cannot cross an
+                # unescaped newline. Do not let malformed input hide tokens
+                # on following lines and accidentally satisfy the pattern.
+                return "".join(chars), f"newline_in_{state}"
             if char != "\n":
                 chars[index] = " "
             if escaped:

@@ -21,6 +21,7 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / "probe-source.cpp").write_text("// pinned diagnostic source\n", encoding="utf-8")
         (self.root / "probe-binary").write_bytes(b"synthetic-test-binary")
+        (self.root / "probe-binary-repeat").write_bytes(b"synthetic-test-binary")
         output = {
             "schema_version": 1,
             "probe": "std_random_device_environment_diagnostic",
@@ -94,6 +95,9 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
             "build_flags": ["-std=c++11", "-O2"],
             "source_sha256": digest(self.root / "probe-source.cpp"),
             "binary_sha256": digest(self.root / "probe-binary"),
+            "repeat_binary_sha256": digest(self.root / "probe-binary-repeat"),
+            "repeat_build_matches": True,
+            "repeat_build_scope": "same_runner_same_compiler_same_flags",
             "output_sha256": digest(self.root / "probe-output.json"),
             "source_evidence_report_sha256": digest(self.root / "source-evidence-report.json"),
             "independent_source_body_review_sha256": digest(self.root / "independent-source-body-review.json"),
@@ -117,6 +121,17 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.assertTrue(result["integrity_verified"])
         self.assertEqual(result["authenticity"], "UNTRUSTED_UNSIGNED")
         self.assertFalse(result["signature_verified_against_trusted_key"])
+
+    def test_repeat_build_mismatch_is_rejected(self):
+        repeat_path = self.root / "probe-binary-repeat"
+        repeat_path.write_bytes(b"different-test-binary")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["repeat_binary_sha256"] = digest(repeat_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["repeat_build_is_byte_identical"])
 
     def test_missing_independent_source_review_is_rejected(self):
         (self.root / "independent-source-body-review.json").unlink()

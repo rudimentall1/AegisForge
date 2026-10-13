@@ -142,3 +142,15 @@ def test_cli_rejects_matching_pattern_without_exact_pinned_source_blob(tmp_path,
     assert result["conclusion"] == "INCONCLUSIVE"
     assert result["pinned_source_blob_matches"] is False
     assert "pinned_upstream_blob_mismatch" in result["errors"]
+
+
+def test_unterminated_block_comment_fails_closed():
+    result = inspect_source(SOURCE + "\\n/* unterminated comment")
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "unterminated_block_comment" in result["errors"]
+
+
+def test_unterminated_string_literal_fails_closed():
+    result = inspect_source(SOURCE + "\\nconst char *note = \\\"unterminated;")
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "unterminated_string" in result["errors"]

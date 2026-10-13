@@ -61,6 +61,23 @@ def test_missing_distribution_call_fails_control():
     assert "expected_one_distribution_assignment_for_word_3" in result["errors"]
 
 
+def test_comment_cannot_fake_missing_distribution_call():
+    mutated = SOURCE.replace(
+        "r.s[3] = distr(eng);",
+        "// r.s[3] = distr(eng);\\n    r.s[3] = 0;",
+    )
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "expected_four_distribution_calls" in result["errors"]
+    assert "expected_one_distribution_assignment_for_word_3" in result["errors"]
+
+
+def test_comment_cannot_supply_function_marker():
+    mutated = "// cl_ulong4 Dispatcher::Device::createSeed() { }\\n" + SOURCE
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "SOURCE_PATTERN_MATCHED"
+
+
 def test_missing_debug_branch_fails_closed():
     mutated = SOURCE.replace("#ifdef PROFANITY_DEBUG", "#if defined(DEBUG)")
     result = inspect_source(mutated)

@@ -408,6 +408,40 @@ class Validator:
         """Check provenance and scope without equating source access with proof."""
         result = dict(task.result or {})
         sources = [item for item in result.get("sources", []) if isinstance(item, dict)]
+
+        # Contradictions are only recorded when upstream stages provide explicit,
+        # structured assertions. Do not infer support/refutation from keywords.
+        claim_assertions = []
+        for source in sources:
+            assertions = source.get("claim_assertions", [])
+            if not isinstance(assertions, list):
+                continue
+            for assertion in assertions:
+                if not isinstance(assertion, dict):
+                    continue
+                claim_id = str(assertion.get("claim_id") or "").strip()
+                stance = str(assertion.get("stance") or "").strip().upper()
+                source_id = str(source.get("source_id") or "").strip()
+                if claim_id and stance in {"SUPPORTS", "REFUTES"} and source_id:
+                    claim_assertions.append({
+                        "claim_id": claim_id,
+                        "stance": stance,
+                        "source_id": source_id,
+                    })
+        claim_stances = {}
+        for assertion in claim_assertions:
+            claim_stances.setdefault(assertion["claim_id"], {}).setdefault(
+                assertion["stance"], set()
+            ).add(assertion["source_id"])
+        conflicting_claims = [
+            {
+                "claim_id": claim_id,
+                "supporting_source_ids": sorted(stances.get("SUPPORTS", set())),
+                "refuting_source_ids": sorted(stances.get("REFUTES", set())),
+            }
+            for claim_id, stances in sorted(claim_stances.items())
+            if stances.get("SUPPORTS") and stances.get("REFUTES")
+        ]
         source_id_counts = {}
         for source in sources:
             source_id = str(source.get("source_id") or "").strip()
@@ -852,6 +886,8 @@ class Validator:
             item.get("analysis_text_completeness") == "UNKNOWN" for item in source_checks
         )
         readiness_blockers = []
+        if conflicting_claims:
+            readiness_blockers.append("conflicting_source_claims_require_review")
         if source_identity_integrity_failed:
             readiness_blockers.append("source_identity_integrity_failed")
         if duplicate_source_urls:
@@ -873,6 +909,8 @@ class Validator:
         status = "READY_FOR_HUMAN_REVIEW" if not readiness_blockers else "INCONCLUSIVE"
 
         next_actions = []
+        if conflicting_claims:
+            next_actions.append("Resolve explicit opposing source assertions claim by claim; do not choose a side from keyword counts or source volume.")
         if not any(item.get("classification") == "early_client_key_generation_warning" for item in sources):
             next_actions.append("Find primary material describing exact early-client version boundaries.")
         if not any(item.get("classification") == "vanity_generator_entropy_weakness_report" for item in sources):
@@ -920,6 +958,8 @@ class Validator:
             "exact_source_fingerprints_matching": matching,
             "sources_with_truncated_analysis_text": truncated_sources,
             "sources_with_unknown_analysis_text_completeness": unknown_completeness_sources,
+            "explicit_claim_assertions_checked": len(claim_assertions),
+            "conflicting_source_claims": conflicting_claims,
             "hypotheses_checked": len(hypothesis_checks),
             "hypothesis_checks": hypothesis_checks,
             "lab_experiment_count": len(experiments),

@@ -94,7 +94,7 @@ def verify_artifact(root: Path) -> dict:
         "source_hash_matches": metadata.get("source_sha256") == sha256(source_path),
         "binary_hash_matches": metadata.get("binary_sha256") == sha256(binary_path),
         "output_hash_matches": metadata.get("output_sha256") == sha256(output_path),
-        "commit_recorded": isinstance(metadata.get("git_commit"), str) and len(metadata["git_commit"]) == 40,
+        "commit_recorded": (\n            isinstance(metadata.get("git_commit"), str)\n            and len(metadata["git_commit"]) == 40\n            and all(char in "0123456789abcdefABCDEF" for char in metadata["git_commit"])\n        ),
         "run_id_recorded": isinstance(metadata.get("github_run_id"), str) and metadata["github_run_id"].isdigit(),
         "run_attempt_recorded": isinstance(metadata.get("github_run_attempt"), str) and metadata["github_run_attempt"].isdigit(),
         "runner_environment_recorded": isinstance(metadata.get("runner_os"), str) and bool(metadata["runner_os"].strip()),

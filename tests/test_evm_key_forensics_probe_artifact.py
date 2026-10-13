@@ -69,6 +69,17 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
             },
         }
         (self.root / "source-evidence-report.json").write_text(json.dumps(source_report), encoding="utf-8")
+        independent_review = {
+            "status": "CHECKED",
+            "method": "git_object_identity_plus_direct_function_text_comparison",
+            "revisions": [
+                {"revision": "pre_disclosure", "git_blob_sha1": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25"},
+                {"revision": "post_disclosure_archive", "git_blob_sha1": "884ced30ed6e55794ea5bda0451b52e81ddec1dd"},
+            ],
+            "same_function_body_bytes": True,
+            "conclusion": "INCONCLUSIVE",
+        }
+        (self.root / "independent-source-body-review.json").write_text(json.dumps(independent_review), encoding="utf-8")
         metadata = {
             "schema_version": 1,
             "purpose": "diagnostic_environment_observation_only",
@@ -82,6 +93,7 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
             "binary_sha256": digest(self.root / "probe-binary"),
             "output_sha256": digest(self.root / "probe-output.json"),
             "source_evidence_report_sha256": digest(self.root / "source-evidence-report.json"),
+            "independent_source_body_review_sha256": digest(self.root / "independent-source-body-review.json"),
             "historical_vulnerability_reproduced": False,
             "entropy_proven": False,
         }
@@ -102,6 +114,37 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.assertTrue(result["integrity_verified"])
         self.assertEqual(result["authenticity"], "UNTRUSTED_UNSIGNED")
         self.assertFalse(result["signature_verified_against_trusted_key"])
+
+    def test_missing_independent_source_review_is_rejected(self):
+        (self.root / "independent-source-body-review.json").unlink()
+        with self.assertRaisesRegex(ValueError, "artifact_file_missing_or_not_regular"):
+            verify_artifact(self.root)
+
+    def test_independent_source_review_hash_and_claim_are_checked(self):
+        review_path = self.root / "independent-source-body-review.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["same_function_body_bytes"] = False
+        review_path.write_text(json.dumps(review), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["independent_source_body_review_sha256"] = digest(review_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["independent_source_review_body_match_is_inconclusive"])
+
+    def test_independent_source_review_rejects_wrong_blob_even_with_updated_hash(self):
+        review_path = self.root / "independent-source-body-review.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["revisions"][0]["git_blob_sha1"] = "0" * 40
+        review_path.write_text(json.dumps(review), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["independent_source_body_review_sha256"] = digest(review_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["independent_source_review_pins_match"])
 
     def test_missing_source_report_is_rejected(self):
         (self.root / "source-evidence-report.json").unlink()

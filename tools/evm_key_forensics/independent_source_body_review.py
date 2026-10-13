@@ -116,6 +116,16 @@ def _code_brace_positions(source: bytes, start: int):
         offset += 1
 
 
+def _is_identifier_byte(char: int) -> bool:
+    """Return whether a byte can continue an ASCII C++ identifier."""
+    return (
+        ord("a") <= char <= ord("z")
+        or ord("A") <= char <= ord("Z")
+        or ord("0") <= char <= ord("9")
+        or char == ord("_")
+    )
+
+
 def _find_code_signature(source: bytes) -> int:
     """Find the signature only in ordinary C++ code, not comments or literals."""
     normal, line_comment, block_comment, string, character = range(5)
@@ -129,7 +139,9 @@ def _find_code_signature(source: bytes) -> int:
                 offset = raw_end
                 continue
             if source.startswith(FUNCTION_SIGNATURE, offset):
-                return offset
+                previous_is_identifier = offset > 0 and _is_identifier_byte(source[offset - 1])
+                if not previous_is_identifier:
+                    return offset
             char = source[offset]
             nxt = source[offset + 1] if offset + 1 < len(source) else 0
             if char == ord("/") and nxt == ord("/"):

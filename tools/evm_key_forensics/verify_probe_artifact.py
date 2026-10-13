@@ -63,11 +63,22 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _require_regular_bundle_file(path: Path) -> None:
+    # Do not let a bundle redirect verification to arbitrary files outside its
+    # directory through symlinks. The verifier only accepts self-contained files.
+    if path.is_symlink():
+        raise ValueError("artifact_file_must_not_be_symlink")
+    if not path.is_file():
+        raise ValueError("artifact_file_missing_or_not_regular")
+
+
 def verify_artifact(root: Path) -> dict:
     metadata_path = root / "probe-run-metadata.json"
     output_path = root / "probe-output.json"
     source_path = root / "probe-source.cpp"
     binary_path = root / "probe-binary"
+    for artifact_path in (metadata_path, output_path, source_path, binary_path):
+        _require_regular_bundle_file(artifact_path)
     metadata = _load_strict_json(metadata_path)
     output = _load_strict_json(output_path)
 

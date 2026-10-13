@@ -65,10 +65,34 @@ jobs:
           print("probe JSON and safety invariants: PASS")
           PY
 
+      - name: Build pinned source evidence comparison report
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 "https://raw.githubusercontent.com/johguse/profanity/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/Dispatcher.cpp" -o /tmp/pinned-Dispatcher.cpp
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 "https://raw.githubusercontent.com/johguse/profanity/186b9b27ab3e24a1899f648adcabcbf0e5f3131e/Dispatcher.cpp" -o /tmp/pinned-Dispatcher-post.cpp
+          python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher.cpp --revision pre-disclosure --pretty > /tmp/source-pattern-pre.json
+          python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher-post.cpp --revision post-disclosure --pretty > /tmp/source-pattern-post.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected = {
+              "/tmp/source-pattern-pre.json": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+              "/tmp/source-pattern-post.json": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+          }
+          for filename, commit in expected.items():
+              result = json.loads(Path(filename).read_text(encoding="utf-8"))
+              assert result["conclusion"] == "SOURCE_PATTERN_MATCHED", result
+              assert result["expected_upstream_commit"] == commit, result
+              assert result["pinned_source_blob_matches"] is True, result
+          PY
+          python tools/evm_key_forensics/build_source_evidence_report.py /tmp/source-pattern-pre.json /tmp/source-pattern-post.json --output /tmp/source-evidence-report.json
+
       - name: Assemble and verify portable probe evidence
         run: |
           mkdir -p probe-evidence
           cp probe-output.json probe-evidence/probe-output.json
+          cp /tmp/source-evidence-report.json probe-evidence/source-evidence-report.json
           cp tools/evm_key_forensics/profanity_seed_environment_probe.cpp probe-evidence/probe-source.cpp
           cp profanity_seed_environment_probe probe-evidence/probe-binary
           python - <<'PY'
@@ -100,6 +124,7 @@ jobs:
               "source_sha256": sha256("probe-source.cpp"),
               "binary_sha256": sha256("probe-binary"),
               "output_sha256": sha256("probe-output.json"),
+              "source_evidence_report_sha256": sha256("source-evidence-report.json"),
               "historical_vulnerability_reproduced": False,
               "entropy_proven": False,
           }

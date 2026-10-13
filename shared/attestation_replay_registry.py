@@ -168,6 +168,7 @@ def verify_and_record_attestation(
     trusted_public_keys: Mapping[str, bytes],
     database_path: str | Path,
     expected_journal_state: tuple[int, str] | None = None,
+    finalize_pending_candidate_id: str | None = None,
 ) -> dict:
     """Verify a receipt, then atomically reserve its run ID/nonce and journal it.
 
@@ -248,6 +249,20 @@ def verify_and_record_attestation(
                     (provider_id, sequence, run_id, nonce, receipt_sha256, head,
                      canonical_json(dossier), canonical_json(envelope)),
                 )
+                if finalize_pending_candidate_id is not None:
+                    finalized = db.execute(
+                        """UPDATE pending_anchored_replay
+                           SET status='FINALIZED'
+                           WHERE candidate_id=? AND provider_id=? AND run_id=? AND nonce=?
+                             AND receipt_sha256=? AND candidate_sequence=? AND candidate_head_sha256=?
+                             AND status='PREPARED'""",
+                        (finalize_pending_candidate_id, provider_id, run_id, nonce,
+                         receipt_sha256, sequence, head),
+                    )
+                    if finalized.rowcount != 1:
+                        raise AttestationReplayRegistryError(
+                            "pending_candidate_not_finalizable_in_acceptance_transaction"
+                        )
                 db.execute("COMMIT")
             except sqlite3.IntegrityError as exc:
                 db.execute("ROLLBACK")

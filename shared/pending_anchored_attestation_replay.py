@@ -176,6 +176,8 @@ def _finalize_pending(
      candidate_sequence, candidate_head, dossier_json, envelope_json, status) = row
     if status == "CONFLICT":
         raise ReplayAnchorUnavailable("pending_candidate_conflict_requires_review")
+    if status not in ("PREPARED", "FINALIZED"):
+        raise ReplayAnchorUnavailable("pending_candidate_status_invalid")
     try:
         dossier = json.loads(dossier_json)
         envelope = json.loads(envelope_json)
@@ -345,6 +347,10 @@ def recover_pending_attestation(
         raise ReplayAnchorUnavailable("pending_candidate_missing")
     (provider_id, run_id, nonce, receipt_sha, prior_sequence, prior_head,
      candidate_sequence, candidate_head, dossier_json, envelope_json, status) = row
+    if status == "CONFLICT":
+        raise ReplayAnchorUnavailable("pending_candidate_conflict_requires_review")
+    if status not in ("PREPARED", "FINALIZED"):
+        raise ReplayAnchorUnavailable("pending_candidate_status_invalid")
     if status in ("PREPARED", "FINALIZED"):
         # Validate the complete candidate before CAS. Local pending rows are not
         # an authority source: otherwise a modified candidate head could be

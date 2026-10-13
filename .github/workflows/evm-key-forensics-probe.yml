@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Check pinned historical source pattern (inspection only)
         run: |
@@ -200,7 +200,7 @@ jobs:
           python tools/evm_key_forensics/verify_probe_artifact.py probe-evidence
 
       - name: Publish first-run binary for clean-runner comparison
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: evm-key-forensics-rebuild-reference
           path: |
@@ -225,7 +225,7 @@ jobs:
           sha256sum evm-key-forensics-evidence.zip
 
       - name: Attest evidence bundle provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: evm-key-forensics-evidence.zip
 
@@ -314,7 +314,7 @@ jobs:
           PY
 
       - name: Upload diagnostic evidence and attested bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -330,10 +330,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact workflow revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Download first-run reference binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: evm-key-forensics-rebuild-reference
           path: reference
@@ -399,7 +399,7 @@ jobs:
           echo "Clean-runner rebuild matches byte-for-byte."
 
       - name: Upload independent rebuild report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: evm-key-forensics-independent-rebuild-${{ github.run_id }}-${{ github.run_attempt }}
           path: independent-rebuild-report.json
@@ -413,13 +413,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download probe evidence
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
           path: downloaded-probe
 
       - name: Download independent rebuild report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: evm-key-forensics-independent-rebuild-${{ github.run_id }}-${{ github.run_attempt }}
           path: downloaded-rebuild
@@ -470,7 +470,7 @@ jobs:
           sha256sum evm-key-forensics-complete-evidence.zip
 
       - name: Attest complete evidence package
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: evm-key-forensics-complete-evidence.zip
 
@@ -551,7 +551,7 @@ jobs:
           PY
 
       - name: Upload attested complete evidence package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: evm-key-forensics-complete-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: |

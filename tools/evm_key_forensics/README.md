@@ -30,6 +30,22 @@ The output records:
 
 To move beyond this diagnostic, a separate controlled experiment must pin the historical source revision and toolchain, exercise the relevant historical code path in an isolated environment, predefine the property being tested, and export an artifact that the independent AegisForge Validator can check. Until that exists, keep the historical reproduction status `INCONCLUSIVE`.
 
+## Combined evidence ZIP verification
+
+For the combined package published by the EVM Key Forensics Probe workflow, download `evm-key-forensics-complete-evidence.zip` and run:
+
+```sh
+python tools/evm_key_forensics/verify_complete_evidence.py evm-key-forensics-complete-evidence.zip
+```
+
+A successful result verifies archive member safety, the probe bundle's internal hashes, and consistency between the probe metadata, independent rebuild report, and combined index. It reports `UNTRUSTED_UNSIGNED` and `NOT_CHECKED_OFFLINE` for authenticity and GitHub attestation because those checks are separate. Verify provenance against the exact downloaded ZIP with:
+
+```sh
+gh attestation verify evm-key-forensics-complete-evidence.zip --repo rudimentall1/AegisForge
+```
+
+The offline verifier does not execute files from the archive. It does not prove historical Profanity runtime behavior or upgrade the research conclusion beyond `INCONCLUSIVE`.
+
 ## Portable artifact verification
 
 For a lab experiment exported by the AegisForge runner, use the shared offline verifier from the repository root:

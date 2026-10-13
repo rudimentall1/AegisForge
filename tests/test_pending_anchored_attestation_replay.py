@@ -287,6 +287,15 @@ def test_finalization_database_failure_can_be_recovered_idempotently(monkeypatch
     assert recovered["recovered"] is True
     assert _counts(path) == (1, 1, 1)
 
+    # A second recovery must verify the committed evidence and leave every durable
+    # record unchanged; it must not append another journal event or accepted row.
+    recovered_again = pending.recover_pending_attestation(
+        candidate_id, trusted_public_keys=trusted, database_path=path, anchor_store=anchor
+    )
+    assert recovered_again["recovered"] is True
+    assert recovered_again["journal"]["sequence"] == 1
+    assert _counts(path) == (1, 1, 1)
+
 
 def test_concurrent_writers_from_same_anchor_accept_exactly_one_candidate(tmp_path):
     import threading

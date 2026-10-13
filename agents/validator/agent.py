@@ -549,6 +549,34 @@ class Validator:
                     "resolution": "HUMAN_REVIEW_REQUIRED",
                 })
 
+        # A shared canonical origin can reveal contradictory provenance claims
+        # even when the dossier assigned different local source IDs. Exact
+        # reference equality is only a grouping signal, not proof of source identity.
+        attestations_by_origin = {}
+        for attestation in verified_provenance_attestations:
+            origin_ref = str(attestation.get("canonical_origin_ref") or "").strip()
+            if origin_ref:
+                attestations_by_origin.setdefault(origin_ref, []).append(attestation)
+        conflicting_signed_provenance_origin_assertions = []
+        for origin_ref, attestations in sorted(attestations_by_origin.items()):
+            if len(attestations) < 2:
+                continue
+            conflicting_fields = {
+                field: sorted({str(item.get(field, "")) for item in attestations})
+                for field in provenance_fields
+                if len({str(item.get(field, "")) for item in attestations}) > 1
+            }
+            if conflicting_fields:
+                conflicting_signed_provenance_origin_assertions.append({
+                    "canonical_origin_ref": origin_ref,
+                    "source_ids": sorted({str(item.get("source_id", "")) for item in attestations}),
+                    "signer_key_ids": sorted({str(item.get("key_id", "")) for item in attestations}),
+                    "attestations_count": len(attestations),
+                    "conflicting_fields": conflicting_fields,
+                    "resolution": "HUMAN_REVIEW_REQUIRED",
+                    "interpretation": "Exact canonical-origin reference matches; source identity and factual correctness are not established by this match.",
+                })
+
         # Contradictions are only recorded when upstream stages provide explicit,
         # structured assertions. Do not infer support/refutation from keywords.
         claim_assertions = []
@@ -1114,6 +1142,8 @@ class Validator:
             readiness_blockers.append("conflicting_source_claims_require_review")
         if conflicting_signed_provenance_attestations:
             readiness_blockers.append("conflicting_signed_provenance_attestations_require_review")
+        if conflicting_signed_provenance_origin_assertions:
+            readiness_blockers.append("conflicting_signed_provenance_origin_assertions_require_review")
         if source_provenance_claims:
             readiness_blockers.append("submitted_source_provenance_requires_independent_verification")
         if source_identity_integrity_failed:
@@ -1154,6 +1184,8 @@ class Validator:
             next_actions.append("Resolve explicit opposing source assertions claim by claim; do not choose a side from keyword counts or source volume.")
         if conflicting_signed_provenance_attestations:
             next_actions.append("Review conflicting signed provenance attestations for the same source ID; valid signatures do not resolve which assertion is factually correct.")
+        if conflicting_signed_provenance_origin_assertions:
+            next_actions.append("Review contradictory signed provenance claims sharing an exact canonical-origin reference, even when their local source IDs differ; do not infer source identity from the reference alone.")
         if source_provenance_claims:
             next_actions.append("Independently verify source-supplied provenance claims and store verifier results separately; fields inside a dossier are not verification evidence.")
         if not any(item.get("classification") == "early_client_key_generation_warning" for item in sources):
@@ -1208,6 +1240,7 @@ class Validator:
             ),
             "signed_provenance_attestations_verified": len(verified_provenance_attestations),
             "conflicting_signed_provenance_attestations": conflicting_signed_provenance_attestations,
+            "conflicting_signed_provenance_origin_assertions": conflicting_signed_provenance_origin_assertions,
             "signed_provenance_attestation_checks": [
                 {key: value for key, value in item.items() if key != "interpretation"}
                 for item in verified_provenance_attestations

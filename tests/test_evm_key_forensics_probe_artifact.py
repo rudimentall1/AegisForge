@@ -225,6 +225,13 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "json_root_must_be_object"):
             verify_artifact(self.root)
 
+    def test_excessively_nested_json_is_rejected_cleanly(self):
+        output_path = self.root / "probe-output.json"
+        output_path.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "json_nesting_limit_exceeded"):
+            verify_artifact(self.root)
+
     def test_non_utf8_json_is_rejected_with_clear_error(self):
         output_path = self.root / "probe-output.json"
         output_path.write_bytes(b"\xff")

@@ -483,6 +483,8 @@ class Validator:
         for source in sources:
             record = source.get("provenance_record")
             if not isinstance(record, dict):
+                record = {}
+            if not record and not isinstance(source.get("provenance_attestation"), dict):
                 continue
             publisher = record.get("publisher_identity")
             origin = record.get("origin_relationship")
@@ -1158,7 +1160,7 @@ class Validator:
             "duplicate_source_content_fingerprints": duplicate_source_content_fingerprints,
             "source_provenance_claims_received": len(source_provenance_claims),
             "source_provenance_claims": source_provenance_claims,
-            "source_provenance_claims_independently_verified": False,,
+            "source_provenance_claims_independently_verified": False,
             "provenance_trust_store_configured": bool(provenance_trust_keys),
             "provenance_trust_store_error": provenance_trust_store_error,
             "signed_provenance_attestations_checked": sum(
@@ -1168,7 +1170,7 @@ class Validator:
             "signed_provenance_attestation_checks": [
                 {key: value for key, value in item.items() if key != "interpretation"}
                 for item in verified_provenance_attestations
-            ]
+            ],
             # Legacy field name retained for compatibility. This is a content
             # count only and must never be interpreted as source independence.
             "independent_matching_source_fingerprints": distinct_matching_fingerprints,

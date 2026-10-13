@@ -160,6 +160,17 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
 
 
 
+
+    def test_non_hex_commit_record_is_rejected(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["git_commit"] = "g" * 40
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["commit_recorded"])
+
     def test_boolean_metadata_schema_version_is_rejected(self):
         metadata_path = self.root / "probe-run-metadata.json"
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))

@@ -74,3 +74,16 @@ The combined evidence job completed successfully in [workflow run 38368366193](h
 The verification step checked the attested subject digest against the actual archive, the GitHub certificate identity and workflow metadata, and consistency between the probe metadata, independent rebuild report, and combined index. The archive explicitly records that historical Profanity was not executed and its vulnerability was not reproduced.
 
 This establishes GitHub-attested provenance and internal consistency for this synthetic diagnostic package. It does not authenticate historical Profanity runtime behavior, establish the historical binary's source provenance, or prove a wallet was exposed.
+
+## Immutable action references and repeat verification
+
+After the combined-package gate passed, the forensic workflow's third-party actions were pinned to the exact commit SHAs observed in the successful GitHub job logs. The workflow no longer uses floating major-version tags for checkout, artifact download/upload, or provenance attestation.
+
+The pinned workflow completed successfully in [run 38368603773](https://github.com/rudimentall1/AegisForge/actions/runs/38368603773), using PR head `cde0549ada415430503c5331b5d26b3d9cf6c8bc`.
+
+- Attested archive SHA-256: `5eeff9610f588edab529d47945ba47109706f2b375c9e2a9a43775b3820758f3`
+- Workflow source SHA in the provenance statement: `5ee1a01a3b5ddb95fb4838b936737e2747463d1e`
+- Attestation identity, archive digest and probe/rebuild cross-linkage: `PASS`
+- Uploaded combined artifact: [evm-key-forensics-complete-evidence-38368603773-1](https://github.com/rudimentall1/AegisForge/actions/runs/38368603773/artifacts/11798690374)
+
+Pinning makes the action code reference immutable for this workflow revision. It does not eliminate risk in the runner image, toolchain downloads, or the actions' own dependencies; those remain separate supply-chain controls.

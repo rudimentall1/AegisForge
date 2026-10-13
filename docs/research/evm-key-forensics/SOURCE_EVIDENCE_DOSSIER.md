@@ -23,6 +23,12 @@ python tools/evm_key_forensics/check_historical_source_pattern.py /path/to/Dispa
 
 The CLI accepts only the exact pinned Git blob for the selected role. A result of `SOURCE_PATTERN_MATCHED` is source-level evidence only. A mismatch or ambiguous structure must remain `INCONCLUSIVE`.
 
+## Cross-revision observation
+
+A direct text inspection of `Dispatcher::Device::createSeed()` at both pinned upstream revisions shows the same function body: the production branch constructs one `std::random_device`, seeds one `std::mt19937_64` with a single `rd()` result, and obtains four outputs from that engine; the debug branch assigns four fixed values. The current source comparison report validates the two complete files and their identities, but it does not perform a semantic diff of this function.
+
+Do not interpret the post-disclosure archive as evidence that this function was corrected. This observation is limited to the retrieved source text and has not been recorded as an independent review. A future reviewer should independently repeat the retrieval and record the function-level comparison in [the review worksheet](./INDEPENDENT_SOURCE_REVIEW_WORKSHEET.md). The broader vulnerability history and exploitability are separate claims.
+
 ## Trust boundary
 
 Git blob IDs and SHA-256 digests support content-integrity checks. They do not authenticate the collector, the execution environment, or the truth of a report. The dossier is intentionally unsigned. Independent runner attestation and source-to-binary provenance remain unimplemented.

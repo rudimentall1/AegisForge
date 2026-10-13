@@ -975,6 +975,9 @@ class Validator:
             readiness_blockers.append("duplicate_source_urls")
         if duplicate_source_content_fingerprints:
             readiness_blockers.append("duplicate_source_content_fingerprints")
+        # Unique bytes are not proof of independent reporting or origin.
+        # This validator has no independently verified publisher/origin graph yet.
+        readiness_blockers.append("source_origin_independence_not_established")
         if source_derivation_dependencies:
             readiness_blockers.append("source_derivation_dependencies_require_review")
         if invalid_derivation_references:
@@ -1043,7 +1046,12 @@ class Validator:
             "duplicate_source_ids": duplicate_source_ids,
             "duplicate_source_urls": duplicate_source_urls,
             "duplicate_source_content_fingerprints": duplicate_source_content_fingerprints,
+            # Legacy metric counts distinct matching content hashes only; it does
+            # not establish epistemic or publisher independence.
             "independent_matching_source_fingerprints": independent_matching_fingerprints,
+            "distinct_matching_source_fingerprints": independent_matching_fingerprints,
+            "source_origin_independence_established": False,
+            "source_independence_basis": "unique_content_hashes_and_distinct_urls_do_not_verify_independent_origin",
             "source_derivation_dependencies": source_derivation_dependencies,
             "sources_with_declared_derivations": len(sources_with_declared_derivations),
             "invalid_source_derivation_references": sorted(set(invalid_derivation_references)),

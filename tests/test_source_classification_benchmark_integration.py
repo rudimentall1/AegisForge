@@ -232,3 +232,77 @@ def test_pipeline_does_not_treat_duplicate_source_records_as_independent_evidenc
     assert report["sources_rechecked_http_200"] == 2
     assert report["exact_source_fingerprints_matching"] == 2
     assert report["pinned_revision_source_checks_passed"] == 0
+
+
+
+def test_pipeline_rejects_source_fingerprint_mismatch_after_successful_refetch():
+    """HTTP 200 is not enough when the fetched bytes differ from the recorded digest."""
+    import hashlib
+
+    from agents.crypto_analyst.agent import CryptoAnalyst
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    recorded_a = "Previously reviewed source body A."
+    fresh_a = "Different source body returned on re-fetch."
+    body_b = "Previously reviewed source body B."
+    digest_a = hashlib.sha256(recorded_a.encode("utf-8")).hexdigest()
+    fresh_digest_a = hashlib.sha256(fresh_a.encode("utf-8")).hexdigest()
+    digest_b = hashlib.sha256(body_b.encode("utf-8")).hexdigest()
+    url_a = (
+        "https://raw.githubusercontent.com/example/repo/"
+        "0123456789012345678901234567890123456789/source-a.txt"
+    )
+    url_b = (
+        "https://raw.githubusercontent.com/example/repo/"
+        "0123456789012345678901234567890123456789/source-b.txt"
+    )
+    task = Task(
+        task_id="source-fingerprint-mismatch-pipeline",
+        description="A changed source body must not count as a matching evidence fingerprint",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [
+                {
+                    "source_id": "source-a",
+                    "source_url": url_a,
+                    "status_code": 200,
+                    "content_sha256": digest_a,
+                    "classification": "unclassified_source",
+                },
+                {
+                    "source_id": "source-b",
+                    "source_url": url_b,
+                    "status_code": 200,
+                    "content_sha256": digest_b,
+                    "classification": "unclassified_source",
+                },
+            ],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+
+    def source_fetcher(url):
+        return {
+            "status_code": 200,
+            "content_sha256": fresh_digest_a if url == url_a else digest_b,
+            "content_truncated_for_analysis": False,
+            "retrieved_at": "2026-10-13T00:00:00Z",
+        }
+
+    analyzed = CryptoAnalyst().run(task)
+    validated = Validator(source_fetcher=source_fetcher).run(analyzed)
+    report = validated.result["research_validation"]
+    checks = {item["source_id"]: item for item in validated.result["research_source_checks"]}
+
+    assert checks["source-a"]["recheck_status"] == "rechecked_http_200"
+    assert checks["source-a"]["content_fingerprint_matches"] is False
+    assert checks["source-b"]["content_fingerprint_matches"] is True
+    assert report["sources_rechecked_http_200"] == 2
+    assert report["exact_source_fingerprints_matching"] == 1
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"
+    assert "insufficient_independent_source_rechecks" in report["readiness_blockers"]

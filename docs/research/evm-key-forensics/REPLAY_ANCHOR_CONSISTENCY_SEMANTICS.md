@@ -33,11 +33,11 @@ The API must not conflate these claims. A later valid anchor advancement must no
 ## Implementation status on the research branch
 
 - **Implemented:** accepted replay rows enforce `PRIMARY KEY (provider_id, run_id)` and `UNIQUE (provider_id, nonce)`; journal and evidence tables enforce the same provider-scoped uniqueness.
-- **Implemented:** anchored finalization passes its expected prior journal tuple into `verify_and_record_attestation`. The tuple is checked inside the same `BEGIN IMMEDIATE` transaction as the append. A concurrent local writer can no longer make this candidate append against a different predecessor after the preflight read.
+- **Implemented:** anchored finalization passes its expected prior journal tuple into `verify_and_record_attestation`. The tuple is checked inside the same `BEGIN IMMEDIATE` transaction as the append.
+- **Implemented:** accepted replay row, journal event, journal head, evidence, and pending `FINALIZED` status now commit in one SQLite transaction on the normal finalization path.
+- **Implemented:** a failure while updating the pending status rolls back the accepted row and journal/evidence in the same transaction. Non-unique SQLite integrity failures are no longer mislabeled as replay duplicates.
 - **Implemented:** result metadata uses `HISTORICALLY_ANCHORED_CANDIDATE_HEAD_CONFIRMED`, not a claim that the candidate is still the current external head.
-- **Added, not yet executed here:** a deterministic test advances the external anchor after candidate confirmation and before local finalization.
-- **Added, not yet executed here:** a deterministic test interleaves an uncoordinated local writer between preflight and append and expects the anchored append to fail closed.
-- **Still open:** the accepted row, journal event, journal head, evidence, and pending status are not all committed in one SQLite transaction. The accepted record and journal/evidence are atomic; `FINALIZED` status is updated separately and relies on recovery if the process stops in between.
+- **Added, not yet executed here:** a deterministic test advances the external anchor after candidate confirmation; a second test interleaves a local writer between preflight and append; a third injects failure into the pending-status update and checks transaction rollback.
 - **Still open:** independent-connection duplicate replay tests and explicit reconciliation for anchor sequence N+1 while local state remains at N need separate review.
 - Keep `qualification=NOT_ESTABLISHED` until the tests run and independent-anchor rollback controls and operational fault-injection testing are complete.
 

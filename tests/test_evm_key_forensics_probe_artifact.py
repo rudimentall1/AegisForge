@@ -159,6 +159,32 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.assertFalse(result["checks"]["probe_does_not_claim_historical_execution"])
 
 
+
+    def test_boolean_metadata_schema_version_is_rejected(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["schema_version"] = True
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["schema_version_supported"])
+
+    def test_boolean_output_schema_version_is_rejected_even_with_updated_hash(self):
+        output_path = self.root / "probe-output.json"
+        output = json.loads(output_path.read_text(encoding="utf-8"))
+        output["schema_version"] = True
+        output_path.write_text(json.dumps(output), encoding="utf-8")
+
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["output_sha256"] = digest(output_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["output_schema_supported"])
+
     def test_oversized_metadata_is_rejected_before_json_decode(self):
         metadata_path = self.root / "probe-run-metadata.json"
         metadata_path.write_bytes(b" " * (2 * 1024 * 1024 + 1))

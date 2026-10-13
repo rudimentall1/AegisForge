@@ -339,3 +339,32 @@ def test_validator_report_records_signed_attestation_without_promoting_claims(mo
     assert report["source_origin_independence_established"] is False
     assert "submitted_source_provenance_requires_independent_verification" in report["readiness_blockers"]
     assert report["status"] == "INCONCLUSIVE"
+
+
+
+def test_provenance_trust_store_fails_closed_on_duplicate_keys_and_bad_base64(monkeypatch):
+    from agents.validator.agent import Validator
+
+    malformed_configs = [
+        '{"reviewer-key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","reviewer-key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}',
+        '{"reviewer-key":"not-valid-base64***"}',
+        '{"reviewer-key":"AAAAAAAA"}',
+        '[]',
+    ]
+    for raw_config in malformed_configs:
+        monkeypatch.setenv("AEGISFORGE_PROVENANCE_TRUSTED_PUBLIC_KEYS", raw_config)
+        trusted_keys, config_error = Validator._load_provenance_trust_keys()
+        assert trusted_keys == {}
+        assert config_error is not None
+
+
+def test_provenance_trust_store_fails_closed_on_duplicate_json_keys(monkeypatch):
+    from agents.validator.agent import Validator
+
+    monkeypatch.setenv(
+        "AEGISFORGE_PROVENANCE_TRUSTED_PUBLIC_KEYS",
+        '{"reviewer-key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","reviewer-key":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="}',
+    )
+    trusted_keys, config_error = Validator._load_provenance_trust_keys()
+    assert trusted_keys == {}
+    assert config_error == "ValueError"

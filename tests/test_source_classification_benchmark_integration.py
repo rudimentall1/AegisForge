@@ -630,10 +630,17 @@ def test_distinct_source_content_does_not_claim_independent_origin():
             "lab_experiments": [],
         },
     )
-    validated = Validator(source_fetcher=lambda _url: {}).run(CryptoAnalyst().run(task))
+    validated = Validator(
+        source_fetcher=lambda url: {
+            "status_code": 200,
+            "content_sha256": "a" * 64 if url.endswith("/a.txt") else "b" * 64,
+            "content_truncated_for_analysis": False,
+            "retrieved_at": "2026-10-13T00:00:00Z",
+        }
+    ).run(CryptoAnalyst().run(task))
     report = validated.result["research_validation"]
 
-    assert report["distinct_matching_source_fingerprints"] == 0
+    assert report["distinct_matching_source_fingerprints"] == 2
     assert report["source_origin_independence_established"] is False
     assert report["source_independence_basis"] == (
         "unique_content_hashes_and_distinct_urls_do_not_verify_independent_origin"

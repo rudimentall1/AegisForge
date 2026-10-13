@@ -211,6 +211,20 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
             verify_artifact(self.root)
 
 
+    def test_metadata_json_root_must_be_object(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata_path.write_text("[]", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "json_root_must_be_object"):
+            verify_artifact(self.root)
+
+    def test_output_json_root_must_be_object(self):
+        output_path = self.root / "probe-output.json"
+        output_path.write_text("null", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "json_root_must_be_object"):
+            verify_artifact(self.root)
+
     def test_non_utf8_json_is_rejected_with_clear_error(self):
         output_path = self.root / "probe-output.json"
         output_path.write_bytes(b"\xff")

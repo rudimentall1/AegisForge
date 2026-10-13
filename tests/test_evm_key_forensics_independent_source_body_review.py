@@ -68,6 +68,12 @@ class IndependentSourceBodyReviewTests(unittest.TestCase):
         source = b'const char *s = ' + decoy + b';\n' + FUNCTION_SIGNATURE + b' { return 7; }'
         self.assertEqual(extract_function(source), b"{ return 7; }")
 
+    def test_raw_string_prefix_inside_identifier_does_not_hide_later_code(self):
+        # The R in this identifier is not a raw-string token prefix.
+        decoy = b'const char *s = fooR"tag( decoy )tag";\\n'
+        source = decoy + FUNCTION_SIGNATURE + b" { return 9; }"
+        self.assertEqual(extract_function(source), b"{ return 9; }")
+
     def test_signature_without_opening_brace_fails_closed(self):
         with self.assertRaisesRegex(ReviewError, "createSeed_opening_brace_not_found"):
             extract_function(FUNCTION_SIGNATURE + b" // no body { hidden")

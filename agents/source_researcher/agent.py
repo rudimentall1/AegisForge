@@ -60,6 +60,8 @@ class SourceResearcher:
 
     @staticmethod
     def _classification(url, title, text):
+        if not any(str(value or "").strip() for value in (url, title, text)):
+            return "inconclusive_missing_evidence"
         haystack = f"{url} {title or ''} {text or ''}".lower()
         if "profanity" in haystack and ("32-bit" in haystack or "4 bln" in haystack or "seed" in haystack):
             return "vanity_generator_entropy_weakness_report"

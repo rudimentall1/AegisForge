@@ -79,3 +79,12 @@ class IndependentSourceBodyReviewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_duplicate_code_signatures_fail_closed(self):
+        source = (
+            FUNCTION_SIGNATURE + b" { return 1; }\n"
+            + FUNCTION_SIGNATURE + b" { return 2; }\n"
+        )
+        with self.assertRaisesRegex(ReviewError, "createSeed_signature_ambiguous"):
+            extract_function(source)

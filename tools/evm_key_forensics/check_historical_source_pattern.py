@@ -67,6 +67,55 @@ def _find_function_body(source: str, start: int) -> tuple[int | None, int | None
     return brace_start, None
 
 
+def _mask_comments_and_literals(source: str) -> str:
+    """Replace comments and quoted literals with spaces, preserving offsets/newlines."""
+    chars = list(source)
+    state = "code"
+    escaped = False
+    index = 0
+    while index < len(source):
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < len(source) else ""
+        if state == "line_comment":
+            if char == "\n":
+                state = "code"
+            else:
+                chars[index] = " "
+        elif state == "block_comment":
+            if char == "*" and nxt == "/":
+                chars[index] = chars[index + 1] = " "
+                state = "code"
+                index += 1
+            elif char != "\n":
+                chars[index] = " "
+        elif state in {"string", "char"}:
+            if char != "\n":
+                chars[index] = " "
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif (state == "string" and char == '"') or (state == "char" and char == "'"):
+                state = "code"
+        else:
+            if char == "/" and nxt == "/":
+                chars[index] = chars[index + 1] = " "
+                state = "line_comment"
+                index += 1
+            elif char == "/" and nxt == "*":
+                chars[index] = chars[index + 1] = " "
+                state = "block_comment"
+                index += 1
+            elif char == '"':
+                chars[index] = " "
+                state = "string"
+            elif char == "'":
+                chars[index] = " "
+                state = "char"
+        index += 1
+    return "".join(chars)
+
+
 def _git_blob_sha1(source_bytes: bytes) -> str:
     header = f"blob {len(source_bytes)}\0".encode("ascii")
     return hashlib.sha1(header + source_bytes).hexdigest()
@@ -76,20 +125,23 @@ def inspect_source(source: str) -> dict:
     source_bytes = source.encode("utf-8")
     digest = hashlib.sha256(source_bytes).hexdigest()
     blob_sha1 = _git_blob_sha1(source_bytes)
+    # Match only C++ tokens, not comments or quoted text. The masked source
+    # preserves offsets so the body boundaries still refer to the same region.
+    analysis_source = _mask_comments_and_literals(source)
     marker = "cl_ulong4 Dispatcher::Device::createSeed()"
-    start = source.find(marker)
+    start = analysis_source.find(marker)
     if start < 0:
         return _result("INCONCLUSIVE", digest, ["createSeed_function_missing"], blob_sha1)
 
     # Scope the check to the function body; braces in comments and quoted
     # literals must not alter the parser's nesting depth.
-    brace_start, end = _find_function_body(source, start)
+    brace_start, end = _find_function_body(analysis_source, start)
     if brace_start is None:
         return _result("INCONCLUSIVE", digest, ["function_body_missing"], blob_sha1)
     if end is None:
         return _result("INCONCLUSIVE", digest, ["function_body_unbalanced"], blob_sha1)
 
-    body = source[brace_start:end]
+    body = analysis_source[brace_start:end]
     errors = []
     debug_pos = body.find("#ifdef PROFANITY_DEBUG")
     else_pos = body.find("#else", debug_pos + 1) if debug_pos >= 0 else -1

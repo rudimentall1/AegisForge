@@ -93,9 +93,10 @@ def verify_artifact(root: Path) -> dict:
     output_path = root / "probe-output.json"
     source_path = root / "probe-source.cpp"
     binary_path = root / "probe-binary"
+    repeat_binary_path = root / "probe-binary-repeat"
     source_report_path = root / "source-evidence-report.json"
     independent_review_path = root / "independent-source-body-review.json"
-    for artifact_path in (metadata_path, output_path, source_path, binary_path, source_report_path, independent_review_path):
+    for artifact_path in (metadata_path, output_path, source_path, binary_path, repeat_binary_path, source_report_path, independent_review_path):
         _require_regular_bundle_file(artifact_path)
     metadata = _load_strict_json(metadata_path)
     output = _load_strict_json(output_path)
@@ -146,6 +147,17 @@ def verify_artifact(root: Path) -> dict:
         ),
         "source_nonempty": source_path.is_file() and source_path.stat().st_size > 0,
         "binary_nonempty": binary_path.is_file() and binary_path.stat().st_size > 0,
+        "repeat_binary_nonempty": repeat_binary_path.is_file() and repeat_binary_path.stat().st_size > 0,
+        "repeat_binary_hash_matches": metadata.get("repeat_binary_sha256") == sha256(
+            repeat_binary_path, max_bytes=MAX_BINARY_FILE_BYTES
+        ),
+        "repeat_build_is_byte_identical": (
+            metadata.get("repeat_build_matches") is True
+            and metadata.get("repeat_build_scope") == "same_runner_same_compiler_same_flags"
+            and metadata.get("binary_sha256") == metadata.get("repeat_binary_sha256")
+            and sha256(binary_path, max_bytes=MAX_BINARY_FILE_BYTES)
+            == sha256(repeat_binary_path, max_bytes=MAX_BINARY_FILE_BYTES)
+        ),
         "source_hash_matches": metadata.get("source_sha256") == sha256(
             source_path, max_bytes=MAX_SOURCE_FILE_BYTES
         ),

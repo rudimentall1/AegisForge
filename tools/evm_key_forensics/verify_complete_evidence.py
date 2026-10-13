@@ -125,7 +125,14 @@ def verify_complete_archive(archive_path: Path) -> dict:
             if not _safe_member_name(item.filename):
                 raise ValueError("archive_unsafe_member_path")
             mode = item.external_attr >> 16
-            if stat.S_ISLNK(mode):
+            member_type = stat.S_IFMT(mode)
+            if item.is_dir():
+                if member_type not in (0, stat.S_IFDIR):
+                    raise ValueError("archive_non_regular_member")
+            elif member_type not in (0, stat.S_IFREG):
+                # ZIP metadata can describe FIFOs, sockets, devices, and other
+                # special filesystem objects. We never recreate those objects;
+                # reject them anyway so the accepted archive format stays narrow.
                 raise ValueError("archive_non_regular_member")
             if item.is_dir():
                 if item.filename not in {"complete-evidence/", "complete-evidence/probe-evidence/"}:

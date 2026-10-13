@@ -26,7 +26,14 @@ def _reject_nonstandard_constant(value):
     raise ValueError(f"nonstandard_json_constant:{value}")
 
 
+# Probe manifests are expected to be small. Bound untrusted JSON before
+# decoding so verification cannot be used to force an unbounded allocation.
+MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
+
+
 def _load_strict_json(path: Path):
+    if path.stat().st_size > MAX_JSON_FILE_BYTES:
+        raise ValueError("json_file_exceeds_size_limit")
     return json.loads(
         path.read_text(encoding="utf-8"),
         object_pairs_hook=_reject_duplicate_keys,

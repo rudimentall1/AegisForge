@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import tempfile
 import unittest
 import zipfile
@@ -136,6 +137,36 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "archive_member_set_mismatch"):
                 verify_complete_archive(self.archive)
             verifier.assert_not_called()
+
+    def test_symlink_member_is_rejected(self):
+        with zipfile.ZipFile(self.archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("complete-evidence/", b"")
+            zf.writestr("complete-evidence/probe-evidence/", b"")
+            for name, content in self.members.items():
+                if name == "complete-evidence/probe-evidence/probe-source.cpp":
+                    info = zipfile.ZipInfo(name)
+                    info.create_system = 3
+                    info.external_attr = (stat.S_IFLNK | 0o777) << 16
+                    zf.writestr(info, b"outside.cpp")
+                else:
+                    zf.writestr(name, content)
+        with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
+            with self.assertRaisesRegex(ValueError, "archive_non_regular_member"):
+                verify_complete_archive(self.archive)
+            verifier.assert_not_called()
+
+    def test_extreme_compression_ratio_is_rejected(self):
+        self.members["complete-evidence/probe-evidence/probe-source.cpp"] = b"A" * (2 * 1024 * 1024)
+        self.write_archive()
+        with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
+            with self.assertRaisesRegex(ValueError, "archive_compression_ratio_exceeded"):
+                verify_complete_archive(self.archive)
+            verifier.assert_not_called()
+
+    def test_probe_integrity_failure_propagates(self):
+        with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact", return_value={"integrity_verified": False}):
+            with self.assertRaisesRegex(ValueError, "probe_artifact_integrity_failed"):
+                verify_complete_archive(self.archive)
 
     def test_missing_archive_fails_cleanly(self):
         missing = self.root / "missing.zip"

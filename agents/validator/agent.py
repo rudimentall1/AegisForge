@@ -430,17 +430,26 @@ class Validator:
             raw_url = str(source.get("source_url") or "").strip()
             parsed_url = urlparse(raw_url)
             if parsed_url.scheme and parsed_url.hostname:
-                normalized_url = (
-                    parsed_url.scheme.lower(),
-                    parsed_url.hostname.lower(),
-                    parsed_url.port,
-                    parsed_url.path.rstrip("/") or "/",
-                    parsed_url.query,
-                )
+                scheme = parsed_url.scheme.lower()
+                host = parsed_url.hostname.lower().rstrip(".")
+                try:
+                    port = parsed_url.port
+                except ValueError:
+                    # Malformed ports must not be silently collapsed into a
+                    # different canonical identity.
+                    port = f"invalid:{parsed_url.netloc.rsplit(':', 1)[-1]}"
+                if (scheme, port) in {("https", 443), ("http", 80)}:
+                    port = None
+                path = parsed_url.path.rstrip("/") or "/"
+                query = parsed_url.query
+                normalized_url = (scheme, host, port, path, query)
                 source_url_counts[normalized_url] = source_url_counts.get(normalized_url, 0) + 1
         duplicate_source_urls = sorted(
-            f"{scheme}://{host}{path}" + (f"?{query}" if query else "")
-            for (scheme, host, _port, path, query), count in source_url_counts.items()
+            f"{scheme}://{host}"
+            + (f":{port}" if port is not None else "")
+            + path
+            + (f"?{query}" if query else "")
+            for (scheme, host, port, path, query), count in source_url_counts.items()
             if count > 1
         )
         source_recheck_limit = self.MAX_RESEARCH_SOURCE_RECHECKS

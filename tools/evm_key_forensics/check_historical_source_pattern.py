@@ -13,6 +13,7 @@ SCHEMA_VERSION = 1
 EXPERIMENT_ID = "evm-forensics-historical-source-pattern-v1"
 UPSTREAM_COMMIT = "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6"
 EXPECTED_GIT_BLOB_SHA1 = "c9226fc02a52633a84664cbf3aaf2b4af8a59b25"
+MAX_SOURCE_BYTES = 2 * 1024 * 1024
 
 
 def _find_function_body(source: str, start: int) -> tuple[int | None, int | None]:
@@ -212,16 +213,27 @@ def main(argv=None) -> int:
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args(argv)
     try:
-        source = args.source_file.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
+        # Bound reads directly rather than relying on stat(), which could race
+        # with a file replacement between the size check and the read.
+        with args.source_file.open("rb") as stream:
+            source_bytes = stream.read(MAX_SOURCE_BYTES + 1)
+    except OSError as exc:
         result = _result("INCONCLUSIVE", "", [f"source_unreadable:{type(exc).__name__}"])
     else:
-        result = inspect_source(source)
-        # CLI acceptance requires the exact pinned upstream file, not merely a
-        # matching pattern in a synthetic excerpt or unrelated source file.
-        if not result["pinned_source_blob_matches"]:
-            result["conclusion"] = "INCONCLUSIVE"
-            result["errors"].append("pinned_upstream_blob_mismatch")
+        if len(source_bytes) > MAX_SOURCE_BYTES:
+            result = _result("INCONCLUSIVE", "", ["source_exceeds_size_limit"])
+        else:
+            try:
+                source = source_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                result = _result("INCONCLUSIVE", "", ["source_invalid_utf8"])
+            else:
+                result = inspect_source(source)
+                # CLI acceptance requires the exact pinned upstream file, not merely a
+                # matching pattern in a synthetic excerpt or unrelated source file.
+                if not result["pinned_source_blob_matches"]:
+                    result["conclusion"] = "INCONCLUSIVE"
+                    result["errors"].append("pinned_upstream_blob_mismatch")
     print(json.dumps(result, sort_keys=True, indent=2 if args.pretty else None))
     return 0 if result["conclusion"] == "SOURCE_PATTERN_MATCHED" else 2
 

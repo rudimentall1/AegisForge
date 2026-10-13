@@ -711,6 +711,22 @@ class Validator:
             source_id: origins for source_id, origins in sorted(declared_derivations.items())
         }
 
+        # Materialize the transitive closure of declared lineage for reviewers.
+        # This is a graph-navigation aid only: declarations are not independently
+        # verified facts, and cycles are separately reported as blockers.
+        source_derivation_ancestors = {}
+        for source_id in sorted(source_ids):
+            visited = set()
+            pending = list(declared_derivations.get(source_id, []))
+            while pending:
+                origin = pending.pop()
+                if origin in visited or origin not in source_ids or origin == source_id:
+                    continue
+                visited.add(origin)
+                pending.extend(declared_derivations.get(origin, []))
+            if visited:
+                source_derivation_ancestors[source_id] = sorted(visited)
+
         # A dossier may contain multiple records for the same URL, or silently
         # exceed the recheck budget. Surface both explicitly rather than letting
         # the report imply that every listed source was independently checked.
@@ -1278,6 +1294,7 @@ class Validator:
             "source_origin_independence_established": False,
             "source_independence_basis": "unique_content_hashes_and_distinct_urls_do_not_verify_independent_origin",
             "source_derivation_dependencies": source_derivation_dependencies,
+            "source_derivation_ancestors": source_derivation_ancestors,
             "sources_with_declared_derivations": len(sources_with_declared_derivations),
             "invalid_source_derivation_references": sorted(set(invalid_derivation_references)),
             "self_referential_source_derivations": sorted(set(self_referential_derivations)),

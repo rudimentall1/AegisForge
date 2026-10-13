@@ -71,3 +71,10 @@ Exit codes:
 
 A self-consistent artifact is not necessarily authentic: anyone able to edit an unsigned artifact can recompute its hashes. A trusted signature authenticates the signed statement under the configured key, not the honesty, isolation, or correctness of the runner. The verifier is offline and does not contact the issuer.
 
+## Known-vulnerability benchmark
+
+The source-backed Profanity benchmark defines evidence labels, negative controls, confounder handling, and the acceptance boundary for a known historical case:
+
+- [Known-vulnerability benchmark](../../docs/research/evm-key-forensics/KNOWN_VULNERABILITY_BENCHMARK.md)
+
+The case is publicly documented by the upstream maintainer and CVE-2022-40769. That makes it a useful detection benchmark, not proof that this project reproduced the historical exploit. The current lab remains synthetic-only; do not use target wallet addresses or implement private-key recovery.

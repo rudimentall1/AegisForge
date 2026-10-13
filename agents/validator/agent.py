@@ -421,12 +421,36 @@ class Validator:
         )
         source_identity_integrity_failed = bool(missing_source_id_count or duplicate_source_ids)
         source_ids = set(source_id_counts)
+
+        # A dossier may contain multiple records for the same URL, or silently
+        # exceed the recheck budget. Surface both explicitly rather than letting
+        # the report imply that every listed source was independently checked.
+        source_url_counts = {}
+        for source in sources:
+            raw_url = str(source.get("source_url") or "").strip()
+            parsed_url = urlparse(raw_url)
+            if parsed_url.scheme and parsed_url.hostname:
+                normalized_url = (
+                    parsed_url.scheme.lower(),
+                    parsed_url.hostname.lower(),
+                    parsed_url.port,
+                    parsed_url.path.rstrip("/") or "/",
+                    parsed_url.query,
+                )
+                source_url_counts[normalized_url] = source_url_counts.get(normalized_url, 0) + 1
+        duplicate_source_urls = sorted(
+            f"{scheme}://{host}{path}" + (f"?{query}" if query else "")
+            for (scheme, host, _port, path, query), count in source_url_counts.items()
+            if count > 1
+        )
+        source_recheck_limit = self.MAX_RESEARCH_SOURCE_RECHECKS
+        sources_not_rechecked_due_to_limit = max(0, len(sources) - source_recheck_limit)
         source_checks = []
 
         repository_pins = [item for item in result.get("repository_pins", []) if isinstance(item, dict)]
         pinned_revision_checks = []
 
-        for source in sources[:self.MAX_RESEARCH_SOURCE_RECHECKS]:
+        for source in sources[:source_recheck_limit]:
             url = str(source.get("source_url") or "")
             parsed = urlparse(url)
             allowlisted = parsed.scheme == "https" and parsed.hostname in ALLOWED_SOURCE_HOSTS
@@ -500,12 +524,24 @@ class Validator:
         hypothesis_checks = []
         for hypothesis in hypotheses:
             refs = hypothesis.get("source_ids") or []
+            if not isinstance(refs, list):
+                refs = []
+                refs_shape_valid = False
+            else:
+                refs_shape_valid = all(isinstance(ref, str) and bool(ref.strip()) for ref in refs)
+            normalized_refs = [ref for ref in refs if isinstance(ref, str) and ref.strip()]
+            missing_refs = [ref for ref in normalized_refs if ref not in source_ids]
             hypothesis_checks.append({
                 "hypothesis_id": hypothesis.get("hypothesis_id"),
                 "source_reference_count": len(refs),
-                "missing_source_references": [ref for ref in refs if ref not in source_ids],
-                "has_source_reference": bool(refs),
+                "source_reference_shape_valid": refs_shape_valid,
+                "missing_source_references": missing_refs,
+                "has_source_reference": bool(normalized_refs),
             })
+        hypotheses_with_missing_sources = sum(
+            bool(item["missing_source_references"]) or not item["source_reference_shape_valid"]
+            for item in hypothesis_checks
+        )
 
         experiments = [item for item in result.get("lab_experiments", []) if isinstance(item, dict)]
 
@@ -809,6 +845,12 @@ class Validator:
         readiness_blockers = []
         if source_identity_integrity_failed:
             readiness_blockers.append("source_identity_integrity_failed")
+        if duplicate_source_urls:
+            readiness_blockers.append("duplicate_source_urls")
+        if hypotheses_with_missing_sources:
+            readiness_blockers.append("hypothesis_source_references_invalid")
+        if sources_not_rechecked_due_to_limit:
+            readiness_blockers.append("source_recheck_limit_exceeded")
         if not historical_reproduction:
             readiness_blockers.append("historical_reproduction_not_qualified")
         if rechecked < 2 or matching < 2:
@@ -828,6 +870,12 @@ class Validator:
             next_actions.append("Find the primary Profanity vulnerability report and affected revision.")
         if not historical_reproduction:
             next_actions.append("Reproduce a pinned historical implementation with synthetic test vectors, test command, passing result and SHA-256 artifact evidence; the toy demonstration is insufficient.")
+        if duplicate_source_urls:
+            next_actions.append("Deduplicate repeated source URLs or document why multiple records intentionally refer to the same canonical resource.")
+        if hypotheses_with_missing_sources:
+            next_actions.append("Repair hypothesis source references so every cited source ID exists and each reference list has the expected shape.")
+        if sources_not_rechecked_due_to_limit:
+            next_actions.append("Split the dossier into bounded validation batches or prioritize evidence; sources beyond the recheck cap were not re-fetched.")
         if rechecked < 2:
             next_actions.append("Independently re-fetch at least two allowlisted primary sources.")
         if matching < 2:
@@ -855,6 +903,10 @@ class Validator:
             "source_identity_integrity_failed": source_identity_integrity_failed,
             "sources_missing_source_id": missing_source_id_count,
             "duplicate_source_ids": duplicate_source_ids,
+            "duplicate_source_urls": duplicate_source_urls,
+            "hypotheses_with_invalid_source_references": hypotheses_with_missing_sources,
+            "source_recheck_limit": source_recheck_limit,
+            "sources_not_rechecked_due_to_limit": sources_not_rechecked_due_to_limit,
             "sources_rechecked_http_200": rechecked,
             "exact_source_fingerprints_matching": matching,
             "sources_with_truncated_analysis_text": truncated_sources,

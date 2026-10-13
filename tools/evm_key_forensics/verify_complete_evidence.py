@@ -15,12 +15,22 @@ import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from tools.evm_key_forensics.verify_probe_artifact import (
-    MAX_BINARY_FILE_BYTES,
-    MAX_JSON_FILE_BYTES,
-    MAX_SOURCE_FILE_BYTES,
-    verify_artifact,
-)
+try:
+    from tools.evm_key_forensics.verify_probe_artifact import (
+        MAX_BINARY_FILE_BYTES,
+        MAX_JSON_FILE_BYTES,
+        MAX_SOURCE_FILE_BYTES,
+        verify_artifact,
+    )
+except ModuleNotFoundError:
+    # Support direct execution as `python tools/evm_key_forensics/verify_complete_evidence.py`,
+    # where Python places this script's directory, not the repository root, on sys.path.
+    from verify_probe_artifact import (
+        MAX_BINARY_FILE_BYTES,
+        MAX_JSON_FILE_BYTES,
+        MAX_SOURCE_FILE_BYTES,
+        verify_artifact,
+    )
 
 MAX_ARCHIVE_BYTES = 140 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 140 * 1024 * 1024

@@ -230,5 +230,5 @@ def test_pipeline_does_not_treat_duplicate_source_records_as_independent_evidenc
     assert "source_identity_integrity_failed" in report["readiness_blockers"]
     assert "duplicate_source_urls" in report["readiness_blockers"]
     assert report["sources_rechecked_http_200"] == 2
-    assert report["source_content_fingerprints_matching"] == 2
+    assert report["exact_source_fingerprints_matching"] == 2
     assert report["pinned_revision_source_checks_passed"] == 0

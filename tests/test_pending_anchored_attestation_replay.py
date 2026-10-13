@@ -983,3 +983,40 @@ def test_recovery_rejects_unknown_pending_status_even_when_anchor_matches(monkey
 
     assert anchor.anchor["sequence"] == 1
     assert _counts(path) == (0, 1, 0)
+
+@pytest.mark.parametrize(
+    ("malformation", "expected_error"),
+    [
+        ("dossier_root", "attestation_payload_invalid"),
+        ("runner_shape", "attestation_provider_id_invalid"),
+        ("envelope_root", "attestation_invalid"),
+    ],
+)
+def test_malformed_attestation_payload_fails_closed_before_anchor_cas(
+    tmp_path, malformation, expected_error
+):
+    path = tmp_path / f"malformed-{malformation}.sqlite3"
+    dossier, envelope, trusted = _signed(
+        f"malformed-{malformation}", f"malformed-{malformation}-nonce"
+    )
+    anchor = Anchor()
+
+    if malformation == "dossier_root":
+        dossier = []
+    elif malformation == "runner_shape":
+        dossier["runner"] = []
+    else:
+        envelope = []
+
+    with pytest.raises(pending.AttestationReplayRegistryError, match=expected_error):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier, envelope, trusted_public_keys=trusted,
+            database_path=path, anchor_store=anchor,
+        )
+
+    assert anchor.cas_calls == 0
+    assert anchor.anchor == {
+        "provider_id": "test-provider", "sequence": 0, "head_sha256": GENESIS
+    }
+    assert not path.exists()
+

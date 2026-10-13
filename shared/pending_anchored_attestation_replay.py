@@ -137,6 +137,22 @@ def _persist_pending(
                         raise ReplayAnchorUnavailable("pending_candidate_conflict_requires_review")
                     db.execute("COMMIT")
                     return
+                # A different signed payload must not stage a second candidate
+                # for an already-pending run or nonce. Otherwise concurrent or
+                # retried callers could create competing candidates before either
+                # one reaches the accepted-row uniqueness constraints.
+                staged = db.execute(
+                    """SELECT candidate_id, status FROM pending_anchored_replay
+                       WHERE provider_id=? AND (run_id=? OR nonce=?)
+                       AND candidate_id<>? ORDER BY created_at LIMIT 1""",
+                    (provider_id, dossier["run_id"], dossier["nonce"], candidate_id),
+                ).fetchone()
+                if staged:
+                    if staged[1] == "CONFLICT":
+                        raise ReplayAnchorUnavailable("pending_candidate_conflict_requires_review")
+                    raise AttestationReplayRegistryError(
+                        "pending_candidate_run_or_nonce_already_staged"
+                    )
                 db.execute("""INSERT INTO pending_anchored_replay
                     (candidate_id, provider_id, run_id, nonce, key_id, receipt_sha256,
                      expected_sequence, expected_head_sha256, candidate_sequence,

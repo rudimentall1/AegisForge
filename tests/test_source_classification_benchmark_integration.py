@@ -25,3 +25,13 @@ def test_source_researcher_classifier_matches_benchmark_control_cases():
 
 def test_empty_source_research_input_is_not_misreported_as_unclassified():
     assert SourceResearcher._classification("", "", "") == "inconclusive_missing_evidence"
+
+
+
+def test_profane_word_and_seed_in_unrelated_context_do_not_trigger_finding():
+    actual = SourceResearcher._classification(
+        "https://github.com/example/profanity-docs",
+        "Profanity telemetry sampler",
+        "A text filter uses a seed value for deterministic synthetic chart colors.",
+    )
+    assert actual == "unclassified_source"

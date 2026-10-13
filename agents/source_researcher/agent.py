@@ -71,7 +71,10 @@ class SourceResearcher:
             phrase in normalized
             for phrase in (
                 "no vanity address", "no key generation",
+                "no vanity address or key generation path is described",
+                "no key generation path is described",
                 "does not describe key generation", "not a key generation",
+                "no random generator or key generation implementation details",
                 "no cryptographic use", "unrelated documentation",
             )
         )
@@ -90,7 +93,7 @@ class SourceResearcher:
         # explicit RNG/implementation signal so unrelated documentation cannot
         # become a security finding from lexical overlap alone.
         rng_implementation_signal = any(
-            term in haystack
+            term in normalized
             for term in (
                 "mt19937_64", "random_device", "random 32 bit vector",
                 "random number generator", "reduced set of rng initializations",

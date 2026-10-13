@@ -73,7 +73,7 @@ def test_comment_cannot_fake_missing_distribution_call():
 
 
 def test_comment_cannot_supply_function_marker():
-    mutated = "// cl_ulong4 Dispatcher::Device::createSeed() { }\\n" + SOURCE
+    mutated = "// cl_ulong4 Dispatcher::Device::createSeed() { }\n" + SOURCE
     result = inspect_source(mutated)
     assert result["conclusion"] == "SOURCE_PATTERN_MATCHED"
 

@@ -273,4 +273,50 @@ jobs:
           printf 'reference_source_sha256=%s\ncheckout_source_sha256=%s\n' "$reference_source_sha" "$checkout_source_sha"
           printf 'reference_binary_sha256=%s\nindependent_rebuild_sha256=%s\n' "$reference_binary_sha" "$rebuilt_binary_sha"
           test "$reference_binary_sha" = "$rebuilt_binary_sha"
+          export REFERENCE_SOURCE_SHA="$reference_source_sha"
+          export CHECKOUT_SOURCE_SHA="$checkout_source_sha"
+          export REFERENCE_BINARY_SHA="$reference_binary_sha"
+          export REBUILT_BINARY_SHA="$rebuilt_binary_sha"
+          python - <<'PY'
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          report = {
+              "schema_version": 1,
+              "check": "independent_clean_runner_rebuild",
+              "conclusion": "PASS",
+              "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "github_sha": os.environ["GITHUB_SHA"],
+              "github_ref": os.environ["GITHUB_REF"],
+              "github_run_id": os.environ["GITHUB_RUN_ID"],
+              "github_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "runner_os": platform.platform(),
+              "compiler_version": subprocess.check_output(["g++", "--version"], text=True).splitlines()[0],
+              "build_flags": ["-std=c++11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic"],
+              "reference_source_sha256": os.environ["REFERENCE_SOURCE_SHA"],
+              "independent_checkout_source_sha256": os.environ["CHECKOUT_SOURCE_SHA"],
+              "reference_binary_sha256": os.environ["REFERENCE_BINARY_SHA"],
+              "independent_rebuild_binary_sha256": os.environ["REBUILT_BINARY_SHA"],
+              "source_matches": os.environ["REFERENCE_SOURCE_SHA"] == os.environ["CHECKOUT_SOURCE_SHA"],
+              "binary_matches": os.environ["REFERENCE_BINARY_SHA"] == os.environ["REBUILT_BINARY_SHA"],
+              "historical_profanity_executed": False,
+              "historical_vulnerability_reproduced": False,
+          }
+          Path("independent-rebuild-report.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
           echo "Clean-runner rebuild matches byte-for-byte."
+
+      - name: Upload independent rebuild report
+        uses: actions/upload-artifact@v4
+        with:
+          name: evm-key-forensics-independent-rebuild-${{ github.run_id }}-${{ github.run_attempt }}
+          path: independent-rebuild-report.json
+          if-no-files-found: error
+          retention-days: 30

@@ -72,7 +72,7 @@ def _code_brace_positions(source: bytes, start: int):
             elif char in (ord("{"), ord("}")):
                 yield offset, char
         elif state == line_comment:
-            if char in (ord("\\n"), ord("\\r")):
+            if char in (ord("\n"), ord("\r")):
                 state = normal
         elif state == block_comment:
             if char == ord("*") and nxt == ord("/"):
@@ -82,7 +82,7 @@ def _code_brace_positions(source: bytes, start: int):
         elif state in (string, character):
             if escaped:
                 escaped = False
-            elif char == ord("\\\\"):
+            elif char == ord("\\"):
                 escaped = True
             elif (state == string and char == ord('"')) or (
                 state == character and char == ord("'")

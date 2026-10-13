@@ -2,6 +2,8 @@ import base64
 import hashlib
 import json
 import os
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from shared.task import Task
 from shared.public_source import ALLOWED_SOURCE_HOSTS, fetch_public_source
 from urllib.parse import urlparse
@@ -404,6 +406,70 @@ class Validator:
         elif status in {"DEFERRED", "BLOCKED"}: opportunity["commercial_readiness"] = "EARLY_SIGNAL"
         return {"before":round(before,3), "after":round(after,3), "delta":round(after-before,3), "score_before":score_before, "score_after":score_after, "uncertainties_remaining":len(uncertainties)}
 
+    @staticmethod
+    def _load_provenance_trust_keys():
+        """Load trusted Ed25519 keys from operator configuration, never from a dossier."""
+        raw = os.environ.get("AEGISFORGE_PROVENANCE_TRUSTED_PUBLIC_KEYS", "").strip()
+        if not raw:
+            return {}, "trust_store_not_configured"
+        try:
+            parsed = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+            if not isinstance(parsed, dict) or not parsed:
+                raise ValueError("trusted_key_map_must_be_nonempty_object")
+            keys = {}
+            for key_id, encoded in parsed.items():
+                if not isinstance(key_id, str) or not key_id.strip() or not isinstance(encoded, str):
+                    raise ValueError("trusted_key_entry_malformed")
+                raw_key = base64.b64decode(encoded, validate=True)
+                if len(raw_key) != 32:
+                    raise ValueError("trusted_ed25519_public_key_must_be_32_bytes")
+                keys[key_id] = Ed25519PublicKey.from_public_bytes(raw_key)
+            return keys, None
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            return {}, type(exc).__name__
+
+    @staticmethod
+    def _verify_provenance_attestation(attestation, expected_source_id, trusted_keys):
+        """Verify signer and payload integrity; signature does not prove the review is true."""
+        if not isinstance(attestation, dict):
+            return {"status": "NOT_PROVIDED", "trusted_signer": False}
+        key_id, signature, payload = attestation.get("key_id"), attestation.get("signature"), attestation.get("payload")
+        if not isinstance(key_id, str) or key_id not in trusted_keys:
+            return {"status": "UNTRUSTED_SIGNER", "trusted_signer": False, "key_id": key_id}
+        if not isinstance(payload, dict) or payload.get("source_id") != expected_source_id:
+            return {"status": "INVALID_PAYLOAD", "trusted_signer": False, "key_id": key_id}
+        try:
+            signature_bytes = base64.b64decode(signature, validate=True) if isinstance(signature, str) else b""
+            canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            trusted_keys[key_id].verify(signature_bytes, canonical)
+        except (InvalidSignature, ValueError, TypeError):
+            return {"status": "INVALID_SIGNATURE", "trusted_signer": False, "key_id": key_id}
+        enums = {
+            "publisher_verification_status": {"VERIFIED", "UNVERIFIED", "CONTRADICTED", "UNKNOWN"},
+            "origin_status": {"PRIMARY_ORIGIN_VERIFIED", "DERIVED_FROM_KNOWN_SOURCE", "UNKNOWN", "CONTRADICTED"},
+            "independence_status": {"ESTABLISHED", "NOT_ESTABLISHED", "DEPENDENT", "CONTRADICTED", "UNKNOWN"},
+            "independence_basis": {"VERIFIED_DISTINCT_ORIGINS", "SHARED_ORIGIN", "DECLARED_DERIVATION", "CONTENT_HASH_ONLY", "URL_ONLY", "NO_VERIFIED_PROVENANCE", "CONFLICTING_PROVENANCE", "OTHER"},
+        }
+        required = {"attestation_version", "source_id", *enums, "canonical_origin_ref", "evidence_ref", "reviewed_by", "reviewed_at"}
+        if payload.get("attestation_version") != "evm-provenance-attestation-v1" or not required.issubset(payload):
+            return {"status": "INVALID_PAYLOAD", "trusted_signer": False, "key_id": key_id}
+        if any(payload.get(field) not in allowed for field, allowed in enums.items()):
+            return {"status": "INVALID_PAYLOAD", "trusted_signer": False, "key_id": key_id}
+        if payload["independence_status"] == "ESTABLISHED" and payload["independence_basis"] != "VERIFIED_DISTINCT_ORIGINS":
+            return {"status": "INVALID_PAYLOAD", "trusted_signer": False, "key_id": key_id}
+        if not all(isinstance(payload.get(field), str) and payload[field].strip() for field in ("evidence_ref", "reviewed_by", "reviewed_at")):
+            return {"status": "INVALID_PAYLOAD", "trusted_signer": False, "key_id": key_id}
+        return {
+            "status": "SIGNATURE_VERIFIED", "trusted_signer": True, "key_id": key_id,
+            "source_id": expected_source_id, "reviewed_by": payload["reviewed_by"],
+            "reviewed_at": payload["reviewed_at"], "evidence_ref": payload["evidence_ref"],
+            "publisher_verification_status": payload["publisher_verification_status"],
+            "origin_status": payload["origin_status"], "canonical_origin_ref": payload["canonical_origin_ref"],
+            "independence_status": payload["independence_status"],
+            "independence_basis": payload["independence_basis"],
+            "interpretation": "Trusted reviewer signature verified; the referenced evidence and review conclusions are not independently re-evaluated here.",
+        }
+
     def _validate_evm_forensics_dossier(self, task: Task) -> Task:
         """Check provenance and scope without equating source access with proof."""
         result = dict(task.result or {})
@@ -411,6 +477,8 @@ class Validator:
 
         # Provenance embedded in a dossier is publisher/source-supplied input.
         # Record the claims for review, but never promote them to verifier results.
+        provenance_trust_keys, provenance_trust_store_error = self._load_provenance_trust_keys()
+        verified_provenance_attestations = []
         source_provenance_claims = []
         for source in sources:
             record = source.get("provenance_record")
@@ -424,7 +492,15 @@ class Validator:
             independence = independence if isinstance(independence, dict) else {}
             content_integrity = record.get("content_integrity")
             content_integrity = content_integrity if isinstance(content_integrity, dict) else {}
+            attestation_check = self._verify_provenance_attestation(
+                source.get("provenance_attestation"), str(source.get("source_id") or ""),
+                provenance_trust_keys,
+            )
+            if attestation_check.get("status") == "SIGNATURE_VERIFIED":
+                verified_provenance_attestations.append(attestation_check)
             source_provenance_claims.append({
+                "attestation_status": attestation_check.get("status"),
+                "attestation_key_id": attestation_check.get("key_id"),
                 "source_id": str(source.get("source_id") or ""),
                 "schema_version": record.get("schema_version"),
                 "claimed_content_integrity_status": content_integrity.get("status"),
@@ -1082,7 +1158,17 @@ class Validator:
             "duplicate_source_content_fingerprints": duplicate_source_content_fingerprints,
             "source_provenance_claims_received": len(source_provenance_claims),
             "source_provenance_claims": source_provenance_claims,
-            "source_provenance_claims_independently_verified": False,
+            "source_provenance_claims_independently_verified": False,,
+            "provenance_trust_store_configured": bool(provenance_trust_keys),
+            "provenance_trust_store_error": provenance_trust_store_error,
+            "signed_provenance_attestations_checked": sum(
+                item.get("attestation_status") != "NOT_PROVIDED" for item in source_provenance_claims
+            ),
+            "signed_provenance_attestations_verified": len(verified_provenance_attestations),
+            "signed_provenance_attestation_checks": [
+                {key: value for key, value in item.items() if key != "interpretation"}
+                for item in verified_provenance_attestations
+            ]
             # Legacy field name retained for compatibility. This is a content
             # count only and must never be interpreted as source independence.
             "independent_matching_source_fingerprints": distinct_matching_fingerprints,

@@ -597,3 +597,47 @@ def test_pipeline_blocks_self_referential_and_cyclic_source_lineage():
     assert "source_derivation_lineage_cycle" in report["readiness_blockers"]
     assert report["status"] == "INCONCLUSIVE"
     assert report["decision"] == "CONTINUE_RESEARCH"
+
+
+def test_distinct_source_content_does_not_claim_independent_origin():
+    """Unique hashes establish content distinction, not independent publishers."""
+    from agents.crypto_analyst.agent import CryptoAnalyst
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    task = Task(
+        task_id="source-origin-independence",
+        description="Distinct synthetic sources must not imply verified origin independence",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [
+                {
+                    "source_id": "source-a",
+                    "source_url": "https://raw.githubusercontent.com/example/repo/0123456789012345678901234567890123456789/a.txt",
+                    "classification": "unclassified_source",
+                    "content_sha256": "a" * 64,
+                },
+                {
+                    "source_id": "source-b",
+                    "source_url": "https://raw.githubusercontent.com/example/repo/0123456789012345678901234567890123456789/b.txt",
+                    "classification": "unclassified_source",
+                    "content_sha256": "b" * 64,
+                },
+            ],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+    validated = Validator(source_fetcher=lambda _url: {}).run(CryptoAnalyst().run(task))
+    report = validated.result["research_validation"]
+
+    assert report["distinct_matching_source_fingerprints"] == 0
+    assert report["source_origin_independence_established"] is False
+    assert report["source_independence_basis"] == (
+        "unique_content_hashes_and_distinct_urls_do_not_verify_independent_origin"
+    )
+    assert "source_origin_independence_not_established" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"

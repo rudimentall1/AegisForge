@@ -513,3 +513,87 @@ def test_pipeline_surfaces_declared_source_lineage_dependencies():
     assert "source_derivation_dependencies_require_review" in report["readiness_blockers"]
     assert report["status"] == "INCONCLUSIVE"
     assert report["decision"] == "CONTINUE_RESEARCH"
+
+
+def test_pipeline_rejects_malformed_source_lineage_entries():
+    """Non-string and empty lineage entries must not be silently discarded."""
+    from agents.crypto_analyst.agent import CryptoAnalyst
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    revision = "0123456789012345678901234567890123456789"
+    task = Task(
+        task_id="malformed-source-lineage",
+        description="Malformed declared lineage stays inconclusive",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [
+                {
+                    "source_id": "source-a",
+                    "source_url": f"https://raw.githubusercontent.com/example/repo/{revision}/a.txt",
+                    "classification": "unclassified_source",
+                    "derived_from_source_ids": ["source-b", 17, ""],
+                },
+                {
+                    "source_id": "source-b",
+                    "source_url": f"https://raw.githubusercontent.com/example/repo/{revision}/b.txt",
+                    "classification": "unclassified_source",
+                },
+            ],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+    validated = Validator(source_fetcher=lambda _url: {}).run(CryptoAnalyst().run(task))
+    report = validated.result["research_validation"]
+
+    assert "source-a" in report["invalid_source_derivation_references"]
+    assert "source_derivation_references_invalid" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"
+
+
+def test_pipeline_blocks_self_referential_and_cyclic_source_lineage():
+    """Self references and cycles are invalid metadata, not source independence."""
+    from agents.crypto_analyst.agent import CryptoAnalyst
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    revision = "0123456789012345678901234567890123456789"
+    sources = [
+        {
+            "source_id": "source-a",
+            "source_url": f"https://raw.githubusercontent.com/example/repo/{revision}/a.txt",
+            "classification": "unclassified_source",
+            "derived_from_source_ids": ["source-a", "source-b"],
+        },
+        {
+            "source_id": "source-b",
+            "source_url": f"https://raw.githubusercontent.com/example/repo/{revision}/b.txt",
+            "classification": "unclassified_source",
+            "derived_from_source_ids": ["source-a"],
+        },
+    ]
+    task = Task(
+        task_id="cyclic-source-lineage",
+        description="Self-referential and cyclic lineage remains blocked",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": sources,
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+    validated = Validator(source_fetcher=lambda _url: {}).run(CryptoAnalyst().run(task))
+    report = validated.result["research_validation"]
+
+    assert report["self_referential_source_derivations"] == ["source-a"]
+    assert report["source_derivation_cycles"]
+    assert "source_derivation_self_reference" in report["readiness_blockers"]
+    assert "source_derivation_lineage_cycle" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"

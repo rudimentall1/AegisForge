@@ -154,3 +154,17 @@ def test_unterminated_string_literal_fails_closed():
     result = inspect_source(SOURCE + chr(10) + 'const char *note = "unterminated;')
     assert result["conclusion"] == "INCONCLUSIVE"
     assert "unterminated_string" in result["errors"]
+
+def test_unescaped_newline_in_string_literal_fails_closed():
+    mutated = SOURCE + chr(10) + 'const char *note = "first line' + chr(10) + 'second line";'
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "newline_in_string" in result["errors"]
+
+
+def test_unescaped_newline_in_character_literal_fails_closed():
+    mutated = SOURCE + chr(10) + "char note = '" + chr(10) + "';"
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "newline_in_char" in result["errors"]
+

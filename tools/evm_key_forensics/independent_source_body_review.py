@@ -43,23 +43,72 @@ def git(repo: Path, *args: str) -> bytes:
     return proc.stdout
 
 
+def _code_brace_positions(source: bytes, start: int):
+    """Yield brace positions while ignoring C++ comments and quoted literals.
+
+    This deliberately small lexer handles ordinary string/character literals,
+    line comments, and block comments. It is not a complete C++ lexer or parser.
+    """
+    normal, line_comment, block_comment, string, character = range(5)
+    state = normal
+    escaped = False
+    offset = start
+    while offset < len(source):
+        char = source[offset]
+        nxt = source[offset + 1] if offset + 1 < len(source) else 0
+        if state == normal:
+            if char == ord("/") and nxt == ord("/"):
+                state = line_comment
+                offset += 2
+                continue
+            if char == ord("/") and nxt == ord("*"):
+                state = block_comment
+                offset += 2
+                continue
+            if char == ord('"'):
+                state = string
+            elif char == ord("'"):
+                state = character
+            elif char in (ord("{"), ord("}")):
+                yield offset, char
+        elif state == line_comment:
+            if char in (ord("\\n"), ord("\\r")):
+                state = normal
+        elif state == block_comment:
+            if char == ord("*") and nxt == ord("/"):
+                state = normal
+                offset += 2
+                continue
+        elif state in (string, character):
+            if escaped:
+                escaped = False
+            elif char == ord("\\\\"):
+                escaped = True
+            elif (state == string and char == ord('"')) or (
+                state == character and char == ord("'")
+            ):
+                state = normal
+        offset += 1
+
+
 def extract_function(source: bytes) -> bytes:
     start = source.find(FUNCTION_SIGNATURE)
     if start < 0:
         raise ReviewError("createSeed_signature_not_found")
-    opening = source.find(b"{", start + len(FUNCTION_SIGNATURE))
-    if opening < 0:
+
+    opening = None
+    for offset, char in _code_brace_positions(source, start + len(FUNCTION_SIGNATURE)):
+        if char == ord("{"):
+            opening = offset
+            break
+    if opening is None:
         raise ReviewError("createSeed_opening_brace_not_found")
 
-    # The pinned function body has no braces inside string literals or comments
-    # that affect this simple extraction. The reviewer must still inspect the
-    # source boundaries manually; this is not a general C++ parser.
     depth = 0
-    for offset in range(opening, len(source)):
-        char = source[offset]
+    for offset, char in _code_brace_positions(source, opening):
         if char == ord("{"):
             depth += 1
-        elif char == ord("}"):
+        else:
             depth -= 1
             if depth == 0:
                 return source[opening : offset + 1]
@@ -127,7 +176,7 @@ def main() -> int:
             "It does not build or execute Profanity.",
             "It does not establish source-to-binary provenance or remediation.",
             "It does not prove entropy quality, exploitability, or wallet exposure.",
-            "Brace-depth extraction is intentionally narrow, not a general C++ parser.",
+            "Extraction ignores ordinary C++ comments and quoted literals but is not a complete C++ lexer or parser.",
         ],
         "conclusion": "INCONCLUSIVE",
     }

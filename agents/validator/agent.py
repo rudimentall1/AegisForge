@@ -715,16 +715,25 @@ class Validator:
         # This is a graph-navigation aid only: declarations are not independently
         # verified facts, and cycles are separately reported as blockers.
         source_derivation_ancestors = {}
+        ambiguous_lineage_ids = set(duplicate_source_ids)
         for source_id in sorted(source_ids):
+            # A duplicated ID does not identify one graph node. Do not publish a
+            # closure for that node or for any path that depends on it.
+            if source_id in ambiguous_lineage_ids:
+                continue
             visited = set()
             pending = list(declared_derivations.get(source_id, []))
+            ambiguous_path = False
             while pending:
                 origin = pending.pop()
+                if origin in ambiguous_lineage_ids:
+                    ambiguous_path = True
+                    continue
                 if origin in visited or origin not in source_ids or origin == source_id:
                     continue
                 visited.add(origin)
                 pending.extend(declared_derivations.get(origin, []))
-            if visited:
+            if visited and not ambiguous_path:
                 source_derivation_ancestors[source_id] = sorted(visited)
 
         # A dossier may contain multiple records for the same URL, or silently

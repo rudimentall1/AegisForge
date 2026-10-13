@@ -6,7 +6,7 @@ Status: protocol proposed; historical vulnerability reproduction is **not establ
 
 Can the key-generation seed construction in a pinned historical Profanity revision be shown, under a recorded build/runtime environment, to have a materially narrower or predictable state space than the application assumes?
 
-This protocol is deliberately limited to source/build reproducibility and synthetic statistical or deterministic tests. It does not attempt to recover keys, scan addresses, target funded wallets, or reproduce vanity-address searching.
+This protocol is deliberately limited to immutable source review, build-environment identification for harmless diagnostics, and synthetic statistical or deterministic tests. It does not attempt to recover keys, scan addresses, target funded wallets, or reproduce vanity-address searching. The historical `createSeed()` function must not be executed by this project: it produces seed material in the real key-generation path, and an operational harness around it would cross the agreed safety boundary.
 
 ## Pinned source and primary references
 
@@ -49,14 +49,14 @@ The GitHub issue records an early hypothesis, not a complete exploit demonstrati
 
 **Pass means:** the source and build environment are identifiable and reproducible. It does not mean the vulnerability is reproduced.
 
-### Stage B — Seed-source semantics
+### Stage B — Generic runtime diagnostics
 
-- In an isolated harness, test and document the exact type and behavior of `std::random_device::result_type`, `entropy()`, and `operator()` for the recorded runtime.
-- Record bounded observations and their limitations.
+- Use only the repository-owned diagnostic probe, which calls the standard-library API without invoking the historical Profanity function or emitting seed values.
+- Record the exact compiler, standard library, OS, build flags, and bounded observations.
 - Keep the diagnostic probe distinct from the historical application source.
 - Do not interpret observed diversity or a nonzero `entropy()` return as proof of cryptographic unpredictability.
 
-**Pass means:** environment behavior was measured. It does not prove exploitability.
+**Pass means:** the diagnostic environment was observed. It does not establish the behavior of the historical application build or prove exploitability.
 
 ### Stage C — Bounded synthetic validation
 
@@ -67,17 +67,16 @@ The GitHub issue records an early hypothesis, not a complete exploit demonstrati
 
 **Pass means:** the model survives the specified synthetic test. It does not demonstrate recovery of historical wallet keys.
 
-### Stage D — Independent conclusion
+### Stage D — Independent source-level review
 
-A conclusion stronger than source review requires:
-- a precise claim with stated assumptions;
-- reproducible commands and pinned inputs;
-- a test result that directly supports that claim;
-- a negative control;
-- an independent review;
-- an explicit account of what the test cannot establish.
+A conclusion stronger than source review is not available from the current implementation. An independent reviewer can check:
+- immutable source references and source hashes;
+- the exact claim against the pinned source text;
+- reproducible checker commands and raw outputs;
+- positive and negative controls for the repository-owned synthetic model;
+- the limits of every inference.
 
-If these conditions are not met, record `INCONCLUSIVE`.
+This review must not execute the historical seed-generation function or turn the project into an operational key-generation/search harness. Any claim requiring historical runtime behavior remains `INCONCLUSIVE` until a separately approved, safe method can establish it without generating or retaining key material.
 
 ## Evidence bundle requirements
 
@@ -98,6 +97,6 @@ Hashes prove file consistency against a manifest, not who produced the files or 
 
 ## Current conclusion
 
-`SOURCE_REVIEWED`; `HISTORICAL_VULNERABILITY_REPRODUCED = false`; `INCONCLUSIVE`.
+`SOURCE_REVIEW_ONLY`; `HISTORICAL_VULNERABILITY_REPRODUCED = false`; `INCONCLUSIVE`.
 
-The next implementation task is a small, isolated source-semantics harness and tests for its machine-readable result—not a wallet-key search tool and not a production-farm job.
+The source checker and generic runtime diagnostic are not a historical reproduction. The next useful gate is independent review of the pinned source claim and its evidence package, including a reviewer independently re-fetching the immutable upstream revisions and recomputing the Git blob IDs. Do not add a harness that executes the historical `createSeed()` path, and do not run this work on the production agent farm.

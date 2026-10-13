@@ -300,3 +300,39 @@ def test_replayed_receipt_does_not_create_duplicate_recovery_evidence(tmp_path):
         _accept(dossier, envelope, key, path)
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT COUNT(*) FROM attestation_replay_evidence").fetchone()[0] == 1
+
+
+def test_independent_connections_cannot_accept_the_same_attestation_twice(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    key = Ed25519PrivateKey.generate()
+    path = tmp_path / "independent-connections.sqlite3"
+    dossier = _dossier("concurrent-same-run", "concurrent-same-nonce")
+    envelope = _envelope(dossier, key)
+    trusted = {"pinned-runner-key": _public_bytes(key)}
+    start = Barrier(2)
+
+    def attempt():
+        start.wait(timeout=5)
+        try:
+            return ("accepted", verify_and_record_attestation(
+                dossier,
+                envelope,
+                trusted_public_keys=trusted,
+                database_path=path,
+            ))
+        except AttestationReplayRegistryError as exc:
+            return ("rejected", str(exc))
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: attempt(), range(2)))
+
+    assert sum(outcome[0] == "accepted" for outcome in outcomes) == 1
+    rejected = [outcome[1] for outcome in outcomes if outcome[0] == "rejected"]
+    assert len(rejected) == 1
+    assert "attestation_replay_detected:run_id_or_nonce_already_seen" in rejected[0]
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT COUNT(*) FROM accepted_runner_attestations").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM attestation_replay_journal").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM attestation_replay_evidence").fetchone()[0] == 1

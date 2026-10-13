@@ -1020,7 +1020,8 @@ class Validator:
         if rechecked < 2:
             next_actions.append("Independently re-fetch at least two allowlisted primary sources.")
         if matching < 2 or independent_matching_fingerprints < 2:
-            next_actions.append("Require matching SHA-256 fingerprints for at least two independent source contents; different URLs serving identical bytes count as one content item.")
+            next_actions.append("Require matching SHA-256 fingerprints for at least two distinct source contents; distinct content is not proof of independent origin.")
+        next_actions.append("Establish publisher/origin independence with separately verified provenance before treating sources as independent evidence.")
         if truncated_sources:
             next_actions.append("Review full source material or explicitly scope claims to the truncated excerpt; do not treat clipped text as complete analysis.")
         if unknown_completeness_sources:

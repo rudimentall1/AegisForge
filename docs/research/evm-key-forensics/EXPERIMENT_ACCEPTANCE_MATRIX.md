@@ -16,7 +16,7 @@ This is a source-semantics claim. It is not a claim that the seed has exactly 32
 | E1 — Build identity | Source file hashes, compiler, standard library, OS/image, flags | `BUILD_RECORDED` |
 | E2 — Runtime observation | Bounded diagnostic of `random_device` type and implementation behavior | `ENVIRONMENT_OBSERVED`; not an entropy proof |
 | E3 — Synthetic control | Predeclared finite toy state space; positive and negative controls; deterministic expected results | `SYNTHETIC_MODEL_VALIDATED`; not historical exploitability |
-| E4 — Historical behavior | Isolated harness exercises the pinned historical seed-construction path, with exact build provenance and independently checked outputs | `HISTORICAL_PATH_EXERCISED`; still not a wallet compromise claim |
+| E4 — Historical runtime behavior | Not part of the current safe scope. The historical `createSeed()` function must not be executed by this project because it produces seed material in the real key-generation path. | `NOT_ESTABLISHED`; no runtime claim may be inferred from source review or generic diagnostics |
 | E5 — Independent review | Reviewer independently checks inputs, raw artifacts, verifier output, assumptions, and conclusion | Claim may be promoted only to the level actually supported |
 
 ## Required controls
@@ -69,6 +69,6 @@ The required trust model and future integration acceptance criteria are specifie
 
 ## Next engineering gate
 
-The portable verifier gate is now covered by automated CLI tests, but this does not validate the historical vulnerability. The pinned source review locates `Dispatcher::Device::createSeed()` at `Dispatcher.cpp:102–120`: the non-debug branch initializes `std::mt19937_64` from `rd()` and assigns four distribution outputs to the returned seed vector; the debug branch returns four fixed values. Because executing that function creates seed material used by wallet-key generation, do not run the historical function or build an operational harness around it. The next safe gate is a source-only, independently reviewed analysis of the pinned code plus generic environment diagnostics that never emit or retain seed values. Record compiler/library/OS provenance only for the diagnostic. Historical runtime reproduction remains `INCONCLUSIVE`; do not promote the claim from source semantics alone.
+The portable verifier gate is covered by automated CLI tests, but this does not validate the historical vulnerability. The pinned source review locates `Dispatcher::Device::createSeed()` at `Dispatcher.cpp:102–120`: the non-debug branch initializes `std::mt19937_64` from `rd()` and assigns four distribution outputs to the returned seed vector; the debug branch returns four fixed values. Executing that function creates seed material used by wallet-key generation, so this project must not run it or build an operational harness around it. The safe gate is an independent, source-only review of the pinned code plus generic environment diagnostics that never emit or retain seed values. Record compiler/library/OS provenance only for the generic diagnostic. Historical runtime reproduction remains `INCONCLUSIVE`; do not promote the claim from source semantics alone.
 
 Reuse the existing lab receipt/verifier architecture where it fits; do not create a parallel signature format. Never run this experiment on the production agent farm.

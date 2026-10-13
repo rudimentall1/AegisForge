@@ -37,8 +37,10 @@ The API must not conflate these claims. A later valid anchor advancement must no
 - **Implemented:** accepted replay row, journal event, journal head, evidence, and pending `FINALIZED` status now commit in one SQLite transaction on the normal finalization path.
 - **Implemented:** a failure while updating the pending status rolls back the accepted row and journal/evidence in the same transaction. Non-unique SQLite integrity failures are no longer mislabeled as replay duplicates.
 - **Implemented:** result metadata uses `HISTORICALLY_ANCHORED_CANDIDATE_HEAD_CONFIRMED`, not a claim that the candidate is still the current external head.
-- **Added, not yet executed here:** a deterministic test advances the external anchor after candidate confirmation; a second test interleaves a local writer between preflight and append; a third injects failure into the pending-status update and checks transaction rollback.
-- **Still open:** independent-connection duplicate replay tests and explicit reconciliation for anchor sequence N+1 while local state remains at N need separate review.
+- **Added, pending CI confirmation:** deterministic tests cover an external anchor advance after candidate confirmation, a local writer interleaving between preflight and append, and rollback when the pending-status update fails.
+- **Added, pending CI confirmation:** a concurrent duplicate-submission test uses two worker threads, each opening its own SQLite connection, and asserts that exactly one copy is accepted with one journal event and one evidence row.
+- **Added, pending CI confirmation:** recovery explicitly tests an anchor at N+1 with local state at N and asserts the planner fails closed without changing accepted rows, journal, state, or evidence.
+- **Still open:** operator-run reconciliation and independent-anchor rollback controls remain outside this prototype.
 - Keep `qualification=NOT_ESTABLISHED` until the tests run and independent-anchor rollback controls and operational fault-injection testing are complete.
 
 ## Explicit limitation

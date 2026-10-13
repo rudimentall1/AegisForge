@@ -76,6 +76,8 @@ class SourceResearcher:
                 "does not describe key generation", "not a key generation",
                 "no random generator or key generation implementation details",
                 "no cryptographic use", "unrelated documentation",
+                "has no createseed function", "no createseed function",
+                "does not implement profanity", "unrelated to vanity generation",
             )
         )
         if explicit_negative_context:

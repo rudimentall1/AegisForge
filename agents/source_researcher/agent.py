@@ -69,7 +69,18 @@ class SourceResearcher:
             term in haystack
             for term in ("private key", "private-key", "key generation", "key-generation", "createseed", "vanity")
         )
-        if profanity_context and seed_space_signal and key_generation_context:
+        # A project name plus seed/key vocabulary is not enough. Require an
+        # explicit RNG/implementation signal so unrelated documentation cannot
+        # become a security finding from lexical overlap alone.
+        rng_implementation_signal = any(
+            term in haystack
+            for term in (
+                "mt19937_64", "random_device", "random 32-bit vector",
+                "random number generator", "reduced set of rng initializations",
+                "weak prng", "weak random", "rng initialization",
+            )
+        )
+        if profanity_context and seed_space_signal and key_generation_context and rng_implementation_signal:
             return "vanity_generator_entropy_weakness_report"
         if "regenerate all of your keys" in haystack or ("c++ 0.9.36" in haystack and "go 1.0 rc" in haystack):
             return "early_client_key_generation_warning"

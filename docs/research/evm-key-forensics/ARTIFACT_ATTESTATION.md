@@ -23,6 +23,21 @@ The command must exit successfully and report the expected repository and workfl
 
 If verification fails, the attestation is absent, or the repository/workflow/source identity is unexpected, do not treat the ZIP as having verified provenance.
 
+
+## Latest strict-verification run
+
+The stricter identity checks were exercised successfully in [workflow run 38367831398](https://github.com/rudimentall1/AegisForge/actions/runs/38367831398), against PR head `27e8c954c68291e0ec469643165105b90108b4f7`.
+
+- Workflow checkout / attested source SHA: `24e077826caa40961812ebd06bc735f6355424ca`
+- Ref: `refs/pull/32/merge`
+- Attested subject: `evm-key-forensics-evidence.zip`
+- Subject SHA-256: `89c904a57614c8d57dc50b9bbdea9625e70a10aa4cea5162eb5e0448cc23e646`
+- Attestations examined: `1`
+- Result: `GitHub CLI attestation identity and subject digest: PASS`
+- Uploaded evidence artifact: [evm-key-forensics-probe-38367831398-1](https://github.com/rudimentall1/AegisForge/actions/runs/38367831398/artifacts/11796739500)
+
+The verification step now checks the verified certificate's repository, workflow name, workflow SHA and ref; the in-toto statement's workflow path and repository; and the SHA-256 of the actual ZIP against the attested subject digest. The full probe workflow and independent clean-runner rebuild both passed for this run.
+
 ## What this proves, and what it does not
 
 A successful GitHub attestation can bind the ZIP digest to GitHub's recorded workflow provenance. It is stronger than the bundle's self-reported hash manifest, but it does not establish that the workflow logic is correct, that the runner was free of compromise, or that the research conclusions are true.

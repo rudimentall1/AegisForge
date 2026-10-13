@@ -14,6 +14,7 @@ PRE = {
     "source_revision_role": "pre-disclosure",
     "expected_upstream_commit": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
     "source_sha256": "a" * 64,
+    "function_body_sha256": "c" * 64,
     "git_blob_sha1": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
     "pinned_source_blob_matches": True,
     "conclusion": "SOURCE_PATTERN_MATCHED",
@@ -37,6 +38,7 @@ def test_valid_results_build_comparison_but_conclusion_stays_inconclusive():
     assert report["source_comparison"]["pre_disclosure"]["validated"] is True
     assert report["source_comparison"]["post_disclosure_archive"]["validated"] is True
     assert report["source_comparison"]["same_source_sha256"] is False
+    assert report["source_comparison"]["same_create_seed_function_body_sha256"] is True
     assert report["overall_conclusion"] == "INCONCLUSIVE"
     assert report["limitations"]["historical_vulnerability_reproduced"] is False
 
@@ -91,3 +93,20 @@ def test_cli_writes_report(tmp_path):
     assert len(reproducibility["checker_script_sha256"]) == 64
     assert len(reproducibility["report_builder_sha256"]) == 64
     assert reproducibility["hashes_are_authenticity_proof"] is False
+
+
+def test_function_body_fingerprint_difference_is_reported_without_promoting_conclusion():
+    changed = copy.deepcopy(POST)
+    changed["function_body_sha256"] = "d" * 64
+    report = build_report(copy.deepcopy(PRE), changed)
+    assert report["validation_errors"] == []
+    assert report["source_comparison"]["same_create_seed_function_body_sha256"] is False
+    assert report["overall_conclusion"] == "INCONCLUSIVE"
+
+
+def test_invalid_function_body_fingerprint_is_rejected():
+    changed = copy.deepcopy(PRE)
+    changed["function_body_sha256"] = "not-a-digest"
+    report = build_report(changed, copy.deepcopy(POST))
+    assert "pre-disclosure:invalid_function_body_sha256" in report["validation_errors"]
+    assert report["overall_conclusion"] == "INCONCLUSIVE"

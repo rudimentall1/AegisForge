@@ -254,5 +254,22 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
             verify_artifact(self.root)
 
 
+    def test_symlinked_artifact_directory_is_rejected(self):
+        link = self.root.parent / (self.root.name + "-bundle-link")
+        try:
+            link.symlink_to(self.root, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "artifact_directory_must_not_be_symlink"):
+                verify_artifact(link)
+        finally:
+            if link.is_symlink():
+                link.unlink()
+
+    def test_non_directory_artifact_root_is_rejected(self):
+        not_a_directory = self.root / "not-a-directory"
+        not_a_directory.write_text("not a directory", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "artifact_directory_missing_or_not_directory"):
+            verify_artifact(not_a_directory)
+
 if __name__ == "__main__":
     unittest.main()

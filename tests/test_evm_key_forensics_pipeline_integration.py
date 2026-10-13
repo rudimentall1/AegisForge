@@ -101,6 +101,23 @@ def test_source_researcher_crypto_analyst_validator_preserve_evidence_boundaries
     assert validated.result["stage"] == "validation"
     assert validation["sources_rechecked_http_200"] >= 2
     assert validation["exact_source_fingerprints_matching"] >= 2
+    checked_by_id = {
+        item["source_id"]: item
+        for item in validated.result["research_source_checks"]
+    }
+    matching_digests = [
+        source["content_sha256"]
+        for source in result["sources"]
+        if checked_by_id.get(source.get("source_id"), {}).get("content_fingerprint_matches") is True
+    ]
+    distinct_digests = set(matching_digests)
+    assert validation["distinct_matching_source_fingerprints"] == len(distinct_digests)
+    assert validation["independent_matching_source_fingerprints"] == len(distinct_digests)
+    assert validation["matching_fingerprint_groups_with_duplicates"] == sum(
+        matching_digests.count(digest) > 1 for digest in distinct_digests
+    )
+    assert validation["source_origin_independence_established"] is False
+    assert "source_origin_independence_not_established" in validation["readiness_blockers"]
     assert validation["pinned_revision_source_checks_failed"] == 0
     assert validation["historical_reproduction_confirmed"] is False
     assert validation["status"] == "INCONCLUSIVE"

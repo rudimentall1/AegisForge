@@ -62,9 +62,7 @@ jobs:
 
       - name: Build source evidence comparison report
         run: |
-          python tools/evm_key_forensics/build_source_evidence_report.py \\
-            /tmp/source-pattern-pre.json /tmp/source-pattern-post.json \\
-            --output /tmp/source-evidence-report.json
+          python tools/evm_key_forensics/build_source_evidence_report.py /tmp/source-pattern-pre.json /tmp/source-pattern-post.json --output /tmp/source-evidence-report.json
           cat /tmp/source-evidence-report.json
 
       - name: Validate source evidence dossier

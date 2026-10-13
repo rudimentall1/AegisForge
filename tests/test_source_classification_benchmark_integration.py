@@ -48,6 +48,16 @@ def test_profane_seed_and_key_terms_without_rng_evidence_are_not_a_finding():
     assert actual == "unclassified_source"
 
 
+def test_rng_and_private_key_vocabulary_without_generation_path_are_not_a_finding():
+    actual = SourceResearcher._classification(
+        "https://github.com/example/profanity-docs",
+        "Profanity telemetry and private-key test fixtures",
+        "A telemetry sampler uses mt19937_64 and records a 32-bit seed beside "
+        "a private-key fixture. No vanity-address or key-generation path is described.",
+    )
+    assert actual == "unclassified_source"
+
+
 def test_crypto_analyst_keeps_source_support_separate_from_reproduction():
     from agents.crypto_analyst.agent import CryptoAnalyst
     from shared.task import Task

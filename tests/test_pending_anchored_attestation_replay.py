@@ -1172,3 +1172,53 @@ def test_acceptance_and_finalized_status_roll_back_together_on_status_write_fail
         assert db.execute(
             "SELECT status FROM pending_anchored_replay"
         ).fetchone() == ("PREPARED",)
+
+@pytest.mark.parametrize(
+    ("first_run", "first_nonce", "second_run", "second_nonce"),
+    [
+        ("same-run", "nonce-a", "same-run", "nonce-b"),
+        ("run-a", "same-nonce", "run-b", "same-nonce"),
+    ],
+)
+def test_different_pending_payload_cannot_reuse_run_or_nonce(
+    tmp_path, first_run, first_nonce, second_run, second_nonce
+):
+    path = tmp_path / "pending-run-nonce-collision.sqlite3"
+    first_dossier, first_envelope, first_trusted = _signed(first_run, first_nonce)
+    second_dossier, second_envelope, second_trusted = _signed(second_run, second_nonce)
+    anchor = Anchor()
+
+    def lose_cas_response(*args, **kwargs):
+        raise TimeoutError("simulated unknown CAS outcome")
+
+    anchor.compare_and_set_anchor = lose_cas_response
+    with pytest.raises(
+        ReplayAnchorUnavailable,
+        match="external_anchor_publish_outcome_unknown",
+    ):
+        pending.verify_and_record_attestation_pending_anchored(
+            first_dossier,
+            first_envelope,
+            trusted_public_keys=first_trusted,
+            database_path=path,
+            anchor_store=anchor,
+        )
+
+    with pytest.raises(
+        pending.AttestationReplayRegistryError,
+        match="pending_candidate_run_or_nonce_already_staged",
+    ):
+        pending.verify_and_record_attestation_pending_anchored(
+            second_dossier,
+            second_envelope,
+            trusted_public_keys=second_trusted,
+            database_path=path,
+            anchor_store=anchor,
+        )
+
+    assert _counts(path) == (0, 1, 0)
+    with sqlite3.connect(path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM pending_anchored_replay WHERE status='PREPARED'"
+        ).fetchone()[0] == 1
+

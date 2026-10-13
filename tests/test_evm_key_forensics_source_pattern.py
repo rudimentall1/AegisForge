@@ -168,3 +168,30 @@ def test_unescaped_newline_in_character_literal_fails_closed():
     assert result["conclusion"] == "INCONCLUSIVE"
     assert "newline_in_char" in result["errors"]
 
+def test_cli_rejects_oversized_source_before_decoding(tmp_path, capsys):
+    from tools.evm_key_forensics.check_historical_source_pattern import MAX_SOURCE_BYTES
+
+    source_path = tmp_path / "oversized.cpp"
+    source_path.write_bytes(b"x" * (MAX_SOURCE_BYTES + 1))
+
+    exit_code = main([str(source_path)])
+    import json
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "source_exceeds_size_limit" in result["errors"]
+
+
+def test_cli_rejects_invalid_utf8_source(tmp_path, capsys):
+    source_path = tmp_path / "invalid-utf8.cpp"
+    source_path.write_bytes(b"int main() { // " + bytes([0xff]) + b"\\n}")
+
+    exit_code = main([str(source_path)])
+    import json
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "source_invalid_utf8" in result["errors"]
+

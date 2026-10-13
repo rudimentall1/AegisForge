@@ -636,3 +636,36 @@ def test_duplicate_source_ids_cannot_make_lineage_appear_unambiguous():
     assert report["source_origin_independence_established"] is False
     assert report["status"] == "INCONCLUSIVE"
 
+
+def test_transitive_source_lineage_is_preserved_without_claiming_independence():
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    task = Task(
+        task_id="transitive-source-lineage",
+        description="Transitive derivation must remain visible in the report",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [
+                {"source_id": "source-a", "source_url": "", "derived_from_source_ids": ["source-b"]},
+                {"source_id": "source-b", "source_url": "", "derived_from_source_ids": ["source-c"]},
+                {"source_id": "source-c", "source_url": ""},
+            ],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+    validated = Validator(source_fetcher=lambda _url: {}).run(task)
+    report = validated.result["research_validation"]
+
+    assert report["source_derivation_dependencies"] == {
+        "source-a": ["source-b"],
+        "source-b": ["source-c"],
+    }
+    assert report["sources_with_declared_derivations"] == 2
+    assert "source_derivation_dependencies_require_review" in report["readiness_blockers"]
+    assert report["source_origin_independence_established"] is False
+    assert report["status"] == "INCONCLUSIVE"
+

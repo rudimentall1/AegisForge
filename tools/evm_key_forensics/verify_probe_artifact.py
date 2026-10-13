@@ -42,11 +42,14 @@ def _load_strict_json(path: Path):
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("json_file_invalid_utf8") from exc
-    return json.loads(
+    value = json.loads(
         text,
         object_pairs_hook=_reject_duplicate_keys,
         parse_constant=_reject_nonstandard_constant,
     )
+    if not isinstance(value, dict):
+        raise ValueError("json_root_must_be_object")
+    return value
 
 
 def sha256(path: Path) -> str:

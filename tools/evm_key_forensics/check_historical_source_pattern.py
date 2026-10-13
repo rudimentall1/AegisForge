@@ -141,8 +141,8 @@ def inspect_source(source: str) -> dict:
     # Match a definition, not merely a declaration. Starting brace scanning
     # at a prototype can accidentally consume the next unrelated function body.
     definition = re.compile(
-        r"\\bcl_ulong4\\s+Dispatcher\\s*::\\s*Device\\s*::\\s*"
-        r"createSeed\\s*\\(\\s*\\)\\s*\\{"
+        r"\bcl_ulong4\s+Dispatcher\s*::\s*Device\s*::\s*"
+        r"createSeed\s*\(\s*\)\s*\{"
     )
     definitions = list(definition.finditer(analysis_source))
     if not definitions:

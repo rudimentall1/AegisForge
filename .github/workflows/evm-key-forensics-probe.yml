@@ -264,7 +264,7 @@ jobs:
           g++ --version
           flags=(-std=c++11 -O2 -Wall -Wextra -Werror -pedantic)
           source=tools/evm_key_forensics/profanity_seed_environment_probe.cpp
-          reference_source_sha="$(sha256sum reference/profanity_seed_environment_probe.cpp | cut -d ' ' -f1)"
+          reference_source_sha="$(sha256sum reference/tools/evm_key_forensics/profanity_seed_environment_probe.cpp | cut -d ' ' -f1)"
           checkout_source_sha="$(sha256sum "$source" | cut -d ' ' -f1)"
           test "$reference_source_sha" = "$checkout_source_sha"
           g++ "${flags[@]}" "$source" -o profanity_seed_environment_probe_rebuilt

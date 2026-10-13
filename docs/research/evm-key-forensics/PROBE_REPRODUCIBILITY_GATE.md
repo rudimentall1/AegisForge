@@ -33,8 +33,8 @@ The job log reports that the independent rebuild matched byte-for-byte. These va
 - [x] The same-runner build check passed.
 - [x] The independent-runner build matches the reference binary byte-for-byte.
 - [x] Compiler version and compile flags are recorded here.
-- [ ] The evidence metadata does not yet persist the independent runner's compiler version, source digest, and binary comparison result as structured fields. Those values are present in the job log and this document, but the evidence bundle should be extended to carry them.
-- [ ] The GitHub Actions provenance attestation for the evidence ZIP must be verified separately with the command in [ARTIFACT_ATTESTATION.md](ARTIFACT_ATTESTATION.md). The attestation job's success alone is not independent verification.
+- [x] The independent runner's compiler version, runner details, source digest, binary digests, and comparison result are persisted in the separate `independent-rebuild-report.json` artifact.
+- [ ] The GitHub Actions provenance attestation for the evidence ZIP must be verified with the command in [ARTIFACT_ATTESTATION.md](ARTIFACT_ATTESTATION.md). The attestation job's success alone is not independent verification.
 
 A mismatch is a failed gate. Do not silently accept it or overwrite the reference binary. Record compiler versions, runner details, and digests before diagnosing the difference.
 

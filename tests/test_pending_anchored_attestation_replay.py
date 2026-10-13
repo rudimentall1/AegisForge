@@ -1115,3 +1115,51 @@ def test_local_journal_advance_between_preflight_and_append_is_not_misaccepted(
     assert local_state[1] != anchor.anchor["head_sha256"]
     assert anchor.anchor["sequence"] == 1
     assert _counts(path) == (1, 1, 0)
+
+
+def test_acceptance_and_finalized_status_roll_back_together_on_status_write_failure(tmp_path):
+    path = tmp_path / "pending-atomic-finalization.sqlite3"
+    dossier, envelope, trusted = _signed(
+        "atomic-finalize-failure", "atomic-finalize-failure-nonce"
+    )
+    anchor = Anchor()
+    original_cas = anchor.compare_and_set_anchor
+
+    def cas_then_install_failure_trigger(*args, **kwargs):
+        result = original_cas(*args, **kwargs)
+        if result:
+            with sqlite3.connect(path) as db:
+                db.execute(
+                    """CREATE TRIGGER fail_pending_finalized_update
+                       BEFORE UPDATE OF status ON pending_anchored_replay
+                       WHEN NEW.status='FINALIZED'
+                       BEGIN
+                           SELECT RAISE(ABORT, 'simulated_finalize_write_failure');
+                       END"""
+                )
+        return result
+
+    anchor.compare_and_set_anchor = cas_then_install_failure_trigger
+
+    with pytest.raises(
+        pending.AttestationReplayRegistryError,
+        match="replay_registry_integrity_constraint_failed",
+    ):
+        pending.verify_and_record_attestation_pending_anchored(
+            dossier,
+            envelope,
+            trusted_public_keys=trusted,
+            database_path=path,
+            anchor_store=anchor,
+        )
+
+    assert anchor.anchor["sequence"] == 1
+    assert _counts(path) == (0, 1, 0)
+    with sqlite3.connect(path) as db:
+        assert db.execute(
+            "SELECT sequence, head_sha256 FROM attestation_replay_journal_state "
+            "WHERE provider_id='test-provider'"
+        ).fetchone() is None
+        assert db.execute(
+            "SELECT status FROM pending_anchored_replay"
+        ).fetchone() == ("PREPARED",)

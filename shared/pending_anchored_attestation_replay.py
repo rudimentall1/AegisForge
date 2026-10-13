@@ -201,14 +201,29 @@ def _finalize_pending(
             database_path, provider_id=provider_id, anchor_sequence=candidate_sequence,
             anchor_head_sha256=candidate_head, trusted_public_keys=trusted_public_keys,
         )
-        with sqlite3.connect(str(database_path), timeout=5.0) as db:
-            evidence = db.execute("""SELECT 1 FROM attestation_replay_evidence
-                WHERE provider_id=? AND sequence=? AND run_id=? AND nonce=?
-                AND receipt_sha256=? AND journal_head_sha256=?""",
-                (provider_id, candidate_sequence, run_id, nonce, receipt_sha, candidate_head)).fetchone()
-            if not evidence:
-                raise ReplayAnchorUnavailable("anchored_candidate_local_evidence_missing")
-            db.execute("UPDATE pending_anchored_replay SET status='FINALIZED' WHERE candidate_id=?", (candidate_id,))
+        with sqlite3.connect(str(database_path), timeout=5.0, isolation_level=None) as db:
+            db.execute("PRAGMA busy_timeout=5000")
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                evidence = db.execute("""SELECT 1 FROM attestation_replay_evidence
+                    WHERE provider_id=? AND sequence=? AND run_id=? AND nonce=?
+                    AND receipt_sha256=? AND journal_head_sha256=?""",
+                    (provider_id, candidate_sequence, run_id, nonce, receipt_sha, candidate_head)).fetchone()
+                if not evidence:
+                    raise ReplayAnchorUnavailable("anchored_candidate_local_evidence_missing")
+                updated = db.execute("""UPDATE pending_anchored_replay
+                    SET status='FINALIZED'
+                    WHERE candidate_id=? AND provider_id=? AND run_id=? AND nonce=?
+                    AND receipt_sha256=? AND candidate_sequence=?
+                    AND candidate_head_sha256=? AND status IN ('PREPARED', 'FINALIZED')""",
+                    (candidate_id, provider_id, run_id, nonce, receipt_sha,
+                     candidate_sequence, candidate_head)).rowcount
+                if updated != 1:
+                    raise ReplayAnchorUnavailable("pending_candidate_not_finalizable")
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
         return {"valid": True, "recovered": True, "journal": {
             "sequence": candidate_sequence, "head_sha256": candidate_head,
             "integrity_scope": "LOCAL_HASH_CHAIN_VERIFIED_AGAINST_EXTERNAL_ANCHOR",

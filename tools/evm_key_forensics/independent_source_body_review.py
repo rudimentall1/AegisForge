@@ -36,6 +36,11 @@ def _raw_string_end(source: bytes, offset: int) -> int | None:
     prefix = next((item for item in prefixes if source.startswith(item, offset)), None)
     if prefix is None:
         return None
+    # A raw-string prefix must start a preprocessing token. Without this
+    # boundary check, an identifier ending in R could make ordinary source
+    # text look like a raw literal and hide later code from the scanner.
+    if offset > 0 and _is_identifier_byte(source[offset - 1]):
+        return None
 
     delimiter_start = offset + len(prefix)
     opening_paren = source.find(b"(", delimiter_start, min(len(source), delimiter_start + 17))

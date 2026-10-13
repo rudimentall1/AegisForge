@@ -513,6 +513,42 @@ class Validator:
                 "trust_status": "UNVERIFIED_SOURCE_SUPPLIED_CLAIM",
             })
 
+        # Detect incompatible signed provenance claims for the same source ID.
+        # A valid signature authenticates the assertion's signer, not its truth.
+        provenance_fields = (
+            "publisher_verification_status",
+            "origin_status",
+            "canonical_origin_ref",
+            "independence_status",
+            "independence_basis",
+        )
+        attestations_by_source = {}
+        for attestation in verified_provenance_attestations:
+            attestations_by_source.setdefault(attestation["source_id"], []).append(attestation)
+        conflicting_signed_provenance_attestations = []
+        for source_id, attestations in sorted(attestations_by_source.items()):
+            if len(attestations) < 2:
+                continue
+            conflicting_fields = {
+                field: sorted({
+                    str(item.get(field, ""))
+                    for item in attestations
+                })
+                for field in provenance_fields
+                if len({str(item.get(field, "")) for item in attestations}) > 1
+            }
+            if conflicting_fields:
+                conflicting_signed_provenance_attestations.append({
+                    "source_id": source_id,
+                    "signer_key_ids": sorted({
+                        str(item.get("key_id", ""))
+                        for item in attestations
+                    }),
+                    "attestations_count": len(attestations),
+                    "conflicting_fields": conflicting_fields,
+                    "resolution": "HUMAN_REVIEW_REQUIRED",
+                })
+
         # Contradictions are only recorded when upstream stages provide explicit,
         # structured assertions. Do not infer support/refutation from keywords.
         claim_assertions = []
@@ -1076,6 +1112,8 @@ class Validator:
         readiness_blockers = []
         if conflicting_claims:
             readiness_blockers.append("conflicting_source_claims_require_review")
+        if conflicting_signed_provenance_attestations:
+            readiness_blockers.append("conflicting_signed_provenance_attestations_require_review")
         if source_provenance_claims:
             readiness_blockers.append("submitted_source_provenance_requires_independent_verification")
         if source_identity_integrity_failed:
@@ -1114,6 +1152,8 @@ class Validator:
         next_actions = []
         if conflicting_claims:
             next_actions.append("Resolve explicit opposing source assertions claim by claim; do not choose a side from keyword counts or source volume.")
+        if conflicting_signed_provenance_attestations:
+            next_actions.append("Review conflicting signed provenance attestations for the same source ID; valid signatures do not resolve which assertion is factually correct.")
         if source_provenance_claims:
             next_actions.append("Independently verify source-supplied provenance claims and store verifier results separately; fields inside a dossier are not verification evidence.")
         if not any(item.get("classification") == "early_client_key_generation_warning" for item in sources):
@@ -1167,6 +1207,7 @@ class Validator:
                 item.get("attestation_status") != "NOT_PROVIDED" for item in source_provenance_claims
             ),
             "signed_provenance_attestations_verified": len(verified_provenance_attestations),
+            "conflicting_signed_provenance_attestations": conflicting_signed_provenance_attestations,
             "signed_provenance_attestation_checks": [
                 {key: value for key, value in item.items() if key != "interpretation"}
                 for item in verified_provenance_attestations

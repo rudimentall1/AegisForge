@@ -5,6 +5,7 @@ program is executed and no real wallet material is used.
 """
 import hashlib
 from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 from agents.crypto_analyst.agent import CryptoAnalyst
 from agents.source_researcher.agent import SourceResearcher
@@ -337,5 +338,33 @@ def test_pipeline_reports_sources_omitted_by_recheck_limit():
     assert report["source_recheck_limit"] == Validator.MAX_RESEARCH_SOURCE_RECHECKS
     assert report["sources_not_rechecked_due_to_limit"] == len(sources) - Validator.MAX_RESEARCH_SOURCE_RECHECKS
     assert "source_recheck_limit_exceeded" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+
+def test_pipeline_normalizes_default_https_port_and_url_fragment():
+    researched = SourceResearcher(
+        github=FakeGitHub(),
+        fetcher=fake_public_fetch,
+    ).run(Task(
+        task_id="evm-forensics-default-port-url",
+        description="Canonicalize equivalent HTTPS source URLs",
+    ))
+    analyzed = CryptoAnalyst().run(researched)
+    sources = analyzed.result["sources"]
+    assert len(sources) >= 2
+
+    parts = urlsplit(sources[0]["source_url"])
+    sources[1]["source_url"] = urlunsplit((
+        parts.scheme,
+        f"{parts.hostname}:443",
+        parts.path.rstrip("/") + "/",
+        parts.query,
+        "irrelevant-fragment",
+    ))
+
+    validated = Validator(source_fetcher=fake_public_fetch).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert report["duplicate_source_urls"]
+    assert "duplicate_source_urls" in report["readiness_blockers"]
     assert report["status"] == "INCONCLUSIVE"
 

@@ -636,8 +636,9 @@ def test_duplicate_source_ids_cannot_make_lineage_appear_unambiguous():
     report = validated.result["research_validation"]
 
     assert report["duplicate_source_ids"] == ["source-b"]
-    # The closure is diagnostic only; duplicate IDs keep the graph untrustworthy.
-    assert report["source_derivation_ancestors"] == {"source-a": ["source-b"]}
+    # A duplicated ID is not a unique graph node. Suppress the affected
+    # closure instead of presenting the arbitrarily merged graph as navigable.
+    assert report["source_derivation_ancestors"] == {}
     assert report["source_identity_integrity_failed"] is True
     assert "source_identity_integrity_failed" in report["readiness_blockers"]
     assert report["source_origin_independence_established"] is False

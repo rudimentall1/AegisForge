@@ -174,6 +174,16 @@ def verify_artifact(root: Path) -> dict:
             and post_revision.get("checker_conclusion") == "SOURCE_PATTERN_MATCHED"
             and post_revision.get("validated") is True
         ),
+        "source_report_function_fingerprints_match": (
+            isinstance(pre_revision.get("function_body_sha256"), str)
+            and len(pre_revision["function_body_sha256"]) == 64
+            and all(char in "0123456789abcdef" for char in pre_revision["function_body_sha256"])
+            and isinstance(post_revision.get("function_body_sha256"), str)
+            and len(post_revision["function_body_sha256"]) == 64
+            and all(char in "0123456789abcdef" for char in post_revision["function_body_sha256"])
+            and source_comparison.get("same_create_seed_function_body_sha256") is True
+            and pre_revision["function_body_sha256"] == post_revision["function_body_sha256"]
+        ),
         "source_report_is_inconclusive": source_report.get("overall_conclusion") == "INCONCLUSIVE",
         "source_report_reproducibility_hashes_well_formed": (
             isinstance(input_hashes.get("pre_disclosure"), str)

@@ -664,6 +664,10 @@ def test_transitive_source_lineage_is_preserved_without_claiming_independence():
         "source-a": ["source-b"],
         "source-b": ["source-c"],
     }
+    assert report["source_derivation_ancestors"] == {
+        "source-a": ["source-b", "source-c"],
+        "source-b": ["source-c"],
+    }
     assert report["sources_with_declared_derivations"] == 2
     assert "source_derivation_dependencies_require_review" in report["readiness_blockers"]
     assert report["source_origin_independence_established"] is False
@@ -695,6 +699,11 @@ def test_converging_lineage_and_duplicate_edges_are_reported_fail_closed():
     report = validated.result["research_validation"]
 
     assert report["source_derivation_dependencies"] == {
+        "source-a": ["source-b", "source-c"],
+        "source-b": ["source-c"],
+        "source-duplicate-edge": ["source-c"],
+    }
+    assert report["source_derivation_ancestors"] == {
         "source-a": ["source-b", "source-c"],
         "source-b": ["source-c"],
         "source-duplicate-edge": ["source-c"],

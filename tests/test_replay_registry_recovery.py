@@ -77,16 +77,45 @@ def test_recovery_plan_rejects_tampered_stored_receipt(tmp_path):
         )
 
 
-def test_recovery_plan_rejects_anchor_ahead_of_local_registry(tmp_path):
+def test_recovery_plan_rejects_anchor_ahead_of_local_registry_without_mutation(tmp_path):
     path = tmp_path / "registry.sqlite3"
     key = Ed25519PrivateKey.generate()
     _record(path, key, "recover-one", "recover-nonce-one")
+    with sqlite3.connect(path) as db:
+        before = {
+            table: db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in (
+                "accepted_runner_attestations",
+                "attestation_replay_journal",
+                "attestation_replay_journal_state",
+                "attestation_replay_evidence",
+            )
+        }
+        local_state_before = db.execute(
+            "SELECT sequence, head_sha256 FROM attestation_replay_journal_state "
+            "WHERE provider_id='test-provider'"
+        ).fetchone()
+
     with pytest.raises(ReplayRecoveryError, match="recovery_anchor_ahead_of_local_registry"):
         build_replay_recovery_plan(
             path, provider_id="test-provider", anchor_sequence=2,
             anchor_head_sha256="a" * 64,
             trusted_public_keys={"pinned-runner-key": _public_bytes(key)},
         )
+
+    # An anchor ahead of local history is a reconciliation incident, not a
+    # request to synthesize an absent journal event or mutate local state.
+    with sqlite3.connect(path) as db:
+        after = {
+            table: db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in before
+        }
+        local_state_after = db.execute(
+            "SELECT sequence, head_sha256 FROM attestation_replay_journal_state "
+            "WHERE provider_id='test-provider'"
+        ).fetchone()
+    assert after == before
+    assert local_state_after == local_state_before
 
 
 def test_revalidation_rebuilds_plan_against_current_anchor_and_registry(tmp_path):

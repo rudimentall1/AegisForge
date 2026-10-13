@@ -118,3 +118,18 @@ Verified in [workflow run 38369700157](https://github.com/rudimentall1/AegisForg
 - Combined artifact: [evm-key-forensics-complete-evidence-38369700157-1](https://github.com/rudimentall1/AegisForge/actions/runs/38369700157/artifacts/11797908886)
 
 The archive is still a synthetic diagnostic evidence package. This gate does not change the historical research conclusion: `INCONCLUSIVE`, with historical source-to-binary provenance `NOT_ESTABLISHED`.
+
+## ZIP special-file rejection regression
+
+The complete-evidence archive verifier now rejects ZIP members whose Unix mode identifies a special filesystem type, including FIFO entries, as well as symlinks. A dedicated FIFO regression test verifies rejection occurs before the inner probe verifier is called.
+
+Verified in [EVM Key Forensics Probe run 38370065463](https://github.com/rudimentall1/AegisForge/actions/runs/38370065463) and [main CI run 38370065438](https://github.com/rudimentall1/AegisForge/actions/runs/38370065438), PR head `eb7f1959077c9d77e0ca1c9d7f1991b8885f5f06`:
+
+- Archive abuse regression tests: passed
+- Probe and source checks: PASS
+- Independent clean-runner rebuild: PASS
+- Complete-evidence attestation verification and publication: PASS
+- Main CI: PASS
+- Complete artifact: [evm-key-forensics-complete-evidence-38370065463-1](https://github.com/rudimentall1/AegisForge/actions/runs/38370065463/artifacts/11798483680)
+
+This remains an archive-safety improvement. It does not change the historical Profanity conclusion, which remains `INCONCLUSIVE`, or source-to-binary provenance, which remains `NOT_ESTABLISHED`.

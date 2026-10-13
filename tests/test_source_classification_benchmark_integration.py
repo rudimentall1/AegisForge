@@ -451,3 +451,65 @@ def test_pipeline_does_not_count_identical_content_at_distinct_urls_as_independe
     assert "insufficient_independent_source_rechecks" in report["readiness_blockers"]
     assert report["status"] == "INCONCLUSIVE"
     assert report["decision"] == "CONTINUE_RESEARCH"
+
+
+
+def test_pipeline_surfaces_declared_source_lineage_dependencies():
+    """Explicitly copied claims remain linked to their cited upstream source."""
+    import hashlib
+
+    from agents.crypto_analyst.agent import CryptoAnalyst
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    revision = "0123456789012345678901234567890123456789"
+    body_a = "Primary source statement."
+    body_b = "Secondary article paraphrasing the primary source."
+    digest_a = hashlib.sha256(body_a.encode("utf-8")).hexdigest()
+    digest_b = hashlib.sha256(body_b.encode("utf-8")).hexdigest()
+    sources = [
+        {
+            "source_id": "primary",
+            "source_url": f"https://raw.githubusercontent.com/example/repo/{revision}/primary.txt",
+            "status_code": 200,
+            "content_sha256": digest_a,
+            "classification": "unclassified_source",
+        },
+        {
+            "source_id": "secondary",
+            "source_url": f"https://raw.githubusercontent.com/example/repo/{revision}/secondary.txt",
+            "status_code": 200,
+            "content_sha256": digest_b,
+            "classification": "unclassified_source",
+            "derived_from_source_ids": ["primary"],
+        },
+    ]
+    task = Task(
+        task_id="explicit-source-lineage",
+        description="Surface explicit source dependency declarations",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": sources,
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+
+    analyzed = CryptoAnalyst().run(task)
+    validated = Validator(
+        source_fetcher=lambda url: {
+            "status_code": 200,
+            "content_sha256": digest_a if url.endswith("primary.txt") else digest_b,
+            "content_truncated_for_analysis": False,
+            "retrieved_at": "2026-10-13T00:00:00Z",
+        }
+    ).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert report["source_derivation_dependencies"] == {"secondary": ["primary"]}
+    assert report["sources_with_declared_derivations"] == 1
+    assert "source_derivation_dependencies_require_review" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"

@@ -94,11 +94,13 @@ def verify_artifact(root: Path) -> dict:
     source_path = root / "probe-source.cpp"
     binary_path = root / "probe-binary"
     source_report_path = root / "source-evidence-report.json"
-    for artifact_path in (metadata_path, output_path, source_path, binary_path, source_report_path):
+    independent_review_path = root / "independent-source-body-review.json"
+    for artifact_path in (metadata_path, output_path, source_path, binary_path, source_report_path, independent_review_path):
         _require_regular_bundle_file(artifact_path)
     metadata = _load_strict_json(metadata_path)
     output = _load_strict_json(output_path)
     source_report = _load_strict_json(source_report_path)
+    independent_review = _load_strict_json(independent_review_path)
 
     samples = output.get("samples_requested")
     distinct = output.get("distinct_values_observed")
@@ -155,6 +157,23 @@ def verify_artifact(root: Path) -> dict:
         ),
         "source_report_hash_matches": metadata.get("source_evidence_report_sha256") == sha256(
             source_report_path, max_bytes=MAX_JSON_FILE_BYTES
+        ),
+        "independent_source_review_hash_matches": metadata.get("independent_source_body_review_sha256") == sha256(
+            independent_review_path, max_bytes=MAX_JSON_FILE_BYTES
+        ),
+        "independent_source_review_schema_supported": independent_review.get("status") == "CHECKED",
+        "independent_source_review_pins_match": (
+            isinstance(independent_review.get("revisions"), list)
+            and len(independent_review["revisions"]) == 2
+            and {item.get("revision"): item.get("git_blob_sha1") for item in independent_review["revisions"] if isinstance(item, dict)} == {
+                "pre_disclosure": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
+                "post_disclosure_archive": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
+            }
+        ),
+        "independent_source_review_body_match_is_inconclusive": (
+            independent_review.get("same_function_body_bytes") is True
+            and independent_review.get("conclusion") == "INCONCLUSIVE"
+            and independent_review.get("method") == "git_object_identity_plus_direct_function_text_comparison"
         ),
         "source_report_schema_supported": type(source_report.get("schema_version")) is int and source_report.get("schema_version") == 1,
         "source_report_identity_matches": (

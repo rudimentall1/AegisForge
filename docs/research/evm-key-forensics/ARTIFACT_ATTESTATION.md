@@ -57,3 +57,20 @@ The workflow's own GitHub CLI verification step completed successfully in [run 3
 This is a real verification result emitted by `gh attestation verify` in the workflow, not just a successful attestation-generation step. For local verification, still download the ZIP from the artifact and run the command above against that exact file.
 
 The offline verifier still reports `UNTRUSTED_UNSIGNED` for the bundle's internal manifest. It checks internal consistency only; it does not verify the separate GitHub attestation. The historical vulnerability conclusion remains `INCONCLUSIVE`, and historical Profanity source-to-binary provenance remains `NOT_ESTABLISHED`.
+
+## Combined evidence package verification
+
+The combined evidence job completed successfully in [workflow run 38368366193](https://github.com/rudimentall1/AegisForge/actions/runs/38368366193), on PR head `23c079c15f62b942d58c2d15605be1abc3de3a31`.
+
+- Combined artifact: [evm-key-forensics-complete-evidence-38368366193-1](https://github.com/rudimentall1/AegisForge/actions/runs/38368366193/artifacts/11797811330)
+- Attested archive: `evm-key-forensics-complete-evidence.zip`
+- Archive SHA-256: `336ec3adbd2f0317909dc0fafa7d06d08b2e23c78917f7de877abbbd349f3145`
+- Probe source SHA-256: `60611d0f287aee085afab07b3bb5f3747fb3c4ef70d5e2f238594885affdfffa`
+- Probe and independent rebuild binary SHA-256: `c8abed601e5c34fd2db77b3b02140381114366550a44ee55c687e43bcd43e274`
+- Workflow run: `38368366193`, attempt `1`
+- Attestation verification: `PASS`; one verified attestation examined
+- Probe/rebuild cross-linkage: `PASS`
+
+The verification step checked the attested subject digest against the actual archive, the GitHub certificate identity and workflow metadata, and consistency between the probe metadata, independent rebuild report, and combined index. The archive explicitly records that historical Profanity was not executed and its vulnerability was not reproduced.
+
+This establishes GitHub-attested provenance and internal consistency for this synthetic diagnostic package. It does not authenticate historical Profanity runtime behavior, establish the historical binary's source provenance, or prove a wallet was exposed.

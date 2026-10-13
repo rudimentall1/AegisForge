@@ -77,3 +77,30 @@ def test_crypto_analyst_keeps_source_support_separate_from_reproduction():
     assert result["confounder_sources"][0]["classification"] == "key_file_creation_or_storage_issue"
     assert result["next_experiment"]["explicit_limit"].startswith("This is not a reproduction")
 
+def test_validator_keeps_empty_dossier_inconclusive():
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    task = Task(
+        task_id="empty-forensics-dossier",
+        description="Do not promote an empty dossier",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "analysis",
+            "sources": [],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+
+    validated = Validator().run(task)
+    report = validated.result["research_validation"]
+
+    assert validated.status == "validated"
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["historical_reproduction_confirmed"] is False
+    assert report["sources_rechecked_http_200"] == 0
+    assert "historical_reproduction_not_qualified" in report["readiness_blockers"]
+    assert report["decision"] == "CONTINUE_RESEARCH"
+

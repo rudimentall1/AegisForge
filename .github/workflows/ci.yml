@@ -88,11 +88,30 @@ jobs:
           PY
           python tools/evm_key_forensics/build_source_evidence_report.py /tmp/source-pattern-pre.json /tmp/source-pattern-post.json --output /tmp/source-evidence-report.json
 
+      - name: Independently compare pinned source function text
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/johguse/profanity.git /tmp/profanity-source-review
+          git -C /tmp/profanity-source-review fetch --depth=1 origin 0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6
+          git -C /tmp/profanity-source-review fetch --depth=1 origin 186b9b27ab3e24a1899f648adcabcbf0e5f3131e
+          python tools/evm_key_forensics/independent_source_body_review.py --repo /tmp/profanity-source-review > /tmp/independent-source-body-review.json
+          cat /tmp/independent-source-body-review.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("/tmp/independent-source-body-review.json").read_text())
+          assert report["status"] == "CHECKED", report
+          assert report["same_function_body_bytes"] is True, report
+          assert report["conclusion"] == "INCONCLUSIVE", report
+          PY
+
       - name: Assemble and verify portable probe evidence
         run: |
           mkdir -p probe-evidence
           cp probe-output.json probe-evidence/probe-output.json
           cp /tmp/source-evidence-report.json probe-evidence/source-evidence-report.json
+          cp /tmp/independent-source-body-review.json probe-evidence/independent-source-body-review.json
           cp tools/evm_key_forensics/profanity_seed_environment_probe.cpp probe-evidence/probe-source.cpp
           cp profanity_seed_environment_probe probe-evidence/probe-binary
           python - <<'PY'
@@ -125,6 +144,7 @@ jobs:
               "binary_sha256": sha256("probe-binary"),
               "output_sha256": sha256("probe-output.json"),
               "source_evidence_report_sha256": sha256("source-evidence-report.json"),
+              "independent_source_body_review_sha256": sha256("independent-source-body-review.json"),
               "historical_vulnerability_reproduced": False,
               "entropy_proven": False,
           }

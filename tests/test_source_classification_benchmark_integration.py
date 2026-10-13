@@ -181,3 +181,54 @@ def test_pipeline_surfaces_explicit_conflicting_claims_without_resolving_them():
     ]
     assert "conflicting_source_claims_require_review" in report["readiness_blockers"]
     assert any("Resolve explicit opposing source assertions" in item for item in report["next_actions"])
+
+
+
+def test_pipeline_does_not_treat_duplicate_source_records_as_independent_evidence():
+    """Duplicated identity/URL records must remain blocked even if fetches match."""
+    import hashlib
+
+    from agents.crypto_analyst.agent import CryptoAnalyst
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    body = "Synthetic, non-authoritative source body for identity-integrity testing."
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    duplicate_source = {
+        "source_id": "same-source-record",
+        "source_url": "https://raw.githubusercontent.com/example/repo/0123456789012345678901234567890123456789/README.md",
+        "status_code": 200,
+        "content_sha256": digest,
+        "classification": "unclassified_source",
+    }
+    task = Task(
+        task_id="duplicate-source-integrity-pipeline",
+        description="Ensure duplicated source records cannot inflate evidence independence",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [dict(duplicate_source), dict(duplicate_source)],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+
+    analyzed = CryptoAnalyst().run(task)
+    validated = Validator(
+        source_fetcher=lambda _url: {
+            "status_code": 200,
+            "content_sha256": digest,
+            "content_truncated_for_analysis": False,
+            "retrieved_at": "2026-10-13T00:00:00Z",
+        }
+    ).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"
+    assert "source_identity_integrity_failed" in report["readiness_blockers"]
+    assert "duplicate_source_urls" in report["readiness_blockers"]
+    assert report["sources_rechecked_http_200"] == 2
+    assert report["source_content_fingerprints_matching"] == 2
+    assert report["pinned_revision_source_checks_passed"] == 0

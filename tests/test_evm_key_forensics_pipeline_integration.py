@@ -266,3 +266,76 @@ def test_pipeline_blocks_source_record_without_source_id():
     assert report["status"] == "INCONCLUSIVE"
     assert report["historical_reproduction_confirmed"] is False
 
+def test_pipeline_blocks_duplicate_canonical_source_urls():
+    researched = SourceResearcher(
+        github=FakeGitHub(),
+        fetcher=fake_public_fetch,
+    ).run(Task(
+        task_id="evm-forensics-duplicate-source-url",
+        description="Detect duplicate canonical URLs in the evidence dossier",
+    ))
+    analyzed = CryptoAnalyst().run(researched)
+    sources = analyzed.result["sources"]
+    assert len(sources) >= 2
+    sources[1]["source_url"] = sources[0]["source_url"].rstrip("/") + "/"
+
+    validated = Validator(source_fetcher=fake_public_fetch).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert report["duplicate_source_urls"]
+    assert "duplicate_source_urls" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["historical_reproduction_confirmed"] is False
+
+
+def test_pipeline_blocks_hypothesis_references_to_missing_source_ids():
+    researched = SourceResearcher(
+        github=FakeGitHub(),
+        fetcher=fake_public_fetch,
+    ).run(Task(
+        task_id="evm-forensics-dangling-source-reference",
+        description="Reject hypothesis citations that do not exist in the dossier",
+    ))
+    analyzed = CryptoAnalyst().run(researched)
+    hypothesis = analyzed.result["hypotheses"][0]
+    hypothesis["source_ids"] = ["source-id-that-does-not-exist"]
+
+    validated = Validator(source_fetcher=fake_public_fetch).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert report["hypotheses_with_invalid_source_references"] >= 1
+    assert "hypothesis_source_references_invalid" in report["readiness_blockers"]
+    assert any(
+        "source-id-that-does-not-exist" in check["missing_source_references"]
+        for check in report["hypothesis_checks"]
+    )
+    assert report["status"] == "INCONCLUSIVE"
+
+
+def test_pipeline_reports_sources_omitted_by_recheck_limit():
+    researched = SourceResearcher(
+        github=FakeGitHub(),
+        fetcher=fake_public_fetch,
+    ).run(Task(
+        task_id="evm-forensics-recheck-cap",
+        description="Make source recheck coverage explicit when dossier exceeds its cap",
+    ))
+    analyzed = CryptoAnalyst().run(researched)
+    sources = analyzed.result["sources"]
+    assert sources
+    original_count = len(sources)
+    while len(sources) <= Validator.MAX_RESEARCH_SOURCE_RECHECKS:
+        clone = dict(sources[-1])
+        clone["source_id"] = f"synthetic-overflow-{len(sources)}"
+        clone["source_url"] = f"https://github.com/johguse/profanity/issues/{1000 + len(sources)}"
+        sources.append(clone)
+
+    validated = Validator(source_fetcher=fake_public_fetch).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert report["sources_in_dossier"] == len(sources)
+    assert report["source_recheck_limit"] == Validator.MAX_RESEARCH_SOURCE_RECHECKS
+    assert report["sources_not_rechecked_due_to_limit"] == len(sources) - Validator.MAX_RESEARCH_SOURCE_RECHECKS
+    assert "source_recheck_limit_exceeded" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+

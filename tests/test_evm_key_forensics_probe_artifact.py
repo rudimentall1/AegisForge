@@ -78,6 +78,25 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.assertEqual(result["authenticity"], "UNTRUSTED_UNSIGNED")
         self.assertFalse(result["signature_verified_against_trusted_key"])
 
+    def test_missing_source_report_is_rejected(self):
+        (self.root / "source-evidence-report.json").unlink()
+        with self.assertRaisesRegex(ValueError, "artifact_file_missing_or_not_regular"):
+            verify_artifact(self.root)
+
+    def test_malformed_source_report_limitations_fail_closed(self):
+        report_path = self.root / "source-evidence-report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["limitations"] = []
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["source_evidence_report_sha256"] = digest(report_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["source_report_does_not_claim_reproduction"])
+        self.assertFalse(result["checks"]["source_report_does_not_claim_source_binary_provenance"])
+
     def test_source_report_is_bound_to_metadata_hash(self):
         report_path = self.root / "source-evidence-report.json"
         report_path.write_text(report_path.read_text(encoding="utf-8") + " ", encoding="utf-8")

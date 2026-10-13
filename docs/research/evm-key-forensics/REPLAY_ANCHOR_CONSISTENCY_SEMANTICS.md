@@ -40,8 +40,9 @@ The API must not conflate these claims. A later valid anchor advancement must no
 - **Verified in GitHub Actions:** deterministic tests cover an external anchor advance after candidate confirmation, a local writer interleaving between preflight and append, and rollback when the pending-status update fails.
 - **Verified in GitHub Actions:** a concurrent duplicate-submission test uses two worker threads, each opening its own SQLite connection, and asserts that exactly one copy is accepted with one journal event and one evidence row.
 - **Verified in GitHub Actions:** recovery explicitly tests an anchor at N+1 with local state at N and asserts the planner fails closed without changing accepted rows, journal, state, or evidence.
+- **Verified in GitHub Actions:** when an injected SQLite trigger blocks the atomic `FINALIZED` update after the external anchor advances, recovery succeeds after the trigger is removed. A second recovery leaves the accepted row, journal event, evidence row, and final status unchanged.
 - **Still open:** operator-run reconciliation and independent-anchor rollback controls remain outside this prototype.
-- The latest full CI run passed **745 tests in 17.40 seconds**, and the EVM Key Forensics Probe completed successfully. Keep `qualification=NOT_ESTABLISHED`; passing tests do not replace independent-anchor rollback controls or operational fault-injection testing.
+- The latest full CI run for commit `4dbd0260edb0f5497f502b5c0ce973ef3c1f5ba1` passed **746 tests in 16.67 seconds**. The EVM Key Forensics Probe also completed successfully. Keep `qualification=NOT_ESTABLISHED`; passing tests do not replace independent-anchor rollback controls or operational fault-injection testing.
 
 ## Explicit limitation
 

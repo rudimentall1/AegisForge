@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   test:
-    name: Python tests
+    name: Python and EVM Key Forensics tests
     runs-on: ubuntu-latest
 
     steps:
@@ -33,6 +33,157 @@ jobs:
           fi
           pip install pytest
 
+      - name: Install C++ compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++
+
+      - name: Compile diagnostic twice and compare binaries
+        run: |
+          set -euo pipefail
+          g++ --version
+          flags=(-std=c++11 -O2 -Wall -Wextra -Werror -pedantic)
+          source=tools/evm_key_forensics/profanity_seed_environment_probe.cpp
+          g++ "${flags[@]}" "$source" -o profanity_seed_environment_probe
+          g++ "${flags[@]}" "$source" -o profanity_seed_environment_probe_repeat
+          first="$(sha256sum profanity_seed_environment_probe | cut -d ' ' -f1)"
+          second="$(sha256sum profanity_seed_environment_probe_repeat | cut -d ' ' -f1)"
+          printf 'first_build_sha256=%s\nrepeat_build_sha256=%s\n' "$first" "$second"
+          test "$first" = "$second"
+
+      - name: Run diagnostic and validate safety invariants
+        run: |
+          ./profanity_seed_environment_probe 64 > probe-output.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("probe-output.json").read_text())
+          assert data["schema_version"] == 1
+          assert data["probe"] == "std_random_device_environment_diagnostic"
+          assert data["historical_profanity_code_executed"] is False
+          assert data["wallet_material_used"] is False
+          assert data["observations_are_entropy_proof"] is False
+          assert data["samples_requested"] == 64
+          assert 1 <= data["distinct_values_observed"] <= 64
+          assert isinstance(data["random_device_result_type_bits"], int)
+          assert isinstance(data["random_device_reported_entropy"], (int, float))
+          print("probe JSON and safety invariants: PASS")
+          PY
+
+      - name: Build pinned source evidence comparison report
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 "https://raw.githubusercontent.com/johguse/profanity/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/Dispatcher.cpp" -o /tmp/pinned-Dispatcher.cpp
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 "https://raw.githubusercontent.com/johguse/profanity/186b9b27ab3e24a1899f648adcabcbf0e5f3131e/Dispatcher.cpp" -o /tmp/pinned-Dispatcher-post.cpp
+          python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher.cpp --revision pre-disclosure --pretty > /tmp/source-pattern-pre.json
+          python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher-post.cpp --revision post-disclosure --pretty > /tmp/source-pattern-post.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected = {
+              "/tmp/source-pattern-pre.json": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+              "/tmp/source-pattern-post.json": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+          }
+          for filename, commit in expected.items():
+              result = json.loads(Path(filename).read_text(encoding="utf-8"))
+              assert result["conclusion"] == "SOURCE_PATTERN_MATCHED", result
+              assert result["expected_upstream_commit"] == commit, result
+              assert result["pinned_source_blob_matches"] is True, result
+          PY
+          python tools/evm_key_forensics/build_source_evidence_report.py /tmp/source-pattern-pre.json /tmp/source-pattern-post.json --output /tmp/source-evidence-report.json
+
+      - name: Independently compare pinned source function text
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/johguse/profanity.git /tmp/profanity-source-review
+          git -C /tmp/profanity-source-review fetch --depth=1 origin 0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6
+          git -C /tmp/profanity-source-review fetch --depth=1 origin 186b9b27ab3e24a1899f648adcabcbf0e5f3131e
+          python tools/evm_key_forensics/independent_source_body_review.py --repo /tmp/profanity-source-review > /tmp/independent-source-body-review.json
+          cat /tmp/independent-source-body-review.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("/tmp/independent-source-body-review.json").read_text())
+          assert report["status"] == "CHECKED", report
+          assert report["same_function_body_bytes"] is True, report
+          assert report["conclusion"] == "INCONCLUSIVE", report
+          PY
+
+      - name: Assemble and verify portable probe evidence
+        run: |
+          mkdir -p probe-evidence
+          cp probe-output.json probe-evidence/probe-output.json
+          cp /tmp/source-evidence-report.json probe-evidence/source-evidence-report.json
+          cp /tmp/independent-source-body-review.json probe-evidence/independent-source-body-review.json
+          cp tools/evm_key_forensics/profanity_seed_environment_probe.cpp probe-evidence/probe-source.cpp
+          cp profanity_seed_environment_probe probe-evidence/probe-binary
+          cp profanity_seed_environment_probe_repeat probe-evidence/probe-binary-repeat
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          root = Path("probe-evidence")
+
+          def sha256(name):
+              return hashlib.sha256((root / name).read_bytes()).hexdigest()
+
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+          pull_request = event.get("pull_request")
+          pull_request_head_sha = (
+              pull_request.get("head", {}).get("sha")
+              if isinstance(pull_request, dict)
+              else None
+          )
+          metadata = {
+              "schema_version": 1,
+              "purpose": "diagnostic_environment_observation_only",
+              "git_commit": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
+              "github_sha": os.environ["GITHUB_SHA"],
+              "github_ref": os.environ["GITHUB_REF"],
+              "pull_request_head_sha": pull_request_head_sha,
+              "github_run_id": os.environ["GITHUB_RUN_ID"],
+              "github_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "runner_os": platform.platform(),
+              "compiler_version": subprocess.check_output(
+                  ["g++", "--version"], text=True
+              ).splitlines()[0],
+              "build_flags": ["-std=c++11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic"],
+              "source_sha256": sha256("probe-source.cpp"),
+              "binary_sha256": sha256("probe-binary"),
+              "repeat_binary_sha256": sha256("probe-binary-repeat"),
+              "repeat_build_matches": sha256("probe-binary") == sha256("probe-binary-repeat"),
+              "repeat_build_scope": "same_runner_same_compiler_same_flags",
+              "output_sha256": sha256("probe-output.json"),
+              "source_evidence_report_sha256": sha256("source-evidence-report.json"),
+              "independent_source_body_review_sha256": sha256("independent-source-body-review.json"),
+              "historical_vulnerability_reproduced": False,
+              "entropy_proven": False,
+          }
+          (root / "probe-run-metadata.json").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          python tools/evm_key_forensics/verify_probe_artifact.py probe-evidence
+
+      - name: Reject invalid sample counts
+        run: |
+          set +e
+          ./profanity_seed_environment_probe 0 >/tmp/probe-out.txt 2>/tmp/probe-err.txt
+          status=$?
+          set -e
+          test "$status" -eq 2
+          grep -q "sample_count_must_be_between_1_and_10000" /tmp/probe-err.txt
+
       - name: Compile Python
         run: |
           python -m compileall -q \
@@ -41,7 +192,8 @@ jobs:
             shared \
             model_research \
             scam_intelligence \
-            tests
+            tests \
+            tools/evm_key_forensics
 
       - name: Check whitespace
         run: git diff --check
@@ -50,6 +202,15 @@ jobs:
         run: |
           set -o pipefail
           python -m pytest -q --tb=short 2>&1 | tee pytest.log
+
+      - name: Upload EVM Key Forensics evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: probe-evidence/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload pytest failure log
         if: failure()

@@ -28,7 +28,7 @@ class TrustDecision:
         }
 
 
-def evaluate_trust(proof, attestation, registry, now=None):
+def evaluate_trust(proof, attestation, registry, now=None, *, trusted_issuer_public_keys=None):
     now = now or datetime.now(timezone.utc)
     proof_id = proof.get("proof_id") if isinstance(proof, dict) else None
     verifier = ((proof or {}).get("outcome") or {}).get("verifier") if isinstance(proof, dict) else None
@@ -39,7 +39,7 @@ def evaluate_trust(proof, attestation, registry, now=None):
     if not isinstance(registry, dict):
         return TrustDecision("UNTRUSTED", "attestor_registry_missing", proof_id, verifier, evaluated_at=now.isoformat())
     try:
-        result = verify_attestation(attestation, proof, registry, now=now)
+        result = verify_attestation(attestation, proof, registry, now=now, trusted_issuer_public_keys=trusted_issuer_public_keys)
     except AttestorError as exc:
         reason = str(exc)
         status = "EXPIRED" if reason in {"attestor_not_active", "attestation_outside_attestor_validity"} else "UNTRUSTED"

@@ -50,6 +50,9 @@ class CapabilityPolicy:
         "opportunity_hunter": {"identify_opportunities", "research"},
         "validator": {"validate", "verify"},
         "model_researcher": {"model_research", "research"},
+        "source_researcher": {"research", "read_public_docs"},
+        "crypto_analyst": {"analyze", "inspect_evidence"},
+        "lab_runner": {"run_synthetic_lab", "inspect_evidence", "verify"},
     }
 
     SENSITIVE_ACTIONS = {"modify_code", "deploy", "publish", "delete", "transfer", "release", "api_request", "mcp_tool_call"}

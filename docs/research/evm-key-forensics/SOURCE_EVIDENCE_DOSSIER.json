@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "dossier_id": "evm-key-forensics-profanity-source-evidence-v1",
+  "status": "SOURCE_REVIEW_ONLY",
+  "generated_for_branch": "feat/evm-key-forensics-research",
+  "reviewed_upstream": {
+    "repository": "https://github.com/johguse/profanity",
+    "files": [
+      {
+        "role": "pre-disclosure",
+        "commit": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+        "path": "Dispatcher.cpp",
+        "url": "https://github.com/johguse/profanity/blob/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/Dispatcher.cpp",
+        "git_blob_sha1": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25"
+      },
+      {
+        "role": "post-disclosure-archive",
+        "commit": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+        "path": "Dispatcher.cpp",
+        "url": "https://github.com/johguse/profanity/blob/186b9b27ab3e24a1899f648adcabcbf0e5f3131e/Dispatcher.cpp",
+        "git_blob_sha1": "884ced30ed6e55794ea5bda0451b52e81ddec1dd"
+      }
+    ],
+    "supporting_references": [
+      {
+        "type": "issue",
+        "label": "Original report: Private key safety",
+        "url": "https://github.com/johguse/profanity/issues/61",
+        "evidentiary_role": "Historical report and hypothesis; not an independent reproduction"
+      },
+      {
+        "type": "security_disclosure",
+        "label": "1inch security write-up",
+        "url": "https://blog.1inch.io/a-vulnerability-disclosed-in-profanity-an-ethereum-vanity-address-tool-68ed7455fc8c",
+        "evidentiary_role": "External disclosure context; does not establish this repository's own reproduction"
+      }
+    ]
+  },
+  "claim_register": [
+    {
+      "id": "SRC-001",
+      "claim": "The reviewed function initializes mt19937_64 from one random_device result and derives four distribution outputs from that engine.",
+      "evidence_level": "E0_SOURCE_INSPECTION",
+      "status": "SUPPORTED_BY_PINNED_SOURCE_PATTERN_CHECK",
+      "does_not_establish": [
+        "effective entropy of a concrete runtime",
+        "predictability of a particular output",
+        "recoverability of any private key",
+        "vulnerability of any real wallet"
+      ]
+    },
+    {
+      "id": "SRC-002",
+      "claim": "The pre-disclosure and post-disclosure pinned Dispatcher.cpp files match the expected Git blob identifiers.",
+      "evidence_level": "SOURCE_IDENTITY",
+      "status": "CHECKED_BY_SOURCE_PATTERN_CLI",
+      "does_not_establish": [
+        "who retrieved or produced the file",
+        "authenticity of an exported report",
+        "source-to-binary correspondence"
+      ]
+    }
+  ],
+  "verification_contract": {
+    "checker": "tools/evm_key_forensics/check_historical_source_pattern.py",
+    "checker_behavior": [
+      "Reads a locally supplied source file with a fixed size bound",
+      "Checks the exact expected Git blob SHA-1 for the selected pinned revision",
+      "Emits SHA-256 for the exact bytes inspected",
+      "Rejects missing, ambiguous, malformed, or mismatched source as INCONCLUSIVE"
+    ],
+    "independent_retrieval_recommended": true,
+    "source_to_binary_provenance": "NOT_ESTABLISHED",
+    "trusted_runner_attestation": "NOT_IMPLEMENTED",
+    "signed_dossier": false
+  },
+  "experiment_state": {
+    "source_review": "COMPLETE",
+    "historical_code_executed": false,
+    "wallet_material_used": false,
+    "historical_vulnerability_reproduced": false,
+    "independent_review": "PENDING",
+    "overall_conclusion": "INCONCLUSIVE"
+  },
+  "promotion_rules": [
+    "Do not promote source-pattern evidence to a runtime or exploitability claim.",
+    "Do not infer cryptographic entropy from output diversity or random_device::entropy() alone.",
+    "Any stronger claim requires pinned toolchain/runtime evidence, predeclared controls, raw artifacts, and independent review.",
+    "Never include private keys, seed values, target addresses, or wallet-derived material in this dossier."
+  ]
+}

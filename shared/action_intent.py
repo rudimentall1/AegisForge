@@ -57,6 +57,29 @@ ROLE_DEFAULT_INTENTS = {
         "requires_network": True,
         "read_only": True,
     },
+    "source_researcher": {
+        "action": "research",
+        "resource": "public_sources",
+        "destination": "public_web",
+        "data_scope": "public",
+        "requires_network": True,
+        "read_only": True,
+    },
+    "crypto_analyst": {
+        "action": "analyze",
+        "resource": "research_evidence",
+        "destination": "internal",
+        "data_scope": "public_research_evidence",
+        "read_only": True,
+    },
+    "lab_runner": {
+        "action": "run_synthetic_lab",
+        "resource": "synthetic_test_data",
+        "destination": "internal",
+        "data_scope": "synthetic_test_data",
+        "read_only": True,
+        "parameters": {"network_disabled": True, "real_wallet_material": False},
+    },
 }
 
 

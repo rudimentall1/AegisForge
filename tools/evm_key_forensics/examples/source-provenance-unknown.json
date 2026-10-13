@@ -1,0 +1,38 @@
+{
+  "schema_version": "evm-source-provenance-v1",
+  "source_id": "example-source-001",
+  "content_integrity": {
+    "status": "MATCHED",
+    "expected_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "observed_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "retrieved_at": "2026-10-13T00:00:00Z"
+  },
+  "publisher_identity": {
+    "claimed_name": "Example publisher",
+    "claimed_domain": "example.invalid",
+    "verification_status": "UNKNOWN",
+    "verification_method": "NONE",
+    "verification_evidence_ref": null,
+    "verified_by": null,
+    "verified_at": null
+  },
+  "origin_relationship": {
+    "status": "UNKNOWN",
+    "canonical_origin_ref": null,
+    "derived_from_source_ids": [],
+    "verification_evidence_ref": null
+  },
+  "independence_assessment": {
+    "status": "NOT_ESTABLISHED",
+    "basis": "NO_VERIFIED_PROVENANCE",
+    "review_record_ref": null,
+    "reviewed_by": null,
+    "reviewed_at": null
+  },
+  "limitations": [
+    "Synthetic example only; no real publisher is asserted.",
+    "A matching content hash does not authenticate the publisher.",
+    "Publisher identity and origin lineage have not been verified.",
+    "This record is not evidence that the source is independent."
+  ]
+}

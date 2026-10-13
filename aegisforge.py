@@ -5,7 +5,7 @@ import sys
 from shared.outcome_proof import main as outcome_main
 from shared.recovery_proof import main as recovery_main
 
-TASK_ROLES = ("researcher", "analyst", "developer", "security_checker", "opportunity_hunter", "validator", "model_researcher")
+TASK_ROLES = ("researcher", "analyst", "developer", "security_checker", "opportunity_hunter", "validator", "model_researcher", "source_researcher", "crypto_analyst", "lab_runner")
 
 def task_main(argv):
     from shared.queue import TaskQueue

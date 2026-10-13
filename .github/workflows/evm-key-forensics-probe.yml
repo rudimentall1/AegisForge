@@ -1,0 +1,567 @@
+name: EVM Key Forensics Probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "tools/evm_key_forensics/**"
+      - "tests/test_evm_key_forensics_probe_artifact.py"
+      - "tests/test_evm_key_forensics_complete_evidence.py"
+      - "tests/test_evm_key_forensics_source_report.py"
+      - ".github/workflows/evm-key-forensics-probe.yml"
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  compile-and-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Check pinned historical source pattern (inspection only)
+        run: |
+          set -euo pipefail
+          source_url="https://raw.githubusercontent.com/johguse/profanity/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/Dispatcher.cpp"
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 "$source_url" -o /tmp/pinned-Dispatcher.cpp
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          source = Path("/tmp/pinned-Dispatcher.cpp").read_bytes()
+          git_blob_sha1 = hashlib.sha1(b"blob " + str(len(source)).encode() + b"\0" + source).hexdigest()
+          expected_blob_sha1 = "c9226fc02a52633a84664cbf3aaf2b4af8a59b25"
+          assert git_blob_sha1 == expected_blob_sha1, {
+              "expected_git_blob_sha1": expected_blob_sha1,
+              "actual_git_blob_sha1": git_blob_sha1,
+          }
+          print(f"Pinned upstream Dispatcher.cpp blob: PASS ({git_blob_sha1})")
+          PY
+          python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher.cpp --revision pre-disclosure --pretty > /tmp/source-pattern-pre.json
+          post_url="https://raw.githubusercontent.com/johguse/profanity/186b9b27ab3e24a1899f648adcabcbf0e5f3131e/Dispatcher.cpp"
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 "$post_url" -o /tmp/pinned-Dispatcher-post.cpp
+          python tools/evm_key_forensics/check_historical_source_pattern.py /tmp/pinned-Dispatcher-post.cpp --revision post-disclosure --pretty > /tmp/source-pattern-post.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected = {
+              "/tmp/source-pattern-pre.json": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+              "/tmp/source-pattern-post.json": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+          }
+          for filename, commit in expected.items():
+              result = json.loads(Path(filename).read_text())
+              assert result["conclusion"] == "SOURCE_PATTERN_MATCHED", result
+              assert result["expected_upstream_commit"] == commit, result
+              assert result["pinned_source_blob_matches"] is True, result
+              assert result["historical_code_executed"] is False
+              assert result["wallet_material_used"] is False
+              assert result["historical_vulnerability_reproduced"] is False
+          print("Both pinned source revisions match the reviewed pattern (source review only)")
+          PY
+
+      - name: Independently compare pinned source function text
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/johguse/profanity.git /tmp/profanity-source-review
+          git -C /tmp/profanity-source-review fetch --depth=1 origin 0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6
+          git -C /tmp/profanity-source-review fetch --depth=1 origin 186b9b27ab3e24a1899f648adcabcbf0e5f3131e
+          python tools/evm_key_forensics/independent_source_body_review.py --repo /tmp/profanity-source-review > /tmp/independent-source-body-review.json
+          cat /tmp/independent-source-body-review.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("/tmp/independent-source-body-review.json").read_text())
+          assert report["status"] == "CHECKED", report
+          assert report["same_function_body_bytes"] is True, report
+          assert report["conclusion"] == "INCONCLUSIVE", report
+          revisions = {item["revision"]: item for item in report["revisions"]}
+          assert revisions["pre_disclosure"]["git_blob_sha1"] == "c9226fc02a52633a84664cbf3aaf2b4af8a59b25", report
+          assert revisions["post_disclosure_archive"]["git_blob_sha1"] == "884ced30ed6e55794ea5bda0451b52e81ddec1dd", report
+          print("Pinned source body comparison: PASS; research conclusion remains INCONCLUSIVE")
+          PY
+
+      - name: Build source evidence comparison report
+        run: |
+          python tools/evm_key_forensics/build_source_evidence_report.py /tmp/source-pattern-pre.json /tmp/source-pattern-post.json --output /tmp/source-evidence-report.json
+          cat /tmp/source-evidence-report.json
+
+      - name: Validate source evidence dossier
+        run: |
+          python tools/evm_key_forensics/validate_source_dossier.py docs/research/evm-key-forensics/SOURCE_EVIDENCE_DOSSIER.json
+          python -m unittest tests.test_evm_key_forensics_dossier -v
+
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++
+
+      - name: Compile diagnostic probe twice and compare outputs
+        run: |
+          set -euo pipefail
+          g++ --version
+          flags=(-std=c++11 -O2 -Wall -Wextra -Werror -pedantic)
+          source=tools/evm_key_forensics/profanity_seed_environment_probe.cpp
+          g++ "${flags[@]}" "$source" -o profanity_seed_environment_probe
+          g++ "${flags[@]}" "$source" -o profanity_seed_environment_probe_repeat
+          first="$(sha256sum profanity_seed_environment_probe | cut -d ' ' -f1)"
+          second="$(sha256sum profanity_seed_environment_probe_repeat | cut -d ' ' -f1)"
+          printf 'first_build_sha256=%s\nrepeat_build_sha256=%s\n' "$first" "$second"
+          test "$first" = "$second"
+
+      - name: Validate JSON output and safety flags
+        run: |
+          ./profanity_seed_environment_probe 64 > probe-output.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("probe-output.json").read_text())
+          assert data["schema_version"] == 1
+          assert data["probe"] == "std_random_device_environment_diagnostic"
+          assert data["historical_profanity_code_executed"] is False
+          assert data["wallet_material_used"] is False
+          assert data["observations_are_entropy_proof"] is False
+          assert data["samples_requested"] == 64
+          assert 1 <= data["distinct_values_observed"] <= 64
+          assert isinstance(data["random_device_result_type_bits"], int)
+          assert isinstance(data["random_device_reported_entropy"], (int, float))
+          print("probe JSON and safety invariants: PASS")
+          PY
+
+      - name: Assemble portable evidence bundle
+        run: |
+          mkdir -p probe-evidence
+          cp probe-output.json probe-evidence/probe-output.json
+          cp /tmp/source-evidence-report.json probe-evidence/source-evidence-report.json
+          cp /tmp/independent-source-body-review.json probe-evidence/independent-source-body-review.json
+          cp tools/evm_key_forensics/profanity_seed_environment_probe.cpp probe-evidence/probe-source.cpp
+          cp profanity_seed_environment_probe probe-evidence/probe-binary
+          cp profanity_seed_environment_probe_repeat probe-evidence/probe-binary-repeat
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          root = Path("probe-evidence")
+
+          def sha256(path):
+              return hashlib.sha256((root / path).read_bytes()).hexdigest()
+
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+          pull_request = event.get("pull_request")
+          pull_request_head_sha = (
+              pull_request.get("head", {}).get("sha")
+              if isinstance(pull_request, dict)
+              else None
+          )
+          metadata = {
+              "schema_version": 1,
+              "purpose": "diagnostic_environment_observation_only",
+              "git_commit": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
+              "github_sha": os.environ["GITHUB_SHA"],
+              "github_ref": os.environ["GITHUB_REF"],
+              "pull_request_head_sha": pull_request_head_sha,
+              "github_run_id": os.environ["GITHUB_RUN_ID"],
+              "github_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "runner_os": platform.platform(),
+              "compiler_version": subprocess.check_output(
+                  ["g++", "--version"], text=True
+              ).splitlines()[0],
+              "build_flags": ["-std=c++11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic"],
+              "source_sha256": sha256("probe-source.cpp"),
+              "binary_sha256": sha256("probe-binary"),
+              "repeat_binary_sha256": sha256("probe-binary-repeat"),
+              "repeat_build_matches": sha256("probe-binary") == sha256("probe-binary-repeat"),
+              "repeat_build_scope": "same_runner_same_compiler_same_flags",
+              "output_sha256": sha256("probe-output.json"),
+              "source_evidence_report_sha256": sha256("source-evidence-report.json"),
+              "independent_source_body_review_sha256": sha256("independent-source-body-review.json"),
+              "historical_vulnerability_reproduced": False,
+              "entropy_proven": False,
+          }
+          (root / "probe-run-metadata.json").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(metadata, indent=2, sort_keys=True))
+          PY
+
+      - name: Verify exported evidence bundle
+        run: |
+          python tools/evm_key_forensics/verify_probe_artifact.py probe-evidence
+
+      - name: Publish first-run binary for clean-runner comparison
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: evm-key-forensics-rebuild-reference
+          path: |
+            profanity_seed_environment_probe
+            tools/evm_key_forensics/profanity_seed_environment_probe.cpp
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Reject invalid sample counts
+        run: |
+          set +e
+          ./profanity_seed_environment_probe 0 >/tmp/probe-out.txt 2>/tmp/probe-err.txt
+          status=$?
+          set -e
+          test "$status" -eq 2
+          grep -q "sample_count_must_be_between_1_and_10000" /tmp/probe-err.txt
+
+      - name: Package evidence bundle for attestation
+        run: |
+          set -euo pipefail
+          zip -X -r evm-key-forensics-evidence.zip probe-evidence
+          sha256sum evm-key-forensics-evidence.zip
+
+      - name: Attest evidence bundle provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: evm-key-forensics-evidence.zip
+
+      - name: Verify evidence bundle provenance attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_GITHUB_SHA: ${{ github.sha }}
+          EXPECTED_GITHUB_REF: ${{ github.ref }}
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          gh attestation verify evm-key-forensics-evidence.zip --repo rudimentall1/AegisForge --format json > attestation-verification.json
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import zipfile
+          from pathlib import Path
+
+          report = json.loads(Path("attestation-verification.json").read_text(encoding="utf-8"))
+          assert isinstance(report, list) and report, "gh returned no verified attestations"
+          expected_sha = os.environ["EXPECTED_GITHUB_SHA"]
+          expected_ref = os.environ["EXPECTED_GITHUB_REF"]
+          expected_run_id = os.environ["EXPECTED_RUN_ID"]
+          expected_attempt = os.environ["EXPECTED_RUN_ATTEMPT"]
+          zip_path = Path("evm-key-forensics-evidence.zip")
+          zip_sha256 = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+
+          # Tie the attested archive to the workflow identity recorded inside it.
+          # A valid attestation for the wrong run must not pass this gate.
+          with zipfile.ZipFile(zip_path) as archive:
+              metadata = json.loads(
+                  archive.read("probe-evidence/probe-run-metadata.json").decode("utf-8")
+              )
+          assert metadata.get("git_commit") == expected_sha, "bundle git_commit differs from workflow SHA"
+          assert metadata.get("github_sha") == expected_sha, "bundle github_sha differs from workflow SHA"
+          assert metadata.get("github_ref") == expected_ref, "bundle ref differs from workflow ref"
+          assert metadata.get("github_run_id") == expected_run_id, "bundle run ID differs from current run"
+          assert metadata.get("github_run_attempt") == expected_attempt, "bundle attempt differs from current attempt"
+
+          matched = False
+          for item in report:
+              result = item.get("verificationResult", {})
+              certificate = result.get("signature", {}).get("certificate", {})
+              statement = result.get("statement", {})
+              predicate = statement.get("predicate", {})
+              subjects = statement.get("subject", [])
+              workflow = predicate.get("buildDefinition", {}).get("externalParameters", {}).get("workflow", {})
+              subject_matches = any(
+                  subject.get("name") == "evm-key-forensics-evidence.zip"
+                  and subject.get("digest", {}).get("sha256") == zip_sha256
+                  for subject in subjects
+              )
+              if (
+                  certificate.get("githubWorkflowRepository") == "rudimentall1/AegisForge"
+                  and certificate.get("githubWorkflowName") == "EVM Key Forensics Probe"
+                  and certificate.get("githubWorkflowSHA") == expected_sha
+                  and certificate.get("githubWorkflowRef") == expected_ref
+                  and workflow.get("path") == ".github/workflows/evm-key-forensics-probe.yml"
+                  and workflow.get("repository") == "https://github.com/rudimentall1/AegisForge"
+                  and workflow.get("ref") == expected_ref
+                  and subject_matches
+              ):
+                  matched = True
+                  break
+
+          assert matched, (
+              "Attestation verified cryptographically, but repository/workflow/ref/SHA/"
+              "subject digest did not match this run's expected identity"
+          )
+          print(json.dumps({
+              "conclusion": "PASS",
+              "repository": "rudimentall1/AegisForge",
+              "workflow": ".github/workflows/evm-key-forensics-probe.yml",
+              "workflow_sha": expected_sha,
+              "workflow_ref": expected_ref,
+              "run_id": expected_run_id,
+              "run_attempt": expected_attempt,
+              "subject": "evm-key-forensics-evidence.zip",
+              "subject_sha256": zip_sha256,
+              "bundle_metadata_matches_current_run": True,
+              "verified_attestations_examined": len(report),
+          }, indent=2, sort_keys=True))
+          print("GitHub CLI attestation identity, subject digest, and bundle metadata: PASS")
+          PY
+
+      - name: Upload diagnostic evidence and attested bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            probe-evidence/
+            evm-key-forensics-evidence.zip
+            attestation-verification.json
+          if-no-files-found: error
+          retention-days: 30
+
+
+  independent-clean-runner-rebuild:
+    needs: compile-and-smoke-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact workflow revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Download first-run reference binary
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: evm-key-forensics-rebuild-reference
+          path: reference
+
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++
+
+      - name: Rebuild on a separate runner and compare
+        run: |
+          set -euo pipefail
+          g++ --version
+          flags=(-std=c++11 -O2 -Wall -Wextra -Werror -pedantic)
+          source=tools/evm_key_forensics/profanity_seed_environment_probe.cpp
+          reference_source_sha="$(sha256sum reference/tools/evm_key_forensics/profanity_seed_environment_probe.cpp | cut -d ' ' -f1)"
+          checkout_source_sha="$(sha256sum "$source" | cut -d ' ' -f1)"
+          test "$reference_source_sha" = "$checkout_source_sha"
+          g++ "${flags[@]}" "$source" -o profanity_seed_environment_probe_rebuilt
+          reference_binary_sha="$(sha256sum reference/profanity_seed_environment_probe | cut -d ' ' -f1)"
+          rebuilt_binary_sha="$(sha256sum profanity_seed_environment_probe_rebuilt | cut -d ' ' -f1)"
+          printf 'reference_source_sha256=%s\ncheckout_source_sha256=%s\n' "$reference_source_sha" "$checkout_source_sha"
+          printf 'reference_binary_sha256=%s\nindependent_rebuild_sha256=%s\n' "$reference_binary_sha" "$rebuilt_binary_sha"
+          test "$reference_binary_sha" = "$rebuilt_binary_sha"
+          export REFERENCE_SOURCE_SHA="$reference_source_sha"
+          export CHECKOUT_SOURCE_SHA="$checkout_source_sha"
+          export REFERENCE_BINARY_SHA="$reference_binary_sha"
+          export REBUILT_BINARY_SHA="$rebuilt_binary_sha"
+          python - <<'PY'
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          report = {
+              "schema_version": 1,
+              "check": "independent_clean_runner_rebuild",
+              "conclusion": "PASS",
+              "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "github_sha": os.environ["GITHUB_SHA"],
+              "github_ref": os.environ["GITHUB_REF"],
+              "github_run_id": os.environ["GITHUB_RUN_ID"],
+              "github_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "runner_os": platform.platform(),
+              "compiler_version": subprocess.check_output(["g++", "--version"], text=True).splitlines()[0],
+              "build_flags": ["-std=c++11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic"],
+              "reference_source_sha256": os.environ["REFERENCE_SOURCE_SHA"],
+              "independent_checkout_source_sha256": os.environ["CHECKOUT_SOURCE_SHA"],
+              "reference_binary_sha256": os.environ["REFERENCE_BINARY_SHA"],
+              "independent_rebuild_binary_sha256": os.environ["REBUILT_BINARY_SHA"],
+              "source_matches": os.environ["REFERENCE_SOURCE_SHA"] == os.environ["CHECKOUT_SOURCE_SHA"],
+              "binary_matches": os.environ["REFERENCE_BINARY_SHA"] == os.environ["REBUILT_BINARY_SHA"],
+              "historical_profanity_executed": False,
+              "historical_vulnerability_reproduced": False,
+          }
+          Path("independent-rebuild-report.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          echo "Clean-runner rebuild matches byte-for-byte."
+
+      - name: Upload independent rebuild report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: evm-key-forensics-independent-rebuild-${{ github.run_id }}-${{ github.run_attempt }}
+          path: independent-rebuild-report.json
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-complete-evidence:
+    needs:
+      - compile-and-smoke-test
+      - independent-clean-runner-rebuild
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout verifier
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Download probe evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: downloaded-probe
+
+      - name: Download independent rebuild report
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: evm-key-forensics-independent-rebuild-${{ github.run_id }}-${{ github.run_attempt }}
+          path: downloaded-rebuild
+
+      - name: Assemble combined evidence package
+        run: |
+          set -euo pipefail
+          mkdir -p complete-evidence
+          cp -R downloaded-probe/probe-evidence complete-evidence/probe-evidence
+          cp downloaded-rebuild/independent-rebuild-report.json complete-evidence/independent-rebuild-report.json
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path("complete-evidence")
+          metadata = json.loads((root / "probe-evidence/probe-run-metadata.json").read_text(encoding="utf-8"))
+          rebuild = json.loads((root / "independent-rebuild-report.json").read_text(encoding="utf-8"))
+          assert metadata.get("github_run_id") == rebuild.get("github_run_id"), "probe and rebuild run IDs differ"
+          assert metadata.get("github_run_attempt") == rebuild.get("github_run_attempt"), "probe and rebuild attempts differ"
+          assert metadata.get("github_sha") == rebuild.get("github_sha"), "probe and rebuild workflow SHAs differ"
+          assert metadata.get("github_ref") == rebuild.get("github_ref"), "probe and rebuild refs differ"
+          assert rebuild.get("conclusion") == "PASS" and rebuild.get("source_matches") is True and rebuild.get("binary_matches") is True
+          assert metadata.get("source_sha256") == rebuild.get("reference_source_sha256")
+          assert metadata.get("source_sha256") == rebuild.get("independent_checkout_source_sha256")
+          assert metadata.get("binary_sha256") == rebuild.get("reference_binary_sha256")
+          assert metadata.get("binary_sha256") == rebuild.get("independent_rebuild_binary_sha256")
+          report = {
+              "schema_version": 1,
+              "conclusion": "PASS",
+              "run_id": metadata["github_run_id"],
+              "run_attempt": metadata["github_run_attempt"],
+              "workflow_sha": metadata["github_sha"],
+              "workflow_ref": metadata["github_ref"],
+              "probe_source_sha256": metadata["source_sha256"],
+              "probe_binary_sha256": metadata["binary_sha256"],
+              "independent_rebuild_source_sha256": rebuild["independent_checkout_source_sha256"],
+              "independent_rebuild_binary_sha256": rebuild["independent_rebuild_binary_sha256"],
+              "probe_and_rebuild_evidence_consistent": True,
+              "historical_profanity_executed": False,
+              "historical_vulnerability_reproduced": False,
+              "note": "Consistency and provenance package for the synthetic diagnostic probe; not proof of historical runtime behavior."
+          }
+          (root / "combined-evidence-index.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          zip -X -r evm-key-forensics-complete-evidence.zip complete-evidence
+          sha256sum evm-key-forensics-complete-evidence.zip
+          python tools/evm_key_forensics/verify_complete_evidence.py evm-key-forensics-complete-evidence.zip
+
+      - name: Attest complete evidence package
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: evm-key-forensics-complete-evidence.zip
+
+      - name: Verify complete package provenance and evidence linkage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_GITHUB_SHA: ${{ github.sha }}
+          EXPECTED_GITHUB_REF: ${{ github.ref }}
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          gh attestation verify evm-key-forensics-complete-evidence.zip --repo rudimentall1/AegisForge --format json > complete-attestation-verification.json
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads(Path("complete-attestation-verification.json").read_text(encoding="utf-8"))
+          assert isinstance(report, list) and report, "gh returned no verified attestations"
+          expected_sha = os.environ["EXPECTED_GITHUB_SHA"]
+          expected_ref = os.environ["EXPECTED_GITHUB_REF"]
+          expected_run_id = os.environ["EXPECTED_RUN_ID"]
+          expected_attempt = os.environ["EXPECTED_RUN_ATTEMPT"]
+          archive = Path("evm-key-forensics-complete-evidence.zip")
+          archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+          metadata = json.loads(Path("complete-evidence/probe-evidence/probe-run-metadata.json").read_text(encoding="utf-8"))
+          rebuild = json.loads(Path("complete-evidence/independent-rebuild-report.json").read_text(encoding="utf-8"))
+          index = json.loads(Path("complete-evidence/combined-evidence-index.json").read_text(encoding="utf-8"))
+          for label, data in (("probe metadata", metadata), ("rebuild report", rebuild)):
+              assert data.get("github_sha") == expected_sha, f"{label}: workflow SHA mismatch"
+              assert data.get("github_ref") == expected_ref, f"{label}: workflow ref mismatch"
+              assert data.get("github_run_id") == expected_run_id, f"{label}: run ID mismatch"
+              assert data.get("github_run_attempt") == expected_attempt, f"{label}: run attempt mismatch"
+          assert index.get("conclusion") == "PASS" and index.get("probe_and_rebuild_evidence_consistent") is True
+          assert metadata.get("source_sha256") == rebuild.get("independent_checkout_source_sha256")
+          assert metadata.get("binary_sha256") == rebuild.get("independent_rebuild_binary_sha256")
+          matched = False
+          for item in report:
+              result = item.get("verificationResult", {})
+              certificate = result.get("signature", {}).get("certificate", {})
+              statement = result.get("statement", {})
+              predicate = statement.get("predicate", {})
+              subjects = statement.get("subject", [])
+              workflow = predicate.get("buildDefinition", {}).get("externalParameters", {}).get("workflow", {})
+              subject_matches = any(
+                  subject.get("name") == archive.name and subject.get("digest", {}).get("sha256") == archive_sha
+                  for subject in subjects
+              )
+              if (
+                  certificate.get("githubWorkflowRepository") == "rudimentall1/AegisForge"
+                  and certificate.get("githubWorkflowName") == "EVM Key Forensics Probe"
+                  and certificate.get("githubWorkflowSHA") == expected_sha
+                  and certificate.get("githubWorkflowRef") == expected_ref
+                  and workflow.get("path") == ".github/workflows/evm-key-forensics-probe.yml"
+                  and workflow.get("repository") == "https://github.com/rudimentall1/AegisForge"
+                  and workflow.get("ref") == expected_ref
+                  and subject_matches
+              ):
+                  matched = True
+                  break
+          assert matched, "verified provenance identity or complete-package subject digest mismatch"
+          result = {
+              "conclusion": "PASS",
+              "subject": archive.name,
+              "subject_sha256": archive_sha,
+              "workflow_sha": expected_sha,
+              "workflow_ref": expected_ref,
+              "run_id": expected_run_id,
+              "run_attempt": expected_attempt,
+              "probe_and_independent_rebuild_linked": True,
+              "verified_attestations_examined": len(report)
+          }
+          Path("complete-attestation-summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(result, indent=2, sort_keys=True))
+          print("Complete evidence package provenance and cross-runner linkage: PASS")
+          PY
+
+      - name: Upload attested complete evidence package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: evm-key-forensics-complete-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evm-key-forensics-complete-evidence.zip
+            complete-attestation-verification.json
+            complete-attestation-summary.json
+          if-no-files-found: error
+          retention-days: 90

@@ -42,11 +42,14 @@ def _load_strict_json(path: Path):
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("json_file_invalid_utf8") from exc
-    value = json.loads(
-        text,
-        object_pairs_hook=_reject_duplicate_keys,
-        parse_constant=_reject_nonstandard_constant,
-    )
+    try:
+        value = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_nonstandard_constant,
+        )
+    except RecursionError as exc:
+        raise ValueError("json_nesting_limit_exceeded") from exc
     if not isinstance(value, dict):
         raise ValueError("json_root_must_be_object")
     return value

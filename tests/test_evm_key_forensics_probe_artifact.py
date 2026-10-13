@@ -84,6 +84,9 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
             "schema_version": 1,
             "purpose": "diagnostic_environment_observation_only",
             "git_commit": "a" * 40,
+            "github_sha": "a" * 40,
+            "github_ref": "refs/pull/32/merge",
+            "pull_request_head_sha": "b" * 40,
             "github_run_id": "12345",
             "github_run_attempt": "1",
             "runner_os": "test-runner",
@@ -467,6 +470,24 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         result = verify_artifact(self.root)
         self.assertFalse(result["integrity_verified"])
         self.assertFalse(result["checks"]["build_flags_recorded"])
+
+    def test_workflow_checkout_commit_must_match_github_sha(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["github_sha"] = "b" * 40
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["workflow_checkout_commit_matches_github_sha"])
+
+    def test_pull_request_head_sha_must_be_valid_or_null(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["pull_request_head_sha"] = "not-a-commit"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["pull_request_head_sha_valid_or_null"])
 
     def test_zero_github_run_id_fails_integrity(self):
         metadata_path = self.root / "probe-run-metadata.json"

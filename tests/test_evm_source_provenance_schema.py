@@ -70,8 +70,9 @@ def test_verified_claims_require_reviewer_and_evidence_metadata():
 
     publisher_rule = next(
         item for item in conditions
-        if item["if"]["properties"]["publisher_identity"]["properties"]
-        ["verification_status"]["const"] == "VERIFIED"
+        if item.get("if", {}).get("properties", {})
+        .get("publisher_identity", {}).get("properties", {})
+        .get("verification_status", {}).get("const") == "VERIFIED"
     )
     publisher_then = publisher_rule["then"]["properties"]["publisher_identity"]
     assert {
@@ -84,8 +85,9 @@ def test_verified_claims_require_reviewer_and_evidence_metadata():
 
     origin_rule = next(
         item for item in conditions
-        if item["if"]["properties"]["origin_relationship"]["properties"]
-        ["status"]["const"] == "PRIMARY_ORIGIN_VERIFIED"
+        if item.get("if", {}).get("properties", {})
+        .get("origin_relationship", {}).get("properties", {})
+        .get("status", {}).get("const") == "PRIMARY_ORIGIN_VERIFIED"
     )
     assert {
         "canonical_origin_ref",
@@ -94,8 +96,9 @@ def test_verified_claims_require_reviewer_and_evidence_metadata():
 
     independence_rule = next(
         item for item in conditions
-        if item["if"]["properties"]["independence_assessment"]["properties"]
-        ["status"]["const"] == "ESTABLISHED"
+        if item.get("if", {}).get("properties", {})
+        .get("independence_assessment", {}).get("properties", {})
+        .get("status", {}).get("const") == "ESTABLISHED"
     )
     independence_then = independence_rule["then"]["properties"]["independence_assessment"]
     assert independence_then["properties"]["basis"]["const"] == "VERIFIED_DISTINCT_ORIGINS"

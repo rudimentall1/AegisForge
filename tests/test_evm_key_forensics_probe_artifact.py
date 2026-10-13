@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from tools.evm_key_forensics.verify_probe_artifact import verify_artifact
+from tools.evm_key_forensics.verify_probe_artifact import main, verify_artifact
 
 
 def digest(path: Path) -> str:
@@ -314,6 +316,45 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         result = verify_artifact(self.root)
         self.assertFalse(result["integrity_verified"])
         self.assertFalse(result["checks"]["run_attempt_recorded"])
+
+
+    def test_tampered_source_fails_hash_check(self):
+        source_path = self.root / "probe-source.cpp"
+        source_path.write_text("// changed after manifest creation\\n", encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["source_hash_matches"])
+
+    def test_tampered_binary_fails_hash_check(self):
+        binary_path = self.root / "probe-binary"
+        binary_path.write_bytes(b"changed binary")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["binary_hash_matches"])
+
+    def test_cli_success_emits_unsigned_integrity_result(self):
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            status = main([str(self.root)])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(status, 0)
+        self.assertTrue(payload["integrity_verified"])
+        self.assertEqual(payload["authenticity"], "UNTRUSTED_UNSIGNED")
+
+    def test_cli_missing_directory_returns_sanitized_error(self):
+        missing = self.root / "does-not-exist"
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            status = main([str(missing)])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(status, 1)
+        self.assertFalse(payload["integrity_verified"])
+        self.assertEqual(payload["error"], "ValueError")
+        self.assertNotIn(str(missing), stdout.getvalue())
 
 
 if __name__ == "__main__":

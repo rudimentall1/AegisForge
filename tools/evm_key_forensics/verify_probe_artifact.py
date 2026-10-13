@@ -72,8 +72,8 @@ def verify_artifact(root: Path) -> dict:
     build_flags = metadata.get("build_flags")
 
     checks = {
-        "schema_version_supported": metadata.get("schema_version") == 1,
-        "output_schema_supported": output.get("schema_version") == 1,
+        "schema_version_supported": type(metadata.get("schema_version")) is int and metadata.get("schema_version") == 1,
+        "output_schema_supported": type(output.get("schema_version")) is int and output.get("schema_version") == 1,
         "probe_identity_matches": output.get("probe") == "std_random_device_environment_diagnostic",
         "diagnostic_only_purpose": metadata.get("purpose") == "diagnostic_environment_observation_only",
         "historical_vulnerability_not_claimed": metadata.get("historical_vulnerability_reproduced") is False,

@@ -232,3 +232,30 @@ def test_unknown_source_revision_fails_closed():
 
     with pytest.raises(ValueError, match="unsupported_pinned_revision"):
         inspect_source(SOURCE, revision="master")
+
+
+def test_braces_and_pattern_tokens_inside_raw_string_are_ignored():
+    mutated = SOURCE.replace(
+        "return r;\n#endif",
+        'const char *note = u8R"tag( } { r.s[3] = distr(eng); )tag";\n    return r;\n#endif',
+        1,
+    )
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "SOURCE_PATTERN_MATCHED"
+
+
+def test_raw_string_cannot_fake_missing_distribution_assignment():
+    mutated = SOURCE.replace(
+        "r.s[3] = distr(eng);",
+        'const char *note = R"tag(r.s[3] = distr(eng); )tag";\n    r.s[3] = 0;',
+    )
+    result = inspect_source(mutated)
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "expected_four_distribution_calls" in result["errors"]
+    assert "expected_one_distribution_assignment_for_word_3" in result["errors"]
+
+
+def test_unterminated_raw_string_fails_closed():
+    result = inspect_source(SOURCE + '\nconst char *note = R"tag(unterminated }')
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "unterminated_raw_string" in result["errors"]

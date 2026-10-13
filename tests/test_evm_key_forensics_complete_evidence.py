@@ -155,6 +155,23 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
                 verify_complete_archive(self.archive)
             verifier.assert_not_called()
 
+    def test_fifo_member_is_rejected(self):
+        with zipfile.ZipFile(self.archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("complete-evidence/", b"")
+            zf.writestr("complete-evidence/probe-evidence/", b"")
+            for name, content in self.members.items():
+                if name == "complete-evidence/probe-evidence/probe-source.cpp":
+                    info = zipfile.ZipInfo(name)
+                    info.create_system = 3
+                    info.external_attr = (stat.S_IFIFO | 0o600) << 16
+                    zf.writestr(info, content)
+                else:
+                    zf.writestr(name, content)
+        with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
+            with self.assertRaisesRegex(ValueError, "archive_non_regular_member"):
+                verify_complete_archive(self.archive)
+            verifier.assert_not_called()
+
     def test_extreme_compression_ratio_is_rejected(self):
         self.members["complete-evidence/probe-evidence/probe-source.cpp"] = b"A" * (2 * 1024 * 1024)
         self.write_archive()

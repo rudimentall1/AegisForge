@@ -167,8 +167,13 @@ def verify_and_record_attestation(
     *,
     trusted_public_keys: Mapping[str, bytes],
     database_path: str | Path,
+    expected_journal_state: tuple[int, str] | None = None,
 ) -> dict:
     """Verify a receipt, then atomically reserve its run ID/nonce and journal it.
+
+    When expected_journal_state is supplied, compare it inside the same IMMEDIATE
+    transaction that appends the event. This lets anchored callers prevent a
+    local writer from changing the journal between their preflight read and append.
 
     Validation happens before the transaction so invalid input cannot burn a
     nonce. SQLite's IMMEDIATE transaction and unique constraints serialize
@@ -200,7 +205,8 @@ def verify_and_record_attestation(
                     "SELECT sequence, head_sha256 FROM attestation_replay_journal_state WHERE provider_id = ?",
                     (provider_id,),
                 ).fetchone()
-                if state is None:
+                state_missing = state is None
+                if state_missing:
                     existing = db.execute(
                         "SELECT COUNT(*) FROM accepted_runner_attestations WHERE provider_id = ?",
                         (provider_id,),
@@ -213,6 +219,10 @@ def verify_and_record_attestation(
                         raise AttestationReplayRegistryError(
                             "replay_registry_legacy_state_requires_migration"
                         )
+                    state = (0, _GENESIS)
+                if expected_journal_state is not None and tuple(state) != tuple(expected_journal_state):
+                    raise AttestationReplayRegistryError("replay_registry_expected_state_changed")
+                if state_missing:
                     db.execute(
                         "INSERT INTO attestation_replay_journal_state(provider_id, sequence, head_sha256) VALUES (?, 0, ?)",
                         (provider_id, _GENESIS),

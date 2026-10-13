@@ -127,3 +127,43 @@ def test_pipeline_keeps_missing_source_evidence_inconclusive():
     assert report["historical_reproduction_confirmed"] is False
     assert report["sources_rechecked_http_200"] == 0
     assert report["decision"] == "CONTINUE_RESEARCH"
+
+
+def test_pipeline_detects_source_mutation_between_collection_and_validation():
+    calls = {}
+    target = "https://1inch.com/blog/post/a-vulnerability-disclosed-in-profanity-an-ethereum-vanity-address-tool"
+
+    def changing_fetch(url):
+        fetched = fake_public_fetch(url)
+        calls[url] = calls.get(url, 0) + 1
+        if url == target and calls[url] > 1:
+            changed = fetched["text"] + " Post-collection mutation fixture."
+            fetched["text"] = changed
+            fetched["excerpt"] = changed
+            fetched["content_sha256"] = hashlib.sha256(changed.encode("utf-8")).hexdigest()
+            fetched["content_bytes"] = len(changed.encode("utf-8"))
+        return fetched
+
+    researched = SourceResearcher(
+        github=FakeGitHub(),
+        fetcher=changing_fetch,
+    ).run(Task(
+        task_id="evm-forensics-source-mutation",
+        description="Detect source content changing after collection",
+    ))
+    analyzed = CryptoAnalyst().run(researched)
+    validated = Validator(source_fetcher=changing_fetch).run(analyzed)
+    report = validated.result["research_validation"]
+    target_check = next(
+        item for item in validated.result["research_source_checks"]
+        if item["source_url"] == target
+    )
+
+    assert calls[target] >= 2
+    assert target_check["recheck_status"] == "rechecked_http_200"
+    assert target_check["content_fingerprint_matches"] is False
+    assert report["exact_source_fingerprints_matching"] < report["sources_rechecked_http_200"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"
+    assert report["historical_reproduction_confirmed"] is False
+

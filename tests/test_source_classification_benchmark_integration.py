@@ -391,3 +391,63 @@ def test_pipeline_keeps_unavailable_and_truncated_sources_inconclusive():
     assert report["decision"] == "CONTINUE_RESEARCH"
     assert "insufficient_independent_source_rechecks" in report["readiness_blockers"]
     assert "source_analysis_text_truncated" in report["readiness_blockers"]
+
+
+
+def test_pipeline_does_not_count_identical_content_at_distinct_urls_as_independent():
+    """Two URLs serving the same bytes are not two independent content witnesses."""
+    import hashlib
+
+    from agents.crypto_analyst.agent import CryptoAnalyst
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    body = "Same synthetic advisory body copied to two distinct URLs."
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    revision = "0123456789012345678901234567890123456789"
+    urls = [
+        f"https://raw.githubusercontent.com/example/repo/{revision}/source-a.txt",
+        f"https://raw.githubusercontent.com/example/repo/{revision}/source-b.txt",
+    ]
+    sources = [
+        {
+            "source_id": f"source-{index}",
+            "source_url": url,
+            "status_code": 200,
+            "content_sha256": digest,
+            "classification": "unclassified_source",
+        }
+        for index, url in enumerate(urls, start=1)
+    ]
+    task = Task(
+        task_id="duplicate-content-distinct-urls",
+        description="Do not confuse distinct URLs with independent source content",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": sources,
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+
+    analyzed = CryptoAnalyst().run(task)
+    validated = Validator(
+        source_fetcher=lambda _url: {
+            "status_code": 200,
+            "content_sha256": digest,
+            "content_truncated_for_analysis": False,
+            "retrieved_at": "2026-10-13T00:00:00Z",
+        }
+    ).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert report["sources_rechecked_http_200"] == 2
+    assert report["exact_source_fingerprints_matching"] == 2
+    assert report["independent_matching_source_fingerprints"] == 0
+    assert len(report["duplicate_source_content_fingerprints"]) == 1
+    assert "duplicate_source_content_fingerprints" in report["readiness_blockers"]
+    assert "insufficient_independent_source_rechecks" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["decision"] == "CONTINUE_RESEARCH"

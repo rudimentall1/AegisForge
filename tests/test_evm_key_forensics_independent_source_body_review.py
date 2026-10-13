@@ -58,6 +58,11 @@ class IndependentSourceBodyReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(ReviewError, "unterminated_raw_string_literal"):
             extract_function(source)
 
+    def test_raw_string_signature_decoy_is_skipped_before_real_function(self):
+        decoy = b'u8R"tag( ' + FUNCTION_SIGNATURE + b' { decoy } )tag"'
+        source = b'const char *s = ' + decoy + b';\n' + FUNCTION_SIGNATURE + b' { return 7; }'
+        self.assertEqual(extract_function(source), b"{ return 7; }")
+
     def test_signature_without_opening_brace_fails_closed(self):
         with self.assertRaisesRegex(ReviewError, "createSeed_opening_brace_not_found"):
             extract_function(FUNCTION_SIGNATURE + b" // no body { hidden")

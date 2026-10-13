@@ -199,6 +199,16 @@ jobs:
         run: |
           python tools/evm_key_forensics/verify_probe_artifact.py probe-evidence
 
+      - name: Publish first-run binary for clean-runner comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: evm-key-forensics-rebuild-reference
+          path: |
+            profanity_seed_environment_probe
+            tools/evm_key_forensics/profanity_seed_environment_probe.cpp
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Reject invalid sample counts
         run: |
           set +e
@@ -228,3 +238,39 @@ jobs:
             evm-key-forensics-evidence.zip
           if-no-files-found: error
           retention-days: 30
+
+
+  independent-clean-runner-rebuild:
+    needs: compile-and-smoke-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact workflow revision
+        uses: actions/checkout@v4
+
+      - name: Download first-run reference binary
+        uses: actions/download-artifact@v4
+        with:
+          name: evm-key-forensics-rebuild-reference
+          path: reference
+
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++
+
+      - name: Rebuild on a separate runner and compare
+        run: |
+          set -euo pipefail
+          g++ --version
+          flags=(-std=c++11 -O2 -Wall -Wextra -Werror -pedantic)
+          source=tools/evm_key_forensics/profanity_seed_environment_probe.cpp
+          reference_source_sha="$(sha256sum reference/profanity_seed_environment_probe.cpp | cut -d ' ' -f1)"
+          checkout_source_sha="$(sha256sum "$source" | cut -d ' ' -f1)"
+          test "$reference_source_sha" = "$checkout_source_sha"
+          g++ "${flags[@]}" "$source" -o profanity_seed_environment_probe_rebuilt
+          reference_binary_sha="$(sha256sum reference/profanity_seed_environment_probe | cut -d ' ' -f1)"
+          rebuilt_binary_sha="$(sha256sum profanity_seed_environment_probe_rebuilt | cut -d ' ' -f1)"
+          printf 'reference_source_sha256=%s\ncheckout_source_sha256=%s\n' "$reference_source_sha" "$checkout_source_sha"
+          printf 'reference_binary_sha256=%s\nindependent_rebuild_sha256=%s\n' "$reference_binary_sha" "$rebuilt_binary_sha"
+          test "$reference_binary_sha" = "$rebuilt_binary_sha"
+          echo "Clean-runner rebuild matches byte-for-byte."

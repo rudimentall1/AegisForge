@@ -107,3 +107,66 @@ def test_verified_claims_require_reviewer_and_evidence_metadata():
         "reviewed_by",
         "reviewed_at",
     } <= set(independence_then["required"])
+
+
+
+def test_validator_does_not_trust_source_supplied_verified_provenance_claims():
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    task = Task(
+        task_id="untrusted-provenance-claim",
+        description="Source-supplied provenance statuses must not become verifier results",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [
+                {
+                    "source_id": "self-asserted-source",
+                    "source_url": "",
+                    "provenance_record": {
+                        "schema_version": "evm-source-provenance-v1",
+                        "content_integrity": {"status": "MATCHED"},
+                        "publisher_identity": {
+                            "claimed_name": "Example Publisher",
+                            "verification_status": "VERIFIED",
+                            "verification_method": "PUBLISHER_SIGNING_KEY",
+                            "verification_evidence_ref": "https://example.invalid/evidence",
+                            "verified_by": "self-asserted-reviewer",
+                            "verified_at": "2026-10-13T00:00:00Z",
+                        },
+                        "origin_relationship": {
+                            "status": "PRIMARY_ORIGIN_VERIFIED",
+                            "canonical_origin_ref": "https://example.invalid/source",
+                            "derived_from_source_ids": [],
+                            "verification_evidence_ref": "https://example.invalid/origin-proof",
+                        },
+                        "independence_assessment": {
+                            "status": "ESTABLISHED",
+                            "basis": "VERIFIED_DISTINCT_ORIGINS",
+                            "review_record_ref": "https://example.invalid/review",
+                            "reviewed_by": "self-asserted-reviewer",
+                            "reviewed_at": "2026-10-13T00:00:00Z",
+                        },
+                    },
+                }
+            ],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+
+    validated = Validator(source_fetcher=lambda _url: {}).run(task)
+    report = validated.result["research_validation"]
+    claim = report["source_provenance_claims"][0]
+
+    assert report["source_provenance_claims_received"] == 1
+    assert claim["claimed_publisher_verification_status"] == "VERIFIED"
+    assert claim["claimed_origin_status"] == "PRIMARY_ORIGIN_VERIFIED"
+    assert claim["claimed_independence_status"] == "ESTABLISHED"
+    assert claim["trust_status"] == "UNVERIFIED_SOURCE_SUPPLIED_CLAIM"
+    assert report["source_provenance_claims_independently_verified"] is False
+    assert report["source_origin_independence_established"] is False
+    assert "submitted_source_provenance_requires_independent_verification" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"

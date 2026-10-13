@@ -126,12 +126,13 @@ def _is_identifier_byte(char: int) -> bool:
     )
 
 
-def _find_code_signature(source: bytes) -> int:
-    """Find the signature only in ordinary C++ code, not comments or literals."""
+def _find_code_signatures(source: bytes) -> list[int]:
+    """Find every signature in ordinary C++ code, not comments or literals."""
     normal, line_comment, block_comment, string, character = range(5)
     state = normal
     escaped = False
     offset = 0
+    matches = []
     while offset < len(source):
         if state == normal:
             raw_end = _raw_string_end(source, offset)
@@ -141,7 +142,9 @@ def _find_code_signature(source: bytes) -> int:
             if source.startswith(FUNCTION_SIGNATURE, offset):
                 previous_is_identifier = offset > 0 and _is_identifier_byte(source[offset - 1])
                 if not previous_is_identifier:
-                    return offset
+                    matches.append(offset)
+                    offset += len(FUNCTION_SIGNATURE)
+                    continue
             char = source[offset]
             nxt = source[offset + 1] if offset + 1 < len(source) else 0
             if char == ord("/") and nxt == ord("/"):
@@ -175,13 +178,16 @@ def _find_code_signature(source: bytes) -> int:
             ):
                 state = normal
         offset += 1
-    return -1
+    return matches
 
 
 def extract_function(source: bytes) -> bytes:
-    start = _find_code_signature(source)
-    if start < 0:
+    signatures = _find_code_signatures(source)
+    if not signatures:
         raise ReviewError("createSeed_signature_not_found")
+    if len(signatures) != 1:
+        raise ReviewError("createSeed_signature_ambiguous")
+    start = signatures[0]
 
     opening = None
     for offset, char in _code_brace_positions(source, start + len(FUNCTION_SIGNATURE)):

@@ -30,3 +30,20 @@ Until a verifier and evidence-review path is implemented, the validator delibera
 ## Scope and limitations
 
 This schema is a data contract for future provenance assessment. It does not perform DNS/domain-control checks, validate publisher signing keys, authenticate a verifier, resolve citations automatically, or establish a trust registry. Those checks need separate implementations and tests before the record can influence readiness.
+
+
+## Signed reviewer attestations
+
+The validator can verify a detached Ed25519 reviewer attestation. This adds signer authentication and tamper detection to a review record; it does **not** prove that the reviewer's conclusions are true or that the evidence reference was inspected correctly.
+
+The operator provisions the trust root outside the dossier through `AEGISFORGE_PROVENANCE_TRUSTED_PUBLIC_KEYS`. Its value is a JSON object mapping stable key IDs to base64-encoded raw 32-byte Ed25519 public keys. Duplicate JSON keys, malformed base64, and keys of the wrong length fail closed. Never populate this trust store from a source dossier or from the attestation itself.
+
+Each source may include a `provenance_attestation` object:
+
+- `key_id`: an ID present in the operator trust store.
+- `payload`: a JSON object containing `attestation_version` (`evm-provenance-attestation-v1`), matching `source_id`, publisher and origin statuses, `canonical_origin_ref`, independence status and basis, `evidence_ref`, `reviewed_by`, and `reviewed_at`.
+- `signature`: base64-encoded Ed25519 signature over the UTF-8 bytes of the payload serialized as JSON with sorted keys, compact separators, and `ensure_ascii=False`.
+
+The validator checks the signature against the operator-configured key, enforces allowed status values, and rejects a source-ID mismatch. It records the result as `SIGNATURE_VERIFIED`; unknown keys, malformed payloads, and signature mismatches are rejected. The public key proves only that the holder of the configured private key signed those exact bytes.
+
+A valid attestation is not yet enough to remove the dossier-wide source-independence blocker. The current implementation does not fetch or adjudicate the referenced evidence, verify publisher domain control, or establish that all relevant sources have distinct origins. `source_origin_independence_established` therefore remains false until a separate evidence-review procedure can justify that conclusion. The attestation check must not be described as independent evidence verification.

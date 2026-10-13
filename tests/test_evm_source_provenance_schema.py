@@ -268,3 +268,74 @@ def test_signed_provenance_attestation_rejects_source_id_mismatch(monkeypatch):
     result = Validator._verify_provenance_attestation(attestation, "source-b", trusted_keys)
     assert result["status"] == "INVALID_PAYLOAD"
     assert result["trusted_signer"] is False
+
+
+
+def test_validator_report_records_signed_attestation_without_promoting_claims(monkeypatch):
+    """Integration contract: valid signatures are reported, not treated as proof of independence."""
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from agents.validator.agent import Validator
+    from shared.task import Task
+
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    monkeypatch.setenv(
+        "AEGISFORGE_PROVENANCE_TRUSTED_PUBLIC_KEYS",
+        json.dumps({"reviewer-integration-key": base64.b64encode(public_key).decode("ascii")}),
+    )
+    payload = {
+        "attestation_version": "evm-provenance-attestation-v1",
+        "source_id": "source-integration-a",
+        "publisher_verification_status": "VERIFIED",
+        "origin_status": "PRIMARY_ORIGIN_VERIFIED",
+        "canonical_origin_ref": "https://example.org/advisory",
+        "independence_status": "ESTABLISHED",
+        "independence_basis": "VERIFIED_DISTINCT_ORIGINS",
+        "evidence_ref": "review-record:integration-case",
+        "reviewed_by": "integration-reviewer",
+        "reviewed_at": "2026-10-13T12:00:00Z",
+    }
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    attestation = {
+        "key_id": "reviewer-integration-key",
+        "payload": payload,
+        "signature": base64.b64encode(private_key.sign(canonical)).decode("ascii"),
+    }
+    task = Task(
+        task_id="signed-provenance-integration",
+        description="A trusted signature must not be confused with independent evidence",
+        result={
+            "research_track": "evm_key_forensics",
+            "stage": "source_research",
+            "sources": [{
+                "source_id": "source-integration-a",
+                "source_url": "",
+                "provenance_attestation": attestation,
+            }],
+            "source_leads": [],
+            "hypotheses": [],
+            "lab_experiments": [],
+        },
+    )
+
+    validated = Validator(source_fetcher=lambda _url: {}).run(task)
+    report = validated.result["research_validation"]
+    claim = report["source_provenance_claims"][0]
+
+    assert report["source_provenance_claims_received"] == 1
+    assert claim["attestation_status"] == "SIGNATURE_VERIFIED"
+    assert claim["attestation_key_id"] == "reviewer-integration-key"
+    assert report["signed_provenance_attestations_checked"] == 1
+    assert report["signed_provenance_attestations_verified"] == 1
+    assert report["signed_provenance_attestation_checks"][0]["source_id"] == "source-integration-a"
+    assert report["source_provenance_claims_independently_verified"] is False
+    assert report["source_origin_independence_established"] is False
+    assert "submitted_source_provenance_requires_independent_verification" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"

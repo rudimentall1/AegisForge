@@ -521,6 +521,11 @@ def test_conflicting_signed_provenance_across_source_ids_sharing_origin_requires
     assert conflicts[0]["source_ids"] == ["dossier-source-a", "dossier-source-b"]
     assert conflicts[0]["conflicting_fields"]["independence_status"] == ["DEPENDENT", "ESTABLISHED"]
     assert conflicts[0]["resolution"] == "HUMAN_REVIEW_REQUIRED"
+    groups = report["shared_origin_reference_groups"]
+    assert len(groups) == 1
+    assert groups[0]["relationship_assessment"] == "MIXED_OR_UNKNOWN"
+    assert groups[0]["evidence_status"] == "SIGNED_ASSERTIONS_ONLY_NOT_INDEPENDENTLY_VERIFIED"
+    assert groups[0]["source_ids"] == ["dossier-source-a", "dossier-source-b"]
     assert "conflicting_signed_provenance_origin_assertions_require_review" in report["readiness_blockers"]
     assert report["source_origin_independence_established"] is False
     assert report["status"] == "INCONCLUSIVE"

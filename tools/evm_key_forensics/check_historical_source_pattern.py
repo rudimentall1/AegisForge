@@ -90,7 +90,7 @@ def _raw_string_end(source: str, start: int) -> int | None:
     if opening < 0:
         raise ValueError("invalid_raw_string_delimiter")
     delimiter = source[delimiter_start:opening]
-    if any(char in " ()\\\\\\t\\r\\n" for char in delimiter):
+    if any(char in " ()\\\t\r\n" for char in delimiter):
         raise ValueError("invalid_raw_string_delimiter")
     closing = source.find(")" + delimiter + '"', opening + 1)
     if closing < 0:

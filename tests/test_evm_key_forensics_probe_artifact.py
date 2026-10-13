@@ -271,5 +271,50 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "artifact_directory_missing_or_not_directory"):
             verify_artifact(not_a_directory)
 
+    def test_oversized_source_is_rejected_during_bounded_hashing(self):
+        source_path = self.root / "probe-source.cpp"
+        source_path.write_bytes(b"x" * (4 * 1024 * 1024 + 1))
+
+        with self.assertRaisesRegex(ValueError, "artifact_file_exceeds_size_limit"):
+            verify_artifact(self.root)
+
+    def test_oversized_binary_is_rejected_during_bounded_hashing(self):
+        binary_path = self.root / "probe-binary"
+        binary_path.write_bytes(b"x" * (64 * 1024 * 1024 + 1))
+
+        with self.assertRaisesRegex(ValueError, "artifact_file_exceeds_size_limit"):
+            verify_artifact(self.root)
+
+    def test_invalid_build_flags_type_fails_integrity(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["build_flags"] = "-O2"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["build_flags_recorded"])
+
+    def test_zero_github_run_id_fails_integrity(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["github_run_id"] = "0"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["run_id_recorded"])
+
+    def test_zero_github_run_attempt_fails_integrity(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["github_run_attempt"] = "0"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["run_attempt_recorded"])
+
+
 if __name__ == "__main__":
     unittest.main()

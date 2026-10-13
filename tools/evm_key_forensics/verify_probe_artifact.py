@@ -29,6 +29,8 @@ def _reject_nonstandard_constant(value):
 # Probe manifests are expected to be small. Bound untrusted JSON before
 # decoding so verification cannot be used to force an unbounded allocation.
 MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
+MAX_SOURCE_FILE_BYTES = 4 * 1024 * 1024
+MAX_BINARY_FILE_BYTES = 64 * 1024 * 1024
 
 
 def _load_strict_json(path: Path):
@@ -55,10 +57,14 @@ def _load_strict_json(path: Path):
     return value
 
 
-def sha256(path: Path) -> str:
+def sha256(path: Path, *, max_bytes: int | None = None) -> str:
     digest = hashlib.sha256()
+    total = 0
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise ValueError("artifact_file_exceeds_size_limit")
             digest.update(chunk)
     return digest.hexdigest()
 
@@ -118,9 +124,15 @@ def verify_artifact(root: Path) -> dict:
         ),
         "source_nonempty": source_path.is_file() and source_path.stat().st_size > 0,
         "binary_nonempty": binary_path.is_file() and binary_path.stat().st_size > 0,
-        "source_hash_matches": metadata.get("source_sha256") == sha256(source_path),
-        "binary_hash_matches": metadata.get("binary_sha256") == sha256(binary_path),
-        "output_hash_matches": metadata.get("output_sha256") == sha256(output_path),
+        "source_hash_matches": metadata.get("source_sha256") == sha256(
+            source_path, max_bytes=MAX_SOURCE_FILE_BYTES
+        ),
+        "binary_hash_matches": metadata.get("binary_sha256") == sha256(
+            binary_path, max_bytes=MAX_BINARY_FILE_BYTES
+        ),
+        "output_hash_matches": metadata.get("output_sha256") == sha256(
+            output_path, max_bytes=MAX_JSON_FILE_BYTES
+        ),
         "commit_recorded": (
             isinstance(metadata.get("git_commit"), str)
             and len(metadata["git_commit"]) == 40

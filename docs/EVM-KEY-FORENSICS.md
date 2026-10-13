@@ -22,6 +22,19 @@ Start worker processes using the same environment and database as existing worke
 
 The existing planner and validator workers must also be running.
 
+## Exported probe artifact verification
+
+The offline verifier accepts a self-contained directory containing the run metadata,
+JSON output, C++ source, and compiled probe binary. It rejects symlinked roots and
+files, duplicate JSON keys, invalid UTF-8, non-object JSON roots, excessive JSON
+nesting, and oversized evidence. Current read limits are 2 MiB per JSON file,
+4 MiB for the source file, and 64 MiB for the binary.
+
+A successful result means only that the bundle passes the implemented structural,
+scope, and hash-consistency checks. The manifest is unsigned, so the verifier does
+not authenticate the producer, runner, build environment, or truth of the output.
+Do not treat this artifact as proof of a historical key-generation vulnerability.
+
 ## Limits
 
 - Public-source retrieval is restricted to an explicit HTTPS host allowlist.

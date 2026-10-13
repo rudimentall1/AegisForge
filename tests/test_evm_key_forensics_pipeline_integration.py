@@ -222,3 +222,47 @@ def test_pipeline_rejects_repository_pin_with_mutated_commit_sha():
     assert report["decision"] == "CONTINUE_RESEARCH"
     assert report["historical_reproduction_confirmed"] is False
 
+def test_pipeline_blocks_duplicate_source_ids_in_evidence_dossier():
+    researched = SourceResearcher(
+        github=FakeGitHub(),
+        fetcher=fake_public_fetch,
+    ).run(Task(
+        task_id="evm-forensics-duplicate-source-id",
+        description="Reject ambiguous source identity in evidence dossier",
+    ))
+    analyzed = CryptoAnalyst().run(researched)
+    sources = analyzed.result["sources"]
+    assert len(sources) >= 2
+    sources[1]["source_id"] = sources[0]["source_id"]
+
+    validated = Validator(source_fetcher=fake_public_fetch).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert report["source_identity_integrity_failed"] is True
+    assert sources[0]["source_id"] in report["duplicate_source_ids"]
+    assert "source_identity_integrity_failed" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["historical_reproduction_confirmed"] is False
+
+
+def test_pipeline_blocks_source_record_without_source_id():
+    researched = SourceResearcher(
+        github=FakeGitHub(),
+        fetcher=fake_public_fetch,
+    ).run(Task(
+        task_id="evm-forensics-missing-source-id",
+        description="Reject a source record without a stable identifier",
+    ))
+    analyzed = CryptoAnalyst().run(researched)
+    sources = analyzed.result["sources"]
+    sources[0].pop("source_id", None)
+
+    validated = Validator(source_fetcher=fake_public_fetch).run(analyzed)
+    report = validated.result["research_validation"]
+
+    assert report["source_identity_integrity_failed"] is True
+    assert report["sources_missing_source_id"] == 1
+    assert "source_identity_integrity_failed" in report["readiness_blockers"]
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["historical_reproduction_confirmed"] is False
+

@@ -77,8 +77,29 @@ def _find_function_body(source: str, start: int) -> tuple[int | None, int | None
     return brace_start, None
 
 
+def _raw_string_end(source: str, start: int) -> int | None:
+    """Return the end offset of a C++ raw string literal, or None if absent."""
+    prefix = re.match(r'(?:u8|u|U|L)?R"', source[start:])
+    if prefix is None:
+        return None
+    if start > 0 and (source[start - 1].isalnum() or source[start - 1] == "_"):
+        return None
+
+    delimiter_start = start + prefix.end()
+    opening = source.find("(", delimiter_start, min(len(source), delimiter_start + 17))
+    if opening < 0:
+        raise ValueError("invalid_raw_string_delimiter")
+    delimiter = source[delimiter_start:opening]
+    if any(char in " ()\\\\\\t\\r\\n" for char in delimiter):
+        raise ValueError("invalid_raw_string_delimiter")
+    closing = source.find(")" + delimiter + '"', opening + 1)
+    if closing < 0:
+        raise ValueError("unterminated_raw_string")
+    return closing + len(delimiter) + 2
+
+
 def _mask_comments_and_literals(source: str) -> tuple[str, str | None]:
-    """Mask comments/literals while reporting unterminated lexical constructs."""
+    """Mask comments and ordinary/raw literals while reporting malformed input."""
     chars = list(source)
     state = "code"
     escaped = False
@@ -86,6 +107,17 @@ def _mask_comments_and_literals(source: str) -> tuple[str, str | None]:
     while index < len(source):
         char = source[index]
         nxt = source[index + 1] if index + 1 < len(source) else ""
+        if state == "code":
+            try:
+                raw_end = _raw_string_end(source, index)
+            except ValueError as exc:
+                return "".join(chars), str(exc)
+            if raw_end is not None:
+                for position in range(index, raw_end):
+                    if chars[position] != "\\n":
+                        chars[position] = " "
+                index = raw_end
+                continue
         if state == "line_comment":
             if char == "\n":
                 state = "code"

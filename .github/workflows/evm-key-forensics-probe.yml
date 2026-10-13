@@ -234,6 +234,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_GITHUB_SHA: ${{ github.sha }}
           EXPECTED_GITHUB_REF: ${{ github.ref }}
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
           gh attestation verify evm-key-forensics-evidence.zip --repo rudimentall1/AegisForge --format json > attestation-verification.json
@@ -241,15 +243,30 @@ jobs:
           import hashlib
           import json
           import os
+          import zipfile
           from pathlib import Path
 
           report = json.loads(Path("attestation-verification.json").read_text(encoding="utf-8"))
           assert isinstance(report, list) and report, "gh returned no verified attestations"
           expected_sha = os.environ["EXPECTED_GITHUB_SHA"]
           expected_ref = os.environ["EXPECTED_GITHUB_REF"]
-          zip_sha256 = hashlib.sha256(Path("evm-key-forensics-evidence.zip").read_bytes()).hexdigest()
-          matched = False
+          expected_run_id = os.environ["EXPECTED_RUN_ID"]
+          expected_attempt = os.environ["EXPECTED_RUN_ATTEMPT"]
+          zip_path = Path("evm-key-forensics-evidence.zip")
+          zip_sha256 = hashlib.sha256(zip_path.read_bytes()).hexdigest()
 
+          # Tie the attested archive to the workflow identity recorded inside it.
+          with zipfile.ZipFile(zip_path) as archive:
+              metadata = json.loads(
+                  archive.read("probe-evidence/probe-run-metadata.json").decode("utf-8")
+              )
+          assert metadata.get("git_commit") == expected_sha, "bundle git_commit differs from workflow SHA"
+          assert metadata.get("github_sha") == expected_sha, "bundle github_sha differs from workflow SHA"
+          assert metadata.get("github_ref") == expected_ref, "bundle ref differs from workflow ref"
+          assert metadata.get("github_run_id") == expected_run_id, "bundle run ID differs from current run"
+          assert metadata.get("github_run_attempt") == expected_attempt, "bundle attempt differs from current attempt"
+
+          matched = False
           for item in report:
               result = item.get("verificationResult", {})
               certificate = result.get("signature", {}).get("certificate", {})
@@ -285,11 +302,14 @@ jobs:
               "workflow": ".github/workflows/evm-key-forensics-probe.yml",
               "workflow_sha": expected_sha,
               "workflow_ref": expected_ref,
+              "run_id": expected_run_id,
+              "run_attempt": expected_attempt,
               "subject": "evm-key-forensics-evidence.zip",
               "subject_sha256": zip_sha256,
+              "bundle_metadata_matches_current_run": True,
               "verified_attestations_examined": len(report),
           }, indent=2, sort_keys=True))
-          print("GitHub CLI attestation identity and subject digest: PASS")
+          print("GitHub CLI attestation identity, subject digest, and bundle metadata: PASS")
           PY
 
       - name: Upload diagnostic evidence and attested bundle

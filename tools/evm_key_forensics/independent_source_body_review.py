@@ -91,8 +91,54 @@ def _code_brace_positions(source: bytes, start: int):
         offset += 1
 
 
+def _find_code_signature(source: bytes) -> int:
+    """Find the signature only in ordinary C++ code, not comments or literals."""
+    normal, line_comment, block_comment, string, character = range(5)
+    state = normal
+    escaped = False
+    offset = 0
+    while offset < len(source):
+        if state == normal:
+            if source.startswith(FUNCTION_SIGNATURE, offset):
+                return offset
+            char = source[offset]
+            nxt = source[offset + 1] if offset + 1 < len(source) else 0
+            if char == ord("/") and nxt == ord("/"):
+                state = line_comment
+                offset += 2
+                continue
+            if char == ord("/") and nxt == ord("*"):
+                state = block_comment
+                offset += 2
+                continue
+            if char == ord('"'):
+                state = string
+            elif char == ord("'"):
+                state = character
+        elif state == line_comment:
+            if source[offset] in (ord("\n"), ord("\r")):
+                state = normal
+        elif state == block_comment:
+            if source[offset] == ord("*") and offset + 1 < len(source) and source[offset + 1] == ord("/"):
+                state = normal
+                offset += 2
+                continue
+        else:
+            char = source[offset]
+            if escaped:
+                escaped = False
+            elif char == ord("\\"):
+                escaped = True
+            elif (state == string and char == ord('"')) or (
+                state == character and char == ord("'")
+            ):
+                state = normal
+        offset += 1
+    return -1
+
+
 def extract_function(source: bytes) -> bytes:
-    start = source.find(FUNCTION_SIGNATURE)
+    start = _find_code_signature(source)
     if start < 0:
         raise ReviewError("createSeed_signature_not_found")
 
@@ -176,7 +222,7 @@ def main() -> int:
             "It does not build or execute Profanity.",
             "It does not establish source-to-binary provenance or remediation.",
             "It does not prove entropy quality, exploitability, or wallet exposure.",
-            "Extraction ignores ordinary C++ comments and quoted literals but is not a complete C++ lexer or parser.",
+            "Signature lookup and brace extraction ignore ordinary C++ comments and quoted literals but are not a complete C++ lexer or parser.",
         ],
         "conclusion": "INCONCLUSIVE",
     }

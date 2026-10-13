@@ -603,8 +603,13 @@ def test_source_lineage_cycles_and_missing_origins_are_blocked():
         assert report["status"] == "INCONCLUSIVE"
         if task_id == "lineage-cycle":
             assert report["source_derivation_cycles"]
+            assert report["source_derivation_ancestors"] == {
+                "source-a": ["source-b"],
+                "source-b": ["source-a"],
+            }
         else:
             assert report["invalid_source_derivation_references"] == ["source-a"]
+            assert "source_derivation_ancestors" not in report or report["source_derivation_ancestors"] == {}
 
 
 def test_duplicate_source_ids_cannot_make_lineage_appear_unambiguous():
@@ -631,6 +636,8 @@ def test_duplicate_source_ids_cannot_make_lineage_appear_unambiguous():
     report = validated.result["research_validation"]
 
     assert report["duplicate_source_ids"] == ["source-b"]
+    # The closure is diagnostic only; duplicate IDs keep the graph untrustworthy.
+    assert report["source_derivation_ancestors"] == {"source-a": ["source-b"]}
     assert report["source_identity_integrity_failed"] is True
     assert "source_identity_integrity_failed" in report["readiness_blockers"]
     assert report["source_origin_independence_established"] is False

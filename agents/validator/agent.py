@@ -409,6 +409,32 @@ class Validator:
         result = dict(task.result or {})
         sources = [item for item in result.get("sources", []) if isinstance(item, dict)]
 
+        # Provenance embedded in a dossier is publisher/source-supplied input.
+        # Record the claims for review, but never promote them to verifier results.
+        source_provenance_claims = []
+        for source in sources:
+            record = source.get("provenance_record")
+            if not isinstance(record, dict):
+                continue
+            publisher = record.get("publisher_identity")
+            origin = record.get("origin_relationship")
+            independence = record.get("independence_assessment")
+            publisher = publisher if isinstance(publisher, dict) else {}
+            origin = origin if isinstance(origin, dict) else {}
+            independence = independence if isinstance(independence, dict) else {}
+            content_integrity = record.get("content_integrity")
+            content_integrity = content_integrity if isinstance(content_integrity, dict) else {}
+            source_provenance_claims.append({
+                "source_id": str(source.get("source_id") or ""),
+                "schema_version": record.get("schema_version"),
+                "claimed_content_integrity_status": content_integrity.get("status"),
+                "claimed_publisher_verification_status": publisher.get("verification_status"),
+                "claimed_origin_status": origin.get("status"),
+                "claimed_independence_status": independence.get("status"),
+                "claimed_independence_basis": independence.get("basis"),
+                "trust_status": "UNVERIFIED_SOURCE_SUPPLIED_CLAIM",
+            })
+
         # Contradictions are only recorded when upstream stages provide explicit,
         # structured assertions. Do not infer support/refutation from keywords.
         claim_assertions = []
@@ -972,6 +998,8 @@ class Validator:
         readiness_blockers = []
         if conflicting_claims:
             readiness_blockers.append("conflicting_source_claims_require_review")
+        if source_provenance_claims:
+            readiness_blockers.append("submitted_source_provenance_requires_independent_verification")
         if source_identity_integrity_failed:
             readiness_blockers.append("source_identity_integrity_failed")
         if duplicate_source_urls:
@@ -1008,6 +1036,8 @@ class Validator:
         next_actions = []
         if conflicting_claims:
             next_actions.append("Resolve explicit opposing source assertions claim by claim; do not choose a side from keyword counts or source volume.")
+        if source_provenance_claims:
+            next_actions.append("Independently verify source-supplied provenance claims and store verifier results separately; fields inside a dossier are not verification evidence.")
         if not any(item.get("classification") == "early_client_key_generation_warning" for item in sources):
             next_actions.append("Find primary material describing exact early-client version boundaries.")
         if not any(item.get("classification") == "vanity_generator_entropy_weakness_report" for item in sources):
@@ -1050,6 +1080,9 @@ class Validator:
             "duplicate_source_ids": duplicate_source_ids,
             "duplicate_source_urls": duplicate_source_urls,
             "duplicate_source_content_fingerprints": duplicate_source_content_fingerprints,
+            "source_provenance_claims_received": len(source_provenance_claims),
+            "source_provenance_claims": source_provenance_claims,
+            "source_provenance_claims_independently_verified": False,
             # Legacy field name retained for compatibility. This is a content
             # count only and must never be interpreted as source independence.
             "independent_matching_source_fingerprints": distinct_matching_fingerprints,

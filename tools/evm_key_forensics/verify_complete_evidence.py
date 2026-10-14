@@ -359,7 +359,10 @@ def verify_complete_archive(archive_path: Path) -> dict:
                     dest.write(chunk)
         except OSError:
             raise
-        return _verify_complete_archive_snapshot(snapshot)
+        try:
+            return _verify_complete_archive_snapshot(snapshot)
+        except (zipfile.BadZipFile, EOFError, zlib.error) as exc:
+            raise ValueError("archive_invalid_zip_structure") from exc
 
 
 def main(argv=None) -> int:

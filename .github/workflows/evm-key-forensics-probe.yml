@@ -78,10 +78,9 @@ jobs:
           git -C /tmp/profanity-source-review fetch --depth=1 origin 186b9b27ab3e24a1899f648adcabcbf0e5f3131e
           python tools/evm_key_forensics/independent_source_body_review.py --repo /tmp/profanity-source-review > /tmp/independent-source-body-review.json
           python - <<'PY'
-          from shared.git_source_pin_verifier import verify_git_source_pin
-
           import json
           from pathlib import Path
+
           from shared.git_source_pin_verifier import verify_git_source_pin
 
           pins = [

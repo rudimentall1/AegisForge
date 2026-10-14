@@ -55,7 +55,12 @@ def verify_git_source_pin(
         raise GitSourcePinError("expected_path_required")
 
     path = Path(expected_path)
-    if path.is_absolute() or any(part in ("", ".", "..") for part in expected_path.split("/")) or "\\" in expected_path:
+    if (
+        path.is_absolute()
+        or any(part in ("", ".", "..") for part in expected_path.split("/"))
+        or "\\" in expected_path
+        or any(ord(char) < 32 or ord(char) == 127 for char in expected_path)
+    ):
         raise GitSourcePinError("expected_path_invalid")
 
     commit = _git(repo_path, "rev-parse", "--verify", f"{expected_commit_sha}^{{commit}}").decode("ascii").strip()

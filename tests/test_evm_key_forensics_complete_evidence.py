@@ -202,6 +202,22 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
                 verify_complete_archive(self.archive)
             verifier.assert_not_called()
 
+    def test_corrupt_compressed_member_fails_with_stable_error(self):
+        member = "complete-evidence/probe-evidence/probe-source.cpp"
+        with zipfile.ZipFile(self.archive, "r") as zf:
+            info = zf.getinfo(member)
+            payload_offset = info.header_offset + 30 + len(info.filename.encode("utf-8")) + len(info.extra)
+
+        # Corrupt the compressed payload while preserving the central directory.
+        with self.archive.open("r+b") as stream:
+            stream.seek(payload_offset)
+            stream.write(b"\\xff")
+
+        with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
+            with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):
+                verify_complete_archive(self.archive)
+            verifier.assert_not_called()
+
     def test_local_header_name_mismatch_is_rejected(self):
         member = "complete-evidence/probe-evidence/probe-source.cpp"
         with zipfile.ZipFile(self.archive, "r") as zf:

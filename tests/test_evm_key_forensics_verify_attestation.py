@@ -37,7 +37,7 @@ class VerifyAttestationTests(unittest.TestCase):
         with zipfile.ZipFile(self.archive, "w") as archive:
             archive.writestr(
                 "complete-evidence/probe-evidence/probe-run-metadata.json",
-                json.dumps(metadata or self.metadata),
+                json.dumps(self.metadata if metadata is None else metadata),
             )
 
     def make_report(self, *, sha=None, ref=None, digest=None, repo= "rudimentall1/AegisForge", path=".github/workflows/evm-key-forensics-probe.yml"):
@@ -162,6 +162,17 @@ class VerifyAttestationTests(unittest.TestCase):
             for index in range(16):
                 archive.writestr(f"extra-{index}.txt", "x")
         with self.assertRaisesRegex(ValueError, "archive_member_count_exceeded"):
+            self.verify()
+
+    def test_empty_metadata_object_fails(self):
+        self.write_archive({})
+        with self.assertRaisesRegex(ValueError, "archive_metadata_does_not_match_expected_run"):
+            self.verify()
+
+    def test_missing_metadata_member_fails_cleanly(self):
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.writestr("unrelated.txt", "no run metadata")
+        with self.assertRaisesRegex(ValueError, "probe_metadata_missing"):
             self.verify()
 
     def test_metadata_size_limit_fails(self):

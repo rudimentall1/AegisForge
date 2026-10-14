@@ -78,6 +78,8 @@ def verify_git_source_pin(
         f":(literal){expected_path}",
     )
     records = [record for record in tree_output.split(b"\0") if record]
+    if not records:
+        raise GitSourcePinError("git_object_unavailable")
     if len(records) != 1 or b"\t" not in records[0]:
         raise GitSourcePinError("git_path_not_single_file")
     header, actual_path = records[0].split(b"\t", 1)

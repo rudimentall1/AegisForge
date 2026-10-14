@@ -25,6 +25,15 @@ MAX_ARCHIVE_MEMBERS = 16
 MAX_METADATA_BYTES = 2 * 1024 * 1024
 
 
+def _reject_duplicate_json_keys(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate_json_key:" + key)
+        value[key] = item
+    return value
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -51,7 +60,7 @@ def _read_metadata(archive_path: Path) -> dict:
         raw = archive.read(info)
         if len(raw) != info.file_size:
             raise ValueError("probe_metadata_size_mismatch")
-    value = json.loads(raw.decode("utf-8"))
+    value = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
     if not isinstance(value, dict):
         raise ValueError("probe_metadata_must_be_object")
     return value
@@ -89,7 +98,7 @@ def verify_attestation(
             raise ValueError("github_cli_attestation_verification_failed")
         gh_output = result.stdout
 
-    report = json.loads(gh_output)
+    report = json.loads(gh_output, object_pairs_hook=_reject_duplicate_json_keys)
     if not isinstance(report, list) or not report:
         raise ValueError("github_cli_returned_no_verified_attestations")
 

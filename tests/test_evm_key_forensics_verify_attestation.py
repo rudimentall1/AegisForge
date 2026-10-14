@@ -276,5 +276,33 @@ class VerifyAttestationTests(unittest.TestCase):
             )
 
 
+    def test_missing_invocation_id_fails_closed(self):
+        report = json.loads(self.report)
+        del report[0]["verificationResult"]["statement"]["predicate"]["runDetails"]["metadata"]["invocationId"]
+        with self.assertRaisesRegex(
+            ValueError, "verified_attestation_identity_or_subject_mismatch",
+        ):
+            self.verify(json.dumps(report))
+
+    def test_non_string_invocation_id_fails_closed(self):
+        report = json.loads(self.report)
+        report[0]["verificationResult"]["statement"]["predicate"]["runDetails"]["metadata"]["invocationId"] = 123
+        with self.assertRaisesRegex(
+            ValueError, "verified_attestation_identity_or_subject_mismatch",
+        ):
+            self.verify(json.dumps(report))
+
+    def test_malformed_attestation_entries_do_not_mask_missing_valid_match(self):
+        report = [
+            {"verificationResult": {"statement": {"predicate": []}}},
+            {"verificationResult": {"signature": {}, "statement": {}}},
+            {"unexpected": "shape"},
+        ]
+        with self.assertRaisesRegex(
+            ValueError, "verified_attestation_identity_or_subject_mismatch",
+        ):
+            self.verify(json.dumps(report))
+
+
 if __name__ == "__main__":
     unittest.main()

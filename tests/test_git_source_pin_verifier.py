@@ -211,6 +211,7 @@ def test_ignores_git_replace_refs(committed_repo):
 
 
 
+
 def test_rejects_oversized_blob_before_reading_content(monkeypatch, tmp_path):
     import shared.git_source_pin_verifier as verifier
 
@@ -221,9 +222,9 @@ def test_rejects_oversized_blob_before_reading_content(monkeypatch, tmp_path):
     def fake_git(repo_path, *args):
         calls.append(args)
         if args[0] == "rev-parse":
-            return (commit + "\\n").encode("ascii")
+            return commit.encode("ascii")
         if args[0] == "ls-tree":
-            return f"100644 blob {blob}\\tsrc/sample.py\\0".encode("ascii")
+            return f"100644 blob {blob}".encode("ascii") + bytes([9]) + b"src/sample.py" + bytes([0])
         if args[:2] == ("cat-file", "-s"):
             return str(verifier.MAX_SOURCE_BLOB_BYTES + 1).encode("ascii")
         raise AssertionError(f"unexpected git command: {args!r}")

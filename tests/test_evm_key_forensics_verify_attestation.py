@@ -196,5 +196,31 @@ class VerifyAttestationTests(unittest.TestCase):
             self.verify(report)
 
 
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    def test_missing_github_cli_fails_closed(self, run):
+        run.side_effect = FileNotFoundError("gh")
+        with self.assertRaisesRegex(ValueError, "github_cli_not_installed"):
+            verify_attestation(
+                self.archive,
+                expected_sha=self.sha,
+                expected_ref=self.ref,
+                expected_run_id=self.run_id,
+                expected_attempt=self.attempt,
+            )
+
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    def test_github_cli_timeout_fails_closed(self, run):
+        import subprocess
+        run.side_effect = subprocess.TimeoutExpired(cmd=["gh"], timeout=120)
+        with self.assertRaisesRegex(ValueError, "github_cli_attestation_verification_timed_out"):
+            verify_attestation(
+                self.archive,
+                expected_sha=self.sha,
+                expected_ref=self.ref,
+                expected_run_id=self.run_id,
+                expected_attempt=self.attempt,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -109,8 +109,12 @@ def validate_dossier(data: object) -> list[str]:
         contract = {}
     if contract.get("source_to_binary_provenance") != "NOT_ESTABLISHED":
         errors.append("source_to_binary_provenance_must_not_be_overstated")
-    if contract.get("trusted_runner_attestation") != "NOT_IMPLEMENTED":
-        errors.append("runner_attestation_must_remain_not_implemented")
+    if contract.get("source_review_runner_attestation") != "NOT_IMPLEMENTED":
+        errors.append("source_review_runner_attestation_must_remain_not_implemented")
+    if contract.get("evidence_package_github_attestation") != (
+        "PUBLISHED_BY_SEPARATE_WORKFLOW; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS"
+    ):
+        errors.append("evidence_package_attestation_scope_must_be_explicit")
     if contract.get("signed_dossier") is not False:
         errors.append("dossier_signing_status_mismatch")
 

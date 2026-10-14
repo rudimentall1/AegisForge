@@ -148,6 +148,19 @@ def test_ignores_inherited_git_dir_environment(committed_repo, tmp_path, monkeyp
     assert result["valid"] is True
     assert result["commit_sha"] == commit
 
+def test_ignores_inherited_git_object_directory(committed_repo, tmp_path, monkeypatch):
+    repo, commit, blob = committed_repo
+    other_repo = tmp_path / "other"
+    other_repo.mkdir()
+    subprocess.run(["git", "init", str(other_repo)], check=True, capture_output=True)
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(other_repo / ".git" / "objects"))
+
+    result = verify(repo, commit, blob)
+    assert result["valid"] is True
+    assert result["commit_sha"] == commit
+    assert result["git_blob_sha"] == blob
+
+
 def test_ignores_git_replace_refs(committed_repo):
     repo, original_commit, original_blob = committed_repo
     source = repo / "src" / "sample.py"

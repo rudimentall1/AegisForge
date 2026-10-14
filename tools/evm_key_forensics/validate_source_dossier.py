@@ -50,7 +50,7 @@ def validate_dossier(data: object) -> list[str]:
         errors.append("unexpected_dossier_id")
     if data.get("status") != "SOURCE_REVIEW_ONLY":
         errors.append("dossier_status_must_remain_source_review_only")
-    if data.get("generated_for_branch") != "feat/evm-key-forensics-research":
+    if data.get("generated_for_branch") != "feat/evm-git-object-source-verifier":
         errors.append("unexpected_branch")
 
     upstream = data.get("reviewed_upstream")

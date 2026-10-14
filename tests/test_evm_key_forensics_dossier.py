@@ -137,6 +137,18 @@ class SourceDossierValidatorTests(unittest.TestCase):
         errors = validate_dossier(data)
         self.assertIn("claim_register_ids_mismatch", errors)
 
+    def test_claim_text_cannot_be_changed_while_retaining_known_id(self):
+        data = copy.deepcopy(DOSSIER)
+        data["claim_register"][0]["claim"] = "The historical vulnerability is proven exploitable."
+        errors = validate_dossier(data)
+        self.assertIn("claim_content_mismatch:SRC-001:claim", errors)
+
+    def test_claim_boundary_entries_must_be_nonempty_strings(self):
+        data = copy.deepcopy(DOSSIER)
+        data["claim_register"][0]["does_not_establish"] = [{"entropy": "unknown"}]
+        errors = validate_dossier(data)
+        self.assertIn("claim_boundaries_required:SRC-001", errors)
+
 
 if __name__ == "__main__":
     unittest.main()

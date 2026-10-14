@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import tempfile
 import unittest
@@ -91,7 +92,7 @@ class VerifyAttestationTests(unittest.TestCase):
             gh_output=self.report if report is None else report,
         )
 
-    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
     def test_unsupported_expected_trigger_fails_before_cli(self, run):
         with self.assertRaisesRegex(ValueError, "unsupported_expected_workflow_trigger"):
             verify_attestation(
@@ -135,7 +136,7 @@ class VerifyAttestationTests(unittest.TestCase):
             self.verify, self.make_report(trigger="pull_request"),
         )
 
-    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
     def test_pull_request_is_not_an_allowed_expected_trigger(self, run):
         with self.assertRaisesRegex(ValueError, "unsupported_expected_workflow_trigger"):
             verify_attestation(
@@ -189,11 +190,11 @@ class VerifyAttestationTests(unittest.TestCase):
             self.verify, "[]",
         )
 
-    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
     def test_gh_failure_fails_closed(self, run):
-        run.return_value.returncode = 1
-        run.return_value.stdout = ""
-        run.return_value.stderr = "verification failed"
+        process = run.return_value
+        process.stdout = io.BytesIO(b"")
+        process.wait.return_value = 1
         with self.assertRaisesRegex(ValueError, "github_cli_attestation_verification_failed"):
             verify_attestation(
                 self.archive,
@@ -368,7 +369,7 @@ class VerifyAttestationTests(unittest.TestCase):
             self.verify(report)
 
 
-    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
     def test_missing_github_cli_fails_closed(self, run):
         run.side_effect = FileNotFoundError("gh")
         with self.assertRaisesRegex(ValueError, "github_cli_not_installed"):
@@ -381,10 +382,15 @@ class VerifyAttestationTests(unittest.TestCase):
                 expected_trigger=self.trigger,
             )
 
-    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
     def test_github_cli_timeout_fails_closed(self, run):
         import subprocess
-        run.side_effect = subprocess.TimeoutExpired(cmd=["gh"], timeout=120)
+        process = run.return_value
+        process.stdout = io.BytesIO(b"")
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd=["gh"], timeout=120),
+            -9,
+        ]
         with self.assertRaisesRegex(ValueError, "github_cli_attestation_verification_timed_out"):
             verify_attestation(
                 self.archive,
@@ -462,11 +468,11 @@ class VerifyAttestationTests(unittest.TestCase):
                 _read_bounded_member(archive, info, 3)
 
 
-    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
     def test_real_cli_invocation_is_pinned_and_bounded(self, run):
-        run.return_value.returncode = 0
-        run.return_value.stdout = self.report
-        run.return_value.stderr = ""
+        process = run.return_value
+        process.stdout = io.BytesIO(self.report.encode("utf-8"))
+        process.wait.return_value = 0
         result = verify_attestation(
             self.archive,
             expected_sha=self.sha,
@@ -485,10 +491,10 @@ class VerifyAttestationTests(unittest.TestCase):
             "rudimentall1/AegisForge/.github/workflows/evm-key-forensics-probe.yml",
         )
         self.assertEqual(command[command.index("--format") + 1], "json")
-        self.assertEqual(kwargs["timeout"], 120)
-        self.assertTrue(kwargs["check"] is False)
-        self.assertTrue(kwargs["capture_output"])
-        self.assertTrue(kwargs["text"])
+        import subprocess
+        self.assertIs(kwargs["stdout"], subprocess.PIPE)
+        self.assertIs(kwargs["stderr"], subprocess.DEVNULL)
+        self.assertNotIn("timeout", kwargs)
 
 
 if __name__ == "__main__":

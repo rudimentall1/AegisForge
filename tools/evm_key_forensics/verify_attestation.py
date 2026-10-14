@@ -25,6 +25,7 @@ WORKFLOW_REPOSITORY = "rudimentall1/AegisForge"
 WORKFLOW_NAME = "EVM Key Forensics Probe"
 WORKFLOW_PATH = ".github/workflows/evm-key-forensics-probe.yml"
 ALLOWED_WORKFLOW_TRIGGERS = {"workflow_dispatch"}
+ALLOWED_WORKFLOW_REF = "refs/heads/main"
 ARCHIVE_MEMBER = "complete-evidence/probe-evidence/probe-run-metadata.json"
 MAX_ARCHIVE_BYTES = 140 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 16
@@ -126,6 +127,8 @@ def _verify_attestation_snapshot(
 ) -> dict:
     if expected_trigger not in ALLOWED_WORKFLOW_TRIGGERS:
         raise ValueError("unsupported_expected_workflow_trigger")
+    if expected_ref != ALLOWED_WORKFLOW_REF:
+        raise ValueError("unsupported_expected_workflow_ref")
     if archive_path.is_symlink() or not archive_path.is_file():
         raise ValueError("archive_must_be_regular_file")
 

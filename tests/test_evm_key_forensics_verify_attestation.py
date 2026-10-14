@@ -141,6 +141,19 @@ class VerifyAttestationTests(unittest.TestCase):
         )
 
     @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
+    def test_non_main_ref_is_rejected_before_cli(self, run):
+        with self.assertRaisesRegex(ValueError, "unsupported_expected_workflow_ref"):
+            verify_attestation(
+                self.archive,
+                expected_sha=self.sha,
+                expected_ref="refs/heads/release",
+                expected_run_id=self.run_id,
+                expected_attempt=self.attempt,
+                expected_trigger=self.trigger,
+            )
+        run.assert_not_called()
+
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
     def test_pull_request_is_not_an_allowed_expected_trigger(self, run):
         with self.assertRaisesRegex(ValueError, "unsupported_expected_workflow_trigger"):
             verify_attestation(

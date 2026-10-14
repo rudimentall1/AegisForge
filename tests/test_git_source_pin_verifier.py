@@ -115,6 +115,18 @@ def test_rejects_missing_repository_label(committed_repo):
         verify(repo, commit, blob, expected_repository=" ")
 
 
+def test_rejects_repository_label_with_surrounding_whitespace(committed_repo):
+    repo, commit, blob = committed_repo
+    with pytest.raises(GitSourcePinError, match="expected_repository_required"):
+        verify(repo, commit, blob, expected_repository=" " + REPOSITORY)
+
+
+def test_rejects_repository_label_with_control_characters(committed_repo):
+    repo, commit, blob = committed_repo
+    with pytest.raises(GitSourcePinError, match="expected_repository_required"):
+        verify(repo, commit, blob, expected_repository="example/\npinned-source")
+
+
 def test_rejects_malformed_blob_pin(committed_repo):
     repo, commit, _ = committed_repo
     with pytest.raises(GitSourcePinError, match="expected_blob_sha_invalid"):

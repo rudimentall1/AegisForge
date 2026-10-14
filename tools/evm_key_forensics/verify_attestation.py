@@ -115,6 +115,8 @@ def _verify_attestation_snapshot(
     expected_trigger: str,
     gh_output: str | None = None,
 ) -> dict:
+    if expected_trigger not in ALLOWED_WORKFLOW_TRIGGERS:
+        raise ValueError("unsupported_expected_workflow_trigger")
     if archive_path.is_symlink() or not archive_path.is_file():
         raise ValueError("archive_must_be_regular_file")
 
@@ -140,8 +142,6 @@ def _verify_attestation_snapshot(
             raise ValueError("github_cli_attestation_verification_failed")
         gh_output = result.stdout
 
-    if expected_trigger not in ALLOWED_WORKFLOW_TRIGGERS:
-        raise ValueError("unsupported_expected_workflow_trigger")
     if len(gh_output.encode("utf-8")) > MAX_ATTESTATION_REPORT_BYTES:
         raise ValueError("attestation_report_exceeds_size_limit")
     try:

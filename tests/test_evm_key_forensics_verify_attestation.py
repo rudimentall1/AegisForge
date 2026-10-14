@@ -245,6 +245,22 @@ class VerifyAttestationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "probe_metadata_must_be_object"):
             self.verify()
 
+    def test_unsupported_metadata_compression_fails_with_stable_error(self):
+        raw = bytearray(self.archive.read_bytes())
+        local_header = raw.find(b"PK\\x03\\x04")
+        central_header = raw.find(b"PK\\x01\\x02")
+        self.assertGreaterEqual(local_header, 0)
+        self.assertGreaterEqual(central_header, 0)
+        # Compression method 99 is not supported by the Python ZIP reader.
+        raw[local_header + 8:local_header + 10] = (99).to_bytes(2, "little")
+        raw[central_header + 10:central_header + 12] = (99).to_bytes(2, "little")
+        self.archive.write_bytes(raw)
+
+        with self.assertRaisesRegex(
+            ValueError, "probe_metadata_unsupported_compression_method"
+        ):
+            self.verify()
+
     def test_corrupt_compressed_metadata_fails_with_stable_error(self):
         member = "complete-evidence/probe-evidence/probe-run-metadata.json"
         with zipfile.ZipFile(self.archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:

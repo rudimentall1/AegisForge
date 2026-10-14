@@ -12,6 +12,7 @@ from unittest.mock import patch
 from tools.evm_key_forensics.verify_complete_evidence import (
     EXPECTED_MEMBERS,
     verify_complete_archive,
+    _valid_git_ref,
 )
 
 
@@ -134,6 +135,10 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
         self.assertFalse(result["integrity_verified"])
         self.assertIn("metadata_run_id_format", result["failed_checks"])
         self.assertIn("metadata_run_attempt_format", result["failed_checks"])
+
+    def test_git_ref_allows_closing_bracket_but_rejects_opening_bracket(self):
+        self.assertTrue(_valid_git_ref("refs/heads/feature]name"))
+        self.assertFalse(_valid_git_ref("refs/heads/feature[name"))
 
     def test_malformed_git_ref_fails_closed(self):
         self.metadata["github_ref"] = "refs/heads/../main"

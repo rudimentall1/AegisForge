@@ -1,8 +1,9 @@
 """Verify a pinned source file against local Git objects.
 
-This helper performs no network access. It proves that the supplied local Git
-object database resolves a file at an exact commit to the expected blob bytes.
-It does not authenticate the repository owner or establish independent provenance.
+This helper performs no network access and supports Git's SHA-1 object format
+only. It proves that the supplied local Git object database resolves a file at
+an exact commit to the expected blob bytes. It does not authenticate the
+repository owner or establish independent provenance.
 """
 import hashlib
 import os
@@ -53,7 +54,12 @@ def verify_git_source_pin(
     The repository name is a declared coordinate, not an authenticated identity.
     The result intentionally keeps provenance_verified false.
     """
-    if not isinstance(expected_repository, str) or not expected_repository.strip():
+    if (
+        not isinstance(expected_repository, str)
+        or not expected_repository.strip()
+        or expected_repository != expected_repository.strip()
+        or any(ord(char) < 32 or ord(char) == 127 for char in expected_repository)
+    ):
         raise GitSourcePinError("expected_repository_required")
     if not isinstance(expected_commit_sha, str) or not _SHA1_RE.fullmatch(expected_commit_sha):
         raise GitSourcePinError("expected_commit_sha_invalid")

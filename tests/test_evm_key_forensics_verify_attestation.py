@@ -17,10 +17,10 @@ class VerifyAttestationTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.archive = self.root / "evm-key-forensics-complete-evidence.zip"
         self.sha = "a" * 40
-        self.ref = "refs/pull/42/merge"
+        self.ref = "refs/heads/main"
         self.run_id = "38520806120"
         self.attempt = "1"
-        self.trigger = "pull_request"
+        self.trigger = "workflow_dispatch"
         self.metadata = {
             "git_commit": self.sha,
             "github_sha": self.sha,
@@ -132,8 +132,21 @@ class VerifyAttestationTests(unittest.TestCase):
     def test_wrong_workflow_trigger_fails(self):
         self.assertRaisesRegex(
             ValueError, "verified_attestation_identity_or_subject_mismatch",
-            self.verify, self.make_report(trigger="workflow_dispatch"),
+            self.verify, self.make_report(trigger="pull_request"),
         )
+
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    def test_pull_request_is_not_an_allowed_expected_trigger(self, run):
+        with self.assertRaisesRegex(ValueError, "unsupported_expected_workflow_trigger"):
+            verify_attestation(
+                self.archive,
+                expected_sha=self.sha,
+                expected_ref="refs/pull/42/merge",
+                expected_run_id=self.run_id,
+                expected_attempt=self.attempt,
+                expected_trigger="pull_request",
+            )
+        run.assert_not_called()
 
     def test_wrong_workflow_path_fails(self):
         self.assertRaisesRegex(

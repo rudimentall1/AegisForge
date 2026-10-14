@@ -126,7 +126,7 @@ class VerifyAttestationTests(unittest.TestCase):
     def test_wrong_workflow_ref_fails(self):
         self.assertRaisesRegex(
             ValueError, "verified_attestation_identity_or_subject_mismatch",
-            self.verify, self.make_report(ref="refs/heads/main"),
+            self.verify, self.make_report(ref="refs/heads/release"),
         )
 
     def test_wrong_workflow_trigger_fails(self):

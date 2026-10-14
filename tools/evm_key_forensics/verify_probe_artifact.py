@@ -210,6 +210,7 @@ def verify_artifact(root: Path) -> dict:
                 and git_object_checks_by_revision[revision].get("commit_sha") == expected["commit_sha"]
                 and git_object_checks_by_revision[revision].get("path") == expected["path"]
                 and git_object_checks_by_revision[revision].get("git_blob_sha") == expected["git_blob_sha"]
+                and git_object_checks_by_revision[revision].get("valid") is True
                 and git_object_checks_by_revision[revision].get("git_object_match") is True
                 and git_object_checks_by_revision[revision].get("provenance_verified") is False
                 for revision, expected in expected_git_object_pins.items()

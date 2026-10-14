@@ -20,7 +20,7 @@ from pathlib import Path
 WORKFLOW_REPOSITORY = "rudimentall1/AegisForge"
 WORKFLOW_NAME = "EVM Key Forensics Probe"
 WORKFLOW_PATH = ".github/workflows/evm-key-forensics-probe.yml"
-ALLOWED_WORKFLOW_TRIGGERS = {"pull_request", "workflow_dispatch"}
+ALLOWED_WORKFLOW_TRIGGERS = {"workflow_dispatch"}
 ARCHIVE_MEMBER = "complete-evidence/probe-evidence/probe-run-metadata.json"
 MAX_ARCHIVE_BYTES = 140 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 16

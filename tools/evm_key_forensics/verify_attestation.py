@@ -184,8 +184,17 @@ def _verify_attestation_snapshot(
         try:
             return_code = process.wait(timeout=120)
         except subprocess.TimeoutExpired as exc:
-            process.kill()
-            process.wait()
+            try:
+                process.kill()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired as reap_exc:
+                reader_stopped = stop_reader_boundedly()
+                if reader_stopped and process.stdout is not None:
+                    process.stdout.close()
+                raise ValueError("github_cli_process_reap_timed_out") from reap_exc
             reader_stopped = stop_reader_boundedly()
             if reader_stopped and process.stdout is not None:
                 process.stdout.close()

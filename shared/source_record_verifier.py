@@ -77,10 +77,9 @@ def verify_source_record_against_bytes(
     except UnicodeDecodeError as exc:
         raise SourceRecordVerificationError("source_bytes_not_utf8") from exc
 
-    lines = source_text.splitlines(keepends=True)
-    if end > len(lines):
+    # Git text line coordinates are LF-delimited. Python str.splitlines() also\n    # splits on bare CR and Unicode separators, which would shift Git line numbers.\n    raw_lines = source_bytes.split(b"\\n")\n    lines = [part + b"\\n" for part in raw_lines[:-1]]\n    if raw_lines[-1]:\n        lines.append(raw_lines[-1])\n    if end > len(lines):
         raise SourceRecordVerificationError("source_line_range_out_of_bounds")
-    actual_excerpt = "".join(lines[start - 1:end]).encode("utf-8")
+    actual_excerpt = b"".join(lines[start - 1:end])
     if actual_excerpt != excerpt_bytes:
         raise SourceRecordVerificationError("source_excerpt_mismatch")
 

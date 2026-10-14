@@ -71,7 +71,8 @@
     ],
     "independent_retrieval_recommended": true,
     "source_to_binary_provenance": "NOT_ESTABLISHED",
-    "trusted_runner_attestation": "NOT_IMPLEMENTED",
+    "source_review_runner_attestation": "NOT_IMPLEMENTED",
+    "evidence_package_github_attestation": "PUBLISHED_BY_SEPARATE_WORKFLOW; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS",
     "signed_dossier": false
   },
   "experiment_state": {

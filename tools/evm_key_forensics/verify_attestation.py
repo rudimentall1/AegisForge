@@ -54,6 +54,22 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _read_bounded_member(archive: zipfile.ZipFile, info: zipfile.ZipInfo, max_bytes: int) -> bytes:
+    """Read a ZIP member without trusting its declared uncompressed size."""
+    raw = bytearray()
+    with archive.open(info, "r") as source:
+        while True:
+            chunk = source.read(min(64 * 1024, max_bytes + 1 - len(raw)))
+            if not chunk:
+                break
+            raw.extend(chunk)
+            if len(raw) > max_bytes:
+                raise ValueError("probe_metadata_exceeds_size_limit")
+    if len(raw) != info.file_size:
+        raise ValueError("probe_metadata_size_mismatch")
+    return bytes(raw)
+
+
 def _read_metadata(archive_path: Path) -> dict:
     if archive_path.stat().st_size > MAX_ARCHIVE_BYTES:
         raise ValueError("archive_exceeds_size_limit")
@@ -72,9 +88,7 @@ def _read_metadata(archive_path: Path) -> dict:
             raise ValueError("probe_metadata_exceeds_size_limit")
         if info.flag_bits & 0x1:
             raise ValueError("encrypted_metadata_not_supported")
-        raw = archive.read(info)
-        if len(raw) != info.file_size:
-            raise ValueError("probe_metadata_size_mismatch")
+        raw = _read_bounded_member(archive, info, MAX_METADATA_BYTES)
     value = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
     if not isinstance(value, dict):
         raise ValueError("probe_metadata_must_be_object")

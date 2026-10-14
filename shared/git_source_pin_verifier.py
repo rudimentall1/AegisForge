@@ -19,12 +19,17 @@ _SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _git(repo_path, *args):
+    # Do not let inherited Git environment variables redirect repository,
+    # index, object storage, namespace, or configuration for this verification.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env["GIT_NO_REPLACE_OBJECTS"] = "1"
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_path), *args],
             check=False,
             capture_output=True,
             timeout=10,
+            env=env,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise GitSourcePinError("git_command_failed") from exc

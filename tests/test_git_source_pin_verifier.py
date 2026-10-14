@@ -78,3 +78,14 @@ def test_rejects_file_absent_from_pinned_commit(committed_repo):
     repo, commit, _ = committed_repo
     with pytest.raises(GitSourcePinError, match="git_object_unavailable"):
         verify(repo, commit, "0" * 40, expected_path="missing.py")
+
+def test_rejects_missing_repository_label(committed_repo):
+    repo, commit, blob = committed_repo
+    with pytest.raises(GitSourcePinError, match="expected_repository_required"):
+        verify(repo, commit, blob, expected_repository=" ")
+
+
+def test_rejects_malformed_blob_pin(committed_repo):
+    repo, commit, _ = committed_repo
+    with pytest.raises(GitSourcePinError, match="expected_blob_sha_invalid"):
+        verify(repo, commit, "not-a-sha")

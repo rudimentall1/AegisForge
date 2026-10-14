@@ -247,8 +247,8 @@ class VerifyAttestationTests(unittest.TestCase):
 
     def test_unsupported_metadata_compression_fails_with_stable_error(self):
         raw = bytearray(self.archive.read_bytes())
-        local_header = raw.find(b"PK\\x03\\x04")
-        central_header = raw.find(b"PK\\x01\\x02")
+        local_header = raw.find(b"PK\x03\x04")
+        central_header = raw.find(b"PK\x01\x02")
         self.assertGreaterEqual(local_header, 0)
         self.assertGreaterEqual(central_header, 0)
         # Compression method 99 is not supported by the Python ZIP reader.

@@ -288,130 +288,14 @@ jobs:
           test "$status" -eq 2
           grep -q "sample_count_must_be_between_1_and_10000" /tmp/probe-err.txt
 
-      - name: Package evidence bundle for attestation
-        run: |
-          set -euo pipefail
-          zip -X -r evm-key-forensics-evidence.zip probe-evidence
-          sha256sum evm-key-forensics-evidence.zip
-
-      - name: Attest evidence bundle provenance
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
-        with:
-          subject-path: evm-key-forensics-evidence.zip
-
-      - name: Verify evidence bundle provenance attestation
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EXPECTED_GITHUB_SHA: ${{ github.sha }}
-          EXPECTED_GITHUB_REF: ${{ github.ref }}
-          EXPECTED_RUN_ID: ${{ github.run_id }}
-          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
-          EXPECTED_GITHUB_TRIGGER: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-          gh attestation verify evm-key-forensics-evidence.zip --repo rudimentall1/AegisForge --signer-workflow rudimentall1/AegisForge/.github/workflows/evm-key-forensics-probe.yml --format json > attestation-verification.json
-          python - <<'PY'
-          import hashlib
-          import json
-          import os
-          import zipfile
-          from pathlib import Path
-
-          report = json.loads(Path("attestation-verification.json").read_text(encoding="utf-8"))
-          assert isinstance(report, list) and report, "gh returned no verified attestations"
-          expected_sha = os.environ["EXPECTED_GITHUB_SHA"]
-          expected_ref = os.environ["EXPECTED_GITHUB_REF"]
-          expected_run_id = os.environ["EXPECTED_RUN_ID"]
-          expected_attempt = os.environ["EXPECTED_RUN_ATTEMPT"]
-          expected_trigger = os.environ["EXPECTED_GITHUB_TRIGGER"]
-          zip_path = Path("evm-key-forensics-evidence.zip")
-          zip_sha256 = hashlib.sha256(zip_path.read_bytes()).hexdigest()
-
-          # Tie the attested archive to the workflow identity recorded inside it.
-          # A valid attestation for the wrong run must not pass this gate.
-          with zipfile.ZipFile(zip_path) as archive:
-              metadata = json.loads(
-                  archive.read("probe-evidence/probe-run-metadata.json").decode("utf-8")
-              )
-          assert metadata.get("git_commit") == expected_sha, "bundle git_commit differs from workflow SHA"
-          assert metadata.get("github_sha") == expected_sha, "bundle github_sha differs from workflow SHA"
-          assert metadata.get("github_ref") == expected_ref, "bundle ref differs from workflow ref"
-          assert metadata.get("github_run_id") == expected_run_id, "bundle run ID differs from current run"
-          assert metadata.get("github_run_attempt") == expected_attempt, "bundle attempt differs from current attempt"
-
-          matched = False
-          for item in report:
-              result = item.get("verificationResult", {})
-              certificate = result.get("signature", {}).get("certificate", {})
-              statement = result.get("statement", {})
-              predicate = statement.get("predicate", {})
-              subjects = statement.get("subject", [])
-              workflow = predicate.get("buildDefinition", {}).get("externalParameters", {}).get("workflow", {})
-              run_details = predicate.get("runDetails", {})
-              run_metadata = run_details.get("metadata", {}) if isinstance(run_details, dict) else {}
-              expected_invocation_id = (
-                  "https://github.com/rudimentall1/AegisForge/actions/runs/"
-                  + expected_run_id + "/attempts/" + expected_attempt
-              )
-              invocation_matches = (
-                  isinstance(run_metadata, dict)
-                  and run_metadata.get("invocationId") == expected_invocation_id
-              )
-              subject_matches = any(
-                  subject.get("name") == "evm-key-forensics-evidence.zip"
-                  and subject.get("digest", {}).get("sha256") == zip_sha256
-                  for subject in subjects
-              )
-              if (
-                  certificate.get("githubWorkflowRepository") == "rudimentall1/AegisForge"
-                  and certificate.get("githubWorkflowName") == "EVM Key Forensics Probe"
-                  and certificate.get("githubWorkflowSHA") == expected_sha
-                  and certificate.get("githubWorkflowRef") == expected_ref
-                  and certificate.get("githubWorkflowTrigger") == expected_trigger
-                  and workflow.get("path") == ".github/workflows/evm-key-forensics-probe.yml"
-                  and workflow.get("repository") == "https://github.com/rudimentall1/AegisForge"
-                  and workflow.get("ref") == expected_ref
-                  and invocation_matches
-                  and subject_matches
-              ):
-                  matched = True
-                  break
-
-          assert matched, (
-              "Attestation verified cryptographically, but repository/workflow/ref/SHA/"
-              "subject digest did not match this run's expected identity"
-          )
-          print(json.dumps({
-              "conclusion": "PASS",
-              "repository": "rudimentall1/AegisForge",
-              "workflow": ".github/workflows/evm-key-forensics-probe.yml",
-              "workflow_sha": expected_sha,
-              "workflow_ref": expected_ref,
-              "workflow_trigger": expected_trigger,
-              "run_id": expected_run_id,
-              "run_attempt": expected_attempt,
-              "subject": "evm-key-forensics-evidence.zip",
-              "subject_sha256": zip_sha256,
-              "bundle_metadata_matches_current_run": True,
-              "verified_attestations_examined": len(report),
-          }, indent=2, sort_keys=True))
-          print("GitHub CLI attestation identity, subject digest, and bundle metadata: PASS")
-          PY
-
-      - name: Upload diagnostic evidence and attested bundle
+      - name: Upload diagnostic evidence for isolated attestation job
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: evm-key-forensics-probe-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            probe-evidence/
-            evm-key-forensics-evidence.zip
-            attestation-verification.json
+          path: probe-evidence/
           if-no-files-found: error
           retention-days: 30
-
 
   independent-clean-runner-rebuild:
     needs: compile-and-smoke-test

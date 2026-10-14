@@ -211,7 +211,7 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
         # Corrupt the compressed payload while preserving the central directory.
         with self.archive.open("r+b") as stream:
             stream.seek(payload_offset)
-            stream.write(b"\\xff")
+            stream.write(b"\xff")
 
         with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
             with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):

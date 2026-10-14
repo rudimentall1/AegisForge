@@ -68,7 +68,7 @@ def test_rejects_coordinate_mismatch(field, expected, error):
 
 def test_rejects_modified_source_bytes():
     with pytest.raises(SourceRecordVerificationError, match="source_git_blob_sha_mismatch"):
-        verify(source=SOURCE + b"modified\n")
+        verify(record=record_for(), source=SOURCE + b"modified\n")
 
 
 def test_rejects_excerpt_that_does_not_match_selected_lines():

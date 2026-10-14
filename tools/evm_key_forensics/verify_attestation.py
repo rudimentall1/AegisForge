@@ -80,7 +80,7 @@ def _read_metadata(archive_path: Path) -> dict:
     return value
 
 
-def verify_attestation(
+def _verify_attestation_snapshot(
     archive_path: Path,
     *,
     expected_sha: str,
@@ -210,6 +210,40 @@ def verify_attestation(
         "historical_vulnerability": "INCONCLUSIVE",
         "historical_source_to_binary_provenance": "NOT_ESTABLISHED",
     }
+
+
+def verify_attestation(
+    archive_path: Path,
+    *,
+    expected_sha: str,
+    expected_ref: str,
+    expected_run_id: str,
+    expected_attempt: str,
+    gh_output: str | None = None,
+) -> dict:
+    """Verify attestation and metadata against the same bounded archive snapshot."""
+    if archive_path.is_symlink() or not archive_path.is_file():
+        raise ValueError("archive_must_be_regular_file")
+    with tempfile.TemporaryDirectory(prefix="evm-key-forensics-attestation-") as temp_dir:
+        snapshot = Path(temp_dir) / archive_path.name
+        total = 0
+        with archive_path.open("rb") as source, snapshot.open("xb") as dest:
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_ARCHIVE_BYTES:
+                    raise ValueError("archive_exceeds_size_limit")
+                dest.write(chunk)
+        return _verify_attestation_snapshot(
+            snapshot,
+            expected_sha=expected_sha,
+            expected_ref=expected_ref,
+            expected_run_id=expected_run_id,
+            expected_attempt=expected_attempt,
+            gh_output=gh_output,
+        )
 
 
 def main(argv=None) -> int:

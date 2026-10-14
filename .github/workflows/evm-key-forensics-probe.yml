@@ -307,9 +307,10 @@ jobs:
           EXPECTED_GITHUB_REF: ${{ github.ref }}
           EXPECTED_RUN_ID: ${{ github.run_id }}
           EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EXPECTED_GITHUB_TRIGGER: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          gh attestation verify evm-key-forensics-evidence.zip --repo rudimentall1/AegisForge --format json > attestation-verification.json
+          gh attestation verify evm-key-forensics-evidence.zip --repo rudimentall1/AegisForge --signer-workflow rudimentall1/AegisForge/.github/workflows/evm-key-forensics-probe.yml --format json > attestation-verification.json
           python - <<'PY'
           import hashlib
           import json
@@ -323,6 +324,7 @@ jobs:
           expected_ref = os.environ["EXPECTED_GITHUB_REF"]
           expected_run_id = os.environ["EXPECTED_RUN_ID"]
           expected_attempt = os.environ["EXPECTED_RUN_ATTEMPT"]
+          expected_trigger = os.environ["EXPECTED_GITHUB_TRIGGER"]
           zip_path = Path("evm-key-forensics-evidence.zip")
           zip_sha256 = hashlib.sha256(zip_path.read_bytes()).hexdigest()
 
@@ -366,6 +368,7 @@ jobs:
                   and certificate.get("githubWorkflowName") == "EVM Key Forensics Probe"
                   and certificate.get("githubWorkflowSHA") == expected_sha
                   and certificate.get("githubWorkflowRef") == expected_ref
+                  and certificate.get("githubWorkflowTrigger") == expected_trigger
                   and workflow.get("path") == ".github/workflows/evm-key-forensics-probe.yml"
                   and workflow.get("repository") == "https://github.com/rudimentall1/AegisForge"
                   and workflow.get("ref") == expected_ref
@@ -385,6 +388,7 @@ jobs:
               "workflow": ".github/workflows/evm-key-forensics-probe.yml",
               "workflow_sha": expected_sha,
               "workflow_ref": expected_ref,
+              "workflow_trigger": expected_trigger,
               "run_id": expected_run_id,
               "run_attempt": expected_attempt,
               "subject": "evm-key-forensics-evidence.zip",
@@ -567,9 +571,10 @@ jobs:
           EXPECTED_GITHUB_REF: ${{ github.ref }}
           EXPECTED_RUN_ID: ${{ github.run_id }}
           EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EXPECTED_GITHUB_TRIGGER: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          gh attestation verify evm-key-forensics-complete-evidence.zip --repo rudimentall1/AegisForge --format json > complete-attestation-verification.json
+          gh attestation verify evm-key-forensics-complete-evidence.zip --repo rudimentall1/AegisForge --signer-workflow rudimentall1/AegisForge/.github/workflows/evm-key-forensics-probe.yml --format json > complete-attestation-verification.json
           python - <<'PY'
           import hashlib
           import json
@@ -582,6 +587,7 @@ jobs:
           expected_ref = os.environ["EXPECTED_GITHUB_REF"]
           expected_run_id = os.environ["EXPECTED_RUN_ID"]
           expected_attempt = os.environ["EXPECTED_RUN_ATTEMPT"]
+          expected_trigger = os.environ["EXPECTED_GITHUB_TRIGGER"]
           archive = Path("evm-key-forensics-complete-evidence.zip")
           archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
           metadata = json.loads(Path("complete-evidence/probe-evidence/probe-run-metadata.json").read_text(encoding="utf-8"))
@@ -622,6 +628,7 @@ jobs:
                   and certificate.get("githubWorkflowName") == "EVM Key Forensics Probe"
                   and certificate.get("githubWorkflowSHA") == expected_sha
                   and certificate.get("githubWorkflowRef") == expected_ref
+                  and certificate.get("githubWorkflowTrigger") == expected_trigger
                   and workflow.get("path") == ".github/workflows/evm-key-forensics-probe.yml"
                   and workflow.get("repository") == "https://github.com/rudimentall1/AegisForge"
                   and workflow.get("ref") == expected_ref
@@ -637,6 +644,7 @@ jobs:
               "subject_sha256": archive_sha,
               "workflow_sha": expected_sha,
               "workflow_ref": expected_ref,
+              "workflow_trigger": expected_trigger,
               "run_id": expected_run_id,
               "run_attempt": expected_attempt,
               "probe_and_independent_rebuild_linked": True,

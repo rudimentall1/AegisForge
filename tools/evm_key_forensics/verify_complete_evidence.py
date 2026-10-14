@@ -215,13 +215,15 @@ def verify_complete_archive(archive_path: Path) -> dict:
                     isinstance(metadata.get("github_run_id"), str)
                     and metadata["github_run_id"].isascii()
                     and metadata["github_run_id"].isdigit()
-                    and int(metadata["github_run_id"]) > 0
+                    and len(metadata["github_run_id"]) <= 20
+                    and any(char != "0" for char in metadata["github_run_id"])
                 ),
                 "metadata_run_attempt_format": (
                     isinstance(metadata.get("github_run_attempt"), str)
                     and metadata["github_run_attempt"].isascii()
                     and metadata["github_run_attempt"].isdigit()
-                    and int(metadata["github_run_attempt"]) > 0
+                    and len(metadata["github_run_attempt"]) <= 6
+                    and any(char != "0" for char in metadata["github_run_attempt"])
                 ),
                 "metadata_ref_format": (
                     isinstance(metadata.get("github_ref"), str)

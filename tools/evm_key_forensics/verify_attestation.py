@@ -90,6 +90,8 @@ def _read_metadata(archive_path: Path) -> dict:
             raise ValueError("probe_metadata_missing") from exc
         if info.file_size > MAX_METADATA_BYTES:
             raise ValueError("probe_metadata_exceeds_size_limit")
+        if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            raise ValueError("probe_metadata_unsupported_compression_method")
         if info.flag_bits & 0x1:
             raise ValueError("encrypted_metadata_not_supported")
         try:

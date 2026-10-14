@@ -83,6 +83,21 @@ def _strict_json_bytes(raw: bytes, *, max_bytes: int = MAX_JSON_FILE_BYTES) -> d
     return value
 
 
+def _valid_git_ref(value: object) -> bool:
+    if not isinstance(value, str) or not value.startswith("refs/") or len(value) <= len("refs/"):
+        return False
+    if value.endswith("/") or value.endswith(".") or value.startswith("/") or value.startswith("-"):
+        return False
+    if any(ord(char) < 32 or ord(char) == 127 or char in " ~^:?*[\\\\]" for char in value):
+        return False
+    if ".." in value or "@{" in value or "//" in value:
+        return False
+    parts = value.split("/")
+    if any(not part or part.startswith(".") or part.endswith(".lock") for part in parts):
+        return False
+    return True
+
+
 def _safe_member_name(name: str) -> bool:
     if not name or "\\" in name or name.startswith("/"):
         return False
@@ -225,11 +240,7 @@ def verify_complete_archive(archive_path: Path) -> dict:
                     and len(metadata["github_run_attempt"]) <= 6
                     and any(char != "0" for char in metadata["github_run_attempt"])
                 ),
-                "metadata_ref_format": (
-                    isinstance(metadata.get("github_ref"), str)
-                    and metadata["github_ref"].startswith("refs/")
-                    and len(metadata["github_ref"]) > len("refs/")
-                ),
+                "metadata_ref_format": _valid_git_ref(metadata.get("github_ref")),
                 "index_schema_supported": type(index.get("schema_version")) is int and index.get("schema_version") == 1,
                 "index_conclusion_pass": index.get("conclusion") == "PASS",
                 "index_marks_cross_linkage": index.get("probe_and_rebuild_evidence_consistent") is True,

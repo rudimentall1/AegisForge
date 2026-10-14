@@ -141,9 +141,21 @@ def _validate_local_compression_method(
             raise ValueError("archive_invalid_zip_member")
         local_flags = int.from_bytes(header[6:8], "little")
         local_method = int.from_bytes(header[8:10], "little")
+        local_crc = int.from_bytes(header[14:18], "little")
+        local_compress_size = int.from_bytes(header[18:22], "little")
+        local_file_size = int.from_bytes(header[22:26], "little")
         name_length = int.from_bytes(header[26:28], "little")
         extra_length = int.from_bytes(header[28:30], "little")
         if local_flags != item.flag_bits or local_method != item.compress_type:
+            raise ValueError("archive_invalid_zip_member")
+        # Without the data-descriptor flag, the local header must agree with
+        # the central directory on CRC and sizes. When bit 3 is set, those
+        # local fields may be zero and the descriptor carries the final values.
+        if not local_flags & 0x08 and (
+            local_crc != item.CRC
+            or local_compress_size != item.compress_size
+            or local_file_size != item.file_size
+        ):
             raise ValueError("archive_invalid_zip_member")
         # All expected member names are ASCII, but decode according to the ZIP
         # UTF-8 flag so the comparison follows the archive's declared encoding.

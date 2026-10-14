@@ -405,5 +405,30 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "archive_exceeds_size_limit"):
                 verifier.verify_complete_archive(self.archive)
 
+    def test_local_crc_and_size_fields_must_match_central_directory(self):
+        member = "complete-evidence/probe-evidence/probe-source.cpp"
+        fields = (
+            ("CRC", 14, b"\\x00\\x00\\x00\\x00"),
+            ("compressed size", 18, b"\\x01\\x00\\x00\\x00"),
+            ("uncompressed size", 22, b"\\x01\\x00\\x00\\x00"),
+        )
+        for label, offset, replacement in fields:
+            with self.subTest(field=label):
+                self.write_archive()
+                with zipfile.ZipFile(self.archive, "r") as zf:
+                    info = zf.getinfo(member)
+                    original = self.archive.read_bytes()
+                    current = original[info.header_offset + offset:info.header_offset + offset + 4]
+                if current == replacement:
+                    replacement = b"\\x02\\x00\\x00\\x00"
+                with self.archive.open("r+b") as stream:
+                    stream.seek(info.header_offset + offset)
+                    stream.write(replacement)
+                with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
+                    with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):
+                        verify_complete_archive(self.archive)
+                    verifier.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

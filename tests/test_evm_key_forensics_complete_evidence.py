@@ -376,6 +376,23 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "archive_must_be_regular_file"):
             verify_complete_archive(missing)
 
+    def test_symlink_archive_fails_even_if_preliminary_checks_are_raced(self):
+        from tools.evm_key_forensics import verify_complete_evidence as verifier
+
+        real_archive = self.root / "real-archive.zip"
+        real_archive.write_bytes(self.archive.read_bytes())
+        symlink_archive = self.root / "archive-link.zip"
+        try:
+            symlink_archive.symlink_to(real_archive)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+
+        with patch.object(Path, "is_symlink", return_value=False), patch.object(
+            Path, "is_file", return_value=True
+        ):
+            with self.assertRaisesRegex(ValueError, "archive_must_be_regular_file"):
+                verifier.verify_complete_archive(symlink_archive)
+
     def test_zip_directory_entries_are_supported(self):
         self.write_archive(directories=True)
         self.assertTrue(self.verify_with_stubbed_probe_check()["integrity_verified"])

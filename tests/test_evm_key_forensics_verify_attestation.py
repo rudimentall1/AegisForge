@@ -300,6 +300,17 @@ class VerifyAttestationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "archive_exceeds_size_limit"):
                 verifier._sha256(oversized)
 
+    def test_symlink_archive_fails_even_if_path_checks_are_raced(self):
+        target = self.root / "real-target.zip"
+        target.write_bytes(self.archive.read_bytes())
+        self.archive.unlink()
+        self.archive.symlink_to(target)
+        with patch.object(Path, "is_symlink", return_value=False), patch.object(
+            Path, "is_file", return_value=True
+        ):
+            with self.assertRaisesRegex(ValueError, "archive_must_be_regular_file"):
+                self.verify()
+
     def test_symlink_archive_fails(self):
         target = self.root / "real-archive.zip"
         self.archive.replace(target)

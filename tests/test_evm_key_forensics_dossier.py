@@ -13,7 +13,7 @@ DOSSIER = {
     "schema_version": 1,
     "dossier_id": "evm-key-forensics-profanity-source-evidence-v1",
     "status": "SOURCE_REVIEW_ONLY",
-    "generated_for_branch": "feat/evm-key-forensics-research",
+    "generated_for_branch": "feat/evm-git-object-source-verifier",
     "reviewed_upstream": {
         "repository": "https://github.com/johguse/profanity",
         "files": [

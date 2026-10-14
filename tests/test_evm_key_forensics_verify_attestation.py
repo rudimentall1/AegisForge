@@ -91,6 +91,19 @@ class VerifyAttestationTests(unittest.TestCase):
             gh_output=self.report if report is None else report,
         )
 
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    def test_unsupported_expected_trigger_fails_before_cli(self, run):
+        with self.assertRaisesRegex(ValueError, "unsupported_expected_workflow_trigger"):
+            verify_attestation(
+                self.archive,
+                expected_sha=self.sha,
+                expected_ref=self.ref,
+                expected_run_id=self.run_id,
+                expected_attempt=self.attempt,
+                expected_trigger="schedule",
+            )
+        run.assert_not_called()
+
     def test_valid_attestation_and_subject_pass(self):
         result = self.verify()
         self.assertEqual(result["conclusion"], "PASS")

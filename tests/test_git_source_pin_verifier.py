@@ -137,6 +137,28 @@ def test_treats_glob_characters_as_literal_path(committed_repo):
     assert result["path"] == "src/*.py"
 
 
+def test_git_command_disables_lazy_fetch(monkeypatch):
+    from types import SimpleNamespace
+
+    from shared.git_source_pin_verifier import _git
+
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["env"] = kwargs["env"]
+        return SimpleNamespace(returncode=0, stdout=b"ok")
+
+    monkeypatch.setenv("GIT_NO_LAZY_FETCH", "0")
+    monkeypatch.setenv("GIT_DIR", "/tmp/untrusted-git-dir")
+    monkeypatch.setattr("shared.git_source_pin_verifier.subprocess.run", fake_run)
+
+    assert _git("/repo", "rev-parse", "HEAD") == b"ok"
+    assert captured["env"]["GIT_NO_LAZY_FETCH"] == "1"
+    assert captured["env"]["GIT_NO_REPLACE_OBJECTS"] == "1"
+    assert "GIT_DIR" not in captured["env"]
+
+
 def test_ignores_inherited_git_dir_environment(committed_repo, tmp_path, monkeypatch):
     repo, commit, blob = committed_repo
     other_repo = tmp_path / "other"

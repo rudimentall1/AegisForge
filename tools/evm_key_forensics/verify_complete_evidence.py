@@ -107,8 +107,14 @@ def _safe_member_name(name: str) -> bool:
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
+    total = 0
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            total += len(chunk)
+            # Enforce the bound on bytes actually read, not only on a prior
+            # stat(), which can race with replacement or file growth.
+            if total > MAX_ARCHIVE_BYTES:
+                raise ValueError("archive_exceeds_size_limit")
             digest.update(chunk)
     return digest.hexdigest()
 

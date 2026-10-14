@@ -324,5 +324,19 @@ class VerifyAttestationTests(unittest.TestCase):
             self.verify("[NaN]")
 
 
+    def test_attestation_snapshot_enforces_actual_bytes_read_limit(self):
+        from tools.evm_key_forensics import verify_attestation as verifier
+
+        with patch.object(verifier, "MAX_ARCHIVE_BYTES", 3):
+            with self.assertRaisesRegex(ValueError, "archive_exceeds_size_limit"):
+                verifier.verify_attestation(
+                    self.archive,
+                    expected_sha=self.sha,
+                    expected_ref=self.ref,
+                    expected_run_id=self.run_id,
+                    expected_attempt=self.attempt,
+                    gh_output=self.report,
+                )
+
 if __name__ == "__main__":
     unittest.main()

@@ -77,10 +77,10 @@ def verify_git_source_pin(
         "--",
         f":(literal){expected_path}",
     )
-    records = [record for record in tree_output.split(b"\\0") if record]
+    records = [record for record in tree_output.split(b"\0") if record]
     if len(records) != 1 or b"\\t" not in records[0]:
         raise GitSourcePinError("git_path_not_single_file")
-    header, actual_path = records[0].split(b"\\t", 1)
+    header, actual_path = records[0].split(b"\t", 1)
     fields = header.split(b" ")
     if len(fields) != 3 or actual_path != os.fsencode(expected_path):
         raise GitSourcePinError("git_path_entry_mismatch")

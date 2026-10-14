@@ -185,7 +185,7 @@ def _validate_local_compression_method(
             descriptor_head = stream.read(4)
             if len(descriptor_head) != 4:
                 raise ValueError("archive_invalid_zip_member")
-            if descriptor_head == b"PK\\x07\\x08":
+            if descriptor_head == b"PK\x07\x08":
                 if payload_limit - descriptor_offset < 16:
                     raise ValueError("archive_invalid_zip_member")
                 descriptor = stream.read(12)

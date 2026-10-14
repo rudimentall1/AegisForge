@@ -139,6 +139,16 @@ def verify_attestation(
         if not isinstance(external_parameters, dict):
             continue
         workflow = external_parameters.get("workflow", {})
+        run_details = predicate.get("runDetails", {})
+        run_metadata = run_details.get("metadata", {}) if isinstance(run_details, dict) else {}
+        expected_invocation_id = (
+            f"https://github.com/{WORKFLOW_REPOSITORY}/actions/runs/"
+            f"{expected_run_id}/attempts/{expected_attempt}"
+        )
+        invocation_matches = (
+            isinstance(run_metadata, dict)
+            and run_metadata.get("invocationId") == expected_invocation_id
+        )
         subjects = statement.get("subject", [])
         subject_matches = isinstance(subjects, list) and any(
             isinstance(subject, dict)
@@ -157,6 +167,7 @@ def verify_attestation(
             and workflow.get("path") == WORKFLOW_PATH
             and workflow.get("repository") == "https://github.com/" + WORKFLOW_REPOSITORY
             and workflow.get("ref") == expected_ref
+            and invocation_matches
             and subject_matches
         ):
             matched = True

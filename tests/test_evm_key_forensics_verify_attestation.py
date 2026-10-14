@@ -245,6 +245,24 @@ class VerifyAttestationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "probe_metadata_must_be_object"):
             self.verify()
 
+    def test_corrupt_compressed_metadata_fails_with_stable_error(self):
+        member = "complete-evidence/probe-evidence/probe-run-metadata.json"
+        with zipfile.ZipFile(self.archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(member, json.dumps(self.metadata) + (" " * 4096))
+        with zipfile.ZipFile(self.archive, "r") as archive:
+            info = archive.getinfo(member)
+            payload_offset = (
+                info.header_offset + 30
+                + len(info.filename.encode("utf-8"))
+                + len(info.extra)
+            )
+        with self.archive.open("r+b") as stream:
+            stream.seek(payload_offset)
+            stream.write(b"\\xff")
+
+        with self.assertRaisesRegex(ValueError, "probe_metadata_invalid_zip_member"):
+            self.verify()
+
     def test_malformed_metadata_json_fails(self):
         with zipfile.ZipFile(self.archive, "w") as archive:
             archive.writestr(

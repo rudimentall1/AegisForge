@@ -41,8 +41,14 @@ def _reject_nonstandard_json_constant(value):
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
+    total = 0
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            total += len(chunk)
+            # Re-check the actual bytes read. The earlier stat() check can race
+            # with a file replacement or growth before hashing begins.
+            if total > MAX_ARCHIVE_BYTES:
+                raise ValueError("archive_exceeds_size_limit")
             digest.update(chunk)
     return digest.hexdigest()
 

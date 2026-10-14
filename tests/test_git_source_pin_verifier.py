@@ -86,6 +86,24 @@ def test_rejects_unsafe_path(committed_repo, path):
         verify(repo, commit, blob, expected_path=path)
 
 
+def test_rejects_symlink_even_when_its_blob_hash_matches(committed_repo):
+    repo, _, _ = committed_repo
+    link = repo / "src" / "sample-link.py"
+    link.symlink_to("sample.py")
+    git(repo, "add", "src/sample-link.py")
+    git(repo, "commit", "-m", "add source symlink")
+    commit = git(repo, "rev-parse", "HEAD")
+    blob = git(repo, "rev-parse", f"{commit}:src/sample-link.py")
+
+    with pytest.raises(GitSourcePinError, match="git_path_not_regular_file"):
+        verify(
+            repo,
+            commit,
+            blob,
+            expected_path="src/sample-link.py",
+        )
+
+
 def test_rejects_file_absent_from_pinned_commit(committed_repo):
     repo, commit, _ = committed_repo
     with pytest.raises(GitSourcePinError, match="git_object_unavailable"):

@@ -127,3 +127,16 @@ class SourceDossierValidatorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_unhashable_source_role_returns_validation_error(self):
+        data = copy.deepcopy(DOSSIER)
+        data["reviewed_upstream"]["files"][0]["role"] = ["pre-disclosure"]
+        errors = validate_dossier(data)
+        self.assertIn("unknown_source_role", errors)
+
+    def test_unhashable_claim_id_returns_validation_error(self):
+        data = copy.deepcopy(DOSSIER)
+        data["claim_register"][0]["id"] = {"id": "SRC-001"}
+        errors = validate_dossier(data)
+        self.assertIn("claim_register_ids_mismatch", errors)

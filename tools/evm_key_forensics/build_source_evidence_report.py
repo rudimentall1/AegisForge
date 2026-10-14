@@ -126,7 +126,8 @@ def build_report(pre: dict, post: dict, reproducibility: dict | None = None) -> 
             "wallet_material_used": False,
             "historical_vulnerability_reproduced": False,
             "source_to_binary_provenance": "NOT_ESTABLISHED",
-            "trusted_runner_attestation": "NOT_IMPLEMENTED",
+            "source_review_runner_attestation": "NOT_IMPLEMENTED",
+            "evidence_package_github_attestation": "CHECKED_BY_SEPARATE_WORKFLOW_STEP; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS",
             "independent_review": "PENDING",
         },
     }

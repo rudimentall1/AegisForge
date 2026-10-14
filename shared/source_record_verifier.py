@@ -13,6 +13,7 @@ class SourceRecordVerificationError(ValueError):
 
 
 _SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
+MAX_SOURCE_RECORD_BYTES = 16 * 1024 * 1024
 
 
 def _git_blob_sha1(content: bytes) -> str:
@@ -40,6 +41,8 @@ def verify_source_record_against_bytes(
         raise SourceRecordVerificationError("source_record_must_be_object")
     if not isinstance(source_bytes, bytes):
         raise SourceRecordVerificationError("source_bytes_required")
+    if len(source_bytes) > MAX_SOURCE_RECORD_BYTES:
+        raise SourceRecordVerificationError("source_bytes_exceed_size_limit")
 
     expected = {
         "repository": expected_repository,

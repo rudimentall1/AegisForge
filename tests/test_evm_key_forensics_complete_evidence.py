@@ -322,6 +322,22 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):
                 _validate_local_compression_method(self.archive, info)
 
+    def test_local_payload_cannot_overlap_central_directory(self):
+        from tools.evm_key_forensics.verify_complete_evidence import (
+            _validate_local_compression_method,
+        )
+
+        member = "complete-evidence/probe-evidence/probe-source.cpp"
+        with zipfile.ZipFile(self.archive, "r") as zf:
+            info = zf.getinfo(member)
+            central_directory_offset = zf.start_dir
+        with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):
+            _validate_local_compression_method(
+                self.archive,
+                info,
+                central_directory_offset=info.header_offset + 30 + len(info.filename.encode("cp437")),
+            )
+
     def test_extreme_compression_ratio_is_rejected(self):
         self.members["complete-evidence/probe-evidence/probe-source.cpp"] = b"A" * (2 * 1024 * 1024)
         self.write_archive()

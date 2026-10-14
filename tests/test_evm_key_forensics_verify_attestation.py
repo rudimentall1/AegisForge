@@ -3,6 +3,10 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
+import signal
+import sys
+import time
 import tempfile
 import unittest
 import zipfile
@@ -545,6 +549,47 @@ class VerifyAttestationTests(unittest.TestCase):
         self.assertEqual(reader.join.call_args_list[0].kwargs, {"timeout": 2})
         self.assertEqual(reader.join.call_args_list[1].kwargs, {"timeout": 1})
         process.wait.assert_called_once_with(timeout=120)
+
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux pipe semantics")
+    def test_cli_inherited_stdout_pipe_fails_with_bounded_error(self):
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        pid_file = self.root / "grandchild.pid"
+        fake_gh = bin_dir / "gh"
+        fake_gh.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, subprocess, sys\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+            "with open(os.environ['EVM_KEY_FORENSICS_TEST_CHILD_PID'], 'w', encoding='ascii') as out:\n"
+            "    out.write(str(child.pid))\n",
+            encoding="utf-8",
+        )
+        fake_gh.chmod(0o755)
+        env = os.environ.copy()
+        env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+        env["EVM_KEY_FORENSICS_TEST_CHILD_PID"] = str(pid_file)
+        started = time.monotonic()
+        try:
+            with patch.dict(os.environ, env):
+                with self.assertRaisesRegex(
+                    ValueError, "github_cli_stdout_drain_timed_out"
+                ):
+                    verify_attestation(
+                        self.archive,
+                        expected_sha=self.sha,
+                        expected_ref=self.ref,
+                        expected_run_id=self.run_id,
+                        expected_attempt=self.attempt,
+                        expected_trigger=self.trigger,
+                    )
+            self.assertLess(time.monotonic() - started, 8)
+        finally:
+            if pid_file.exists():
+                try:
+                    os.kill(int(pid_file.read_text(encoding="ascii")), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 if __name__ == "__main__":

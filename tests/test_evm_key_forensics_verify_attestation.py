@@ -338,5 +338,17 @@ class VerifyAttestationTests(unittest.TestCase):
                     gh_output=self.report,
                 )
 
+    def test_bounded_member_reader_rejects_actual_decompressed_size_over_limit(self):
+        from tools.evm_key_forensics.verify_attestation import _read_bounded_member
+
+        archive_path = self.root / "oversized-metadata.zip"
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("metadata.json", b"four")
+        with zipfile.ZipFile(archive_path, "r") as archive:
+            info = archive.getinfo("metadata.json")
+            with self.assertRaisesRegex(ValueError, "probe_metadata_exceeds_size_limit"):
+                _read_bounded_member(archive, info, 3)
+
+
 if __name__ == "__main__":
     unittest.main()

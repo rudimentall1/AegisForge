@@ -258,7 +258,7 @@ class VerifyAttestationTests(unittest.TestCase):
             )
         with self.archive.open("r+b") as stream:
             stream.seek(payload_offset)
-            stream.write(b"\\xff")
+            stream.write(bytes([0xFF]))
 
         with self.assertRaisesRegex(ValueError, "probe_metadata_invalid_zip_member"):
             self.verify()

@@ -102,12 +102,36 @@ def validate_dossier(data: object) -> list[str]:
         or set(claim_ids) != required_claims
     ):
         errors.append("claim_register_ids_mismatch")
+    expected_claims = {
+        "SRC-001": {
+            "claim": "The reviewed function initializes mt19937_64 from one random_device result and derives four distribution outputs from that engine.",
+            "evidence_level": "E0_SOURCE_INSPECTION",
+            "status": "SUPPORTED_BY_PINNED_SOURCE_PATTERN_CHECK",
+        },
+        "SRC-002": {
+            "claim": "The pre-disclosure and post-disclosure pinned Dispatcher.cpp files match the expected Git blob identifiers.",
+            "evidence_level": "SOURCE_IDENTITY",
+            "status": "CHECKED_BY_SOURCE_PATTERN_CLI",
+        },
+    }
     for claim in claims:
         if not isinstance(claim, dict):
             errors.append("claim_entry_must_be_object")
             continue
-        if not isinstance(claim.get("does_not_establish"), list) or not claim["does_not_establish"]:
-            errors.append("claim_boundaries_required:" + str(claim.get("id")))
+        claim_id = claim.get("id")
+        if not isinstance(claim_id, str) or claim_id not in expected_claims:
+            errors.append("claim_content_unrecognized")
+        else:
+            for field, expected_value in expected_claims[claim_id].items():
+                if claim.get(field) != expected_value:
+                    errors.append(f"claim_content_mismatch:{claim_id}:{field}")
+        boundaries = claim.get("does_not_establish")
+        if (
+            not isinstance(boundaries, list)
+            or not boundaries
+            or not all(isinstance(item, str) and item.strip() for item in boundaries)
+        ):
+            errors.append("claim_boundaries_required:" + str(claim_id))
 
     contract = data.get("verification_contract")
     if not isinstance(contract, dict):

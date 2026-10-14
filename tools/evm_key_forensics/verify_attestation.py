@@ -150,19 +150,34 @@ def _verify_attestation_snapshot(
         assert process.stdout is not None
 
         def collect_bounded_stdout() -> None:
-            while True:
-                chunk = process.stdout.read(64 * 1024)
-                if not chunk:
-                    break
-                output_state["size"] += len(chunk)
-                if output_state["size"] > MAX_ATTESTATION_REPORT_BYTES:
-                    output_state["overflow"] = True
+            try:
+                while True:
+                    chunk = process.stdout.read(64 * 1024)
+                    if not chunk:
+                        break
+                    output_state["size"] += len(chunk)
+                    if output_state["size"] > MAX_ATTESTATION_REPORT_BYTES:
+                        output_state["overflow"] = True
+                        try:
+                            process.kill()
+                        except OSError:
+                            pass
+                    elif not output_state["overflow"]:
+                        output_chunks.append(chunk)
+            except (OSError, ValueError):
+                # Closing the pipe during bounded cleanup may interrupt a read.
+                return
+
+        def stop_reader_boundedly() -> bool:
+            reader.join(timeout=2)
+            if reader.is_alive():
+                if process.stdout is not None:
                     try:
-                        process.kill()
+                        process.stdout.close()
                     except OSError:
                         pass
-                elif not output_state["overflow"]:
-                    output_chunks.append(chunk)
+                reader.join(timeout=1)
+            return not reader.is_alive()
 
         reader = threading.Thread(target=collect_bounded_stdout, daemon=True)
         reader.start()
@@ -171,13 +186,15 @@ def _verify_attestation_snapshot(
         except subprocess.TimeoutExpired as exc:
             process.kill()
             process.wait()
-            reader.join()
+            stop_reader_boundedly()
             if process.stdout is not None:
                 process.stdout.close()
             raise ValueError("github_cli_attestation_verification_timed_out") from exc
-        reader.join()
+        reader_stopped = stop_reader_boundedly()
         if process.stdout is not None:
             process.stdout.close()
+        if not reader_stopped:
+            raise ValueError("github_cli_stdout_drain_timed_out")
 
         if output_state["overflow"]:
             raise ValueError("attestation_report_exceeds_size_limit")

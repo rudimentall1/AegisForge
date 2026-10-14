@@ -231,7 +231,7 @@ class VerifyAttestationTests(unittest.TestCase):
         with zipfile.ZipFile(self.archive, "w") as archive:
             archive.writestr(
                 "complete-evidence/probe-evidence/probe-run-metadata.json",
-                b'{"metadata":"\\xff"}',
+                b'{"metadata":"' + bytes([0xFF]) + b'"}',
             )
         with self.assertRaisesRegex(ValueError, "probe_metadata_invalid_utf8"):
             self.verify()

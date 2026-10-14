@@ -71,7 +71,7 @@ def validate_dossier(data: object) -> list[str]:
             errors.append("source_entry_must_be_object")
             continue
         role = item.get("role")
-        if role not in PINNED:
+        if not isinstance(role, str) or role not in PINNED:
             errors.append("unknown_source_role")
             continue
         if role in seen_roles:
@@ -96,7 +96,11 @@ def validate_dossier(data: object) -> list[str]:
         errors.append("claim_register_must_be_list")
         claims = []
     claim_ids = [x.get("id") for x in claims if isinstance(x, dict)]
-    if set(claim_ids) != required_claims or len(claim_ids) != len(required_claims):
+    if (
+        len(claim_ids) != len(required_claims)
+        or any(not isinstance(claim_id, str) for claim_id in claim_ids)
+        or set(claim_ids) != required_claims
+    ):
         errors.append("claim_register_ids_mismatch")
     for claim in claims:
         if not isinstance(claim, dict):

@@ -13,6 +13,7 @@ import stat
 import sys
 import tempfile
 import zipfile
+import zlib
 from pathlib import Path, PurePosixPath
 
 try:
@@ -203,10 +204,10 @@ def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
                             if written > item.file_size:
                                 raise ValueError("archive_member_size_overrun")
                             dest.write(chunk)
-                except zipfile.BadZipFile as exc:
-                    # zipfile checks the local header against the central
-                    # directory when a member is opened. Normalize that
-                    # structural failure into the verifier's stable error API.
+                except (zipfile.BadZipFile, EOFError, zlib.error) as exc:
+                    # Malformed local headers, truncated streams, CRC failures,
+                    # and invalid DEFLATE data must fail through the verifier's
+                    # stable error API instead of leaking parser exceptions.
                     raise ValueError("archive_invalid_zip_member") from exc
                 if written != item.file_size:
                     raise ValueError("archive_member_size_mismatch")

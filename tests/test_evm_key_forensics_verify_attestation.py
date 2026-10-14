@@ -61,6 +61,14 @@ class VerifyAttestationTests(unittest.TestCase):
                             "repository": "https://github.com/rudimentall1/AegisForge",
                             "ref": ref or self.ref,
                         }
+                    },
+                    "runDetails": {
+                        "metadata": {
+                            "invocationId": (
+                                "https://github.com/rudimentall1/AegisForge/actions/runs/"
+                                + self.run_id + "/attempts/" + self.attempt
+                            )
+                        }
                     }
                 }
             },
@@ -109,6 +117,27 @@ class VerifyAttestationTests(unittest.TestCase):
         self.assertRaisesRegex(
             ValueError, "verified_attestation_identity_or_subject_mismatch",
             self.verify, self.make_report(path=".github/workflows/other.yml"),
+        )
+
+    def test_wrong_attested_run_id_fails(self):
+        report = json.loads(self.report)
+        report[0]["verificationResult"]["statement"]["predicate"]["runDetails"]["metadata"]["invocationId"] = (
+            "https://github.com/rudimentall1/AegisForge/actions/runs/999/attempts/1"
+        )
+        self.assertRaisesRegex(
+            ValueError, "verified_attestation_identity_or_subject_mismatch",
+            self.verify, json.dumps(report),
+        )
+
+    def test_wrong_attested_run_attempt_fails(self):
+        report = json.loads(self.report)
+        report[0]["verificationResult"]["statement"]["predicate"]["runDetails"]["metadata"]["invocationId"] = (
+            "https://github.com/rudimentall1/AegisForge/actions/runs/"
+            + self.run_id + "/attempts/2"
+        )
+        self.assertRaisesRegex(
+            ValueError, "verified_attestation_identity_or_subject_mismatch",
+            self.verify, json.dumps(report),
         )
 
     def test_archive_metadata_mismatch_fails(self):

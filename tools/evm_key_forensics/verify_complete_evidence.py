@@ -90,7 +90,7 @@ def _valid_git_ref(value: object) -> bool:
         return False
     if value.endswith("/") or value.endswith(".") or value.startswith("/") or value.startswith("-"):
         return False
-    if any(ord(char) < 32 or ord(char) == 127 or char in " ~^:?*[\\\\]" for char in value):
+    if any(ord(char) < 32 or ord(char) == 127 or char in " ~^:?*[" or char == chr(92) for char in value):
         return False
     if ".." in value or "@{" in value or "//" in value:
         return False

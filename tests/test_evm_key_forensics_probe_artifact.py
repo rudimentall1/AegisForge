@@ -365,6 +365,26 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.assertFalse(result["integrity_verified"])
         self.assertFalse(result["checks"]["reported_entropy_is_finite_nonnegative"])
 
+    def test_oversized_run_id_fails_without_crashing(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["github_run_id"] = "9" * 5000
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["run_id_recorded"])
+
+    def test_non_ascii_run_attempt_is_rejected(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["github_run_attempt"] = "١"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["run_attempt_recorded"])
+
     def test_tampered_output_fails(self):
         with (self.root / "probe-output.json").open("a", encoding="utf-8") as stream:
             stream.write(" ")

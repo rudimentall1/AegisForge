@@ -18,6 +18,8 @@ PINNED = {
         "blob": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
     },
 }
+MAX_DOSSIER_BYTES = 2 * 1024 * 1024
+
 REQUIRED_TOP_LEVEL = {
     "schema_version", "dossier_id", "status", "generated_for_branch",
     "reviewed_upstream", "claim_register", "verification_contract",
@@ -145,7 +147,10 @@ def main(argv=None) -> int:
     parser.add_argument("dossier", type=Path)
     args = parser.parse_args(argv)
     try:
-        raw = args.dossier.read_bytes()
+        with args.dossier.open("rb") as stream:
+            raw = stream.read(MAX_DOSSIER_BYTES + 1)
+        if len(raw) > MAX_DOSSIER_BYTES:
+            raise ValueError("dossier_exceeds_size_limit")
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs_no_duplicates)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         print(json.dumps({"valid": False, "errors": [f"invalid_dossier:{type(exc).__name__}:{exc}"]}, sort_keys=True))

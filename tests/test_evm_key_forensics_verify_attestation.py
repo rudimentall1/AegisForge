@@ -175,6 +175,20 @@ class VerifyAttestationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "probe_metadata_missing"):
             self.verify()
 
+    def test_non_object_metadata_fails(self):
+        self.write_archive([])
+        with self.assertRaisesRegex(ValueError, "probe_metadata_must_be_object"):
+            self.verify()
+
+    def test_malformed_metadata_json_fails(self):
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.writestr(
+                "complete-evidence/probe-evidence/probe-run-metadata.json",
+                "{not valid json",
+            )
+        with self.assertRaises(json.JSONDecodeError):
+            self.verify()
+
     def test_metadata_size_limit_fails(self):
         with zipfile.ZipFile(self.archive, "w") as archive:
             archive.writestr(

@@ -119,7 +119,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_complete_archive(archive_path: Path) -> dict:
+def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
     if archive_path.is_symlink() or not archive_path.is_file():
         raise ValueError("archive_must_be_regular_file")
     if archive_path.stat().st_size > MAX_ARCHIVE_BYTES:
@@ -291,6 +291,28 @@ def verify_complete_archive(archive_path: Path) -> dict:
                 "historical_source_to_binary_provenance": "NOT_ESTABLISHED",
                 "note": "This verifies archive integrity and cross-run consistency only. Verify GitHub provenance separately with gh attestation verify.",
             }
+
+
+def verify_complete_archive(archive_path: Path) -> dict:
+    """Verify one bounded snapshot so validation and reported digest use identical bytes."""
+    if archive_path.is_symlink() or not archive_path.is_file():
+        raise ValueError("archive_must_be_regular_file")
+    with tempfile.TemporaryDirectory(prefix="evm-key-forensics-archive-") as temp_dir:
+        snapshot = Path(temp_dir) / archive_path.name
+        total = 0
+        try:
+            with archive_path.open("rb") as source, snapshot.open("xb") as dest:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > MAX_ARCHIVE_BYTES:
+                        raise ValueError("archive_exceeds_size_limit")
+                    dest.write(chunk)
+        except OSError:
+            raise
+        return _verify_complete_archive_snapshot(snapshot)
 
 
 def main(argv=None) -> int:

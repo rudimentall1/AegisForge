@@ -16,6 +16,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import zipfile
 import zlib
 from pathlib import Path
@@ -129,26 +130,62 @@ def _verify_attestation_snapshot(
         raise ValueError("archive_must_be_regular_file")
 
     if gh_output is None:
+        command = [
+            "gh", "attestation", "verify", str(archive_path),
+            "--repo", WORKFLOW_REPOSITORY,
+            "--signer-workflow", f"{WORKFLOW_REPOSITORY}/{WORKFLOW_PATH}",
+            "--format", "json",
+        ]
         try:
-            result = subprocess.run(
-                [
-                    "gh", "attestation", "verify", str(archive_path),
-                    "--repo", WORKFLOW_REPOSITORY,
-                    "--signer-workflow", f"{WORKFLOW_REPOSITORY}/{WORKFLOW_PATH}",
-                    "--format", "json",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=120,
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError as exc:
             raise ValueError("github_cli_not_installed") from exc
+
+        output_chunks: list[bytes] = []
+        output_state = {"size": 0, "overflow": False}
+        assert process.stdout is not None
+
+        def collect_bounded_stdout() -> None:
+            while True:
+                chunk = process.stdout.read(64 * 1024)
+                if not chunk:
+                    break
+                output_state["size"] += len(chunk)
+                if output_state["size"] > MAX_ATTESTATION_REPORT_BYTES:
+                    output_state["overflow"] = True
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                elif not output_state["overflow"]:
+                    output_chunks.append(chunk)
+
+        reader = threading.Thread(target=collect_bounded_stdout, daemon=True)
+        reader.start()
+        try:
+            return_code = process.wait(timeout=120)
         except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.wait()
+            reader.join()
             raise ValueError("github_cli_attestation_verification_timed_out") from exc
-        if result.returncode != 0:
+        finally:
+            if process.stdout is not None:
+                process.stdout.close()
+        reader.join()
+
+        if output_state["overflow"]:
+            raise ValueError("attestation_report_exceeds_size_limit")
+        if return_code != 0:
             raise ValueError("github_cli_attestation_verification_failed")
-        gh_output = result.stdout
+        try:
+            gh_output = b"".join(output_chunks).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("attestation_report_invalid_utf8") from exc
 
     if len(gh_output.encode("utf-8")) > MAX_ATTESTATION_REPORT_BYTES:
         raise ValueError("attestation_report_exceeds_size_limit")

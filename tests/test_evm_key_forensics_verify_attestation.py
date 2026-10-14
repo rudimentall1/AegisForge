@@ -468,6 +468,28 @@ class VerifyAttestationTests(unittest.TestCase):
                 _read_bounded_member(archive, info, 3)
 
 
+
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
+    def test_cli_stdout_is_stopped_at_report_limit(self, run):
+        from tools.evm_key_forensics import verify_attestation as verifier
+
+        process = run.return_value
+        process.stdout = io.BytesIO(b"x" * 11)
+        process.wait.return_value = 0
+        with patch.object(verifier, "MAX_ATTESTATION_REPORT_BYTES", 10):
+            with self.assertRaisesRegex(
+                ValueError, "attestation_report_exceeds_size_limit"
+            ):
+                verify_attestation(
+                    self.archive,
+                    expected_sha=self.sha,
+                    expected_ref=self.ref,
+                    expected_run_id=self.run_id,
+                    expected_attempt=self.attempt,
+                    expected_trigger=self.trigger,
+                )
+        process.kill.assert_called()
+
     @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
     def test_real_cli_invocation_is_pinned_and_bounded(self, run):
         process = run.return_value
@@ -495,6 +517,7 @@ class VerifyAttestationTests(unittest.TestCase):
         self.assertIs(kwargs["stdout"], subprocess.PIPE)
         self.assertIs(kwargs["stderr"], subprocess.DEVNULL)
         self.assertNotIn("timeout", kwargs)
+        process.wait.assert_called_once_with(timeout=120)
 
 
 if __name__ == "__main__":

@@ -24,8 +24,6 @@ jobs:
   compile-and-smoke-test:
     permissions:
       contents: read
-      id-token: write
-      attestations: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -494,6 +492,9 @@ jobs:
           retention-days: 30
 
   publish-complete-evidence:
+    # Only mint attestations from a manual run on the protected main branch.
+    # Pull-request code must never receive attestation-writing permissions.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       id-token: write

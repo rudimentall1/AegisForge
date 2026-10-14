@@ -148,3 +148,17 @@ def test_ignores_inherited_git_dir_environment(committed_repo, tmp_path, monkeyp
     assert result["valid"] is True
     assert result["commit_sha"] == commit
 
+def test_ignores_git_replace_refs(committed_repo):
+    repo, original_commit, original_blob = committed_repo
+    source = repo / "src" / "sample.py"
+    source.write_bytes(b"replacement commit content\\n")
+    git(repo, "add", "src/sample.py")
+    git(repo, "commit", "-m", "create replacement commit")
+    replacement_commit = git(repo, "rev-parse", "HEAD")
+    git(repo, "replace", original_commit, replacement_commit)
+
+    result = verify(repo, original_commit, original_blob)
+    assert result["valid"] is True
+    assert result["commit_sha"] == original_commit
+    assert result["git_blob_sha"] == original_blob
+

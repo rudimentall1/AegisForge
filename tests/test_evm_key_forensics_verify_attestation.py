@@ -20,6 +20,7 @@ class VerifyAttestationTests(unittest.TestCase):
         self.ref = "refs/pull/42/merge"
         self.run_id = "38520806120"
         self.attempt = "1"
+        self.trigger = "pull_request"
         self.metadata = {
             "git_commit": self.sha,
             "github_sha": self.sha,
@@ -40,13 +41,14 @@ class VerifyAttestationTests(unittest.TestCase):
                 json.dumps(self.metadata if metadata is None else metadata),
             )
 
-    def make_report(self, *, sha=None, ref=None, digest=None, repo= "rudimentall1/AegisForge", path=".github/workflows/evm-key-forensics-probe.yml"):
+    def make_report(self, *, sha=None, ref=None, digest=None, repo="rudimentall1/AegisForge", path=".github/workflows/evm-key-forensics-probe.yml", trigger=None):
         archive_sha = hashlib.sha256(self.archive.read_bytes()).hexdigest()
         certificate = {
             "githubWorkflowRepository": repo,
             "githubWorkflowName": "EVM Key Forensics Probe",
             "githubWorkflowSHA": sha or self.sha,
             "githubWorkflowRef": ref or self.ref,
+            "githubWorkflowTrigger": trigger or self.trigger,
         }
         statement = {
             "subject": [{
@@ -85,6 +87,7 @@ class VerifyAttestationTests(unittest.TestCase):
             expected_ref=self.ref,
             expected_run_id=self.run_id,
             expected_attempt=self.attempt,
+            expected_trigger=self.trigger,
             gh_output=self.report if report is None else report,
         )
 
@@ -111,6 +114,12 @@ class VerifyAttestationTests(unittest.TestCase):
         self.assertRaisesRegex(
             ValueError, "verified_attestation_identity_or_subject_mismatch",
             self.verify, self.make_report(ref="refs/heads/main"),
+        )
+
+    def test_wrong_workflow_trigger_fails(self):
+        self.assertRaisesRegex(
+            ValueError, "verified_attestation_identity_or_subject_mismatch",
+            self.verify, self.make_report(trigger="workflow_dispatch"),
         )
 
     def test_wrong_workflow_path_fails(self):
@@ -166,6 +175,7 @@ class VerifyAttestationTests(unittest.TestCase):
                 expected_ref=self.ref,
                 expected_run_id=self.run_id,
                 expected_attempt=self.attempt,
+                expected_trigger=self.trigger,
             )
 
 

@@ -71,7 +71,7 @@ def verify_git_source_pin(
 
     content = _git(repo_path, "cat-file", "blob", object_spec)
     actual_blob_sha = hashlib.sha1(
-        b"blob " + str(len(content)).encode("ascii") + b"\\0" + content
+        b"blob " + str(len(content)).encode("ascii") + b"\0" + content
     ).hexdigest()
     if actual_blob_sha != blob_sha:
         raise GitSourcePinError("git_blob_content_mismatch")

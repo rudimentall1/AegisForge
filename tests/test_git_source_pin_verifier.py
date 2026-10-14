@@ -209,3 +209,32 @@ def test_ignores_git_replace_refs(committed_repo):
     assert result["commit_sha"] == original_commit
     assert result["git_blob_sha"] == original_blob
 
+
+
+def test_rejects_oversized_blob_before_reading_content(monkeypatch, tmp_path):
+    import shared.git_source_pin_verifier as verifier
+
+    commit = "b" * 40
+    blob = "a" * 40
+    calls = []
+
+    def fake_git(repo_path, *args):
+        calls.append(args)
+        if args[0] == "rev-parse":
+            return (commit + "\\n").encode("ascii")
+        if args[0] == "ls-tree":
+            return f"100644 blob {blob}\\tsrc/sample.py\\0".encode("ascii")
+        if args[:2] == ("cat-file", "-s"):
+            return str(verifier.MAX_SOURCE_BLOB_BYTES + 1).encode("ascii")
+        raise AssertionError(f"unexpected git command: {args!r}")
+
+    monkeypatch.setattr(verifier, "_git", fake_git)
+    with pytest.raises(GitSourcePinError, match="git_blob_size_limit_exceeded"):
+        verifier.verify_git_source_pin(
+            tmp_path,
+            expected_repository=REPOSITORY,
+            expected_commit_sha=commit,
+            expected_path="src/sample.py",
+            expected_blob_sha=blob,
+        )
+    assert ("cat-file", "blob", blob) not in calls

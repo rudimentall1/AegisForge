@@ -5,10 +5,16 @@ on:
   pull_request:
     paths:
       - "tools/evm_key_forensics/**"
+      - "shared/git_source_pin_verifier.py"
+      - "shared/source_record_verifier.py"
+      - "tests/test_git_source_pin_verifier.py"
+      - "tests/test_source_record_verifier.py"
       - "tests/test_evm_key_forensics_probe_artifact.py"
       - "tests/test_evm_key_forensics_complete_evidence.py"
       - "tests/test_evm_key_forensics_source_report.py"
       - "tests/test_evm_key_forensics_verify_attestation.py"
+      - "tests/test_evm_key_forensics_dossier.py"
+      - "docs/research/evm-key-forensics/**"
       - ".github/workflows/evm-key-forensics-probe.yml"
 
 permissions:

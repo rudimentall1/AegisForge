@@ -109,7 +109,9 @@ def verify_artifact(root: Path) -> dict:
     if not isinstance(git_object_checks, list):
         git_object_checks = []
     git_object_checks_by_revision = {
-        item.get("revision"): item for item in git_object_checks if isinstance(item, dict)
+        item["revision"]: item
+        for item in git_object_checks
+        if isinstance(item, dict) and isinstance(item.get("revision"), str)
     }
     expected_git_object_pins = {
         "pre_disclosure": {

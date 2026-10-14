@@ -23,6 +23,7 @@ ARCHIVE_MEMBER = "complete-evidence/probe-evidence/probe-run-metadata.json"
 MAX_ARCHIVE_BYTES = 140 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 16
 MAX_METADATA_BYTES = 2 * 1024 * 1024
+MAX_ATTESTATION_REPORT_BYTES = 8 * 1024 * 1024
 
 
 def _reject_duplicate_json_keys(pairs):
@@ -32,6 +33,10 @@ def _reject_duplicate_json_keys(pairs):
             raise ValueError("duplicate_json_key:" + key)
         value[key] = item
     return value
+
+
+def _reject_nonstandard_json_constant(value):
+    raise ValueError("nonstandard_json_constant:" + value)
 
 
 def _sha256(path: Path) -> str:
@@ -101,7 +106,16 @@ def verify_attestation(
             raise ValueError("github_cli_attestation_verification_failed")
         gh_output = result.stdout
 
-    report = json.loads(gh_output, object_pairs_hook=_reject_duplicate_json_keys)
+    if len(gh_output.encode("utf-8")) > MAX_ATTESTATION_REPORT_BYTES:
+        raise ValueError("attestation_report_exceeds_size_limit")
+    try:
+        report = json.loads(
+            gh_output,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_nonstandard_json_constant,
+        )
+    except RecursionError as exc:
+        raise ValueError("attestation_report_nesting_limit_exceeded") from exc
     if not isinstance(report, list) or not report:
         raise ValueError("github_cli_returned_no_verified_attestations")
 

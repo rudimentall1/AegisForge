@@ -35,9 +35,9 @@ DOSSIER = {
         "supporting_references": [],
     },
     "claim_register": [
-        {"id": "SRC-001", "claim": "source claim", "evidence_level": "E0_SOURCE_INSPECTION",
+        {"id": "SRC-001", "claim": "The reviewed function initializes mt19937_64 from one random_device result and derives four distribution outputs from that engine.", "evidence_level": "E0_SOURCE_INSPECTION",
          "status": "SUPPORTED_BY_PINNED_SOURCE_PATTERN_CHECK", "does_not_establish": ["entropy", "exploitability"]},
-        {"id": "SRC-002", "claim": "identity claim", "evidence_level": "SOURCE_IDENTITY",
+        {"id": "SRC-002", "claim": "The pre-disclosure and post-disclosure pinned Dispatcher.cpp files match the expected Git blob identifiers.", "evidence_level": "SOURCE_IDENTITY",
          "status": "CHECKED_BY_SOURCE_PATTERN_CLI", "does_not_establish": ["authorship", "binary provenance"]},
     ],
     "verification_contract": {

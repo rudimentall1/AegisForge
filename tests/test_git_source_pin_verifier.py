@@ -67,7 +67,19 @@ def test_rejects_invalid_commit_pin(committed_repo):
         verify(repo, "HEAD", blob)
 
 
-@pytest.mark.parametrize("path", ["../sample.py", "/etc/passwd", "src\\sample.py", "src//sample.py"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../sample.py",
+        "/etc/passwd",
+        "src\\\\sample.py",
+        "src//sample.py",
+        "src/line\\nbreak.py",
+        "src/tab\\tname.py",
+        "src/delete\\x7fname.py",
+        "src/null\\x00byte.py",
+    ],
+)
 def test_rejects_unsafe_path(committed_repo, path):
     repo, commit, blob = committed_repo
     with pytest.raises(GitSourcePinError, match="expected_path_invalid"):

@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import stat
 import sys
 import tempfile
@@ -344,25 +345,39 @@ def verify_complete_archive(archive_path: Path) -> dict:
     """Verify one bounded snapshot so validation and reported digest use identical bytes."""
     if archive_path.is_symlink() or not archive_path.is_file():
         raise ValueError("archive_must_be_regular_file")
-    with tempfile.TemporaryDirectory(prefix="evm-key-forensics-archive-") as temp_dir:
-        snapshot = Path(temp_dir) / archive_path.name
-        total = 0
-        try:
-            with archive_path.open("rb") as source, snapshot.open("xb") as dest:
-                while True:
-                    chunk = source.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    total += len(chunk)
-                    if total > MAX_ARCHIVE_BYTES:
-                        raise ValueError("archive_exceeds_size_limit")
-                    dest.write(chunk)
-        except OSError:
-            raise
-        try:
-            return _verify_complete_archive_snapshot(snapshot)
-        except (zipfile.BadZipFile, EOFError, zlib.error) as exc:
-            raise ValueError("archive_invalid_zip_structure") from exc
+
+    # Open the path once, reject symlinks where supported, and validate the
+    # opened descriptor itself. This closes the check/open race on POSIX.
+    source_fd = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        source_fd = os.open(archive_path, flags)
+        if not stat.S_ISREG(os.fstat(source_fd).st_mode):
+            raise ValueError("archive_must_be_regular_file")
+        with os.fdopen(source_fd, "rb") as source:
+            source_fd = None
+            with tempfile.TemporaryDirectory(prefix="evm-key-forensics-archive-") as temp_dir:
+                snapshot = Path(temp_dir) / archive_path.name
+                total = 0
+                with snapshot.open("xb") as dest:
+                    while True:
+                        chunk = source.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > MAX_ARCHIVE_BYTES:
+                            raise ValueError("archive_exceeds_size_limit")
+                        dest.write(chunk)
+    except OSError as exc:
+        raise ValueError("archive_must_be_regular_file") from exc
+    finally:
+        if source_fd is not None:
+            os.close(source_fd)
+
+    try:
+        return _verify_complete_archive_snapshot(snapshot)
+    except (zipfile.BadZipFile, EOFError, zlib.error) as exc:
+        raise ValueError("archive_invalid_zip_structure") from exc
 
 
 def main(argv=None) -> int:

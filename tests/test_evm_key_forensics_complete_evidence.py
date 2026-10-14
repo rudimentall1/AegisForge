@@ -457,6 +457,49 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
                             archive_path, info, central_directory_offset=zf.start_dir
                         )
 
+    def test_unsigned_data_descriptor_is_supported(self):
+        from tools.evm_key_forensics.verify_complete_evidence import (
+            _validate_local_compression_method,
+        )
+
+        class NonSeekableBuffer(io.BytesIO):
+            def seekable(self):
+                return False
+
+            def seek(self, *args, **kwargs):
+                raise io.UnsupportedOperation("non-seekable test stream")
+
+        buffer = NonSeekableBuffer()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("probe-source.cpp", b"synthetic fixture payload")
+        archive_path = self.root / "unsigned-descriptor.zip"
+        archive_path.write_bytes(buffer.getvalue())
+
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            info = zf.getinfo("probe-source.cpp")
+            descriptor_offset = (
+                info.header_offset + 30 + len(info.filename.encode("cp437"))
+                + len(info.extra) + info.compress_size
+            )
+            crc = info.CRC.to_bytes(4, "little")
+            compressed_size = info.compress_size.to_bytes(4, "little")
+            file_size = info.file_size.to_bytes(4, "little")
+            central_directory_offset = zf.start_dir
+
+        # Replace the signed descriptor with the unsigned 12-byte form while
+        # retaining the same space before the central directory.
+        with archive_path.open("r+b") as stream:
+            stream.seek(descriptor_offset)
+            self.assertEqual(stream.read(4), b"PK\x07\x08")
+            stream.seek(descriptor_offset)
+            stream.write(crc + compressed_size + file_size + b"\x00\x00\x00\x00")
+
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            info = zf.getinfo("probe-source.cpp")
+            _validate_local_compression_method(
+                archive_path, info, central_directory_offset=central_directory_offset
+            )
+
     def test_local_crc_and_size_fields_must_match_central_directory(self):
         member = "complete-evidence/probe-evidence/probe-source.cpp"
         fields = (

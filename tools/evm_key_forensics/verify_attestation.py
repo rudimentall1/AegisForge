@@ -20,6 +20,9 @@ WORKFLOW_REPOSITORY = "rudimentall1/AegisForge"
 WORKFLOW_NAME = "EVM Key Forensics Probe"
 WORKFLOW_PATH = ".github/workflows/evm-key-forensics-probe.yml"
 ARCHIVE_MEMBER = "complete-evidence/probe-evidence/probe-run-metadata.json"
+MAX_ARCHIVE_BYTES = 140 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 16
+MAX_METADATA_BYTES = 2 * 1024 * 1024
 
 
 def _sha256(path: Path) -> str:
@@ -31,8 +34,23 @@ def _sha256(path: Path) -> str:
 
 
 def _read_metadata(archive_path: Path) -> dict:
+    if archive_path.stat().st_size > MAX_ARCHIVE_BYTES:
+        raise ValueError("archive_exceeds_size_limit")
     with zipfile.ZipFile(archive_path, "r") as archive:
-        raw = archive.read(ARCHIVE_MEMBER)
+        infos = archive.infolist()
+        if len(infos) > MAX_ARCHIVE_MEMBERS:
+            raise ValueError("archive_member_count_exceeded")
+        names = [item.filename for item in infos]
+        if len(names) != len(set(names)):
+            raise ValueError("archive_duplicate_member")
+        info = archive.getinfo(ARCHIVE_MEMBER)
+        if info.file_size > MAX_METADATA_BYTES:
+            raise ValueError("probe_metadata_exceeds_size_limit")
+        if info.flag_bits & 0x1:
+            raise ValueError("encrypted_metadata_not_supported")
+        raw = archive.read(info)
+        if len(raw) != info.file_size:
+            raise ValueError("probe_metadata_size_mismatch")
     value = json.loads(raw.decode("utf-8"))
     if not isinstance(value, dict):
         raise ValueError("probe_metadata_must_be_object")
@@ -102,11 +120,18 @@ def verify_attestation(
         predicate = statement.get("predicate", {})
         if not isinstance(predicate, dict):
             continue
-        workflow = predicate.get("buildDefinition", {}).get("externalParameters", {}).get("workflow", {})
+        build_definition = predicate.get("buildDefinition", {})
+        if not isinstance(build_definition, dict):
+            continue
+        external_parameters = build_definition.get("externalParameters", {})
+        if not isinstance(external_parameters, dict):
+            continue
+        workflow = external_parameters.get("workflow", {})
         subjects = statement.get("subject", [])
         subject_matches = isinstance(subjects, list) and any(
             isinstance(subject, dict)
             and subject.get("name") == archive_path.name
+            and isinstance(subject.get("digest"), dict)
             and subject.get("digest", {}).get("sha256") == archive_sha
             for subject in subjects
         )

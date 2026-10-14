@@ -258,7 +258,7 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
         # Change only the local header; the central directory still says DEFLATE.
         with self.archive.open("r+b") as stream:
             stream.seek(local_header_offset + 8)
-            stream.write(b"\\x63\\x00")
+            stream.write(b"\x63\x00")
 
         with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
             with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):

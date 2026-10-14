@@ -52,7 +52,10 @@ def _read_metadata(archive_path: Path) -> dict:
         names = [item.filename for item in infos]
         if len(names) != len(set(names)):
             raise ValueError("archive_duplicate_member")
-        info = archive.getinfo(ARCHIVE_MEMBER)
+        try:
+            info = archive.getinfo(ARCHIVE_MEMBER)
+        except KeyError as exc:
+            raise ValueError("probe_metadata_missing") from exc
         if info.file_size > MAX_METADATA_BYTES:
             raise ValueError("probe_metadata_exceeds_size_limit")
         if info.flag_bits & 0x1:

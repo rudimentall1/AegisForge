@@ -89,6 +89,7 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
                         "commit_sha": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
                         "path": "Dispatcher.cpp",
                         "git_blob_sha": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
+                        "valid": True,
                         "git_object_match": True,
                         "provenance_verified": False,
                     },
@@ -98,6 +99,7 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
                         "commit_sha": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
                         "path": "Dispatcher.cpp",
                         "git_blob_sha": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
+                        "valid": True,
                         "git_object_match": True,
                         "provenance_verified": False,
                     },
@@ -181,6 +183,19 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         review_path = self.root / "independent-source-body-review.json"
         review = json.loads(review_path.read_text(encoding="utf-8"))
         review["git_object_pin_verification"]["checks"][0]["git_object_match"] = False
+        review_path.write_text(json.dumps(review), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["independent_source_body_review_sha256"] = digest(review_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["git_object_pin_verification_matches_pins"])
+
+    def test_git_object_pin_report_rejects_false_valid_flag_even_with_updated_hash(self):
+        review_path = self.root / "independent-source-body-review.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["git_object_pin_verification"]["checks"][0]["valid"] = False
         review_path.write_text(json.dumps(review), encoding="utf-8")
         metadata_path = self.root / "probe-run-metadata.json"
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))

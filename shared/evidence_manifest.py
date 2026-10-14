@@ -148,3 +148,13 @@ def validate_source_record(record):
     combined = " ".join(limitations).lower()
     if "source authenticity" not in combined or "independent provenance" not in combined:
         raise EvidenceManifestError("source_limitations_must_distinguish_integrity_from_provenance")
+    overclaims = (
+        "proves source authenticity",
+        "proves independent provenance",
+        "establishes source authenticity",
+        "establishes independent provenance",
+        "confirms source authenticity",
+        "confirms independent provenance",
+    )
+    if any(claim in combined for claim in overclaims):
+        raise EvidenceManifestError("source_limitations_must_distinguish_integrity_from_provenance")

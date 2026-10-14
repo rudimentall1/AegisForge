@@ -110,6 +110,7 @@ jobs:
                   "commit_sha": result["commit_sha"],
                   "path": result["path"],
                   "git_blob_sha": result["git_blob_sha"],
+                  "valid": result["valid"],
                   "git_object_match": result["git_object_match"],
                   "provenance_verified": result["provenance_verified"],
               })

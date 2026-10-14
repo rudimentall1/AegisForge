@@ -169,13 +169,13 @@ def _verify_attestation_snapshot(
                 return
 
         def stop_reader_boundedly() -> bool:
+            # Never close a buffered pipe from this thread while the reader may
+            # be blocked inside read(): BufferedReader.close() can wait on the
+            # same internal lock and defeat the cleanup timeout. If EOF does not
+            # arrive promptly (for example, a descendant inherited stdout), fail
+            # closed and let the daemon reader exit when that descriptor closes.
             reader.join(timeout=2)
             if reader.is_alive():
-                if process.stdout is not None:
-                    try:
-                        process.stdout.close()
-                    except OSError:
-                        pass
                 reader.join(timeout=1)
             return not reader.is_alive()
 
@@ -186,12 +186,12 @@ def _verify_attestation_snapshot(
         except subprocess.TimeoutExpired as exc:
             process.kill()
             process.wait()
-            stop_reader_boundedly()
-            if process.stdout is not None:
+            reader_stopped = stop_reader_boundedly()
+            if reader_stopped and process.stdout is not None:
                 process.stdout.close()
             raise ValueError("github_cli_attestation_verification_timed_out") from exc
         reader_stopped = stop_reader_boundedly()
-        if process.stdout is not None:
+        if reader_stopped and process.stdout is not None:
             process.stdout.close()
         if not reader_stopped:
             raise ValueError("github_cli_stdout_drain_timed_out")

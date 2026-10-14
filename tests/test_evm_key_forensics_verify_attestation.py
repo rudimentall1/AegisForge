@@ -61,14 +61,14 @@ class VerifyAttestationTests(unittest.TestCase):
                             "repository": "https://github.com/rudimentall1/AegisForge",
                             "ref": ref or self.ref,
                         }
-                    },
-                    "runDetails": {
-                        "metadata": {
-                            "invocationId": (
-                                "https://github.com/rudimentall1/AegisForge/actions/runs/"
-                                + self.run_id + "/attempts/" + self.attempt
-                            )
-                        }
+                    }
+                },
+                "runDetails": {
+                    "metadata": {
+                        "invocationId": (
+                            "https://github.com/rudimentall1/AegisForge/actions/runs/"
+                            + self.run_id + "/attempts/" + self.attempt
+                        )
                     }
                 }
             },

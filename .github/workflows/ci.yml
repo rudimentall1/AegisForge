@@ -134,6 +134,7 @@ jobs:
               assert result["provenance_verified"] is False, result
               results.append({
                   "revision": pin["revision"],
+                  "valid": result["valid"],
                   "repository": result["repository"],
                   "commit_sha": result["commit_sha"],
                   "path": result["path"],

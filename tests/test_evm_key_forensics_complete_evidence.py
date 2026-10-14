@@ -457,6 +457,50 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
                             archive_path, info, central_directory_offset=zf.start_dir
                         )
 
+    def test_data_descriptor_crc_equal_to_signature_is_not_ambiguous(self):
+        from tools.evm_key_forensics.verify_complete_evidence import (
+            _validate_local_compression_method,
+        )
+
+        class NonSeekableBuffer(io.BytesIO):
+            def seekable(self):
+                return False
+
+            def seek(self, *args, **kwargs):
+                raise io.UnsupportedOperation("non-seekable test stream")
+
+        buffer = NonSeekableBuffer()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("probe-source.cpp", b"synthetic fixture payload")
+        archive_path = self.root / "signature-crc.zip"
+        archive_path.write_bytes(buffer.getvalue())
+
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            info = zf.getinfo("probe-source.cpp")
+            descriptor_offset = (
+                info.header_offset + 30 + len(info.filename.encode("cp437"))
+                + len(info.extra) + info.compress_size
+            )
+            central_directory_offset = zf.start_dir
+            signature_crc = 0x08074B50
+
+        # Force the CRC to equal the optional descriptor signature. The archive
+        # payload is intentionally not validated here; this isolates descriptor
+        # parsing, while full archive verification will still check payload CRC.
+        with archive_path.open("r+b") as stream:
+            stream.seek(descriptor_offset)
+            self.assertEqual(stream.read(4), b"PK\x07\x08")
+            stream.seek(descriptor_offset + 4)
+            stream.write(signature_crc.to_bytes(4, "little"))
+            stream.seek(central_directory_offset + 16)
+            stream.write(signature_crc.to_bytes(4, "little"))
+
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            info = zf.getinfo("probe-source.cpp")
+            _validate_local_compression_method(
+                archive_path, info, central_directory_offset=zf.start_dir
+            )
+
     def test_unsigned_data_descriptor_is_supported(self):
         from tools.evm_key_forensics.verify_complete_evidence import (
             _validate_local_compression_method,

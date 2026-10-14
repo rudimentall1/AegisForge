@@ -45,7 +45,8 @@ DOSSIER = {
         "checker_behavior": ["bounded reads", "pinned blob", "sha256"],
         "independent_retrieval_recommended": True,
         "source_to_binary_provenance": "NOT_ESTABLISHED",
-        "trusted_runner_attestation": "NOT_IMPLEMENTED",
+        "source_review_runner_attestation": "NOT_IMPLEMENTED",
+        "evidence_package_github_attestation": "PUBLISHED_BY_SEPARATE_WORKFLOW; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS",
         "signed_dossier": False,
     },
     "experiment_state": {
@@ -94,10 +95,10 @@ class SourceDossierValidatorTests(unittest.TestCase):
     def test_attestation_or_binary_provenance_cannot_be_claimed(self):
         data = copy.deepcopy(DOSSIER)
         data["verification_contract"]["source_to_binary_provenance"] = "VERIFIED"
-        data["verification_contract"]["trusted_runner_attestation"] = "IMPLEMENTED"
+        data["verification_contract"]["source_review_runner_attestation"] = "IMPLEMENTED"
         errors = validate_dossier(data)
         self.assertIn("source_to_binary_provenance_must_not_be_overstated", errors)
-        self.assertIn("runner_attestation_must_remain_not_implemented", errors)
+        self.assertIn("source_review_runner_attestation_must_remain_not_implemented", errors)
 
     def test_duplicate_claim_ids_fail(self):
         data = copy.deepcopy(DOSSIER)

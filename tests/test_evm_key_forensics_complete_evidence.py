@@ -265,6 +265,22 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
                 verify_complete_archive(self.archive)
             verifier.assert_not_called()
 
+    def test_local_and_central_flag_mismatch_is_rejected(self):
+        member = "complete-evidence/probe-evidence/probe-source.cpp"
+        with zipfile.ZipFile(self.archive, "r") as zf:
+            info = zf.getinfo(member)
+            local_header_offset = info.header_offset
+
+        # Set the data-descriptor flag only in the local header.
+        with self.archive.open("r+b") as stream:
+            stream.seek(local_header_offset + 6)
+            stream.write(b"\\x08\\x00")
+
+        with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
+            with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):
+                verify_complete_archive(self.archive)
+            verifier.assert_not_called()
+
     def test_local_header_name_mismatch_is_rejected(self):
         member = "complete-evidence/probe-evidence/probe-source.cpp"
         with zipfile.ZipFile(self.archive, "r") as zf:

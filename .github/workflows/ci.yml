@@ -101,6 +101,61 @@ jobs:
           git -C /tmp/profanity-source-review fetch --depth=1 origin 0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6
           git -C /tmp/profanity-source-review fetch --depth=1 origin 186b9b27ab3e24a1899f648adcabcbf0e5f3131e
           python tools/evm_key_forensics/independent_source_body_review.py --repo /tmp/profanity-source-review > /tmp/independent-source-body-review.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from shared.git_source_pin_verifier import verify_git_source_pin
+
+          pins = [
+              {
+                  "revision": "pre_disclosure",
+                  "commit": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+                  "path": "Dispatcher.cpp",
+                  "blob": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
+              },
+              {
+                  "revision": "post_disclosure_archive",
+                  "commit": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+                  "path": "Dispatcher.cpp",
+                  "blob": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
+              },
+          ]
+          results = []
+          for pin in pins:
+              result = verify_git_source_pin(
+                  "/tmp/profanity-source-review",
+                  expected_repository="johguse/profanity",
+                  expected_commit_sha=pin["commit"],
+                  expected_path=pin["path"],
+                  expected_blob_sha=pin["blob"],
+              )
+              assert result["valid"] is True, result
+              assert result["git_object_match"] is True, result
+              assert result["provenance_verified"] is False, result
+              results.append({
+                  "revision": pin["revision"],
+                  "repository": result["repository"],
+                  "commit_sha": result["commit_sha"],
+                  "path": result["path"],
+                  "git_blob_sha": result["git_blob_sha"],
+                  "git_object_match": result["git_object_match"],
+                  "provenance_verified": result["provenance_verified"],
+              })
+
+          report_path = Path("/tmp/independent-source-body-review.json")
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          report["git_object_pin_verification"] = {
+              "status": "CHECKED",
+              "repository_label": "johguse/profanity",
+              "checks": results,
+              "provenance_verified": False,
+              "note": "Local Git commit/path/blob consistency only; repository identity and independent provenance are not established.",
+          }
+          report_path.write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\\n",
+              encoding="utf-8",
+          )
+          PY
           cat /tmp/independent-source-body-review.json
           python - <<'PY'
           import json

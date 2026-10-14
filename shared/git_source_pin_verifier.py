@@ -23,6 +23,8 @@ def _git(repo_path, *args):
     # index, object storage, namespace, or configuration for this verification.
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
+    # A partial clone may lazily fetch missing objects; this verifier is offline.
+    env["GIT_NO_LAZY_FETCH"] = "1"
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_path), *args],

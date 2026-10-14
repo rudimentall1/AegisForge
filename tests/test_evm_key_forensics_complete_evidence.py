@@ -225,14 +225,14 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
             local_header_offset = info.header_offset
 
         raw = self.archive.read_bytes()
-        central_offset = raw.find(b"PK\\x01\\x02")
+        central_offset = raw.find(b"PK\x01\x02")
         encoded_name = member.encode("utf-8")
         while central_offset >= 0:
             name_length = int.from_bytes(raw[central_offset + 28:central_offset + 30], "little")
             name = raw[central_offset + 46:central_offset + 46 + name_length]
             if name == encoded_name:
                 break
-            central_offset = raw.find(b"PK\\x01\\x02", central_offset + 4)
+            central_offset = raw.find(b"PK\x01\x02", central_offset + 4)
         if central_offset < 0:
             self.fail("central directory entry not found")
 
@@ -240,9 +240,9 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
         # compression method in both local and central headers.
         with self.archive.open("r+b") as stream:
             stream.seek(local_header_offset + 8)
-            stream.write(b"\\x63\\x00")
+            stream.write(b"\x63\x00")
             stream.seek(central_offset + 10)
-            stream.write(b"\\x63\\x00")
+            stream.write(b"\x63\x00")
 
         with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
             with self.assertRaisesRegex(ValueError, "archive_unsupported_compression_method"):

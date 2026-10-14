@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+import zlib
 from pathlib import Path
 
 WORKFLOW_REPOSITORY = "rudimentall1/AegisForge"
@@ -91,7 +92,10 @@ def _read_metadata(archive_path: Path) -> dict:
             raise ValueError("probe_metadata_exceeds_size_limit")
         if info.flag_bits & 0x1:
             raise ValueError("encrypted_metadata_not_supported")
-        raw = _read_bounded_member(archive, info, MAX_METADATA_BYTES)
+        try:
+            raw = _read_bounded_member(archive, info, MAX_METADATA_BYTES)
+        except (zipfile.BadZipFile, EOFError, zlib.error, RuntimeError) as exc:
+            raise ValueError("probe_metadata_invalid_zip_member") from exc
     try:
         value = json.loads(
             raw.decode("utf-8"),

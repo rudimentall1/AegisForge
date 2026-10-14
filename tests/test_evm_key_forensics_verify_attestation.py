@@ -404,5 +404,34 @@ class VerifyAttestationTests(unittest.TestCase):
                 _read_bounded_member(archive, info, 3)
 
 
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
+    def test_real_cli_invocation_is_pinned_and_bounded(self, run):
+        run.return_value.returncode = 0
+        run.return_value.stdout = self.report
+        run.return_value.stderr = ""
+        result = verify_attestation(
+            self.archive,
+            expected_sha=self.sha,
+            expected_ref=self.ref,
+            expected_run_id=self.run_id,
+            expected_attempt=self.attempt,
+            expected_trigger=self.trigger,
+        )
+        self.assertEqual(result["conclusion"], "PASS")
+        kwargs = run.call_args.kwargs
+        command = run.call_args.args[0]
+        self.assertEqual(command[:3], ["gh", "attestation", "verify"])
+        self.assertEqual(command[command.index("--repo") + 1], "rudimentall1/AegisForge")
+        self.assertEqual(
+            command[command.index("--signer-workflow") + 1],
+            "rudimentall1/AegisForge/.github/workflows/evm-key-forensics-probe.yml",
+        )
+        self.assertEqual(command[command.index("--format") + 1], "json")
+        self.assertEqual(kwargs["timeout"], 120)
+        self.assertTrue(kwargs["check"] is False)
+        self.assertTrue(kwargs["capture_output"])
+        self.assertTrue(kwargs["text"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -89,7 +89,16 @@ def _read_metadata(archive_path: Path) -> dict:
         if info.flag_bits & 0x1:
             raise ValueError("encrypted_metadata_not_supported")
         raw = _read_bounded_member(archive, info, MAX_METADATA_BYTES)
-    value = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
+    try:
+        value = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_nonstandard_json_constant,
+        )
+    except UnicodeDecodeError as exc:
+        raise ValueError("probe_metadata_invalid_utf8") from exc
+    except RecursionError as exc:
+        raise ValueError("probe_metadata_nesting_limit_exceeded") from exc
     if not isinstance(value, dict):
         raise ValueError("probe_metadata_must_be_object")
     return value

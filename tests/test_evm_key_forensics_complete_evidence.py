@@ -230,6 +230,15 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "probe_artifact_integrity_failed"):
                 verify_complete_archive(self.archive)
 
+    def test_archive_hashing_enforces_actual_bytes_read_limit(self):
+        from tools.evm_key_forensics import verify_complete_evidence as verifier
+
+        oversized = self.root / "oversized.bin"
+        oversized.write_bytes(b"four")
+        with patch.object(verifier, "MAX_ARCHIVE_BYTES", 3):
+            with self.assertRaisesRegex(ValueError, "archive_exceeds_size_limit"):
+                verifier._sha256(oversized)
+
     def test_missing_archive_fails_cleanly(self):
         missing = self.root / "missing.zip"
         with self.assertRaisesRegex(ValueError, "archive_must_be_regular_file"):

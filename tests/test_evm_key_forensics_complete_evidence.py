@@ -360,6 +360,17 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "archive_exceeds_size_limit"):
                 verifier._sha256(oversized)
 
+    def test_corrupt_central_directory_fails_with_stable_error(self):
+        raw = self.archive.read_bytes()
+        central_offset = raw.find(b"PK\\x01\\x02")
+        if central_offset < 0:
+            self.fail("central directory entry not found")
+        with self.archive.open("r+b") as stream:
+            stream.seek(central_offset)
+            stream.write(b"XX\\x01\\x02")
+        with self.assertRaisesRegex(ValueError, "archive_invalid_zip_structure"):
+            verify_complete_archive(self.archive)
+
     def test_missing_archive_fails_cleanly(self):
         missing = self.root / "missing.zip"
         with self.assertRaisesRegex(ValueError, "archive_must_be_regular_file"):

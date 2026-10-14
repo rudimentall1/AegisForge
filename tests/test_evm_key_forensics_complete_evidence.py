@@ -274,7 +274,7 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
         # Set the data-descriptor flag only in the local header.
         with self.archive.open("r+b") as stream:
             stream.seek(local_header_offset + 6)
-            stream.write(b"\\x08\\x00")
+            stream.write(b"\x08\x00")
 
         with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:
             with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):

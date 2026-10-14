@@ -121,16 +121,34 @@ def _sha256(path: Path) -> str:
 
 
 def _validate_local_compression_method(archive_path: Path, item: zipfile.ZipInfo) -> None:
-    """Reject local/central ZIP headers that disagree on compression method."""
+    """Validate local-header identity and bounds against central-directory metadata."""
+    archive_size = archive_path.stat().st_size
     with archive_path.open("rb") as stream:
         stream.seek(item.header_offset)
         header = stream.read(30)
-    if len(header) != 30 or header[:4] != b"PK\x03\x04":
-        raise ValueError("archive_invalid_zip_member")
-    local_flags = int.from_bytes(header[6:8], "little")
-    local_method = int.from_bytes(header[8:10], "little")
-    if local_flags != item.flag_bits or local_method != item.compress_type:
-        raise ValueError("archive_invalid_zip_member")
+        if len(header) != 30 or header[:4] != b"PK\x03\x04":
+            raise ValueError("archive_invalid_zip_member")
+        local_flags = int.from_bytes(header[6:8], "little")
+        local_method = int.from_bytes(header[8:10], "little")
+        name_length = int.from_bytes(header[26:28], "little")
+        extra_length = int.from_bytes(header[28:30], "little")
+        if local_flags != item.flag_bits or local_method != item.compress_type:
+            raise ValueError("archive_invalid_zip_member")
+        # All expected member names are ASCII, but decode according to the ZIP
+        # UTF-8 flag so the comparison follows the archive's declared encoding.
+        local_name_raw = stream.read(name_length)
+        if len(local_name_raw) != name_length:
+            raise ValueError("archive_invalid_zip_member")
+        encoding = "utf-8" if local_flags & 0x800 else "cp437"
+        try:
+            local_name = local_name_raw.decode(encoding)
+        except UnicodeDecodeError as exc:
+            raise ValueError("archive_invalid_zip_member") from exc
+        if local_name != item.filename:
+            raise ValueError("archive_invalid_zip_member")
+        data_offset = item.header_offset + 30 + name_length + extra_length
+        if data_offset > archive_size or item.compress_size > archive_size - data_offset:
+            raise ValueError("archive_invalid_zip_member")
 
 
 def _verify_complete_archive_snapshot(archive_path: Path) -> dict:

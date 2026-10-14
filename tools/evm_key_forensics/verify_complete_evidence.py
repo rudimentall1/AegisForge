@@ -368,16 +368,15 @@ def verify_complete_archive(archive_path: Path) -> dict:
                         if total > MAX_ARCHIVE_BYTES:
                             raise ValueError("archive_exceeds_size_limit")
                         dest.write(chunk)
+                try:
+                    return _verify_complete_archive_snapshot(snapshot)
+                except (zipfile.BadZipFile, EOFError, zlib.error) as exc:
+                    raise ValueError("archive_invalid_zip_structure") from exc
     except OSError as exc:
         raise ValueError("archive_must_be_regular_file") from exc
     finally:
         if source_fd is not None:
             os.close(source_fd)
-
-    try:
-        return _verify_complete_archive_snapshot(snapshot)
-    except (zipfile.BadZipFile, EOFError, zlib.error) as exc:
-        raise ValueError("archive_invalid_zip_structure") from exc
 
 
 def main(argv=None) -> int:

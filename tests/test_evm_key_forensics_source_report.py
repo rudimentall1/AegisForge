@@ -41,6 +41,11 @@ def test_valid_results_build_comparison_but_conclusion_stays_inconclusive():
     assert report["source_comparison"]["same_create_seed_function_body_sha256"] is True
     assert report["overall_conclusion"] == "INCONCLUSIVE"
     assert report["limitations"]["historical_vulnerability_reproduced"] is False
+    assert report["limitations"]["source_review_runner_attestation"] == "NOT_IMPLEMENTED"
+    assert report["limitations"]["evidence_package_github_attestation"] == (
+        "CHECKED_BY_SEPARATE_WORKFLOW_STEP; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS"
+    )
+    assert "trusted_runner_attestation" not in report["limitations"]
 
 
 @pytest.mark.parametrize(

@@ -182,25 +182,24 @@ def _validate_local_compression_method(
             if descriptor_offset > payload_limit or payload_limit - descriptor_offset < 12:
                 raise ValueError("archive_invalid_zip_member")
             stream.seek(descriptor_offset)
-            descriptor_head = stream.read(4)
-            if len(descriptor_head) != 4:
-                raise ValueError("archive_invalid_zip_member")
-            if descriptor_head == b"PK\x07\x08":
-                if payload_limit - descriptor_offset < 16:
-                    raise ValueError("archive_invalid_zip_member")
-                descriptor = stream.read(12)
+            descriptor = stream.read(min(16, payload_limit - descriptor_offset))
+
+            def descriptor_matches(candidate: bytes) -> bool:
+                return (
+                    len(candidate) == 12
+                    and int.from_bytes(candidate[0:4], "little") == item.CRC
+                    and int.from_bytes(candidate[4:8], "little") == item.compress_size
+                    and int.from_bytes(candidate[8:12], "little") == item.file_size
+                )
+
+            # The optional signature is byte-identical to a possible CRC value.
+            # Check the unsigned form first so a valid descriptor whose CRC is
+            # 0x08074b50 is not misclassified as a signed descriptor.
+            if descriptor_matches(descriptor[:12]):
+                pass
+            elif descriptor.startswith(b"PK\x07\x08") and descriptor_matches(descriptor[4:16]):
+                pass
             else:
-                descriptor = descriptor_head + stream.read(8)
-            if len(descriptor) != 12:
-                raise ValueError("archive_invalid_zip_member")
-            descriptor_crc = int.from_bytes(descriptor[0:4], "little")
-            descriptor_compress_size = int.from_bytes(descriptor[4:8], "little")
-            descriptor_file_size = int.from_bytes(descriptor[8:12], "little")
-            if (
-                descriptor_crc != item.CRC
-                or descriptor_compress_size != item.compress_size
-                or descriptor_file_size != item.file_size
-            ):
                 raise ValueError("archive_invalid_zip_member")
 
 

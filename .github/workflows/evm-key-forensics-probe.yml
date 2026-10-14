@@ -410,7 +410,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p complete-evidence
-          cp -R downloaded-probe/probe-evidence complete-evidence/probe-evidence
+          mkdir -p complete-evidence/probe-evidence
+          # upload-artifact stores the contents of probe-evidence/ at the artifact root.
+          cp -R downloaded-probe/. complete-evidence/probe-evidence/
           cp downloaded-rebuild/independent-rebuild-report.json complete-evidence/independent-rebuild-report.json
           python - <<'PY'
           import hashlib

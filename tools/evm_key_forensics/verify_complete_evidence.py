@@ -120,6 +120,18 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _validate_local_compression_method(archive_path: Path, item: zipfile.ZipInfo) -> None:
+    """Reject local/central ZIP headers that disagree on compression method."""
+    with archive_path.open("rb") as stream:
+        stream.seek(item.header_offset)
+        header = stream.read(30)
+    if len(header) != 30 or header[:4] != b"PK\\x03\\x04":
+        raise ValueError("archive_invalid_zip_member")
+    local_method = int.from_bytes(header[8:10], "little")
+    if local_method != item.compress_type:
+        raise ValueError("archive_invalid_zip_member")
+
+
 def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
     if archive_path.is_symlink() or not archive_path.is_file():
         raise ValueError("archive_must_be_regular_file")
@@ -197,6 +209,7 @@ def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
                 # extractall() on this untrusted archive.
                 written = 0
                 try:
+                    _validate_local_compression_method(archive_path, item)
                     with archive.open(item, "r") as source, target.open("xb") as dest:
                         while True:
                             chunk = source.read(1024 * 1024)

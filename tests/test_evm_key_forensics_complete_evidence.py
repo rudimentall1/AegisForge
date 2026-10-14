@@ -362,12 +362,12 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
 
     def test_corrupt_central_directory_fails_with_stable_error(self):
         raw = self.archive.read_bytes()
-        central_offset = raw.find(b"PK\\x01\\x02")
+        central_offset = raw.find(bytes.fromhex("504b0102"))
         if central_offset < 0:
             self.fail("central directory entry not found")
         with self.archive.open("r+b") as stream:
             stream.seek(central_offset)
-            stream.write(b"XX\\x01\\x02")
+            stream.write(bytes.fromhex("58580102"))
         with self.assertRaisesRegex(ValueError, "archive_invalid_zip_structure"):
             verify_complete_archive(self.archive)
 

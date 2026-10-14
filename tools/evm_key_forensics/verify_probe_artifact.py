@@ -102,6 +102,27 @@ def verify_artifact(root: Path) -> dict:
     output = _load_strict_json(output_path)
     source_report = _load_strict_json(source_report_path)
     independent_review = _load_strict_json(independent_review_path)
+    git_object_pin_verification = independent_review.get("git_object_pin_verification")
+    if not isinstance(git_object_pin_verification, dict):
+        git_object_pin_verification = {}
+    git_object_checks = git_object_pin_verification.get("checks")
+    if not isinstance(git_object_checks, list):
+        git_object_checks = []
+    git_object_checks_by_revision = {
+        item.get("revision"): item for item in git_object_checks if isinstance(item, dict)
+    }
+    expected_git_object_pins = {
+        "pre_disclosure": {
+            "commit_sha": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+            "path": "Dispatcher.cpp",
+            "git_blob_sha": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
+        },
+        "post_disclosure_archive": {
+            "commit_sha": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+            "path": "Dispatcher.cpp",
+            "git_blob_sha": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
+        },
+    }
 
     samples = output.get("samples_requested")
     distinct = output.get("distinct_values_observed")
@@ -174,6 +195,27 @@ def verify_artifact(root: Path) -> dict:
             independent_review_path, max_bytes=MAX_JSON_FILE_BYTES
         ),
         "independent_source_review_schema_supported": independent_review.get("status") == "CHECKED",
+        "git_object_pin_verification_schema_supported": (
+            git_object_pin_verification.get("status") == "CHECKED"
+            and git_object_pin_verification.get("repository_label") == "johguse/profanity"
+            and git_object_pin_verification.get("provenance_verified") is False
+            and isinstance(git_object_pin_verification.get("note"), str)
+            and bool(git_object_pin_verification.get("note").strip())
+        ),
+        "git_object_pin_verification_matches_pins": (
+            len(git_object_checks) == 2
+            and set(git_object_checks_by_revision) == set(expected_git_object_pins)
+            and all(
+                git_object_checks_by_revision[revision].get("repository") == "johguse/profanity"
+                and git_object_checks_by_revision[revision].get("commit_sha") == expected["commit_sha"]
+                and git_object_checks_by_revision[revision].get("path") == expected["path"]
+                and git_object_checks_by_revision[revision].get("git_blob_sha") == expected["git_blob_sha"]
+                and git_object_checks_by_revision[revision].get("git_object_match") is True
+                and git_object_checks_by_revision[revision].get("provenance_verified") is False
+                for revision, expected in expected_git_object_pins.items()
+                if revision in git_object_checks_by_revision
+            )
+        ),
         "independent_source_review_pins_match": (
             isinstance(independent_review.get("revisions"), list)
             and len(independent_review["revisions"]) == 2

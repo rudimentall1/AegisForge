@@ -140,5 +140,46 @@ class VerifyAttestationTests(unittest.TestCase):
             )
 
 
+    def test_duplicate_archive_member_fails(self):
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.writestr(
+                "complete-evidence/probe-evidence/probe-run-metadata.json",
+                json.dumps(self.metadata),
+            )
+            archive.writestr(
+                "complete-evidence/probe-evidence/probe-run-metadata.json",
+                json.dumps(self.metadata),
+            )
+        with self.assertRaisesRegex(ValueError, "archive_duplicate_member"):
+            self.verify()
+
+    def test_archive_member_count_limit_fails(self):
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.writestr(
+                "complete-evidence/probe-evidence/probe-run-metadata.json",
+                json.dumps(self.metadata),
+            )
+            for index in range(16):
+                archive.writestr(f"extra-{index}.txt", "x")
+        with self.assertRaisesRegex(ValueError, "archive_member_count_exceeded"):
+            self.verify()
+
+    def test_metadata_size_limit_fails(self):
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.writestr(
+                "complete-evidence/probe-evidence/probe-run-metadata.json",
+                " " * (2 * 1024 * 1024 + 1),
+            )
+        with self.assertRaisesRegex(ValueError, "probe_metadata_exceeds_size_limit"):
+            self.verify()
+
+    def test_symlink_archive_fails(self):
+        target = self.root / "real-archive.zip"
+        self.archive.replace(target)
+        self.archive.symlink_to(target)
+        with self.assertRaisesRegex(ValueError, "archive_must_be_regular_file"):
+            self.verify()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -172,6 +172,8 @@ def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
                 raise ValueError("archive_uncompressed_size_limit_exceeded")
             if item.flag_bits & 0x1:
                 raise ValueError("archive_encrypted_member_not_supported")
+            if item.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                raise ValueError("archive_unsupported_compression_method")
             if item.compress_size == 0 and item.file_size > 0:
                 raise ValueError("archive_invalid_compression_size")
             if item.compress_size and item.file_size > item.compress_size * 1000:

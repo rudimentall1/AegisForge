@@ -172,6 +172,36 @@ def _validate_local_compression_method(
         data_offset = item.header_offset + 30 + name_length + extra_length
         if data_offset > payload_limit or item.compress_size > payload_limit - data_offset:
             raise ValueError("archive_invalid_zip_member")
+        if local_flags & 0x08:
+            # The central directory is authoritative for the member sizes, but
+            # the data descriptor must independently agree with those values.
+            # This verifier accepts the classic 32-bit descriptor form; ZIP64
+            # sized descriptors are outside the deliberately narrow evidence
+            # archive format and fail closed rather than being guessed at.
+            descriptor_offset = data_offset + item.compress_size
+            if descriptor_offset > payload_limit or payload_limit - descriptor_offset < 12:
+                raise ValueError("archive_invalid_zip_member")
+            stream.seek(descriptor_offset)
+            descriptor_head = stream.read(4)
+            if len(descriptor_head) != 4:
+                raise ValueError("archive_invalid_zip_member")
+            if descriptor_head == b"PK\\x07\\x08":
+                if payload_limit - descriptor_offset < 16:
+                    raise ValueError("archive_invalid_zip_member")
+                descriptor = stream.read(12)
+            else:
+                descriptor = descriptor_head + stream.read(8)
+            if len(descriptor) != 12:
+                raise ValueError("archive_invalid_zip_member")
+            descriptor_crc = int.from_bytes(descriptor[0:4], "little")
+            descriptor_compress_size = int.from_bytes(descriptor[4:8], "little")
+            descriptor_file_size = int.from_bytes(descriptor[8:12], "little")
+            if (
+                descriptor_crc != item.CRC
+                or descriptor_compress_size != item.compress_size
+                or descriptor_file_size != item.file_size
+            ):
+                raise ValueError("archive_invalid_zip_member")
 
 
 def _verify_complete_archive_snapshot(archive_path: Path) -> dict:

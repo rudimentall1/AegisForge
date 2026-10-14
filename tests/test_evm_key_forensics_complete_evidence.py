@@ -134,6 +134,18 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
         self.assertIn("metadata_run_id_format", result["failed_checks"])
         self.assertIn("metadata_run_attempt_format", result["failed_checks"])
 
+    def test_malformed_git_ref_fails_closed(self):
+        self.metadata["github_ref"] = "refs/heads/../main"
+        self.rebuild["github_ref"] = self.metadata["github_ref"]
+        self.index["workflow_ref"] = self.metadata["github_ref"]
+        self.members["complete-evidence/probe-evidence/probe-run-metadata.json"] = json.dumps(self.metadata).encode()
+        self.members["complete-evidence/independent-rebuild-report.json"] = json.dumps(self.rebuild).encode()
+        self.members["complete-evidence/combined-evidence-index.json"] = json.dumps(self.index).encode()
+        self.write_archive()
+        result = self.verify_with_stubbed_probe_check()
+        self.assertFalse(result["integrity_verified"])
+        self.assertIn("metadata_ref_format", result["failed_checks"])
+
     def test_unexpected_member_is_rejected(self):
         self.write_archive(extra="complete-evidence/extra.txt")
         with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact") as verifier:

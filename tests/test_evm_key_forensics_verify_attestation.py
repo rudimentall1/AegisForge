@@ -304,5 +304,16 @@ class VerifyAttestationTests(unittest.TestCase):
             self.verify(json.dumps(report))
 
 
+    def test_attestation_report_size_limit_fails(self):
+        from tools.evm_key_forensics.verify_attestation import MAX_ATTESTATION_REPORT_BYTES
+        oversized = " " * (MAX_ATTESTATION_REPORT_BYTES + 1)
+        with self.assertRaisesRegex(ValueError, "attestation_report_exceeds_size_limit"):
+            self.verify(oversized)
+
+    def test_nonstandard_json_constant_in_attestation_report_fails(self):
+        with self.assertRaisesRegex(ValueError, "nonstandard_json_constant:NaN"):
+            self.verify("[NaN]")
+
+
 if __name__ == "__main__":
     unittest.main()

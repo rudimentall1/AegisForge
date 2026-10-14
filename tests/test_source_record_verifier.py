@@ -113,3 +113,25 @@ def test_rejects_non_byte_source():
             record_for(), "not bytes", expected_repository=REPOSITORY,
             expected_commit_sha=COMMIT, expected_path=PATH,
         )
+
+
+
+def test_uses_git_lf_line_boundaries_not_unicode_or_bare_cr_separators():
+    source = "alpha\u2028still line one\rbeta\nlast line".encode("utf-8")
+    excerpt = "last line"
+    record = {
+        "repository": REPOSITORY,
+        "commit_sha": COMMIT,
+        "path": PATH,
+        "start_line": 2,
+        "end_line": 2,
+        "git_blob_sha": git_blob_sha(source),
+        "excerpt_sha256": hashlib.sha256(excerpt.encode()).hexdigest(),
+        "excerpt": excerpt,
+        "limitations": ["Hash matching does not establish source authenticity or independent provenance."],
+    }
+    result = verify_source_record_against_bytes(
+        record, source, expected_repository=REPOSITORY,
+        expected_commit_sha=COMMIT, expected_path=PATH,
+    )
+    assert result["valid"] is True

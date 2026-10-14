@@ -111,6 +111,13 @@ class SourceDossierValidatorTests(unittest.TestCase):
         data["claim_register"][1]["id"] = "SRC-001"
         self.assertIn("claim_register_ids_mismatch", validate_dossier(data))
 
+    def test_cli_rejects_oversized_dossier(self):
+        from tools.evm_key_forensics.validate_source_dossier import MAX_DOSSIER_BYTES
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "dossier.json"
+            path.write_bytes(b" " * (MAX_DOSSIER_BYTES + 1))
+            self.assertEqual(main([str(path)]), 2)
+
     def test_cli_rejects_duplicate_json_keys(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "dossier.json"

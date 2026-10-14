@@ -37,6 +37,18 @@ def _is_finite_nonnegative_number(value) -> bool:
         return False
 
 
+def _is_positive_ascii_decimal(value: object, *, max_digits: int) -> bool:
+    # Bound the string before int() so malformed manifests cannot trigger
+    # interpreter digit-limit errors or expensive integer conversions.
+    return (
+        isinstance(value, str)
+        and value.isascii()
+        and value.isdigit()
+        and len(value) <= max_digits
+        and any(char != "0" for char in value)
+    )
+
+
 # Probe manifests are expected to be small. Bound untrusted JSON before
 # decoding so verification cannot be used to force an unbounded allocation.
 MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
@@ -309,15 +321,11 @@ def verify_artifact(root: Path) -> dict:
                 and all(char in "0123456789abcdef" for char in metadata["pull_request_head_sha"])
             )
         ),
-        "run_id_recorded": (
-            isinstance(metadata.get("github_run_id"), str)
-            and metadata["github_run_id"].isdigit()
-            and int(metadata["github_run_id"]) > 0
+        "run_id_recorded": _is_positive_ascii_decimal(
+            metadata.get("github_run_id"), max_digits=20
         ),
-        "run_attempt_recorded": (
-            isinstance(metadata.get("github_run_attempt"), str)
-            and metadata["github_run_attempt"].isdigit()
-            and int(metadata["github_run_attempt"]) > 0
+        "run_attempt_recorded": _is_positive_ascii_decimal(
+            metadata.get("github_run_attempt"), max_digits=6
         ),
         "runner_environment_recorded": isinstance(metadata.get("runner_os"), str) and bool(metadata["runner_os"].strip()),
         "compiler_recorded": isinstance(metadata.get("compiler_version"), str) and bool(metadata["compiler_version"].strip()),

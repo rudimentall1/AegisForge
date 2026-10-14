@@ -119,3 +119,32 @@ def test_rejects_malformed_blob_pin(committed_repo):
     repo, commit, _ = committed_repo
     with pytest.raises(GitSourcePinError, match="expected_blob_sha_invalid"):
         verify(repo, commit, "not-a-sha")
+
+def test_treats_glob_characters_as_literal_path(committed_repo):
+    repo, commit, blob = committed_repo
+    with pytest.raises(GitSourcePinError, match="git_object_unavailable"):
+        verify(repo, commit, blob, expected_path="src/*.py")
+
+    literal_file = repo / "src" / "*.py"
+    literal_file.write_bytes(b"literal wildcard filename\\n")
+    git(repo, "add", "--", "src/*.py")
+    git(repo, "commit", "-m", "add literal wildcard filename")
+    commit = git(repo, "rev-parse", "HEAD")
+    blob = git(repo, "rev-parse", f"{commit}:src/*.py")
+
+    result = verify(repo, commit, blob, expected_path="src/*.py")
+    assert result["valid"] is True
+    assert result["path"] == "src/*.py"
+
+
+def test_ignores_inherited_git_dir_environment(committed_repo, tmp_path, monkeypatch):
+    repo, commit, blob = committed_repo
+    other_repo = tmp_path / "other"
+    other_repo.mkdir()
+    git_init = subprocess.run(["git", "init", str(other_repo)], check=True, capture_output=True)
+    monkeypatch.setenv("GIT_DIR", str(other_repo / ".git"))
+
+    result = verify(repo, commit, blob)
+    assert result["valid"] is True
+    assert result["commit_sha"] == commit
+

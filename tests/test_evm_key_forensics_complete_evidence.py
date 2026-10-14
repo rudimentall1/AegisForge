@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import stat
 import tempfile
@@ -404,6 +405,51 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
         with patch.object(verifier, "MAX_ARCHIVE_BYTES", 3):
             with self.assertRaisesRegex(ValueError, "archive_exceeds_size_limit"):
                 verifier.verify_complete_archive(self.archive)
+
+    def test_data_descriptor_fields_are_validated(self):
+        from tools.evm_key_forensics.verify_complete_evidence import (
+            _validate_local_compression_method,
+        )
+
+        class NonSeekableBuffer(io.BytesIO):
+            def seekable(self):
+                return False
+
+            def seek(self, *args, **kwargs):
+                raise io.UnsupportedOperation("non-seekable test stream")
+
+        buffer = NonSeekableBuffer()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("probe-source.cpp", b"synthetic fixture payload")
+        archive_path = self.root / "descriptor.zip"
+        archive_path.write_bytes(buffer.getvalue())
+
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            info = zf.getinfo("probe-source.cpp")
+            central_directory_offset = zf.start_dir
+            self.assertTrue(info.flag_bits & 0x08)
+            _validate_local_compression_method(
+                archive_path, info, central_directory_offset=central_directory_offset
+            )
+            descriptor_offset = (
+                info.header_offset + 30 + len(info.filename.encode("cp437"))
+                + len(info.extra) + info.compress_size
+            )
+
+        # Python's writer emits the optional descriptor signature before CRC.
+        with archive_path.open("r+b") as stream:
+            stream.seek(descriptor_offset)
+            signature = stream.read(4)
+            self.assertEqual(signature, b"PK\x07\x08")
+            stream.seek(descriptor_offset + 4)
+            stream.write(b"\x00\x00\x00\x00")
+
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            info = zf.getinfo("probe-source.cpp")
+            with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):
+                _validate_local_compression_method(
+                    archive_path, info, central_directory_offset=zf.start_dir
+                )
 
     def test_local_crc_and_size_fields_must_match_central_directory(self):
         member = "complete-evidence/probe-evidence/probe-source.cpp"

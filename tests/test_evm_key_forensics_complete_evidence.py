@@ -408,9 +408,9 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
     def test_local_crc_and_size_fields_must_match_central_directory(self):
         member = "complete-evidence/probe-evidence/probe-source.cpp"
         fields = (
-            ("CRC", 14, b"\\x00\\x00\\x00\\x00"),
-            ("compressed size", 18, b"\\x01\\x00\\x00\\x00"),
-            ("uncompressed size", 22, b"\\x01\\x00\\x00\\x00"),
+            ("CRC", 14, b"\x00\x00\x00\x00"),
+            ("compressed size", 18, b"\x01\x00\x00\x00"),
+            ("uncompressed size", 22, b"\x01\x00\x00\x00"),
         )
         for label, offset, replacement in fields:
             with self.subTest(field=label):
@@ -420,7 +420,7 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
                     original = self.archive.read_bytes()
                     current = original[info.header_offset + offset:info.header_offset + offset + 4]
                 if current == replacement:
-                    replacement = b"\\x02\\x00\\x00\\x00"
+                    replacement = b"\x02\x00\x00\x00"
                 with self.archive.open("r+b") as stream:
                     stream.seek(info.header_offset + offset)
                     stream.write(replacement)

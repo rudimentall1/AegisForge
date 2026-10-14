@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -260,15 +262,30 @@ def verify_attestation(
     with tempfile.TemporaryDirectory(prefix="evm-key-forensics-attestation-") as temp_dir:
         snapshot = Path(temp_dir) / archive_path.name
         total = 0
-        with archive_path.open("rb") as source, snapshot.open("xb") as dest:
-            while True:
-                chunk = source.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > MAX_ARCHIVE_BYTES:
-                    raise ValueError("archive_exceeds_size_limit")
-                dest.write(chunk)
+        # O_NOFOLLOW closes the check/open race on platforms that support it.
+        # fstat validates the opened descriptor rather than trusting path metadata.
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            source_fd = os.open(archive_path, flags)
+        except OSError as exc:
+            raise ValueError("archive_must_be_regular_file") from exc
+        try:
+            if not stat.S_ISREG(os.fstat(source_fd).st_mode):
+                raise ValueError("archive_must_be_regular_file")
+            with os.fdopen(source_fd, "rb") as source:
+                source_fd = -1
+                with snapshot.open("xb") as dest:
+                    while True:
+                        chunk = source.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > MAX_ARCHIVE_BYTES:
+                            raise ValueError("archive_exceeds_size_limit")
+                        dest.write(chunk)
+        finally:
+            if source_fd >= 0:
+                os.close(source_fd)
         return _verify_attestation_snapshot(
             snapshot,
             expected_sha=expected_sha,

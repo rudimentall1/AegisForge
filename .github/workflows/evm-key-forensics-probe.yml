@@ -596,6 +596,16 @@ jobs:
               predicate = statement.get("predicate", {})
               subjects = statement.get("subject", [])
               workflow = predicate.get("buildDefinition", {}).get("externalParameters", {}).get("workflow", {})
+              run_details = predicate.get("runDetails", {})
+              run_metadata = run_details.get("metadata", {}) if isinstance(run_details, dict) else {}
+              expected_invocation_id = (
+                  "https://github.com/rudimentall1/AegisForge/actions/runs/"
+                  + expected_run_id + "/attempts/" + expected_attempt
+              )
+              invocation_matches = (
+                  isinstance(run_metadata, dict)
+                  and run_metadata.get("invocationId") == expected_invocation_id
+              )
               subject_matches = any(
                   subject.get("name") == archive.name and subject.get("digest", {}).get("sha256") == archive_sha
                   for subject in subjects
@@ -608,6 +618,7 @@ jobs:
                   and workflow.get("path") == ".github/workflows/evm-key-forensics-probe.yml"
                   and workflow.get("repository") == "https://github.com/rudimentall1/AegisForge"
                   and workflow.get("ref") == expected_ref
+                  and invocation_matches
                   and subject_matches
               ):
                   matched = True

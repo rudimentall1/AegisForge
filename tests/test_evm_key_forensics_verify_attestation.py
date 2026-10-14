@@ -218,6 +218,34 @@ class VerifyAttestationTests(unittest.TestCase):
         with self.assertRaises(json.JSONDecodeError):
             self.verify()
 
+    def test_nonstandard_json_constant_in_metadata_fails(self):
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.writestr(
+                "complete-evidence/probe-evidence/probe-run-metadata.json",
+                '{"git_commit":"' + self.sha + '","unexpected":NaN}',
+            )
+        with self.assertRaisesRegex(ValueError, "nonstandard_json_constant:NaN"):
+            self.verify()
+
+    def test_invalid_utf8_metadata_fails_cleanly(self):
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.writestr(
+                "complete-evidence/probe-evidence/probe-run-metadata.json",
+                b'{"metadata":"\\xff"}',
+            )
+        with self.assertRaisesRegex(ValueError, "probe_metadata_invalid_utf8"):
+            self.verify()
+
+    def test_deeply_nested_metadata_fails_cleanly(self):
+        nested = "[" * 2000 + "0" + "]" * 2000
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.writestr(
+                "complete-evidence/probe-evidence/probe-run-metadata.json",
+                nested,
+            )
+        with self.assertRaisesRegex(ValueError, "probe_metadata_nesting_limit_exceeded"):
+            self.verify()
+
     def test_metadata_size_limit_fails(self):
         with zipfile.ZipFile(self.archive, "w") as archive:
             archive.writestr(

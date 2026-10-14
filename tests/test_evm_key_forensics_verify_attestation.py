@@ -520,5 +520,32 @@ class VerifyAttestationTests(unittest.TestCase):
         process.wait.assert_called_once_with(timeout=120)
 
 
+    @patch("tools.evm_key_forensics.verify_attestation.threading.Thread")
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
+    def test_cli_stdout_reader_join_is_bounded(self, run, thread_factory):
+        process = run.return_value
+        process.stdout = io.BytesIO(b"")
+        process.wait.return_value = 0
+        reader = thread_factory.return_value
+        reader.is_alive.return_value = True
+
+        with self.assertRaisesRegex(
+            ValueError, "github_cli_stdout_drain_timed_out"
+        ):
+            verify_attestation(
+                self.archive,
+                expected_sha=self.sha,
+                expected_ref=self.ref,
+                expected_run_id=self.run_id,
+                expected_attempt=self.attempt,
+                expected_trigger=self.trigger,
+            )
+
+        self.assertEqual(reader.join.call_args_list[0].args, ())
+        self.assertEqual(reader.join.call_args_list[0].kwargs, {"timeout": 2})
+        self.assertEqual(reader.join.call_args_list[1].kwargs, {"timeout": 1})
+        process.wait.assert_called_once_with(timeout=120)
+
+
 if __name__ == "__main__":
     unittest.main()

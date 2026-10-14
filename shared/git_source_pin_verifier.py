@@ -5,6 +5,7 @@ object database resolves a file at an exact commit to the expected blob bytes.
 It does not authenticate the repository owner or establish independent provenance.
 """
 import hashlib
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -67,14 +68,35 @@ def verify_git_source_pin(
     if commit != expected_commit_sha:
         raise GitSourcePinError("commit_sha_mismatch")
 
-    object_spec = f"{expected_commit_sha}:{expected_path}"
-    blob_sha = _git(repo_path, "rev-parse", "--verify", object_spec).decode("ascii").strip()
+    tree_output = _git(
+        repo_path,
+        "ls-tree",
+        "-z",
+        "--full-tree",
+        commit,
+        "--",
+        f":(literal){expected_path}",
+    )
+    records = [record for record in tree_output.split(b"\\0") if record]
+    if len(records) != 1 or b"\\t" not in records[0]:
+        raise GitSourcePinError("git_path_not_single_file")
+    header, actual_path = records[0].split(b"\\t", 1)
+    fields = header.split(b" ")
+    if len(fields) != 3 or actual_path != os.fsencode(expected_path):
+        raise GitSourcePinError("git_path_entry_mismatch")
+    mode, object_type, blob_bytes = fields
+    if mode not in (b"100644", b"100755") or object_type != b"blob":
+        raise GitSourcePinError("git_path_not_regular_file")
+    try:
+        blob_sha = blob_bytes.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise GitSourcePinError("git_blob_sha_invalid") from exc
     if not _SHA1_RE.fullmatch(blob_sha):
         raise GitSourcePinError("git_blob_sha_invalid")
     if blob_sha != expected_blob_sha:
         raise GitSourcePinError("git_blob_sha_mismatch")
 
-    content = _git(repo_path, "cat-file", "blob", object_spec)
+    content = _git(repo_path, "cat-file", "blob", blob_sha)
     actual_blob_sha = hashlib.sha1(
         b"blob " + str(len(content)).encode("ascii") + b"\0" + content
     ).hexdigest()

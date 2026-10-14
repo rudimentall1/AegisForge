@@ -296,6 +296,32 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
                 verify_complete_archive(self.archive)
             verifier.assert_not_called()
 
+    def test_local_header_name_mismatch_is_rejected_by_header_validator(self):
+        from tools.evm_key_forensics.verify_complete_evidence import (
+            _validate_local_compression_method,
+        )
+
+        member = "complete-evidence/probe-evidence/probe-source.cpp"
+        with zipfile.ZipFile(self.archive, "r") as zf:
+            info = zf.getinfo(member)
+        with self.archive.open("r+b") as stream:
+            stream.seek(info.header_offset + 30)
+            stream.write(b"X")
+        with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):
+            _validate_local_compression_method(self.archive, info)
+
+    def test_local_header_payload_bounds_are_checked(self):
+        from tools.evm_key_forensics.verify_complete_evidence import (
+            _validate_local_compression_method,
+        )
+
+        member = "complete-evidence/probe-evidence/probe-source.cpp"
+        with zipfile.ZipFile(self.archive, "r") as zf:
+            info = zf.getinfo(member)
+        with patch.object(info, "compress_size", self.archive.stat().st_size):
+            with self.assertRaisesRegex(ValueError, "archive_invalid_zip_member"):
+                _validate_local_compression_method(self.archive, info)
+
     def test_extreme_compression_ratio_is_rejected(self):
         self.members["complete-evidence/probe-evidence/probe-source.cpp"] = b"A" * (2 * 1024 * 1024)
         self.write_archive()

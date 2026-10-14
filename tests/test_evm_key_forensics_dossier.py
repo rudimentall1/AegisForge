@@ -100,6 +100,12 @@ class SourceDossierValidatorTests(unittest.TestCase):
         self.assertIn("source_to_binary_provenance_must_not_be_overstated", errors)
         self.assertIn("source_review_runner_attestation_must_remain_not_implemented", errors)
 
+    def test_evidence_package_attestation_scope_cannot_be_overstated(self):
+        data = copy.deepcopy(DOSSIER)
+        data["verification_contract"]["evidence_package_github_attestation"] = "VERIFIED"
+        errors = validate_dossier(data)
+        self.assertIn("evidence_package_attestation_scope_must_be_explicit", errors)
+
     def test_duplicate_claim_ids_fail(self):
         data = copy.deepcopy(DOSSIER)
         data["claim_register"][1]["id"] = "SRC-001"

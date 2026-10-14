@@ -69,6 +69,7 @@ jobs:
           git clone --filter=blob:none --no-checkout https://github.com/johguse/profanity.git /tmp/profanity-source-review
           git -C /tmp/profanity-source-review fetch --depth=1 origin 0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6
           git -C /tmp/profanity-source-review fetch --depth=1 origin 186b9b27ab3e24a1899f648adcabcbf0e5f3131e
+          python tools/evm_key_forensics/independent_source_body_review.py --repo /tmp/profanity-source-review > /tmp/independent-source-body-review.json
           python - <<'PY'
           from shared.git_source_pin_verifier import verify_git_source_pin
 
@@ -131,7 +132,6 @@ jobs:
           )
           print("Pinned Git objects match declared commit/path/blob coordinates; provenance remains unverified.")
           PY
-          python tools/evm_key_forensics/independent_source_body_review.py --repo /tmp/profanity-source-review > /tmp/independent-source-body-review.json
           cat /tmp/independent-source-body-review.json
           python - <<'PY'
           import json

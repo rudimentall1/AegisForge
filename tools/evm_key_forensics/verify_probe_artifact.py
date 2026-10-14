@@ -26,6 +26,17 @@ def _reject_nonstandard_constant(value):
     raise ValueError(f"nonstandard_json_constant:{value}")
 
 
+def _is_finite_nonnegative_number(value) -> bool:
+    if type(value) not in (int, float) or value < 0:
+        return False
+    try:
+        return math.isfinite(value)
+    except (OverflowError, TypeError, ValueError):
+        # A syntactically valid JSON integer can still be too large to convert
+        # to float. Treat it as invalid evidence, not a verifier crash.
+        return False
+
+
 # Probe manifests are expected to be small. Bound untrusted JSON before
 # decoding so verification cannot be used to force an unbounded allocation.
 MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
@@ -163,11 +174,7 @@ def verify_artifact(root: Path) -> dict:
         "sample_count_in_bounds": type(samples) is int and 1 <= samples <= 10000,
         "distinct_count_in_bounds": type(distinct) is int and type(samples) is int and 1 <= distinct <= samples,
         "result_type_width_valid": type(type_bits) is int and type_bits > 0,
-        "reported_entropy_is_finite_nonnegative": (
-            type(reported_entropy) in (int, float)
-            and math.isfinite(reported_entropy)
-            and reported_entropy >= 0
-        ),
+        "reported_entropy_is_finite_nonnegative": _is_finite_nonnegative_number(reported_entropy),
         "source_nonempty": source_path.is_file() and source_path.stat().st_size > 0,
         "binary_nonempty": binary_path.is_file() and binary_path.stat().st_size > 0,
         "repeat_binary_nonempty": repeat_binary_path.is_file() and repeat_binary_path.stat().st_size > 0,

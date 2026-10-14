@@ -122,7 +122,7 @@ class VerifyAttestationTests(unittest.TestCase):
     def test_empty_attestation_report_fails(self):
         self.assertRaisesRegex(
             ValueError, "github_cli_returned_no_verified_attestations",
-            self.verify("[]"),
+            self.verify, "[]",
         )
 
     @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")

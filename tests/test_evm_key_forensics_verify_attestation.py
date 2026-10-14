@@ -406,6 +406,29 @@ class VerifyAttestationTests(unittest.TestCase):
             )
 
 
+    @patch("tools.evm_key_forensics.verify_attestation.subprocess.Popen")
+    def test_cli_process_reap_timeout_is_bounded(self, run):
+        import subprocess
+
+        process = run.return_value
+        process.stdout = io.BytesIO(b"")
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd=["gh"], timeout=120),
+            subprocess.TimeoutExpired(cmd=["gh"], timeout=5),
+        ]
+        with self.assertRaisesRegex(ValueError, "github_cli_process_reap_timed_out"):
+            verify_attestation(
+                self.archive,
+                expected_sha=self.sha,
+                expected_ref=self.ref,
+                expected_run_id=self.run_id,
+                expected_attempt=self.attempt,
+                expected_trigger=self.trigger,
+            )
+
+        process.kill.assert_called_once()
+        self.assertEqual(process.wait.call_args_list[1].kwargs, {"timeout": 5})
+
     def test_missing_invocation_id_fails_closed(self):
         report = json.loads(self.report)
         del report[0]["verificationResult"]["statement"]["predicate"]["runDetails"]["metadata"]["invocationId"]

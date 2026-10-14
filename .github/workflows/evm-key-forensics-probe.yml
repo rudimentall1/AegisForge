@@ -8,6 +8,7 @@ on:
       - "tests/test_evm_key_forensics_probe_artifact.py"
       - "tests/test_evm_key_forensics_complete_evidence.py"
       - "tests/test_evm_key_forensics_source_report.py"
+      - "tests/test_evm_key_forensics_verify_attestation.py"
       - ".github/workflows/evm-key-forensics-probe.yml"
 
 permissions:

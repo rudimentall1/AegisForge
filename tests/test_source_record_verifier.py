@@ -135,3 +135,13 @@ def test_uses_git_lf_line_boundaries_not_unicode_or_bare_cr_separators():
         expected_commit_sha=COMMIT, expected_path=PATH,
     )
     assert result["valid"] is True
+
+def test_rejects_source_bytes_over_limit_before_hashing():
+    from shared.source_record_verifier import MAX_SOURCE_RECORD_BYTES
+
+    source = b"x" * (MAX_SOURCE_RECORD_BYTES + 1)
+    with pytest.raises(SourceRecordVerificationError, match="source_bytes_exceed_size_limit"):
+        verify_source_record_against_bytes(
+            record_for(), source, expected_repository=REPOSITORY,
+            expected_commit_sha=COMMIT, expected_path=PATH,
+        )

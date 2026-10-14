@@ -205,6 +205,29 @@ def verify_complete_archive(archive_path: Path) -> dict:
                 "github_ref": "workflow_ref",
             }
             checks = {
+                "metadata_schema_supported": type(metadata.get("schema_version")) is int and metadata.get("schema_version") == 1,
+                "metadata_commit_sha_format": (
+                    isinstance(metadata.get("git_commit"), str)
+                    and len(metadata["git_commit"]) == 40
+                    and all(char in "0123456789abcdef" for char in metadata["git_commit"])
+                ),
+                "metadata_run_id_format": (
+                    isinstance(metadata.get("github_run_id"), str)
+                    and metadata["github_run_id"].isascii()
+                    and metadata["github_run_id"].isdigit()
+                    and int(metadata["github_run_id"]) > 0
+                ),
+                "metadata_run_attempt_format": (
+                    isinstance(metadata.get("github_run_attempt"), str)
+                    and metadata["github_run_attempt"].isascii()
+                    and metadata["github_run_attempt"].isdigit()
+                    and int(metadata["github_run_attempt"]) > 0
+                ),
+                "metadata_ref_format": (
+                    isinstance(metadata.get("github_ref"), str)
+                    and metadata["github_ref"].startswith("refs/")
+                    and len(metadata["github_ref"]) > len("refs/")
+                ),
                 "index_schema_supported": type(index.get("schema_version")) is int and index.get("schema_version") == 1,
                 "index_conclusion_pass": index.get("conclusion") == "PASS",
                 "index_marks_cross_linkage": index.get("probe_and_rebuild_evidence_consistent") is True,

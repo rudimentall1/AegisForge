@@ -172,11 +172,12 @@ def _verify_attestation_snapshot(
             process.kill()
             process.wait()
             reader.join()
-            raise ValueError("github_cli_attestation_verification_timed_out") from exc
-        finally:
             if process.stdout is not None:
                 process.stdout.close()
+            raise ValueError("github_cli_attestation_verification_timed_out") from exc
         reader.join()
+        if process.stdout is not None:
+            process.stdout.close()
 
         if output_state["overflow"]:
             raise ValueError("attestation_report_exceeds_size_limit")

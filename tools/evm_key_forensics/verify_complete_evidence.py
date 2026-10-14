@@ -120,9 +120,19 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _validate_local_compression_method(archive_path: Path, item: zipfile.ZipInfo) -> None:
-    """Validate local-header identity and bounds against central-directory metadata."""
+def _validate_local_compression_method(
+    archive_path: Path,
+    item: zipfile.ZipInfo,
+    *,
+    central_directory_offset: int | None = None,
+) -> None:
+    """Validate local-header identity and payload bounds against ZIP metadata."""
     archive_size = archive_path.stat().st_size
+    if item.header_offset < 0 or item.header_offset > archive_size - 30:
+        raise ValueError("archive_invalid_zip_member")
+    payload_limit = archive_size if central_directory_offset is None else central_directory_offset
+    if payload_limit < 0 or payload_limit > archive_size:
+        raise ValueError("archive_invalid_zip_member")
     with archive_path.open("rb") as stream:
         stream.seek(item.header_offset)
         header = stream.read(30)
@@ -147,7 +157,7 @@ def _validate_local_compression_method(archive_path: Path, item: zipfile.ZipInfo
         if local_name != item.filename:
             raise ValueError("archive_invalid_zip_member")
         data_offset = item.header_offset + 30 + name_length + extra_length
-        if data_offset > archive_size or item.compress_size > archive_size - data_offset:
+        if data_offset > payload_limit or item.compress_size > payload_limit - data_offset:
             raise ValueError("archive_invalid_zip_member")
 
 
@@ -228,7 +238,9 @@ def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
                 # extractall() on this untrusted archive.
                 written = 0
                 try:
-                    _validate_local_compression_method(archive_path, item)
+                    _validate_local_compression_method(
+                        archive_path, item, central_directory_offset=archive.start_dir
+                    )
                     with archive.open(item, "r") as source, target.open("xb") as dest:
                         while True:
                             chunk = source.read(1024 * 1024)

@@ -64,6 +64,17 @@ class SourceDossierValidatorTests(unittest.TestCase):
     def test_valid_dossier_passes(self):
         self.assertEqual(validate_dossier(copy.deepcopy(DOSSIER)), [])
 
+    def test_checked_in_dossier_passes(self):
+        dossier_path = (
+            Path(__file__).resolve().parents[1]
+            / "docs"
+            / "research"
+            / "evm-key-forensics"
+            / "SOURCE_EVIDENCE_DOSSIER.json"
+        )
+        data = json.loads(dossier_path.read_text(encoding="utf-8"))
+        self.assertEqual(validate_dossier(data), [])
+
     def test_commit_or_blob_mutation_fails_closed(self):
         data = copy.deepcopy(DOSSIER)
         data["reviewed_upstream"]["files"][0]["commit"] = "f" * 40

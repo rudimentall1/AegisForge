@@ -348,6 +348,23 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.assertFalse(result["integrity_verified"])
         self.assertFalse(result["checks"]["source_report_does_not_claim_source_binary_provenance"])
 
+    def test_extremely_large_reported_entropy_fails_without_crashing(self):
+        output_path = self.root / "probe-output.json"
+        raw = output_path.read_text(encoding="utf-8")
+        raw = raw.replace(
+            '"random_device_reported_entropy": 0.0',
+            '"random_device_reported_entropy": ' + ("9" * 4000),
+        )
+        output_path.write_text(raw, encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["output_sha256"] = digest(output_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["reported_entropy_is_finite_nonnegative"])
+
     def test_tampered_output_fails(self):
         with (self.root / "probe-output.json").open("a", encoding="utf-8") as stream:
             stream.write(" ")

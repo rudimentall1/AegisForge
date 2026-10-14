@@ -205,6 +205,19 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         self.assertFalse(result["integrity_verified"])
         self.assertFalse(result["checks"]["git_object_pin_verification_matches_pins"])
 
+    def test_malformed_git_pin_revision_type_fails_integrity_without_crashing(self):
+        review_path = self.root / "independent-source-body-review.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["git_object_pin_verification"]["checks"][0]["revision"] = []
+        review_path.write_text(json.dumps(review), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["independent_source_body_review_sha256"] = digest(review_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["git_object_pin_verification_matches_pins"])
+
     def test_git_object_pin_report_does_not_claim_provenance(self):
         review_path = self.root / "independent-source-body-review.json"
         review = json.loads(review_path.read_text(encoding="utf-8"))

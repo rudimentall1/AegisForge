@@ -125,7 +125,7 @@ def _validate_local_compression_method(archive_path: Path, item: zipfile.ZipInfo
     with archive_path.open("rb") as stream:
         stream.seek(item.header_offset)
         header = stream.read(30)
-    if len(header) != 30 or header[:4] != b"PK\\x03\\x04":
+    if len(header) != 30 or header[:4] != b"PK\x03\x04":
         raise ValueError("archive_invalid_zip_member")
     local_method = int.from_bytes(header[8:10], "little")
     if local_method != item.compress_type:

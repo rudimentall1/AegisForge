@@ -17,6 +17,7 @@ class GitSourcePinError(ValueError):
 
 
 _SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
+MAX_SOURCE_BLOB_BYTES = 16 * 1024 * 1024
 
 
 def _git(repo_path, *args):
@@ -111,7 +112,19 @@ def verify_git_source_pin(
     if blob_sha != expected_blob_sha:
         raise GitSourcePinError("git_blob_sha_mismatch")
 
+    size_output = _git(repo_path, "cat-file", "-s", blob_sha)
+    try:
+        blob_size = int(size_output.decode("ascii").strip())
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise GitSourcePinError("git_blob_size_invalid") from exc
+    if blob_size < 0:
+        raise GitSourcePinError("git_blob_size_invalid")
+    if blob_size > MAX_SOURCE_BLOB_BYTES:
+        raise GitSourcePinError("git_blob_size_limit_exceeded")
+
     content = _git(repo_path, "cat-file", "blob", blob_sha)
+    if len(content) != blob_size:
+        raise GitSourcePinError("git_blob_size_mismatch")
     actual_blob_sha = hashlib.sha1(
         b"blob " + str(len(content)).encode("ascii") + b"\0" + content
     ).hexdigest()

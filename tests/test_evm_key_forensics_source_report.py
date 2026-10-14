@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from tools.evm_key_forensics.build_source_evidence_report import build_report, main
+from tools.evm_key_forensics.build_source_evidence_report import MAX_INPUT_BYTES, build_report, main
 
 PRE = {
     "schema_version": 1,
@@ -115,3 +115,12 @@ def test_invalid_function_body_fingerprint_is_rejected():
     report = build_report(changed, copy.deepcopy(POST))
     assert "pre-disclosure:invalid_function_body_sha256" in report["validation_errors"]
     assert report["overall_conclusion"] == "INCONCLUSIVE"
+
+
+def test_cli_rejects_oversized_result_without_unbounded_read(tmp_path, capsys):
+    pre = tmp_path / "pre.json"
+    post = tmp_path / "post.json"
+    pre.write_bytes(b" " * (MAX_INPUT_BYTES + 1))
+    post.write_text(json.dumps(POST), encoding="utf-8")
+    assert main([str(pre), str(post)]) == 2
+    assert "input_exceeds_size_limit" in capsys.readouterr().out

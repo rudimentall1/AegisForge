@@ -181,5 +181,20 @@ class VerifyAttestationTests(unittest.TestCase):
             self.verify()
 
 
+    def test_duplicate_metadata_json_key_fails(self):
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.writestr(
+                "complete-evidence/probe-evidence/probe-run-metadata.json",
+                '{"git_commit":"' + self.sha + '","git_commit":"' + self.sha + '"}',
+            )
+        with self.assertRaisesRegex(ValueError, "duplicate_json_key:git_commit"):
+            self.verify()
+
+    def test_duplicate_attestation_report_json_key_fails(self):
+        report = '[{"verificationResult":{},"verificationResult":{}}]'
+        with self.assertRaisesRegex(ValueError, "duplicate_json_key:verificationResult"):
+            self.verify(report)
+
+
 if __name__ == "__main__":
     unittest.main()

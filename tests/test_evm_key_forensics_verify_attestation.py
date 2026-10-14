@@ -307,6 +307,7 @@ class VerifyAttestationTests(unittest.TestCase):
                 expected_ref=self.ref,
                 expected_run_id=self.run_id,
                 expected_attempt=self.attempt,
+                expected_trigger=self.trigger,
             )
 
     @patch("tools.evm_key_forensics.verify_attestation.subprocess.run")
@@ -320,6 +321,7 @@ class VerifyAttestationTests(unittest.TestCase):
                 expected_ref=self.ref,
                 expected_run_id=self.run_id,
                 expected_attempt=self.attempt,
+                expected_trigger=self.trigger,
             )
 
 
@@ -373,6 +375,7 @@ class VerifyAttestationTests(unittest.TestCase):
                     expected_ref=self.ref,
                     expected_run_id=self.run_id,
                     expected_attempt=self.attempt,
+                    expected_trigger=self.trigger,
                     gh_output=self.report,
                 )
 

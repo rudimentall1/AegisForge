@@ -19,11 +19,13 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
 
 jobs:
   compile-and-smoke-test:
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -492,6 +494,10 @@ jobs:
           retention-days: 30
 
   publish-complete-evidence:
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     needs:
       - compile-and-smoke-test
       - independent-clean-runner-rebuild

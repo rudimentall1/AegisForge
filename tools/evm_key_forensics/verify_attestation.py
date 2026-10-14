@@ -20,6 +20,7 @@ from pathlib import Path
 WORKFLOW_REPOSITORY = "rudimentall1/AegisForge"
 WORKFLOW_NAME = "EVM Key Forensics Probe"
 WORKFLOW_PATH = ".github/workflows/evm-key-forensics-probe.yml"
+ALLOWED_WORKFLOW_TRIGGERS = {"pull_request", "workflow_dispatch"}
 ARCHIVE_MEMBER = "complete-evidence/probe-evidence/probe-run-metadata.json"
 MAX_ARCHIVE_BYTES = 140 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 16
@@ -111,6 +112,7 @@ def _verify_attestation_snapshot(
     expected_ref: str,
     expected_run_id: str,
     expected_attempt: str,
+    expected_trigger: str,
     gh_output: str | None = None,
 ) -> dict:
     if archive_path.is_symlink() or not archive_path.is_file():
@@ -121,7 +123,9 @@ def _verify_attestation_snapshot(
             result = subprocess.run(
                 [
                     "gh", "attestation", "verify", str(archive_path),
-                    "--repo", WORKFLOW_REPOSITORY, "--format", "json",
+                    "--repo", WORKFLOW_REPOSITORY,
+                    "--signer-workflow", f"{WORKFLOW_REPOSITORY}/{WORKFLOW_PATH}",
+                    "--format", "json",
                 ],
                 check=False,
                 capture_output=True,
@@ -136,6 +140,8 @@ def _verify_attestation_snapshot(
             raise ValueError("github_cli_attestation_verification_failed")
         gh_output = result.stdout
 
+    if expected_trigger not in ALLOWED_WORKFLOW_TRIGGERS:
+        raise ValueError("unsupported_expected_workflow_trigger")
     if len(gh_output.encode("utf-8")) > MAX_ATTESTATION_REPORT_BYTES:
         raise ValueError("attestation_report_exceeds_size_limit")
     try:
@@ -207,6 +213,7 @@ def _verify_attestation_snapshot(
             and certificate.get("githubWorkflowName") == WORKFLOW_NAME
             and certificate.get("githubWorkflowSHA") == expected_sha
             and certificate.get("githubWorkflowRef") == expected_ref
+            and certificate.get("githubWorkflowTrigger") == expected_trigger
             and isinstance(workflow, dict)
             and workflow.get("path") == WORKFLOW_PATH
             and workflow.get("repository") == "https://github.com/" + WORKFLOW_REPOSITORY
@@ -226,6 +233,7 @@ def _verify_attestation_snapshot(
         "workflow": WORKFLOW_PATH,
         "workflow_sha": expected_sha,
         "workflow_ref": expected_ref,
+        "workflow_trigger": expected_trigger,
         "run_id": expected_run_id,
         "run_attempt": expected_attempt,
         "subject": archive_path.name,
@@ -243,6 +251,7 @@ def verify_attestation(
     expected_ref: str,
     expected_run_id: str,
     expected_attempt: str,
+    expected_trigger: str,
     gh_output: str | None = None,
 ) -> dict:
     """Verify attestation and metadata against the same bounded archive snapshot."""
@@ -266,6 +275,7 @@ def verify_attestation(
             expected_ref=expected_ref,
             expected_run_id=expected_run_id,
             expected_attempt=expected_attempt,
+            expected_trigger=expected_trigger,
             gh_output=gh_output,
         )
 
@@ -277,6 +287,7 @@ def main(argv=None) -> int:
     parser.add_argument("--expected-ref", required=True)
     parser.add_argument("--expected-run-id", required=True)
     parser.add_argument("--expected-attempt", required=True)
+    parser.add_argument("--expected-trigger", required=True, choices=sorted(ALLOWED_WORKFLOW_TRIGGERS))
     args = parser.parse_args(argv)
     try:
         result = verify_attestation(
@@ -285,6 +296,7 @@ def main(argv=None) -> int:
             expected_ref=args.expected_ref,
             expected_run_id=args.expected_run_id,
             expected_attempt=args.expected_attempt,
+            expected_trigger=args.expected_trigger,
         )
     except (OSError, ValueError, json.JSONDecodeError, zipfile.BadZipFile, subprocess.SubprocessError) as exc:
         print(json.dumps({"conclusion": "FAIL", "error": str(exc)}, sort_keys=True), file=sys.stderr)

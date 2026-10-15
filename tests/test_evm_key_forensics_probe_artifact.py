@@ -79,6 +79,34 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
             ],
             "same_function_body_bytes": True,
             "conclusion": "INCONCLUSIVE",
+            "git_object_pin_verification": {
+                "status": "CHECKED",
+                "repository_label": "johguse/profanity",
+                "checks": [
+                    {
+                        "revision": "pre_disclosure",
+                        "repository": "johguse/profanity",
+                        "commit_sha": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+                        "path": "Dispatcher.cpp",
+                        "git_blob_sha": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
+                        "valid": True,
+                        "git_object_match": True,
+                        "provenance_verified": False,
+                    },
+                    {
+                        "revision": "post_disclosure_archive",
+                        "repository": "johguse/profanity",
+                        "commit_sha": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+                        "path": "Dispatcher.cpp",
+                        "git_blob_sha": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
+                        "valid": True,
+                        "git_object_match": True,
+                        "provenance_verified": False,
+                    },
+                ],
+                "provenance_verified": False,
+                "note": "Local Git object consistency only; independent provenance is not established.",
+            },
         }
         (self.root / "independent-source-body-review.json").write_text(json.dumps(independent_review), encoding="utf-8")
         metadata = {
@@ -150,6 +178,71 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         result = verify_artifact(self.root)
         self.assertFalse(result["integrity_verified"])
         self.assertFalse(result["checks"]["independent_source_review_body_match_is_inconclusive"])
+
+    def test_git_object_pin_report_rejects_false_match_even_with_updated_hash(self):
+        review_path = self.root / "independent-source-body-review.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["git_object_pin_verification"]["checks"][0]["git_object_match"] = False
+        review_path.write_text(json.dumps(review), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["independent_source_body_review_sha256"] = digest(review_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["git_object_pin_verification_matches_pins"])
+
+    def test_git_object_pin_report_rejects_false_valid_flag_even_with_updated_hash(self):
+        review_path = self.root / "independent-source-body-review.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["git_object_pin_verification"]["checks"][0]["valid"] = False
+        review_path.write_text(json.dumps(review), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["independent_source_body_review_sha256"] = digest(review_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["git_object_pin_verification_matches_pins"])
+
+    def test_git_object_pin_report_rejects_missing_valid_flag_even_with_updated_hash(self):
+        review_path = self.root / "independent-source-body-review.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        del review["git_object_pin_verification"]["checks"][0]["valid"]
+        review_path.write_text(json.dumps(review), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["independent_source_body_review_sha256"] = digest(review_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["git_object_pin_verification_matches_pins"])
+
+    def test_malformed_git_pin_revision_type_fails_integrity_without_crashing(self):
+        review_path = self.root / "independent-source-body-review.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["git_object_pin_verification"]["checks"][0]["revision"] = []
+        review_path.write_text(json.dumps(review), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["independent_source_body_review_sha256"] = digest(review_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["git_object_pin_verification_matches_pins"])
+
+    def test_git_object_pin_report_does_not_claim_provenance(self):
+        review_path = self.root / "independent-source-body-review.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["git_object_pin_verification"]["provenance_verified"] = True
+        review_path.write_text(json.dumps(review), encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["independent_source_body_review_sha256"] = digest(review_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["git_object_pin_verification_schema_supported"])
 
     def test_independent_source_review_rejects_wrong_blob_even_with_updated_hash(self):
         review_path = self.root / "independent-source-body-review.json"
@@ -254,6 +347,43 @@ class ProbeArtifactVerifierTests(unittest.TestCase):
         result = verify_artifact(self.root)
         self.assertFalse(result["integrity_verified"])
         self.assertFalse(result["checks"]["source_report_does_not_claim_source_binary_provenance"])
+
+    def test_extremely_large_reported_entropy_fails_without_crashing(self):
+        output_path = self.root / "probe-output.json"
+        raw = output_path.read_text(encoding="utf-8")
+        raw = raw.replace(
+            '"random_device_reported_entropy": 0.0',
+            '"random_device_reported_entropy": ' + ("9" * 4000),
+        )
+        output_path.write_text(raw, encoding="utf-8")
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["output_sha256"] = digest(output_path)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["reported_entropy_is_finite_nonnegative"])
+
+    def test_oversized_run_id_fails_without_crashing(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["github_run_id"] = "9" * 5000
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["run_id_recorded"])
+
+    def test_non_ascii_run_attempt_is_rejected(self):
+        metadata_path = self.root / "probe-run-metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["github_run_attempt"] = "١"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = verify_artifact(self.root)
+        self.assertFalse(result["integrity_verified"])
+        self.assertFalse(result["checks"]["run_attempt_recorded"])
 
     def test_tampered_output_fails(self):
         with (self.root / "probe-output.json").open("a", encoding="utf-8") as stream:

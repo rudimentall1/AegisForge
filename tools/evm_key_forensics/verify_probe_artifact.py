@@ -26,6 +26,29 @@ def _reject_nonstandard_constant(value):
     raise ValueError(f"nonstandard_json_constant:{value}")
 
 
+def _is_finite_nonnegative_number(value) -> bool:
+    if type(value) not in (int, float) or value < 0:
+        return False
+    try:
+        return math.isfinite(value)
+    except (OverflowError, TypeError, ValueError):
+        # A syntactically valid JSON integer can still be too large to convert
+        # to float. Treat it as invalid evidence, not a verifier crash.
+        return False
+
+
+def _is_positive_ascii_decimal(value: object, *, max_digits: int) -> bool:
+    # Bound the string before int() so malformed manifests cannot trigger
+    # interpreter digit-limit errors or expensive integer conversions.
+    return (
+        isinstance(value, str)
+        and value.isascii()
+        and value.isdigit()
+        and len(value) <= max_digits
+        and any(char != "0" for char in value)
+    )
+
+
 # Probe manifests are expected to be small. Bound untrusted JSON before
 # decoding so verification cannot be used to force an unbounded allocation.
 MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
@@ -102,6 +125,29 @@ def verify_artifact(root: Path) -> dict:
     output = _load_strict_json(output_path)
     source_report = _load_strict_json(source_report_path)
     independent_review = _load_strict_json(independent_review_path)
+    git_object_pin_verification = independent_review.get("git_object_pin_verification")
+    if not isinstance(git_object_pin_verification, dict):
+        git_object_pin_verification = {}
+    git_object_checks = git_object_pin_verification.get("checks")
+    if not isinstance(git_object_checks, list):
+        git_object_checks = []
+    git_object_checks_by_revision = {
+        item["revision"]: item
+        for item in git_object_checks
+        if isinstance(item, dict) and isinstance(item.get("revision"), str)
+    }
+    expected_git_object_pins = {
+        "pre_disclosure": {
+            "commit_sha": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+            "path": "Dispatcher.cpp",
+            "git_blob_sha": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
+        },
+        "post_disclosure_archive": {
+            "commit_sha": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+            "path": "Dispatcher.cpp",
+            "git_blob_sha": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
+        },
+    }
 
     samples = output.get("samples_requested")
     distinct = output.get("distinct_values_observed")
@@ -140,11 +186,7 @@ def verify_artifact(root: Path) -> dict:
         "sample_count_in_bounds": type(samples) is int and 1 <= samples <= 10000,
         "distinct_count_in_bounds": type(distinct) is int and type(samples) is int and 1 <= distinct <= samples,
         "result_type_width_valid": type(type_bits) is int and type_bits > 0,
-        "reported_entropy_is_finite_nonnegative": (
-            type(reported_entropy) in (int, float)
-            and math.isfinite(reported_entropy)
-            and reported_entropy >= 0
-        ),
+        "reported_entropy_is_finite_nonnegative": _is_finite_nonnegative_number(reported_entropy),
         "source_nonempty": source_path.is_file() and source_path.stat().st_size > 0,
         "binary_nonempty": binary_path.is_file() and binary_path.stat().st_size > 0,
         "repeat_binary_nonempty": repeat_binary_path.is_file() and repeat_binary_path.stat().st_size > 0,
@@ -174,6 +216,28 @@ def verify_artifact(root: Path) -> dict:
             independent_review_path, max_bytes=MAX_JSON_FILE_BYTES
         ),
         "independent_source_review_schema_supported": independent_review.get("status") == "CHECKED",
+        "git_object_pin_verification_schema_supported": (
+            git_object_pin_verification.get("status") == "CHECKED"
+            and git_object_pin_verification.get("repository_label") == "johguse/profanity"
+            and git_object_pin_verification.get("provenance_verified") is False
+            and isinstance(git_object_pin_verification.get("note"), str)
+            and bool(git_object_pin_verification.get("note").strip())
+        ),
+        "git_object_pin_verification_matches_pins": (
+            len(git_object_checks) == 2
+            and set(git_object_checks_by_revision) == set(expected_git_object_pins)
+            and all(
+                git_object_checks_by_revision[revision].get("repository") == "johguse/profanity"
+                and git_object_checks_by_revision[revision].get("commit_sha") == expected["commit_sha"]
+                and git_object_checks_by_revision[revision].get("path") == expected["path"]
+                and git_object_checks_by_revision[revision].get("git_blob_sha") == expected["git_blob_sha"]
+                and git_object_checks_by_revision[revision].get("valid") is True
+                and git_object_checks_by_revision[revision].get("git_object_match") is True
+                and git_object_checks_by_revision[revision].get("provenance_verified") is False
+                for revision, expected in expected_git_object_pins.items()
+                if revision in git_object_checks_by_revision
+            )
+        ),
         "independent_source_review_pins_match": (
             isinstance(independent_review.get("revisions"), list)
             and len(independent_review["revisions"]) == 2
@@ -257,15 +321,11 @@ def verify_artifact(root: Path) -> dict:
                 and all(char in "0123456789abcdef" for char in metadata["pull_request_head_sha"])
             )
         ),
-        "run_id_recorded": (
-            isinstance(metadata.get("github_run_id"), str)
-            and metadata["github_run_id"].isdigit()
-            and int(metadata["github_run_id"]) > 0
+        "run_id_recorded": _is_positive_ascii_decimal(
+            metadata.get("github_run_id"), max_digits=20
         ),
-        "run_attempt_recorded": (
-            isinstance(metadata.get("github_run_attempt"), str)
-            and metadata["github_run_attempt"].isdigit()
-            and int(metadata["github_run_attempt"]) > 0
+        "run_attempt_recorded": _is_positive_ascii_decimal(
+            metadata.get("github_run_attempt"), max_digits=6
         ),
         "runner_environment_recorded": isinstance(metadata.get("runner_os"), str) and bool(metadata["runner_os"].strip()),
         "compiler_recorded": isinstance(metadata.get("compiler_version"), str) and bool(metadata["compiler_version"].strip()),

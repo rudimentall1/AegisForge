@@ -23,6 +23,7 @@ PINNED_REVISIONS = {
 }
 DEFAULT_REVISION = "pre-disclosure"
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
+_RAW_STRING_PREFIX_RE = re.compile(r'(?:u8|u|U|L)?R"')
 
 
 def _find_function_body(source: str, start: int) -> tuple[int | None, int | None]:
@@ -79,13 +80,13 @@ def _find_function_body(source: str, start: int) -> tuple[int | None, int | None
 
 def _raw_string_end(source: str, start: int) -> int | None:
     """Return the end offset of a C++ raw string literal, or None if absent."""
-    prefix = re.match(r'(?:u8|u|U|L)?R"', source[start:])
+    prefix = _RAW_STRING_PREFIX_RE.match(source, start)
     if prefix is None:
         return None
     if start > 0 and (source[start - 1].isalnum() or source[start - 1] == "_"):
         return None
 
-    delimiter_start = start + prefix.end()
+    delimiter_start = prefix.end()
     opening = source.find("(", delimiter_start, min(len(source), delimiter_start + 17))
     if opening < 0:
         raise ValueError("invalid_raw_string_delimiter")

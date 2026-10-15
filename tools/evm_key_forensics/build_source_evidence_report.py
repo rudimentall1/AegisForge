@@ -21,6 +21,7 @@ EXPECTED = {
 }
 REPOSITORY = "https://github.com/johguse/profanity"
 EXPERIMENT_ID = "evm-forensics-historical-source-pattern-v1"
+MAX_INPUT_BYTES = 2 * 1024 * 1024
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -34,8 +35,9 @@ def _no_duplicate_keys(pairs):
 
 
 def _load_result(path: Path) -> dict:
-    raw = path.read_bytes()
-    if len(raw) > 2 * 1024 * 1024:
+    with path.open("rb") as stream:
+        raw = stream.read(MAX_INPUT_BYTES + 1)
+    if len(raw) > MAX_INPUT_BYTES:
         raise ValueError("input_exceeds_size_limit")
     data = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicate_keys)
     if not isinstance(data, dict):
@@ -126,7 +128,8 @@ def build_report(pre: dict, post: dict, reproducibility: dict | None = None) -> 
             "wallet_material_used": False,
             "historical_vulnerability_reproduced": False,
             "source_to_binary_provenance": "NOT_ESTABLISHED",
-            "trusted_runner_attestation": "NOT_IMPLEMENTED",
+            "source_review_runner_attestation": "NOT_IMPLEMENTED",
+            "evidence_package_github_attestation": "CHECKED_BY_SEPARATE_WORKFLOW_STEP; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS",
             "independent_review": "PENDING",
         },
     }
@@ -146,9 +149,11 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path, help="write report to this path; stdout if omitted")
     args = parser.parse_args(argv)
     try:
-        pre_raw = args.pre_disclosure.read_bytes()
-        post_raw = args.post_disclosure.read_bytes()
-        if len(pre_raw) > 2 * 1024 * 1024 or len(post_raw) > 2 * 1024 * 1024:
+        with args.pre_disclosure.open("rb") as stream:
+            pre_raw = stream.read(MAX_INPUT_BYTES + 1)
+        with args.post_disclosure.open("rb") as stream:
+            post_raw = stream.read(MAX_INPUT_BYTES + 1)
+        if len(pre_raw) > MAX_INPUT_BYTES or len(post_raw) > MAX_INPUT_BYTES:
             raise ValueError("input_exceeds_size_limit")
         pre = json.loads(pre_raw.decode("utf-8"), object_pairs_hook=_no_duplicate_keys)
         post = json.loads(post_raw.decode("utf-8"), object_pairs_hook=_no_duplicate_keys)

@@ -18,6 +18,8 @@ PINNED = {
         "blob": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
     },
 }
+MAX_DOSSIER_BYTES = 2 * 1024 * 1024
+
 REQUIRED_TOP_LEVEL = {
     "schema_version", "dossier_id", "status", "generated_for_branch",
     "reviewed_upstream", "claim_register", "verification_contract",
@@ -50,7 +52,7 @@ def validate_dossier(data: object) -> list[str]:
         errors.append("unexpected_dossier_id")
     if data.get("status") != "SOURCE_REVIEW_ONLY":
         errors.append("dossier_status_must_remain_source_review_only")
-    if data.get("generated_for_branch") != "feat/evm-key-forensics-research":
+    if data.get("generated_for_branch") != "feat/evm-git-object-source-verifier":
         errors.append("unexpected_branch")
 
     upstream = data.get("reviewed_upstream")
@@ -69,7 +71,7 @@ def validate_dossier(data: object) -> list[str]:
             errors.append("source_entry_must_be_object")
             continue
         role = item.get("role")
-        if role not in PINNED:
+        if not isinstance(role, str) or role not in PINNED:
             errors.append("unknown_source_role")
             continue
         if role in seen_roles:
@@ -94,14 +96,42 @@ def validate_dossier(data: object) -> list[str]:
         errors.append("claim_register_must_be_list")
         claims = []
     claim_ids = [x.get("id") for x in claims if isinstance(x, dict)]
-    if set(claim_ids) != required_claims or len(claim_ids) != len(required_claims):
+    if (
+        len(claim_ids) != len(required_claims)
+        or any(not isinstance(claim_id, str) for claim_id in claim_ids)
+        or set(claim_ids) != required_claims
+    ):
         errors.append("claim_register_ids_mismatch")
+    expected_claims = {
+        "SRC-001": {
+            "claim": "The reviewed function initializes mt19937_64 from one random_device result and derives four distribution outputs from that engine.",
+            "evidence_level": "E0_SOURCE_INSPECTION",
+            "status": "SUPPORTED_BY_PINNED_SOURCE_PATTERN_CHECK",
+        },
+        "SRC-002": {
+            "claim": "The pre-disclosure and post-disclosure pinned Dispatcher.cpp files match the expected Git blob identifiers.",
+            "evidence_level": "SOURCE_IDENTITY",
+            "status": "CHECKED_BY_SOURCE_PATTERN_CLI",
+        },
+    }
     for claim in claims:
         if not isinstance(claim, dict):
             errors.append("claim_entry_must_be_object")
             continue
-        if not isinstance(claim.get("does_not_establish"), list) or not claim["does_not_establish"]:
-            errors.append("claim_boundaries_required:" + str(claim.get("id")))
+        claim_id = claim.get("id")
+        if not isinstance(claim_id, str) or claim_id not in expected_claims:
+            errors.append("claim_content_unrecognized")
+        else:
+            for field, expected_value in expected_claims[claim_id].items():
+                if claim.get(field) != expected_value:
+                    errors.append(f"claim_content_mismatch:{claim_id}:{field}")
+        boundaries = claim.get("does_not_establish")
+        if (
+            not isinstance(boundaries, list)
+            or not boundaries
+            or not all(isinstance(item, str) and item.strip() for item in boundaries)
+        ):
+            errors.append("claim_boundaries_required:" + str(claim_id))
 
     contract = data.get("verification_contract")
     if not isinstance(contract, dict):
@@ -109,8 +139,12 @@ def validate_dossier(data: object) -> list[str]:
         contract = {}
     if contract.get("source_to_binary_provenance") != "NOT_ESTABLISHED":
         errors.append("source_to_binary_provenance_must_not_be_overstated")
-    if contract.get("trusted_runner_attestation") != "NOT_IMPLEMENTED":
-        errors.append("runner_attestation_must_remain_not_implemented")
+    if contract.get("source_review_runner_attestation") != "NOT_IMPLEMENTED":
+        errors.append("source_review_runner_attestation_must_remain_not_implemented")
+    if contract.get("evidence_package_github_attestation") != (
+        "PUBLISHED_BY_SEPARATE_WORKFLOW; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS"
+    ):
+        errors.append("evidence_package_attestation_scope_must_be_explicit")
     if contract.get("signed_dossier") is not False:
         errors.append("dossier_signing_status_mismatch")
 
@@ -141,7 +175,10 @@ def main(argv=None) -> int:
     parser.add_argument("dossier", type=Path)
     args = parser.parse_args(argv)
     try:
-        raw = args.dossier.read_bytes()
+        with args.dossier.open("rb") as stream:
+            raw = stream.read(MAX_DOSSIER_BYTES + 1)
+        if len(raw) > MAX_DOSSIER_BYTES:
+            raise ValueError("dossier_exceeds_size_limit")
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs_no_duplicates)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         print(json.dumps({"valid": False, "errors": [f"invalid_dossier:{type(exc).__name__}:{exc}"]}, sort_keys=True))

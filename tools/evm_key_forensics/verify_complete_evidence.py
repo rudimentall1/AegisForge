@@ -9,10 +9,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import stat
 import sys
 import tempfile
 import zipfile
+import zlib
 from pathlib import Path, PurePosixPath
 
 try:
@@ -83,6 +85,21 @@ def _strict_json_bytes(raw: bytes, *, max_bytes: int = MAX_JSON_FILE_BYTES) -> d
     return value
 
 
+def _valid_git_ref(value: object) -> bool:
+    if not isinstance(value, str) or not value.startswith("refs/") or len(value) <= len("refs/"):
+        return False
+    if value.endswith("/") or value.endswith(".") or value.startswith("/") or value.startswith("-"):
+        return False
+    if any(ord(char) < 32 or ord(char) == 127 or char in " ~^:?*[" or char == chr(92) for char in value):
+        return False
+    if ".." in value or "@{" in value or "//" in value:
+        return False
+    parts = value.split("/")
+    if any(not part or part.startswith(".") or part.endswith(".lock") for part in parts):
+        return False
+    return True
+
+
 def _safe_member_name(name: str) -> bool:
     if not name or "\\" in name or name.startswith("/"):
         return False
@@ -92,13 +109,101 @@ def _safe_member_name(name: str) -> bool:
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
+    total = 0
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            total += len(chunk)
+            # Enforce the bound on bytes actually read, not only on a prior
+            # stat(), which can race with replacement or file growth.
+            if total > MAX_ARCHIVE_BYTES:
+                raise ValueError("archive_exceeds_size_limit")
             digest.update(chunk)
     return digest.hexdigest()
 
 
-def verify_complete_archive(archive_path: Path) -> dict:
+def _validate_local_compression_method(
+    archive_path: Path,
+    item: zipfile.ZipInfo,
+    *,
+    central_directory_offset: int | None = None,
+) -> None:
+    """Validate local-header identity and payload bounds against ZIP metadata."""
+    archive_size = archive_path.stat().st_size
+    if item.header_offset < 0 or item.header_offset > archive_size - 30:
+        raise ValueError("archive_invalid_zip_member")
+    payload_limit = archive_size if central_directory_offset is None else central_directory_offset
+    if payload_limit < 0 or payload_limit > archive_size:
+        raise ValueError("archive_invalid_zip_member")
+    with archive_path.open("rb") as stream:
+        stream.seek(item.header_offset)
+        header = stream.read(30)
+        if len(header) != 30 or header[:4] != b"PK\x03\x04":
+            raise ValueError("archive_invalid_zip_member")
+        local_flags = int.from_bytes(header[6:8], "little")
+        local_method = int.from_bytes(header[8:10], "little")
+        local_crc = int.from_bytes(header[14:18], "little")
+        local_compress_size = int.from_bytes(header[18:22], "little")
+        local_file_size = int.from_bytes(header[22:26], "little")
+        name_length = int.from_bytes(header[26:28], "little")
+        extra_length = int.from_bytes(header[28:30], "little")
+        if local_flags != item.flag_bits or local_method != item.compress_type:
+            raise ValueError("archive_invalid_zip_member")
+        # Without the data-descriptor flag, the local header must agree with
+        # the central directory on CRC and sizes. When bit 3 is set, those
+        # local fields may be zero and the descriptor carries the final values.
+        if not local_flags & 0x08 and (
+            local_crc != item.CRC
+            or local_compress_size != item.compress_size
+            or local_file_size != item.file_size
+        ):
+            raise ValueError("archive_invalid_zip_member")
+        # All expected member names are ASCII, but decode according to the ZIP
+        # UTF-8 flag so the comparison follows the archive's declared encoding.
+        local_name_raw = stream.read(name_length)
+        if len(local_name_raw) != name_length:
+            raise ValueError("archive_invalid_zip_member")
+        encoding = "utf-8" if local_flags & 0x800 else "cp437"
+        try:
+            local_name = local_name_raw.decode(encoding)
+        except UnicodeDecodeError as exc:
+            raise ValueError("archive_invalid_zip_member") from exc
+        if local_name != item.filename:
+            raise ValueError("archive_invalid_zip_member")
+        data_offset = item.header_offset + 30 + name_length + extra_length
+        if data_offset > payload_limit or item.compress_size > payload_limit - data_offset:
+            raise ValueError("archive_invalid_zip_member")
+        if local_flags & 0x08:
+            # The central directory is authoritative for the member sizes, but
+            # the data descriptor must independently agree with those values.
+            # This verifier accepts the classic 32-bit descriptor form; ZIP64
+            # sized descriptors are outside the deliberately narrow evidence
+            # archive format and fail closed rather than being guessed at.
+            descriptor_offset = data_offset + item.compress_size
+            if descriptor_offset > payload_limit or payload_limit - descriptor_offset < 12:
+                raise ValueError("archive_invalid_zip_member")
+            stream.seek(descriptor_offset)
+            descriptor = stream.read(min(16, payload_limit - descriptor_offset))
+
+            def descriptor_matches(candidate: bytes) -> bool:
+                return (
+                    len(candidate) == 12
+                    and int.from_bytes(candidate[0:4], "little") == item.CRC
+                    and int.from_bytes(candidate[4:8], "little") == item.compress_size
+                    and int.from_bytes(candidate[8:12], "little") == item.file_size
+                )
+
+            # The optional signature is byte-identical to a possible CRC value.
+            # Check the unsigned form first so a valid descriptor whose CRC is
+            # 0x08074b50 is not misclassified as a signed descriptor.
+            if descriptor_matches(descriptor[:12]):
+                pass
+            elif descriptor.startswith(b"PK\x07\x08") and descriptor_matches(descriptor[4:16]):
+                pass
+            else:
+                raise ValueError("archive_invalid_zip_member")
+
+
+def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
     if archive_path.is_symlink() or not archive_path.is_file():
         raise ValueError("archive_must_be_regular_file")
     if archive_path.stat().st_size > MAX_ARCHIVE_BYTES:
@@ -150,6 +255,8 @@ def verify_complete_archive(archive_path: Path) -> dict:
                 raise ValueError("archive_uncompressed_size_limit_exceeded")
             if item.flag_bits & 0x1:
                 raise ValueError("archive_encrypted_member_not_supported")
+            if item.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                raise ValueError("archive_unsupported_compression_method")
             if item.compress_size == 0 and item.file_size > 0:
                 raise ValueError("archive_invalid_compression_size")
             if item.compress_size and item.file_size > item.compress_size * 1000:
@@ -173,6 +280,9 @@ def verify_complete_archive(archive_path: Path) -> dict:
                 # extractall() on this untrusted archive.
                 written = 0
                 try:
+                    _validate_local_compression_method(
+                        archive_path, item, central_directory_offset=archive.start_dir
+                    )
                     with archive.open(item, "r") as source, target.open("xb") as dest:
                         while True:
                             chunk = source.read(1024 * 1024)
@@ -182,10 +292,10 @@ def verify_complete_archive(archive_path: Path) -> dict:
                             if written > item.file_size:
                                 raise ValueError("archive_member_size_overrun")
                             dest.write(chunk)
-                except zipfile.BadZipFile as exc:
-                    # zipfile checks the local header against the central
-                    # directory when a member is opened. Normalize that
-                    # structural failure into the verifier's stable error API.
+                except (zipfile.BadZipFile, EOFError, zlib.error) as exc:
+                    # Malformed local headers, truncated streams, CRC failures,
+                    # and invalid DEFLATE data must fail through the verifier's
+                    # stable error API instead of leaking parser exceptions.
                     raise ValueError("archive_invalid_zip_member") from exc
                 if written != item.file_size:
                     raise ValueError("archive_member_size_mismatch")
@@ -205,6 +315,27 @@ def verify_complete_archive(archive_path: Path) -> dict:
                 "github_ref": "workflow_ref",
             }
             checks = {
+                "metadata_schema_supported": type(metadata.get("schema_version")) is int and metadata.get("schema_version") == 1,
+                "metadata_commit_sha_format": (
+                    isinstance(metadata.get("git_commit"), str)
+                    and len(metadata["git_commit"]) == 40
+                    and all(char in "0123456789abcdef" for char in metadata["git_commit"])
+                ),
+                "metadata_run_id_format": (
+                    isinstance(metadata.get("github_run_id"), str)
+                    and metadata["github_run_id"].isascii()
+                    and metadata["github_run_id"].isdigit()
+                    and len(metadata["github_run_id"]) <= 20
+                    and any(char != "0" for char in metadata["github_run_id"])
+                ),
+                "metadata_run_attempt_format": (
+                    isinstance(metadata.get("github_run_attempt"), str)
+                    and metadata["github_run_attempt"].isascii()
+                    and metadata["github_run_attempt"].isdigit()
+                    and len(metadata["github_run_attempt"]) <= 6
+                    and any(char != "0" for char in metadata["github_run_attempt"])
+                ),
+                "metadata_ref_format": _valid_git_ref(metadata.get("github_ref")),
                 "index_schema_supported": type(index.get("schema_version")) is int and index.get("schema_version") == 1,
                 "index_conclusion_pass": index.get("conclusion") == "PASS",
                 "index_marks_cross_linkage": index.get("probe_and_rebuild_evidence_consistent") is True,
@@ -249,6 +380,44 @@ def verify_complete_archive(archive_path: Path) -> dict:
                 "historical_source_to_binary_provenance": "NOT_ESTABLISHED",
                 "note": "This verifies archive integrity and cross-run consistency only. Verify GitHub provenance separately with gh attestation verify.",
             }
+
+
+def verify_complete_archive(archive_path: Path) -> dict:
+    """Verify one bounded snapshot so validation and reported digest use identical bytes."""
+    if archive_path.is_symlink() or not archive_path.is_file():
+        raise ValueError("archive_must_be_regular_file")
+
+    # Open the path once, reject symlinks where supported, and validate the
+    # opened descriptor itself. This closes the check/open race on POSIX.
+    source_fd = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        source_fd = os.open(archive_path, flags)
+        if not stat.S_ISREG(os.fstat(source_fd).st_mode):
+            raise ValueError("archive_must_be_regular_file")
+        with os.fdopen(source_fd, "rb") as source:
+            source_fd = None
+            with tempfile.TemporaryDirectory(prefix="evm-key-forensics-archive-") as temp_dir:
+                snapshot = Path(temp_dir) / archive_path.name
+                total = 0
+                with snapshot.open("xb") as dest:
+                    while True:
+                        chunk = source.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > MAX_ARCHIVE_BYTES:
+                            raise ValueError("archive_exceeds_size_limit")
+                        dest.write(chunk)
+                try:
+                    return _verify_complete_archive_snapshot(snapshot)
+                except (zipfile.BadZipFile, EOFError, zlib.error) as exc:
+                    raise ValueError("archive_invalid_zip_structure") from exc
+    except OSError as exc:
+        raise ValueError("archive_must_be_regular_file") from exc
+    finally:
+        if source_fd is not None:
+            os.close(source_fd)
 
 
 def main(argv=None) -> int:

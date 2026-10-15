@@ -13,7 +13,7 @@ DOSSIER = {
     "schema_version": 1,
     "dossier_id": "evm-key-forensics-profanity-source-evidence-v1",
     "status": "SOURCE_REVIEW_ONLY",
-    "generated_for_branch": "feat/evm-key-forensics-research",
+    "generated_for_branch": "feat/evm-git-object-source-verifier",
     "reviewed_upstream": {
         "repository": "https://github.com/johguse/profanity",
         "files": [
@@ -35,9 +35,9 @@ DOSSIER = {
         "supporting_references": [],
     },
     "claim_register": [
-        {"id": "SRC-001", "claim": "source claim", "evidence_level": "E0_SOURCE_INSPECTION",
+        {"id": "SRC-001", "claim": "The reviewed function initializes mt19937_64 from one random_device result and derives four distribution outputs from that engine.", "evidence_level": "E0_SOURCE_INSPECTION",
          "status": "SUPPORTED_BY_PINNED_SOURCE_PATTERN_CHECK", "does_not_establish": ["entropy", "exploitability"]},
-        {"id": "SRC-002", "claim": "identity claim", "evidence_level": "SOURCE_IDENTITY",
+        {"id": "SRC-002", "claim": "The pre-disclosure and post-disclosure pinned Dispatcher.cpp files match the expected Git blob identifiers.", "evidence_level": "SOURCE_IDENTITY",
          "status": "CHECKED_BY_SOURCE_PATTERN_CLI", "does_not_establish": ["authorship", "binary provenance"]},
     ],
     "verification_contract": {
@@ -45,7 +45,8 @@ DOSSIER = {
         "checker_behavior": ["bounded reads", "pinned blob", "sha256"],
         "independent_retrieval_recommended": True,
         "source_to_binary_provenance": "NOT_ESTABLISHED",
-        "trusted_runner_attestation": "NOT_IMPLEMENTED",
+        "source_review_runner_attestation": "NOT_IMPLEMENTED",
+        "evidence_package_github_attestation": "PUBLISHED_BY_SEPARATE_WORKFLOW; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS",
         "signed_dossier": False,
     },
     "experiment_state": {
@@ -63,6 +64,17 @@ DOSSIER = {
 class SourceDossierValidatorTests(unittest.TestCase):
     def test_valid_dossier_passes(self):
         self.assertEqual(validate_dossier(copy.deepcopy(DOSSIER)), [])
+
+    def test_checked_in_dossier_passes(self):
+        dossier_path = (
+            Path(__file__).resolve().parents[1]
+            / "docs"
+            / "research"
+            / "evm-key-forensics"
+            / "SOURCE_EVIDENCE_DOSSIER.json"
+        )
+        data = json.loads(dossier_path.read_text(encoding="utf-8"))
+        self.assertEqual(validate_dossier(data), [])
 
     def test_commit_or_blob_mutation_fails_closed(self):
         data = copy.deepcopy(DOSSIER)
@@ -83,21 +95,59 @@ class SourceDossierValidatorTests(unittest.TestCase):
     def test_attestation_or_binary_provenance_cannot_be_claimed(self):
         data = copy.deepcopy(DOSSIER)
         data["verification_contract"]["source_to_binary_provenance"] = "VERIFIED"
-        data["verification_contract"]["trusted_runner_attestation"] = "IMPLEMENTED"
+        data["verification_contract"]["source_review_runner_attestation"] = "IMPLEMENTED"
         errors = validate_dossier(data)
         self.assertIn("source_to_binary_provenance_must_not_be_overstated", errors)
-        self.assertIn("runner_attestation_must_remain_not_implemented", errors)
+        self.assertIn("source_review_runner_attestation_must_remain_not_implemented", errors)
+
+    def test_evidence_package_attestation_scope_cannot_be_overstated(self):
+        data = copy.deepcopy(DOSSIER)
+        data["verification_contract"]["evidence_package_github_attestation"] = "VERIFIED"
+        errors = validate_dossier(data)
+        self.assertIn("evidence_package_attestation_scope_must_be_explicit", errors)
 
     def test_duplicate_claim_ids_fail(self):
         data = copy.deepcopy(DOSSIER)
         data["claim_register"][1]["id"] = "SRC-001"
         self.assertIn("claim_register_ids_mismatch", validate_dossier(data))
 
+    def test_cli_rejects_oversized_dossier(self):
+        from tools.evm_key_forensics.validate_source_dossier import MAX_DOSSIER_BYTES
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "dossier.json"
+            path.write_bytes(b" " * (MAX_DOSSIER_BYTES + 1))
+            self.assertEqual(main([str(path)]), 2)
+
     def test_cli_rejects_duplicate_json_keys(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "dossier.json"
             path.write_text('{"schema_version":1,"schema_version":1}', encoding="utf-8")
             self.assertEqual(main([str(path)]), 2)
+
+
+    def test_unhashable_source_role_returns_validation_error(self):
+        data = copy.deepcopy(DOSSIER)
+        data["reviewed_upstream"]["files"][0]["role"] = ["pre-disclosure"]
+        errors = validate_dossier(data)
+        self.assertIn("unknown_source_role", errors)
+
+    def test_unhashable_claim_id_returns_validation_error(self):
+        data = copy.deepcopy(DOSSIER)
+        data["claim_register"][0]["id"] = {"id": "SRC-001"}
+        errors = validate_dossier(data)
+        self.assertIn("claim_register_ids_mismatch", errors)
+
+    def test_claim_text_cannot_be_changed_while_retaining_known_id(self):
+        data = copy.deepcopy(DOSSIER)
+        data["claim_register"][0]["claim"] = "The historical vulnerability is proven exploitable."
+        errors = validate_dossier(data)
+        self.assertIn("claim_content_mismatch:SRC-001:claim", errors)
+
+    def test_claim_boundary_entries_must_be_nonempty_strings(self):
+        data = copy.deepcopy(DOSSIER)
+        data["claim_register"][0]["does_not_establish"] = [{"entropy": "unknown"}]
+        errors = validate_dossier(data)
+        self.assertIn("claim_boundaries_required:SRC-001", errors)
 
 
 if __name__ == "__main__":

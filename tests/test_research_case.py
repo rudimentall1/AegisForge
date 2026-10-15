@@ -1,0 +1,84 @@
+import pytest
+
+from shared.research_case import (
+    CaseStatus,
+    CaseValidationError,
+    ExecutionMode,
+    ResearchCase,
+    validate_task_binding,
+)
+
+
+def valid_case(**overrides):
+    values = dict(
+        case_id="ssv-eb-001",
+        target_repository="ssvlabs/ssv-network",
+        target_commit="a" * 40,
+        scope_url="https://immunefi.com/bug-bounty/ssvnetwork/scope/",
+        scope_digest="b" * 64,
+        scope_reviewed_on="2026-10-15",
+        hypothesis="Operator migration can mis-account effective balance.",
+        attacker_capability="An unprivileged participant can trigger the permitted state transition.",
+        expected_invariant="Accounted value equals independently computed value.",
+        falsification_criteria="The same state sequence preserves accounting under counter-tests.",
+        execution_mode=ExecutionMode.LOCAL,
+        status=CaseStatus.READY,
+    )
+    values.update(overrides)
+    return ResearchCase(**values)
+
+
+def test_valid_case_allows_matching_task():
+    case = valid_case()
+    assert validate_task_binding(case, case.case_id) is case
+
+
+@pytest.mark.parametrize("field,value", [
+    ("scope_url", ""),
+    ("scope_digest", ""),
+    ("scope_reviewed_on", ""),
+])
+def test_missing_scope_evidence_fails_closed(field, value):
+    with pytest.raises(CaseValidationError):
+        valid_case(**{field: value})
+
+
+@pytest.mark.parametrize("commit", ["main", "mainnet-v2.0.0", "a" * 39, "g" * 40])
+def test_mutable_or_invalid_source_revision_is_rejected(commit):
+    with pytest.raises(CaseValidationError):
+        valid_case(target_commit=commit)
+
+
+def test_missing_case_blocks_task():
+    with pytest.raises(CaseValidationError, match="no research case"):
+        validate_task_binding(None, "ssv-eb-001")
+
+
+def test_mismatched_case_id_blocks_task():
+    with pytest.raises(CaseValidationError, match="mismatch"):
+        validate_task_binding(valid_case(), "different-case")
+
+
+@pytest.mark.parametrize("mode", ["mainnet", "live", "production"])
+def test_prohibited_execution_mode_is_rejected(mode):
+    with pytest.raises(CaseValidationError):
+        valid_case(execution_mode=mode)
+
+
+@pytest.mark.parametrize("status", [
+    CaseStatus.DRAFT,
+    CaseStatus.CONFIRMED,
+    CaseStatus.REJECTED,
+    CaseStatus.INCONCLUSIVE,
+    CaseStatus.OUT_OF_SCOPE,
+])
+def test_non_executable_case_status_blocks_task(status):
+    case = valid_case(status=status)
+    with pytest.raises(CaseValidationError, match="does not permit execution"):
+        validate_task_binding(case, case.case_id)
+
+
+def test_case_is_immutable():
+    case = valid_case()
+    with pytest.raises((AttributeError, TypeError)):
+        case.case_id = "changed"

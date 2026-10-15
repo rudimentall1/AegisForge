@@ -7,7 +7,7 @@ This directory tracks security research claims, supporting evidence, disclosure 
 | 2026-10-15 | Arbitova | M-3 `wrapUntrusted()` | Critical (reported) | Reported; awaiting response | [M-3](arbitova/2026-10-15-m3-prompt-injection-bypass.md) |
 | 2026-10-15 | Arbitova | M-4 content-hash gate | High (reported) | Reported; awaiting response | [M-4](arbitova/2026-10-15-m4-hash-gate-bypass.md) |
 | 2026-10-15 | Arbitova | `EscrowV1.resolve()` | Low (proposed) | PoC reported by researcher; not submitted | [Dust lock](arbitova/2026-10-15-dust-lock-resolve.md) |
-| 2026-08-16 | Cashmere CCTP | Solana Ed25519 instruction validation | Critical (reported) | Emailed; no response recorded | [Cashmere](cashmere/2026-08-16-solana-signature-bypass.md) |
+| 2026-08-16 | Cashmere CCTP | Solana Ed25519 instruction validation | Critical (reported) | Reported by email; no response or fix confirmed in available notes | [Cashmere technical report](cashmere/2026-08-16-solana-signature-bypass.md) |
 
 ## Evidence and status policy
 
@@ -15,8 +15,9 @@ This directory tracks security research claims, supporting evidence, disclosure 
 - A report is **confirmed** only when the affected code path and security impact are independently reproduced.
 - Keep the exact source revision, test output, PoC hash, disclosure receipt, and response evidence with each case. Never imply a test ran when only code review or a written hypothesis exists.
 - Do not include secrets, private keys, credentials, or private RPC tokens. Link only to public code and safe, authorized reproductions.
-- Technical details and exploit PoCs for unresolved issues are intentionally withheld from this public index. Store the full report and reproducible PoC privately until coordinated disclosure is approved.
+- Do not suppress findings indefinitely solely because a recipient is silent. Record the disclosure date and response status, publish evidence-backed technical analysis, and make unresolved limitations explicit.
+- Keep reproduction within local tests, controlled test environments, or authorized forks. Do not attack mainnet or spend third-party assets. If a PoC could cause direct loss on a live deployment, document the mechanism, evidence, impact, and remediation while clearly identifying the safe reproduction boundary.
 
-## Responsible Disclosure
+## Disclosure approach
 
-Findings listed here are intended for coordinated, good-faith disclosure through the affected project's official security channel. Reports are published in redacted form while awaiting acknowledgement or a fix; sensitive reproduction details are withheld until the project acknowledges the report and disclosure is appropriate. PoCs must be limited to local tests, authorized test environments, or forks and must not be used to attack mainnet or third-party assets. Status changes should be backed by dated evidence. This tracker does not imply authorization to test systems outside an applicable program's scope.
+The register favors factual, evidence-backed public disclosure over indefinite secrecy. Silence from a recipient is not proof that a vulnerability is valid, and publication is not proof of exploitability. Entries must distinguish source-code observations, researcher claims, reproduced results, and confirmed deployed impact. Update records when new test evidence, acknowledgements, fixes, or deployment information becomes available.

@@ -11,6 +11,7 @@ except ImportError:
 
 from shared.queue import TaskQueue
 from shared.task import Task
+from shared.research_case import validate_task_binding
 from shared.memory import Memory
 
 from shared.capability_policy import (
@@ -538,6 +539,26 @@ class Worker:
                     f"Invalid stored capability_intent for task {task_id}: {exc}"
                 ) from exc
 
+        research_case_id = task_row[12] if len(task_row) > 12 else None
+        research_case = None
+        if research_case_id is not None:
+            try:
+                research_case = self.queue.get_research_case(research_case_id)
+                validate_task_binding(research_case, research_case_id)
+            except (TypeError, ValueError) as exc:
+                error = {
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "research_case_id": research_case_id,
+                    "execution_blocked": True,
+                }
+                self.queue.fail(task_id, result=error)
+                print(
+                    f"[{self.worker_id}] RESEARCH CASE GATE BLOCKED {task_id}: {exc}",
+                    flush=True,
+                )
+                return False
+
         print(
             f"[{self.worker_id}] "
             f"CLAIMED {task_id} ROLE={self.role}",
@@ -576,6 +597,8 @@ class Worker:
                     "parent_task_id": parent_task_id,
                     "parent_result": parent_result,
                     "capability_intent": capability_intent,
+                    "research_case_id": research_case_id,
+                    "research_case": research_case,
                 },
                 result=parent_result,
                 status="running",

@@ -1753,7 +1753,8 @@ class TaskQueue:
                         q.parent_task_id,
                         q.result,
                         q.capability_intent,
-                        q.allow_failed_parent
+                        q.allow_failed_parent,
+                        q.research_case_id
                     FROM queue q
                     WHERE q.status = 'pending'
                       AND q.role = ?
@@ -1789,7 +1790,8 @@ class TaskQueue:
                         q.parent_task_id,
                         q.result,
                         q.capability_intent,
-                        q.allow_failed_parent
+                        q.allow_failed_parent,
+                        q.research_case_id
                     FROM queue q
                     WHERE q.status = 'pending'
                       AND (

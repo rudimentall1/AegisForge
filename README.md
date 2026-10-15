@@ -34,9 +34,11 @@ A hypothesis should be rejected or stopped when evidence shows expected behavior
 - Evidence-ledger and evidence-manifest components, plus EVM Key Forensics tooling and GitHub Actions checks.
 - Source-pinning and artifact-verification work that explicitly distinguishes object/hash checks from stronger provenance claims.
 - A proposed architecture describing the target workflow and its trust boundaries.
-- A first-class `ResearchCase` contract and fail-closed validation tests are being introduced on the `feat/research-case-scope-gate` branch.
+- A first-class immutable `ResearchCase` contract on `feat/research-case-scope-gate`, persisted in the SQLite-backed queue and bound to explicitly case-linked tasks.
+- Worker-side validation for case-linked tasks and evidence observations that inherit the task's case ID.
+- Security-boundary tests covering missing scope, mutable source references, mismatched case IDs, prohibited execution modes, queue persistence, and case-linked evidence.
 
-The new case contract is an initial boundary component. It is **not yet fully wired through every queue, worker, executor, and evidence path**. Do not treat the overall case/scope gate as complete until those integrations and CI checks are verified.
+**Integration boundary:** this gate currently applies to tasks that explicitly provide `research_case_id`. Legacy tasks without a case ID retain the existing execution path for compatibility. The gate is therefore an incremental control, not yet a universal enforcement point across every entrypoint, executor, and task type. The PR remains open while the latest CI run is checked.
 
 ## What is not established
 
@@ -78,11 +80,11 @@ These are responsibilities, not a requirement to create one LLM per role. LLMs m
 
 ### Phase 1 — Trusted research loop
 
-- Finalize the research-case schema and fail-closed scope gate.
-- Bind queue tasks, workers, execution records, and evidence to a case ID.
-- Preserve immutable target revision and scope digest throughout the lifecycle.
-- Add tests for missing scope, mutable source references, mismatched case IDs, and prohibited execution modes.
-- Run CI and complete one authorized, independently reproducible case study — whether it confirms or rejects the hypothesis.
+- Complete review and CI verification of the initial research-case contract and scope gate.
+- Extend mandatory case binding to legacy entrypoints and relevant execution paths without breaking existing task workflows.
+- Carry immutable target revision and scope digest into experiment records and exported evidence manifests.
+- Add end-to-end tests proving unauthorized or unbound research execution is blocked at the actual execution boundary.
+- Run one authorized, independently reproducible case study — whether it confirms or rejects the hypothesis.
 
 ### Phase 2 — Research workbench
 

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from shared.result_codec import encode, decode
-from shared.research_case import ResearchCase, validate_task_binding
+from shared.research_case import CaseStatus, ExecutionMode, ResearchCase, validate_task_binding
 from dataclasses import asdict
 from pathlib import Path
 
@@ -312,7 +312,12 @@ class TaskQueue:
             "SELECT payload FROM research_cases WHERE case_id = ?",
             (case_id,),
         ).fetchone()
-        return json.loads(row[0]) if row else None
+        if row is None:
+            return None
+        payload = json.loads(row[0])
+        payload["execution_mode"] = ExecutionMode(payload["execution_mode"])
+        payload["status"] = CaseStatus(payload["status"])
+        return ResearchCase(**payload)
 
     # ---------------------------------------------------------
     # CREATE

@@ -101,6 +101,10 @@ AegisForge succeeds when an independent reviewer can take a research bundle, rec
 
 The long-term asset is not a collection of agents. It is a growing body of reproducible security knowledge, verification tooling, and research workflows that become more useful with each investigation.
 
+## Architecture
+
+The full system design, trust boundaries, module map, current-vs-target implementation status, evidence model, and roadmap are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The architecture document distinguishes implemented code from planned capabilities.
+
 ## Repository
 
 - Source: https://github.com/rudimentall1/AegisForge

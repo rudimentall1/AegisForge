@@ -1,5 +1,6 @@
 import pytest
 
+from shared.queue import TaskQueue
 from shared.research_case import (
     CaseStatus,
     CaseValidationError,
@@ -82,3 +83,31 @@ def test_case_is_immutable():
     case = valid_case()
     with pytest.raises((AttributeError, TypeError)):
         case.case_id = "changed"
+
+
+def test_queue_requires_registered_case_for_case_bound_task(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    with pytest.raises(ValueError, match="not_registered"):
+        queue.add("run security hypothesis", research_case_id="ssv-eb-001")
+
+
+def test_queue_persists_case_and_binds_task_to_it(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    case = valid_case()
+    queue.register_research_case(case)
+
+    task_id = queue.add("run security hypothesis", research_case_id=case.case_id)
+    row = queue.db.execute(
+        "SELECT research_case_id FROM queue WHERE id = ?", (task_id,)
+    ).fetchone()
+
+    assert row == (case.case_id,)
+    assert queue.get_research_case(case.case_id) == case
+
+
+def test_queue_rejects_reusing_case_id_for_different_scope(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    queue.register_research_case(valid_case())
+
+    with pytest.raises(ValueError, match="different_content"):
+        queue.register_research_case(valid_case(scope_digest="c" * 64))

@@ -6,6 +6,7 @@ can be adopted incrementally without duplicating orchestration logic.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from enum import Enum
 import re
 from urllib.parse import urlparse
@@ -70,6 +71,11 @@ class ResearchCase:
             raise CaseValidationError(
                 "Missing required research-case fields: " + ", ".join(missing)
             )
+
+        try:
+            date.fromisoformat(self.scope_reviewed_on)
+        except ValueError as exc:
+            raise CaseValidationError("scope_reviewed_on must be an ISO date (YYYY-MM-DD)") from exc
 
         if not _COMMIT_RE.fullmatch(self.target_commit):
             raise CaseValidationError(

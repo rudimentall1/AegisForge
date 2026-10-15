@@ -132,3 +132,16 @@ def test_evidence_observation_inherits_case_id_from_queued_task(tmp_path):
     ).fetchone()
 
     assert stored == (case.case_id,)
+
+
+def test_claimed_task_carries_case_id_for_worker_gate(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    case = valid_case()
+    queue.register_research_case(case)
+    queue.add("research task", role="analyst", research_case_id=case.case_id)
+
+    claimed = queue.claim("test-worker", role="analyst")
+
+    assert claimed is not None
+    assert claimed[0]
+    assert claimed[12] == case.case_id

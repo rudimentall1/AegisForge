@@ -9,6 +9,13 @@ This directory tracks security research claims, supporting evidence, disclosure 
 | 2026-10-15 | Arbitova | `EscrowV1.resolve()` | Low (proposed) | PoC supplied; not submitted; result not independently verified | [Finding](arbitova/2026-10-15-dust-lock-resolve.md) · [Fork PoC](arbitova/2026-10-15-dust-lock-poc.t.sol) |
 | 2026-08-16 | Cashmere CCTP | Solana Ed25519 instruction validation | Critical (reported) | Reported by email; no response or fix confirmed in available notes | [Technical report](cashmere/2026-08-16-solana-signature-bypass.md) · [Research repository](https://github.com/rudimentall1/cashmere-solana-sig-bypass) |
 | 2026-10-15 | YO Protocol | `yoUSDT._deposit()` | Low (reported) | Submitted via Immunefi; awaiting triage | [yoUSDT relay bug](yo-protocol/2026-10-15-yousdt-relay-bug.md) |
+| 2026-10-15 | Basin | `Stable2.calcLpTokenSupply()` | Research note (not submitted) | REJECTED by PoC | [Stable2 overflow](basin/2026-10-15-stable2-overflow-research-note.md) |
+
+## Research notes (not submitted)
+
+Some findings are investigated to completion but not submitted to Immunefi because their real-world impact does not meet the program's severity threshold. These are kept for methodology tracking and to avoid re-investigating the same vector later.
+
+- [Basin — Stable2.calcLpTokenSupply overflow (REJECTED by PoC)](basin/2026-10-15-stable2-overflow-research-note.md)
 
 ## Evidence and status policy
 

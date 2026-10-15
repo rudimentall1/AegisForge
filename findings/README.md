@@ -24,4 +24,4 @@ Reports should be sent through the project's official security contact or bounty
 
 ## Template
 
-Use [`_template.md`](../_template.md) as the starting point for new entries. Keep each report tied to a pinned source revision and update its status as evidence changes.
+Use [`_template.md`](_template.md) as the starting point for new entries. Keep each report tied to a pinned source revision and update its status as evidence changes.

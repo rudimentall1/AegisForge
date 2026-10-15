@@ -80,7 +80,9 @@ AI proposes and helps investigate. Deterministic tools execute tests. The verifi
 - Allowed testing environment and excluded actions.
 - Hypothesis, expected invariant, and falsification conditions.
 
-**Status:** target design. A consistent case schema and hard enforcement across all execution paths still need implementation and tests.
+**Status:** initial implementation on `feat/research-case-scope-gate`. `shared/research_case.py` defines an immutable case contract with pinned source commit, scope URL/digest/review date, hypothesis, attacker capability, invariant, falsification criteria, execution mode, and case status. `shared/queue.py` persists registered cases, rejects conflicting reuse of a case ID, binds explicitly case-linked tasks, and returns the case ID to workers. `agents/worker.py` validates case-linked tasks before normal task processing. `shared/evidence_ledger.py` attaches the queue task's case ID to evidence observations, with a migration for existing SQLite databases. Tests cover these boundaries.
+
+**Important limit:** this is not universal enforcement yet. Legacy tasks without `research_case_id` can still use the old path, and case identity is not yet proven to flow into every executor record, experiment dossier, or exported evidence manifest. The next milestone is mandatory case binding at all research entrypoints and execution boundaries, followed by end-to-end tests.
 
 No live transaction, state-changing external action, or out-of-scope target should be tested automatically. Default to local forks, testnets, or other explicitly authorized environments.
 
@@ -289,10 +291,10 @@ A tool error, missing dependency, timeout, skipped test, or failed environment s
 | Orchestration | `orchestrator/master.py` | Bounded task graph with case/scope enforcement |
 | Agents | Multiple role modules under `agents/` | Clear role contracts; suggestions separated from verified results |
 | Queue and persistence | Shared queue and SQLite-oriented workflow | Versioned case/evidence schema and migrations |
-| EVM forensics | EVM Key Forensics docs and probe workflow | End-to-end authorized reproduction pipeline |
+| EVM forensics | EVM Key Forensics tools/docs and probe workflow; SSV Network is the first active bounty target | End-to-end authorized reproduction pipeline with case-bound experiments and independently reproducible evidence |
 | Evidence | Evidence ledger and artifact/attestation docs | Portable schema-versioned bundle with explicit verification levels |
 | Independent verification | Verifier and CI checks exist in part | Clean-runner replay and end-to-end acceptance tests |
-| Scope/policy gate | Some controls and documentation exist; universal enforcement not established | Required before any experiment execution |
+| Scope/policy gate | Initial `ResearchCase` contract; SQLite case registry; case-bound queue tasks; worker validation and case-linked evidence observations on `feat/research-case-scope-gate`. Legacy tasks can still bypass case binding. | Required before every research experiment, with the case identity carried through executor records and exported evidence |
 | User/team interface | Primarily CLI/automation today | Researcher workflow first; team UI/API only after validated demand |
 | Commercial deployment | Not established | Private team workspace and evidence retention after customer validation |
 
@@ -301,12 +303,11 @@ This map is deliberately conservative. Before claiming a target row is implement
 ## 7. Roadmap
 
 ### Phase 1 — Reliable research loop
-- Define a versioned case and hypothesis schema.
-- Enforce target pinning and scope metadata.
-- Make one SSV investigation reproducible end to end.
-- Include counter-tests, impact analysis, and explicit negative/inconclusive outcomes.
-- Verify an evidence bundle on a clean runner.
-- Document one complete case study, whether it confirms or rejects a hypothesis.
+- Review and verify the initial case schema, queue binding, worker gate, and case-linked evidence migration.
+- Make case binding mandatory at research entrypoints and execution boundaries, including legacy paths that currently accept unbound tasks.
+- Carry case ID, pinned target commit, and scope digest into experiment records and exported evidence manifests.
+- Make one authorized SSV investigation reproducible end to end, including counter-tests, impact analysis, and explicit negative/inconclusive outcomes.
+- Verify an evidence bundle on a clean runner and document one complete case study, whether it confirms or rejects a hypothesis.
 
 ### Phase 2 — Reusable EVM research workbench
 - Reusable Foundry templates for state transitions, invariants, and differential testing.

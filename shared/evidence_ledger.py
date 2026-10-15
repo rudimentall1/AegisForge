@@ -49,6 +49,11 @@ class EvidenceLedger:
                 PRIMARY KEY (atom_id, task_id)
             )
         """)
+        observation_columns = {
+            row[1] for row in self.db.execute("PRAGMA table_info(evidence_observations)")
+        }
+        if "case_id" not in observation_columns:
+            self.db.execute("ALTER TABLE evidence_observations ADD COLUMN case_id TEXT")
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_evidence_observations_task
             ON evidence_observations(task_id)
@@ -319,11 +324,20 @@ class EvidenceLedger:
             )
             normalized_atom = f"{kind}:{value}"
         atom_id = self.atom_id(normalized_atom)
+        case_id = None
+        try:
+            case_row = self.db.execute(
+                "SELECT research_case_id FROM queue WHERE id = ?", (task_id,)
+            ).fetchone()
+            case_id = case_row[0] if case_row else None
+        except Exception:
+            # The ledger may be used with a standalone database lacking the queue.
+            case_id = None
         self.db.execute(
             """INSERT OR IGNORE INTO evidence_observations
-               (atom_id, task_id, role, observed_at)
-               VALUES (?, ?, ?, ?)""",
-            (atom_id, task_id, role, now),
+               (atom_id, task_id, role, observed_at, case_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            (atom_id, task_id, role, now, case_id),
         )
         self.db.execute(
             """DELETE FROM evidence_observations

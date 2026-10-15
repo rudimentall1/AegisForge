@@ -8,7 +8,7 @@ This directory tracks security research claims, supporting evidence, disclosure 
 | 2026-10-15 | Arbitova | M-4 content-hash gate | High (reported) | Reported; awaiting response | [Finding](arbitova/2026-10-15-m4-hash-gate-bypass.md) · [Full report](arbitova/2026-10-15-m4-report.txt) |
 | 2026-10-15 | Arbitova | `EscrowV1.resolve()` | Low (proposed) | PoC supplied; not submitted; result not independently verified | [Finding](arbitova/2026-10-15-dust-lock-resolve.md) · [Fork PoC](arbitova/2026-10-15-dust-lock-poc.t.sol) |
 | 2026-08-16 | Cashmere CCTP | Solana Ed25519 instruction validation | Critical (reported) | Reported by email; no response or fix confirmed in available notes | [Technical report](cashmere/2026-08-16-solana-signature-bypass.md) · [Research repository](https://github.com/rudimentall1/cashmere-solana-sig-bypass) |
-| 2026-10-15 | YO Protocol | `yoUSDT._deposit()` | Low (reported) | Submitted via Immunefi; awaiting triage | [yoUSDT relay bug](https://github.com/rudimentall1/AegisForge/blob/main/findings/yo-protocol/2026-10-15-yousdt-relay-bug.md) |
+| 2026-10-15 | YO Protocol | `yoUSDT._deposit()` | Low (reported) | Submitted via Immunefi; awaiting triage | [yoUSDT relay bug](yo-protocol/2026-10-15-yousdt-relay-bug.md) |
 
 ## Evidence and status policy
 

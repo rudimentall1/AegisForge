@@ -1,6 +1,7 @@
 import pytest
 
 from shared.queue import TaskQueue
+from shared.evidence_ledger import EvidenceLedger
 from shared.research_case import (
     CaseStatus,
     CaseValidationError,
@@ -111,3 +112,23 @@ def test_queue_rejects_reusing_case_id_for_different_scope(tmp_path):
 
     with pytest.raises(ValueError, match="different_content"):
         queue.register_research_case(valid_case(scope_digest="c" * 64))
+
+
+def test_scope_review_date_must_be_iso_date():
+    with pytest.raises(CaseValidationError, match="ISO date"):
+        valid_case(scope_reviewed_on="yesterday")
+
+
+def test_evidence_observation_inherits_case_id_from_queued_task(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    case = valid_case()
+    queue.register_research_case(case)
+    task_id = queue.add("research task", research_case_id=case.case_id)
+
+    ledger = EvidenceLedger(queue.db)
+    ledger.record_observation(task_id, "analyst", "hypothesis:counterexample checked")
+    stored = queue.db.execute(
+        "SELECT case_id FROM evidence_observations WHERE task_id = ?", (task_id,)
+    ).fetchone()
+
+    assert stored == (case.case_id,)

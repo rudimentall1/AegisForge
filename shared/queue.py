@@ -4,6 +4,8 @@ import uuid
 from datetime import datetime, timezone
 
 from shared.result_codec import encode, decode
+from shared.research_case import ResearchCase, validate_task_binding
+from dataclasses import asdict
 from pathlib import Path
 
 
@@ -45,6 +47,14 @@ class TaskQueue:
             )
         """)
 
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS research_cases (
+                case_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                registered_at TEXT NOT NULL
+            )
+        """)
+
         columns = {
             row[1]
             for row in self.db.execute("PRAGMA table_info(queue)")
@@ -53,6 +63,11 @@ class TaskQueue:
         if "result" not in columns:
             self.db.execute(
                 "ALTER TABLE queue ADD COLUMN result TEXT"
+            )
+
+        if "research_case_id" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN research_case_id TEXT"
             )
 
         if "planner_decision" not in columns:
@@ -265,6 +280,41 @@ class TaskQueue:
         return raw[:keep].decode("utf-8", "ignore") + suffix
 
     # ---------------------------------------------------------
+    # RESEARCH CASE REGISTRY
+    # ---------------------------------------------------------
+
+    def register_research_case(self, case):
+        """Persist a validated immutable ResearchCase for task binding."""
+        if not isinstance(case, ResearchCase):
+            raise TypeError("case must be a ResearchCase")
+        payload = asdict(case)
+        payload["execution_mode"] = case.execution_mode.value
+        payload["status"] = case.status.value
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        existing = self.db.execute(
+            "SELECT payload FROM research_cases WHERE case_id = ?",
+            (case.case_id,),
+        ).fetchone()
+        if existing is not None and existing[0] != encoded:
+            raise ValueError("research_case_id_already_registered_with_different_content")
+        self.db.execute(
+            "INSERT OR IGNORE INTO research_cases (case_id, payload, registered_at) VALUES (?, ?, ?)",
+            (case.case_id, encoded, datetime.now(timezone.utc).isoformat()),
+        )
+        self.db.commit()
+        return case.case_id
+
+    def get_research_case(self, case_id):
+        """Return the canonical stored case payload, or None if absent."""
+        if not case_id:
+            return None
+        row = self.db.execute(
+            "SELECT payload FROM research_cases WHERE case_id = ?",
+            (case_id,),
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    # ---------------------------------------------------------
     # CREATE
     # ---------------------------------------------------------
 
@@ -277,8 +327,14 @@ class TaskQueue:
         allow_failed_parent=False,
         evaluation_only=False,
         evaluation_id=None,
+        research_case_id=None,
     ):
         task_id = str(uuid.uuid4())
+        if research_case_id is not None:
+            case_payload = self.get_research_case(research_case_id)
+            if case_payload is None:
+                raise ValueError("research_case_not_registered")
+            validate_task_binding(case_payload, research_case_id)
 
         if description is None:
             description = ""
@@ -309,9 +365,10 @@ class TaskQueue:
                 capability_intent,
                 allow_failed_parent,
                 evaluation_only,
-                evaluation_id
+                evaluation_id,
+                research_case_id
             )
-            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task_id,
@@ -323,6 +380,7 @@ class TaskQueue:
                 1 if allow_failed_parent else 0,
                 1 if evaluation_only else 0,
                 evaluation_id,
+                research_case_id,
             ),
         )
 

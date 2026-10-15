@@ -2,113 +2,120 @@
 
 **Reproducible security research for EVM systems. Evidence before conclusions.**
 
-AegisForge is being built as a security-research and forensic platform that helps researchers investigate EVM systems, test vulnerability hypotheses, and produce evidence that another person can independently reproduce and verify.
+AegisForge is an early-stage security research toolkit for turning authorized vulnerability hypotheses into reproducible experiments and independently checkable evidence. It combines an existing Python agent/orchestration codebase with an EVM forensic evidence workflow.
 
-It is not an autonomous exploit bot, a vulnerability scanner that promises findings, or a report generator that turns suspicious code into a claim. Its job is to shorten the path from a security hypothesis to a defensible result — including a clear **not reproduced** or **inconclusive** outcome when the evidence does not support a finding.
+It is not an autonomous exploit bot, a scanner that promises findings, or a report generator that treats model output as proof. Its purpose is to reduce the work required to investigate, reproduce, challenge, and document a security claim — including a clear rejected or inconclusive result.
 
-## Why this exists
+## Why it exists
 
-Smart-contract security work often produces fragmented evidence: source links, fork-specific code, test scripts, traces, environment assumptions, screenshots, and reports that are difficult for another researcher to reproduce. AI can accelerate investigation, but plausible analysis is not proof. Build and CI success are not proof of a vulnerability either.
+Security research often leaves evidence scattered across source links, repository revisions, test scripts, traces, environment assumptions, and reports. Reviewers then have to reconstruct the work before they can evaluate the conclusion. LLMs can accelerate navigation and hypothesis generation, but plausible reasoning is not proof.
 
-AegisForge aims to make the research chain explicit:
+AegisForge is being built around a controlled research loop:
 
-1. **Pin the target** — record the repository, commit/tag, scope, and relevant environment.
-2. **Form a falsifiable hypothesis** — identify the trust boundary, attacker capability, expected invariant, and possible impact.
-3. **Reproduce the behavior** — run a bounded, deterministic test or proof of concept against the pinned target.
-4. **Try to disprove it** — test alternative explanations, controls, mitigations, and counterexamples.
-5. **Calculate impact** — connect the behavior to a concrete security consequence, not just a code difference.
-6. **Package evidence** — preserve commands, versions, logs, test results, hashes, and limitations.
-7. **Verify independently** — let another person validate the evidence without trusting the researcher's narrative.
+1. **Define the case.** Record the target, immutable source revision, bounty scope, hypothesis, attacker capability, expected invariant, and falsification criteria.
+2. **Plan bounded work.** Break the case into tasks with explicit acceptance and stop conditions.
+3. **Run reproducible experiments.** Execute deterministic tests in a pinned, permitted environment.
+4. **Challenge the hypothesis.** Try counterexamples, safe control cases, mitigations, and alternative explanations.
+5. **Establish impact.** Connect behavior to an in-scope security consequence rather than relying on a suspicious code difference.
+6. **Package evidence.** Preserve tool versions, commands, logs, outputs, hashes, limitations, and machine-readable conclusions.
+7. **Verify independently.** Allow another reviewer to check what the evidence actually establishes without trusting the author's narrative.
 
-## Current mission: SSV Network Bug Bounty
+## First proving ground: SSV Network
 
-The first active research target is the [SSV Network program on Immunefi](https://immunefi.com/bug-bounty/ssvnetwork/information/), using the program's current scope and the relevant source revision.
+The first active research target is the [SSV Network Bug Bounty on Immunefi](https://immunefi.com/bug-bounty/ssvnetwork/information/), subject to its current [program scope](https://immunefi.com/bug-bounty/ssvnetwork/scope/).
 
-This is a research target, not a claim that a vulnerability has been found. The current investigation has identified differences in operator migration and effective-balance accounting between source revisions. So far, no eligible exploit path with demonstrated impact has been established. Those observations must not be presented as a bounty finding unless a reproducible test proves the impact and the program scope permits the report.
+The investigation has examined differences involving operator migration and effective-balance accounting across source revisions. **No eligible exploit path with demonstrated impact has been established.** These observations are research leads, not a bounty finding. A report is justified only if a reproducible test demonstrates an in-scope security impact.
 
-Research should stop pursuing a hypothesis when tests show that the behavior is expected, already mitigated, out of scope, or lacks meaningful impact.
+A hypothesis should be rejected or stopped when evidence shows expected behavior, an existing mitigation, out-of-scope conditions, or no meaningful impact.
 
-## Product direction
+## What exists today
 
-The long-term goal is a **forensic evidence pipeline for security research**, starting with EVM protocols and expanding only when the same verification model works in other environments.
+- A Python agent and orchestration codebase with task queueing and research roles.
+- Evidence-ledger and evidence-manifest components, plus EVM Key Forensics tooling and GitHub Actions checks.
+- Source-pinning and artifact-verification work that explicitly distinguishes object/hash checks from stronger provenance claims.
+- A proposed architecture describing the target workflow and its trust boundaries.
+- A first-class `ResearchCase` contract and fail-closed validation tests are being introduced on the `feat/research-case-scope-gate` branch.
 
-Potential capabilities, introduced incrementally:
+The new case contract is an initial boundary component. It is **not yet fully wired through every queue, worker, executor, and evidence path**. Do not treat the overall case/scope gate as complete until those integrations and CI checks are verified.
 
-- Target and source-revision pinning.
-- Hypothesis tracking with explicit attacker capabilities, preconditions, and impact.
-- Reproducible Foundry and other test-runner execution.
-- Differential analysis across commits and releases.
-- Invariant and state-transition testing.
-- Evidence bundles with manifests, hashes, logs, and machine-readable conclusions.
-- Independent verification tooling that checks the bundle rather than trusting its author.
-- AI agents for code navigation, hypothesis generation, test design, and triage, with deterministic checks separating suggestions from verified results.
-- Research history that records failed hypotheses and why they were rejected.
+## What is not established
 
-These are roadmap directions, not claims that all capabilities are implemented today.
+- No SSV vulnerability is currently claimed as confirmed.
+- Historical vulnerability reproduction is not established by the current EVM forensic evidence workflow.
+- Source-to-binary provenance is not established merely by hashes, reproducible builds on one runner, or a GitHub Actions attestation.
+- Independent review remains pending unless a specific evidence artifact says otherwise.
+- A green CI run establishes only that the checks that ran passed; it does not prove a security conclusion.
+- Dedicated Immunefi and Hackathon Hunter integrations are not complete product capabilities.
+- Commercial product-market fit and recurring revenue are hypotheses to validate, not established facts.
 
-## Design principles
+## Architecture and agent roles
 
-- **Evidence over confidence:** no vulnerability claim without a reproducible path to impact.
-- **Falsification first:** actively seek counterexamples to the hypothesis.
-- **Pinned inputs:** record exact source revision, toolchain, dependencies, configuration, and commands.
-- **Honest conclusions:** distinguish confirmed, not reproduced, inconclusive, and out-of-scope results.
-- **Independent verification:** make it possible to check artifacts without trusting the generating agent.
-- **Human accountability:** AI can assist research; researchers remain responsible for authorization, scope, impact, and disclosure.
-- **Safe and authorized testing:** test only systems and environments for which testing is authorized; do not use the project to steal assets or access systems without permission.
-- **No invented provenance:** a hash or CI attestation proves only what its verified chain actually establishes. It does not, by itself, prove that source code produced a binary or that a vulnerability exists.
+The long-term design is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), with a comparison of the original agent plan to the current implementation in [docs/LEGACY-AGENT-PLAN-STATUS.md](docs/LEGACY-AGENT-PLAN-STATUS.md).
 
-## Current status
+The intended responsibilities are:
 
-AegisForge already has a Python agent/orchestration codebase and an EVM Key Forensics evidence workflow with CI checks and artifact-verification work. This is an early-stage research tool, not yet a proven commercial platform.
+- **Hunters:** discover candidate repositories, bounty programs, scope changes, and research opportunities.
+- **Analyst:** propose a falsifiable hypothesis and define attacker capability, preconditions, invariant, and impact.
+- **Planner/orchestrator:** create bounded tasks, manage dependencies and retries, and preserve case identity.
+- **Executor:** run only permitted deterministic tools in an approved environment.
+- **Controller/verifier:** challenge the claim and check test outputs, scope, impact, and evidence completeness.
+- **Evidence pipeline:** preserve the research record and produce a result such as `CONFIRMED`, `REJECTED`, `INCONCLUSIVE`, or `OUT_OF_SCOPE`.
 
-Known limitations in the current evidence workflow include:
+These are responsibilities, not a requirement to create one LLM per role. LLMs may assist analysis and test design, but deterministic checks must enforce execution boundaries and result-promotion rules. Agreement between models is not independent verification.
 
-- Historical vulnerability reproduction is not established.
-- Source-to-binary provenance is not established.
-- Independent review remains pending unless a specific artifact says otherwise.
-- Successful CI runs validate the checks that ran; they do not establish that the research conclusion is correct.
+## Safety and trust principles
 
-Use the evidence artifact and its machine-readable conclusion for the status of an individual run. Do not infer a confirmed finding from a green workflow alone.
+- **Evidence over confidence:** model output alone can never confirm a vulnerability.
+- **Falsification first:** actively search for counterexamples and alternative explanations.
+- **Immutable inputs:** require a full source commit SHA and record scope evidence for a research case.
+- **Fail closed:** missing scope evidence, unpinned source, mismatched case identity, or prohibited execution mode must block execution.
+- **Bounded execution:** prefer local tests, authorized forks, and testnets; no live-mainnet execution mode is provided by the initial case contract.
+- **Honest conclusions:** preserve inconclusive and rejected results instead of forcing a finding.
+- **No invented provenance:** state only what each verifier actually checks.
+- **Human accountability:** the researcher remains responsible for authorization, scope, impact, and disclosure.
 
 ## Roadmap
 
-### Phase 1 — Trustworthy research loop
-- Make target revision and bounty scope explicit for every investigation.
-- Build a repeatable path from hypothesis to test, counter-test, impact analysis, and evidence bundle.
-- Ensure a clean runner can validate the evidence bundle and report exactly what is and is not proven.
-- Complete one well-documented, authorized case study, whether the result is a confirmed finding or a rigorously rejected hypothesis.
+### Phase 1 — Trusted research loop
+
+- Finalize the research-case schema and fail-closed scope gate.
+- Bind queue tasks, workers, execution records, and evidence to a case ID.
+- Preserve immutable target revision and scope digest throughout the lifecycle.
+- Add tests for missing scope, mutable source references, mismatched case IDs, and prohibited execution modes.
+- Run CI and complete one authorized, independently reproducible case study — whether it confirms or rejects the hypothesis.
 
 ### Phase 2 — Research workbench
+
 - Add reusable EVM state-transition and invariant-test templates.
-- Compare target revisions and track regressions.
-- Standardize machine-readable findings and evidence manifests.
-- Reduce manual work without allowing AI-generated hypotheses to become findings automatically.
+- Improve revision comparison and regression triage.
+- Standardize evidence manifests and independent reproduction commands.
+- Benchmark research quality before splitting agents into Solidity, DeFi, NFT, or other specializations.
 
 ### Phase 3 — Research infrastructure
-- Support multiple protocols and research teams.
-- Add review workflows, reproducibility status, and tamper-evident research history.
-- Evaluate hosted and team offerings only after researchers demonstrate repeated use and willingness to pay.
 
-## Business hypothesis
+- Add a dedicated Immunefi program/scope watcher that creates candidate cases but cannot authorize execution by itself.
+- Support multiple protocols and team review workflows.
+- Consider a separate hackathon/opportunity discovery workflow without coupling it to bounty execution.
+- Evaluate paid team workspaces and evidence retention only after repeated use and willingness to pay are demonstrated.
 
-The initial user is a security researcher or small audit team that loses time reproducing, validating, and documenting complex findings. The first potential paid value is not “AI finds every bug”; it is **less time spent building a reproducible case and less reviewer effort spent reconstructing it**.
+## Product and business hypothesis
 
-Possible future models include paid team workflows, private research workspaces, and enterprise evidence retention. These are hypotheses to validate with users, not an established revenue stream.
+The initial target users are independent smart-contract security researchers and small audit teams who spend substantial time reproducing and documenting findings. The first potential paid value is not “AI finds every bug”; it is less effort to build a defensible research case and less reviewer time spent reconstructing it.
+
+Possible future models include team workspaces, private research history, and evidence-retention workflows. These are hypotheses to validate with users, not current revenue or proven product-market fit.
 
 ## What success means
 
-AegisForge succeeds when an independent reviewer can take a research bundle, reconstruct the environment, rerun the relevant checks, understand the attack preconditions and impact, and reach the same conclusion — without needing to trust the author's reputation or the AI's explanation.
+AegisForge succeeds when an independent reviewer can reconstruct the pinned environment, rerun the relevant checks, understand the attack preconditions and impact, and reach the same conclusion from the evidence — without needing to trust the author's reputation or an LLM's explanation.
 
-The long-term asset is not a collection of agents. It is a growing body of reproducible security knowledge, verification tooling, and research workflows that become more useful with each investigation.
-
-## Architecture
-
-The full system design, trust boundaries, module map, current-vs-target implementation status, evidence model, and roadmap are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The architecture document distinguishes implemented code from planned capabilities.
+The long-term asset is not the number of agents. It is the verification tooling, reproducible research history, and workflow quality accumulated across investigations.
 
 ## Repository
 
 - Source: https://github.com/rudimentall1/AegisForge
+- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Original-plan implementation map: [docs/LEGACY-AGENT-PLAN-STATUS.md](docs/LEGACY-AGENT-PLAN-STATUS.md)
 - SSV Network Bug Bounty: https://immunefi.com/bug-bounty/ssvnetwork/information/
 - SSV Network scope: https://immunefi.com/bug-bounty/ssvnetwork/scope/
 
-**Current rule:** no code difference becomes a vulnerability until a reproducible test connects it to an in-scope security impact.
+**Rule:** no code difference becomes a vulnerability until a reproducible test connects it to an in-scope security impact.

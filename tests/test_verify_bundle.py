@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from shared.verify_bundle import MANIFEST_FILENAME, MANIFEST_SCHEMA_VERSION, verify_bundle
+from shared.verify_bundle import (\n    MANIFEST_FILENAME,\n    MANIFEST_SCHEMA_VERSION,\n    MAX_ARTIFACTS,\n    MAX_ARTIFACT_BYTES,\n    MAX_MANIFEST_BYTES,\n    verify_bundle,\n)
 
 
 def write_bundle(root, *, content=b"evidence bytes"):
@@ -157,3 +157,70 @@ def test_symlinked_bundle_root_is_rejected(tmp_path):
 def test_invalid_max_level_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="max_level_must_be_1_2_or_3"):
         verify_bundle(tmp_path, max_level=True)
+
+
+
+def test_artifact_size_limit_fails_before_opening_large_file(tmp_path):
+    manifest, _ = write_bundle(tmp_path)
+    manifest["artifacts"][0]["size_bytes"] = MAX_ARTIFACT_BYTES + 1
+    rewrite_manifest(tmp_path, manifest)
+
+    result = verify_bundle(tmp_path, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert "artifact_size_limit_exceeded" in result["levels"][0]["error"]
+
+
+def test_total_bundle_size_limit_fails_before_reading_artifacts(tmp_path):
+    manifest, _ = write_bundle(tmp_path)
+    manifest["artifacts"] = [
+        {
+            "path": f"artifact-{index}.bin",
+            "sha256": "0" * 64,
+            "size_bytes": MAX_ARTIFACT_BYTES,
+        }
+        for index in range(5)
+    ]
+    rewrite_manifest(tmp_path, manifest)
+
+    result = verify_bundle(tmp_path, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert "bundle_size_limit_exceeded" in result["levels"][0]["error"]
+
+
+def test_artifact_count_limit_fails_closed(tmp_path):
+    manifest, _ = write_bundle(tmp_path)
+    manifest["artifacts"] = [
+        {
+            "path": f"artifact-{index}.bin",
+            "sha256": "0" * 64,
+            "size_bytes": 0,
+        }
+        for index in range(MAX_ARTIFACTS + 1)
+    ]
+    rewrite_manifest(tmp_path, manifest)
+
+    result = verify_bundle(tmp_path, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert "manifest_artifact_count_limit_exceeded" in result["levels"][0]["error"]
+
+
+def test_manifest_size_limit_fails_closed(tmp_path):
+    (tmp_path / MANIFEST_FILENAME).write_bytes(b" " * (MAX_MANIFEST_BYTES + 1))
+
+    result = verify_bundle(tmp_path, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert "manifest_size_limit_exceeded" in result["levels"][0]["error"]
+
+
+def test_nonstandard_json_constant_fails_closed(tmp_path):
+    write_bundle(tmp_path)
+    (tmp_path / MANIFEST_FILENAME).write_text('{"value": NaN}', encoding="utf-8")
+
+    result = verify_bundle(tmp_path, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert "nonstandard_json_constant" in result["levels"][0]["error"]

@@ -1365,6 +1365,7 @@ class Validator:
             observed_binding = result.get("research_case_binding")
             verify_research_case_binding(observed_binding)
             checks["case_binding_matches"] = observed_binding == expected_binding
+            checks["task_case_id_matches"] = case_id == getattr(case, "case_id", None)
         except Exception as exc:
             checks["case_binding_matches"] = False
             errors.append(f"case_binding_invalid:{type(exc).__name__}")

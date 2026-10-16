@@ -33,13 +33,13 @@ release acceptance case.
 
 ## Agent-level acceptance flow
 
-The agent integration test runs the actual \`SourceResearcher\`, \`CryptoAnalyst\`,
-\`LabRunner\`, and \`Validator\` against this local fixture, preserving a stage history.
+The agent integration test runs the actual `SourceResearcher`, `CryptoAnalyst`,
+`LabRunner`, and `Validator` against this local fixture, preserving a stage history.
 The validator recomputes the source identity and synthetic control outcomes. A
-changed case commit or tampered control result remains \`INCONCLUSIVE\`.
+changed case commit or tampered control result remains `INCONCLUSIVE`.
 
 This is still a negative-control acceptance fixture, not a live/deployed-contract
 investigation. The lab stage exercises a pure-Python owner-equality predicate; it
 does not compile Solidity or execute the EVM. The validator may report its evidence
-checks as validated while the research conclusion remains \`INCONCLUSIVE\`. Human
+checks as validated while the research conclusion remains `INCONCLUSIVE`. Human
 review is required, and automatic confirmation remains disabled.

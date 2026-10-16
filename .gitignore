@@ -42,3 +42,14 @@ data/.*.json
 *.backup_*.py
 *.bak.*
 *.bak_*
+
+# Nested clones and old backups (не коммитим, но и не удаляем)
+ssv-network/
+*.py.v2
+*.py.checkpoint_*
+*.py.bak.*
+*.py.backup*
+shared/mcp_executor.py
+shared/result.py
+.dispatch_ssv_*.py
+aegisforge.py.backup_cli_tasks_*

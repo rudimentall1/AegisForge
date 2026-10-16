@@ -32,6 +32,13 @@ def task_main(argv):
     case_show = case_sub.add_parser("show", help="show a registered case")
     case_show.add_argument("case_id")
     case_show.add_argument("--db", help=argparse.SUPPRESS)
+    case_reviews = case_sub.add_parser("reviews", help="list pending human reviews")
+    case_reviews.add_argument("--status", default="OPEN")
+    case_reviews.add_argument("--db", help=argparse.SUPPRESS)
+    case_resolve = case_sub.add_parser("resolve", help="resolve a pending human review")
+    case_resolve.add_argument("review_id")
+    case_resolve.add_argument("resolution")
+    case_resolve.add_argument("--db", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     queue = TaskQueue(db_path=args.db)
     try:
@@ -45,6 +52,19 @@ def task_main(argv):
             print(json.dumps({"task_id": task_id, "status": "pending", "role": args.role}, indent=2))
             return 0
         if args.command == "case":
+            if args.case_command == "reviews":
+                rows = queue.list_human_reviews(status=args.status)
+                print(json.dumps({"reviews": rows, "count": len(rows)},
+                                 indent=2, ensure_ascii=False, default=str))
+                return 0
+            if args.case_command == "resolve":
+                ok = queue.resolve_human_review(args.review_id, args.resolution)
+                print(json.dumps({
+                    "review_id": args.review_id,
+                    "resolved": bool(ok),
+                    "resolution": args.resolution,
+                }, indent=2, ensure_ascii=False))
+                return 0 if ok else 1
             if args.case_command == "register":
                 from pathlib import Path
                 from shared.research_case import ResearchCase

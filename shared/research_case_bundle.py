@@ -480,6 +480,11 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         elif task.get("status") == "completed":
             raise ResearchCaseBundleError("completed_task_missing_case_binding")
 
+    for task in tasks_file["tasks"]:
+        parent_id = task.get("parent_task_id")
+        if parent_id is not None and parent_id not in task_ids:
+            raise ResearchCaseBundleError("task_parent_not_in_case_bundle")
+
     evidence_file = _strict_json(files["evidence.json"], label="evidence")
     if (
         not isinstance(evidence_file, dict)

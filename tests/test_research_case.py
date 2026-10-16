@@ -193,3 +193,17 @@ def test_research_case_binding_rejects_tampered_hypothesis():
     binding["case"]["hypothesis"] = "mutated after registration"
     with pytest.raises(CaseValidationError, match="digest_mismatch"):
         verify_research_case_binding(binding)
+
+def test_research_case_binding_rejects_case_id_mismatch():
+    binding = research_case_binding(valid_case())
+    binding["case_id"] = "different-case"
+    with pytest.raises(CaseValidationError, match="id_mismatch"):
+        verify_research_case_binding(binding)
+
+
+def test_research_case_binding_rejects_tampered_target_commit():
+    binding = research_case_binding(valid_case())
+    binding["case"]["target_commit"] = "c" * 40
+    with pytest.raises(CaseValidationError, match="digest_mismatch"):
+        verify_research_case_binding(binding)
+

@@ -50,6 +50,7 @@ def make_contract(output_bytes=b"repro-ok\n"):
 
 def make_workspace(tmp_path):
     root = tmp_path / "bundle"
+    (root / ".git").mkdir(parents=True)
     (root / "src").mkdir(parents=True)
     (root / "src" / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
     (root / "tests").mkdir()
@@ -118,7 +119,8 @@ def test_runner_uses_network_disabled_bounded_container_and_verifies_outputs(tmp
     assert "AegisForge_HOST_SECRET_TEST_SENTINEL" not in observed["docker_env"]
     assert "AegisForge_HOST_SECRET_TEST_SENTINEL" not in observed["env_file"]
     assert "PYTHONHASHSEED=0" in observed["env_file"]
-    assert [call[0][1] for call in calls] == ["run", "wait", "cp", "rm"]
+    docker_calls = [call for call in calls if Path(call[0][0]).name == "docker"]
+    assert [call[0][1] for call in docker_calls] == ["run", "wait", "cp", "rm"]
 
 
 def test_runner_fails_when_output_digest_does_not_match(tmp_path, monkeypatch):
@@ -150,12 +152,17 @@ def test_runner_timeout_stops_copies_and_removes_container(tmp_path, monkeypatch
 
     assert result["status"] == "TIMED_OUT"
     assert result["reason"] == "reproduction_timeout"
-    assert [call[0][1] for call in calls] == ["run", "wait", "stop", "cp", "rm"]
+    docker_calls = [call for call in calls if Path(call[0][0]).name == "docker"]
+    assert [call[0][1] for call in docker_calls] == ["run", "wait", "stop", "cp", "rm"]
 
 
 def test_runner_returns_not_run_when_docker_is_unavailable(tmp_path, monkeypatch):
     root = make_workspace(tmp_path)
-    monkeypatch.setattr("shared.reproduction_runner.shutil.which", lambda _binary: None)
+    fake_docker(monkeypatch)
+    monkeypatch.setattr(
+        "shared.reproduction_runner.shutil.which",
+        lambda binary: "/usr/bin/git" if binary == "git" else None,
+    )
 
     result = run_reproduction_contract(make_contract(), root, tmp_path / "output")
 
@@ -176,7 +183,16 @@ def test_runner_rejects_symlinks_in_workspace(tmp_path, monkeypatch):
 
 def test_runner_rejects_output_directory_inside_workspace(tmp_path, monkeypatch):
     root = make_workspace(tmp_path)
-    monkeypatch.setattr("shared.reproduction_runner.shutil.which", lambda _binary: "/usr/bin/docker")
+    fake_docker(monkeypatch)
 
     with pytest.raises(ReproductionRunnerError, match="output_directory_must_be_disjoint"):
         run_reproduction_contract(make_contract(), root, root / "outputs")
+
+
+
+def test_runner_rejects_checkout_at_wrong_commit(tmp_path, monkeypatch):
+    root = make_workspace(tmp_path)
+    fake_docker(monkeypatch, revision="c" * 40)
+
+    with pytest.raises(ReproductionRunnerError, match="target_git_revision_mismatch"):
+        run_reproduction_contract(make_contract(), root, tmp_path / "output")

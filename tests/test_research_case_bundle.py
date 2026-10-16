@@ -450,3 +450,30 @@ def test_case_bundle_verifier_rejects_non_string_parent_even_with_rebuilt_manife
         match="task_parent_identity_invalid",
     ):
         verify_research_case_bundle(forged_bundle)
+
+def test_case_bundle_export_rejects_multi_task_parent_cycle(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE queue SET parent_task_id = ? WHERE id = ?",
+            ("task-002", "task-001"),
+        )
+        db.execute(
+            "INSERT INTO queue VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "task-002", "Child task in a cyclic chain", "queued", None,
+                "2026-10-16T00:02:00+00:00", None, None, "validator",
+                "task-001", None, 0, case.case_id, "CONTINUE",
+            ),
+        )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_parent_cycle_detected",
+    ):
+        export_research_case_bundle(
+            db_path, case.case_id, tmp_path / "cyclic-lineage.zip"
+        )
+

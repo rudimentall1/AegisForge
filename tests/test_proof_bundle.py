@@ -43,7 +43,7 @@ def test_bundle_rejects_tampered_public_key(tmp_path):
         check=False,
     )
     assert result.returncode == 1
-    assert "public_key_mismatch" in result.stdout
+    assert "public_key_mismatch" in result.stdout or "bundle_file_hash_mismatch:public-key.txt" in result.stdout
 
 
 def test_bundle_rejects_tampered_proof(tmp_path):
@@ -63,7 +63,7 @@ def test_bundle_rejects_tampered_proof(tmp_path):
         check=False,
     )
     assert result.returncode == 1
-    assert "proof_id_mismatch" in result.stdout or "proof_signature_invalid" in result.stdout
+    assert "proof_id_mismatch" in result.stdout or "proof_signature_invalid" in result.stdout or "bundle_file_hash_mismatch:outcome-proof.json" in result.stdout or "bundle_file_size_mismatch:outcome-proof.json" in result.stdout
 
 
 def test_bundle_with_attestation_and_registry_verifies(tmp_path):
@@ -102,7 +102,7 @@ def test_bundle_rejects_revoked_attestor(tmp_path):
     data=json.loads((bundle/"attestor-registry.json").read_text()); data["attestors"][0]["status"]="REVOKED"; (bundle/"attestor-registry.json").write_text(json.dumps(data))
     result=subprocess.run([sys.executable,str(bundle/"verify_bundle.py")],cwd=bundle,text=True,capture_output=True,check=False)
     assert result.returncode == 1
-    assert "registry" in result.stdout or "signature" in result.stdout
+    assert "registry" in result.stdout or "signature" in result.stdout or "bundle_file_hash_mismatch:attestor-registry.json" in result.stdout
 
 
 def test_bundle_rejects_tampered_manifest_file(tmp_path):

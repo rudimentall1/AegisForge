@@ -21,7 +21,7 @@ PINNED = {
 MAX_DOSSIER_BYTES = 2 * 1024 * 1024
 
 REQUIRED_TOP_LEVEL = {
-    "schema_version", "dossier_id", "status", "generated_for_branch",
+    "schema_version", "dossier_id", "status", "artifact_context",
     "reviewed_upstream", "claim_register", "verification_contract",
     "experiment_state", "promotion_rules",
 }
@@ -52,8 +52,10 @@ def validate_dossier(data: object) -> list[str]:
         errors.append("unexpected_dossier_id")
     if data.get("status") != "SOURCE_REVIEW_ONLY":
         errors.append("dossier_status_must_remain_source_review_only")
-    if data.get("generated_for_branch") != "feat/evm-git-object-source-verifier":
-        errors.append("unexpected_branch")
+    if data.get("artifact_context") != (
+        "HISTORICAL_SOURCE_REVIEW_BASELINE; branch names are mutable labels, not provenance"
+    ):
+        errors.append("artifact_context_must_not_claim_branch_provenance")
 
     upstream = data.get("reviewed_upstream")
     if not isinstance(upstream, dict):

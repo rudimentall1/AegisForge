@@ -276,3 +276,73 @@ def test_case_bundle_verifier_rejects_integrity_valid_orphaned_observation(tmp_p
         match="evidence_observation_task_not_in_case_bundle",
     ):
         verify_research_case_bundle(forged)
+
+
+def test_case_bundle_export_rejects_parent_task_outside_case(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE queue SET parent_task_id = ? WHERE id = ?",
+            ("task-from-another-case", "task-001"),
+        )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_parent_not_in_case_bundle",
+    ):
+        export_research_case_bundle(
+            db_path, case.case_id, tmp_path / "invalid-parent.zip"
+        )
+
+
+def test_case_bundle_verifier_rejects_parent_missing_from_bundle_even_with_rebuilt_manifest(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    bundle = tmp_path / "case.zip"
+    export_research_case_bundle(db_path, case.case_id, bundle)
+
+    with zipfile.ZipFile(bundle, "r") as source:
+        files = {name: source.read(name) for name in source.namelist()}
+
+    tasks = json.loads(files["tasks.json"])
+    tasks["tasks"][0]["parent_task_id"] = "task-from-another-case"
+    files["tasks.json"] = json.dumps(
+        tasks, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+    manifest = json.loads(files["manifest.json"])
+    manifest["entries"] = [
+        {
+            "path": name,
+            "sha256": hashlib.sha256(files[name]).hexdigest(),
+            "size": len(files[name]),
+        }
+        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+    ]
+    core = {
+        key: manifest[key]
+        for key in ("schema_version", "case_id", "case_digest", "entries")
+    }
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(
+            core, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    files["manifest.json"] = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+    forged_bundle = tmp_path / "rebuilt-manifest.zip"
+    with zipfile.ZipFile(forged_bundle, "w", compression=zipfile.ZIP_DEFLATED) as target:
+        for name, raw in files.items():
+            target.writestr(name, raw)
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_parent_not_in_case_bundle",
+    ):
+        verify_research_case_bundle(forged_bundle)

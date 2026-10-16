@@ -88,7 +88,7 @@ def test_unmanifested_symlink_directory_fails_closed(tmp_path):
     result = verify_bundle(tmp_path, max_level=1)
 
     assert result["overall_status"] == "FAIL"
-    assert "bundle_directory_entry_unsafe:escape" in result["levels"][0]["error"]
+    assert "bundle_directory_symlink_not_allowed:escape" in result["levels"][0]["error"]
 
 
 def test_default_levels_do_not_overclaim_provenance_or_rerun(tmp_path):

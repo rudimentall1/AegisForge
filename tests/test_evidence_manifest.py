@@ -51,6 +51,9 @@ def test_source_record_hashes_exact_excerpt_and_states_limits():
         ("start_line", 0, "source_line_range_invalid"),
         ("end_line", 119, "source_line_range_invalid"),
         ("path", "../secrets", "source_path_invalid"),
+        ("path", "..\\secrets", "source_path_invalid"),
+        ("path", "C:\\secrets", "source_path_invalid"),
+        ("path", "source//file.sol", "source_path_invalid"),
         ("repository", "not-a-repo", "source_repository_must_be_owner_repo"),
     ],
 )

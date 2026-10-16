@@ -2,7 +2,12 @@ import json
 
 from orchestrator.master import AutonomousPlanner
 from shared.queue import TaskQueue
-from shared.research_case import ResearchCase, validate_worker_case_binding
+from shared.research_case import (
+    ResearchCase,
+    research_case_binding,
+    verify_research_case_binding,
+    validate_worker_case_binding,
+)
 
 
 def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_path):
@@ -92,9 +97,18 @@ def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_pat
         assert row[12] == case.case_id
         validate_worker_case_binding(role, queue.get_research_case(case.case_id), row[12])
 
+        # Mirror the worker's result-boundary contract: every successful stage
+        # carries the canonical case envelope into the persisted queue result.
+        result = dict(result)
+        result["research_case_binding"] = research_case_binding(case)
         queue.finish(task_id, result=result)
         stored_result = queue.get_result(task_id)
         assert stored_result == result
+        verified_case = verify_research_case_binding(
+            stored_result["research_case_binding"]
+        )
+        assert verified_case["target_commit"] == case.target_commit
+        assert stored_result["research_case_binding"]["case_id"] == row[12]
 
         decision = master._choose_next_raw(
             {"id": task_id, "role": role, "result": stored_result}

@@ -1,11 +1,12 @@
 import json
+from datetime import datetime, timedelta, timezone
 
 import orchestrator.master as master_module
 from shared.queue import TaskQueue as RealTaskQueue
-from shared.research_case import ResearchCase
+from shared.research_case import ResearchCase, RoundSpec
 
 
-def make_case(case_id="bootstrap-case-001", status="ready"):
+def make_case(case_id="bootstrap-case-001", status="ready", rounds=()):
     return ResearchCase(
         case_id=case_id,
         target_repository="example/project",
@@ -19,6 +20,8 @@ def make_case(case_id="bootstrap-case-001", status="ready"):
         falsification_criteria="Counter-tests preserve the invariant for all tested transitions.",
         execution_mode="local",
         status=status,
+        allowed_techniques=("source_pattern", "synthetic_check"),
+        rounds=rounds,
     )
 
 
@@ -149,4 +152,104 @@ def test_bootstrap_legacy_path_unchanged(tmp_path, monkeypatch):
     master, queue = make_master(tmp_path / "existing", monkeypatch)
     queue.add("existing planner work", role="researcher")
     assert master.bootstrap() is False
+    queue.db.close()
+
+
+
+def make_round(round_id="round-001", technique="source_pattern", days=90, priority=0):
+    return RoundSpec(
+        round_id=round_id,
+        technique=technique,
+        hypothesis="A bounded synthetic check may reveal a reproducible invariant violation.",
+        expected_evidence_atoms=("source location", "counter-test output"),
+        falsification_criteria="A counter-test preserves the invariant under the same preconditions.",
+        priority=priority,
+        disclosure_deadline_days=days,
+    )
+
+
+def test_bootstrap_creates_root_and_transparency_for_each_round(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case = make_case(rounds=(
+        make_round("round-low", "source_pattern", days=90, priority=1),
+        make_round("round-high", "synthetic_check", days=30, priority=5),
+    ))
+    case_id = register_case(queue, case)
+
+    assert master.bootstrap() is True
+    roots = queue.db.execute(
+        """
+        SELECT round_id, role, research_case_id FROM queue
+        WHERE parent_task_id IS NULL AND research_case_id = ?
+        ORDER BY round_id
+        """,
+        (case_id,),
+    ).fetchall()
+    assert roots == [
+        ("round-high", "source_researcher", case_id),
+        ("round-low", "source_researcher", case_id),
+    ]
+    timelines = queue.db.execute(
+        """
+        SELECT round_id, technique, started_at, disclosure_deadline, status
+        FROM round_transparency WHERE case_id = ? ORDER BY round_id
+        """,
+        (case_id,),
+    ).fetchall()
+    assert [row[0] for row in timelines] == ["round-high", "round-low"]
+    assert timelines[0][1] == "synthetic_check"
+    assert timelines[0][4] == "OPEN"
+    started = datetime.fromisoformat(timelines[0][2])
+    deadline = datetime.fromisoformat(timelines[0][3])
+    assert timedelta(days=29, hours=23) < deadline - started <= timedelta(days=30)
+    queue.db.close()
+
+
+def test_terminal_round_records_completion_and_never_auto_confirms(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue, make_case(rounds=(make_round(),)))
+
+    assert master.bootstrap() is True
+    root = queue.db.execute(
+        "SELECT id FROM queue WHERE parent_task_id IS NULL AND round_id = ?",
+        ("round-001",),
+    ).fetchone()[0]
+    queue.db.execute(
+        "UPDATE queue SET status = 'completed', result = ? WHERE id = ?",
+        (json.dumps({"verdict": "CONFIRMED"}), root),
+    )
+    queue.db.commit()
+
+    assert master.bootstrap() is False
+    row = queue.db.execute(
+        """
+        SELECT status, completed_at, verdict FROM round_transparency
+        WHERE round_id = ?
+        """,
+        ("round-001",),
+    ).fetchone()
+    assert row[0] == "COMPLETED"
+    assert row[1] is not None
+    assert row[2] == "INCONCLUSIVE"
+    queue.db.close()
+
+
+def test_expired_open_round_creates_deadline_review_while_branch_active(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue, make_case(rounds=(make_round(),)))
+    assert master.bootstrap() is True
+
+    expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    queue.db.execute(
+        "UPDATE round_transparency SET disclosure_deadline = ? WHERE round_id = ?",
+        (expired, "round-001"),
+    )
+    queue.db.commit()
+
+    assert master.bootstrap() is False
+    review = queue.db.execute(
+        "SELECT reason, status FROM pending_human_review WHERE case_id = ?",
+        (case_id,),
+    ).fetchone()
+    assert review == ("deadline_exceeded:round-001", "OPEN")
     queue.db.close()

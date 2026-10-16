@@ -406,16 +406,6 @@ class TaskQueue:
             """,
             (round_id, case_id, technique, started_at, disclosure_deadline),
         )
-        row = self.db.execute(
-            """
-            SELECT case_id, technique, started_at, disclosure_deadline
-            FROM round_transparency WHERE round_id = ?
-            """,
-            (round_id,),
-        ).fetchone()
-        if row != (case_id, technique, started_at, disclosure_deadline):
-            self.db.rollback()
-            raise ValueError("round_transparency_id_conflict")
         self.db.commit()
 
     def complete_round(self, round_id, completed_at, verdict) -> bool:

@@ -183,10 +183,21 @@ def verify_research_case_binding(binding: dict) -> dict:
         raise CaseValidationError("research_case_binding_payload_missing")
     if payload.get("case_id") != binding.get("case_id"):
         raise CaseValidationError("research_case_binding_id_mismatch")
+    # A matching digest only proves that the envelope is internally consistent:
+    # anyone can recompute it. Validate the payload against the actual case
+    # contract before treating it as a usable provenance record.
     try:
+        case = ResearchCase(**payload)
+        normalized_payload = asdict(case)
+        normalized_payload["execution_mode"] = case.execution_mode.value
+        normalized_payload["status"] = case.status.value
+        if normalized_payload != payload:
+            raise CaseValidationError("research_case_binding_payload_invalid")
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    except (TypeError, ValueError) as exc:
+    except (CaseValidationError, TypeError, ValueError) as exc:
+        if isinstance(exc, CaseValidationError) and str(exc) == "research_case_binding_payload_invalid":
+            raise
         raise CaseValidationError("research_case_binding_payload_invalid") from exc
     if digest != binding.get("case_digest"):
         raise CaseValidationError("research_case_binding_digest_mismatch")

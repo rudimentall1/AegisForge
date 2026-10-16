@@ -28,7 +28,7 @@ The first release should take a pinned public source revision and a falsifiable 
 
 The existing Profanity work is currently a benchmark and synthetic demonstration, not proof that the historical implementation has been reproduced and not evidence about any individual wallet. The product must preserve that distinction in code, tests, reports, and documentation.
 
-The release acceptance checklist is [docs/PRODUCT-READINESS.md](docs/PRODUCT-READINESS.md). The MVP is not release-ready until its blockers are verified against the exact candidate commit.
+The release acceptance checklist is [docs/PRODUCT-READINESS.md](docs/PRODUCT-READINESS.md). The MVP is not release-ready until its blockers are verified against the exact candidate commit. The command-line workflow for creating cases and submitting bound forensic tasks is documented in [docs/RESEARCH-CASE-CLI.md](docs/RESEARCH-CASE-CLI.md).
 
 ## What exists today
 

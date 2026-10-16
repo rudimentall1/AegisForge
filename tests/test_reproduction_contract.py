@@ -104,7 +104,7 @@ def test_network_must_remain_disabled():
         validate_reproduction_contract(payload)
 
 
-@pytest.mark.parametrize("key", ["API_TOKEN", "PRIVATE_KEY", "WALLET_SEED", "AUTHORIZATION"])
+@pytest.mark.parametrize("key", ["API_TOKEN", "PRIVATE_KEY", "WALLET_SEED", "SEED_PHRASE", "AUTHORIZATION"])
 def test_secret_bearing_environment_names_are_rejected(key):
     payload = valid_contract()
     payload["environment"][key] = "placeholder"

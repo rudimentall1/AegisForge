@@ -127,7 +127,16 @@ def validate_source_record(record):
     if not isinstance(record.get("commit_sha"), str) or not _SOURCE_SHA1_RE.fullmatch(record["commit_sha"]):
         raise EvidenceManifestError("source_commit_sha_invalid")
     path = record.get("path")
-    if not isinstance(path, str) or not path.strip() or path.startswith("/") or ".." in path.split("/"):
+    if (
+        not isinstance(path, str)
+        or not path.strip()
+        or path != path.strip()
+        or path.startswith("/")
+        or "\\" in path
+        or ":" in path
+        or "\x00" in path
+        or any(part in {"", ".", ".."} for part in path.split("/"))
+    ):
         raise EvidenceManifestError("source_path_invalid")
     start_line, end_line = record.get("start_line"), record.get("end_line")
     if type(start_line) is not int or type(end_line) is not int or start_line < 1 or end_line < start_line:

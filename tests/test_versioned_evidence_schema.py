@@ -83,6 +83,20 @@ def test_research_case_required_security_fields_fail_closed(field):
         deserialize_research_case(envelope)
 
 
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("target_commit", "not-a-40-character-hex-sha"),
+        ("scope_digest", "not-a-sha256-digest"),
+    ],
+)
+def test_research_case_invalid_security_field_formats_fail_closed(field, invalid_value):
+    envelope = serialize_research_case(valid_case())
+    envelope["data"][field] = invalid_value
+    with pytest.raises((ValidationError, ValueError, TypeError)):
+        deserialize_research_case(envelope)
+
+
 def test_research_case_envelope_rejects_unknown_version():
     envelope = serialize_research_case(valid_case())
     envelope["schema_version"] = "aegisforge-evidence-v999"

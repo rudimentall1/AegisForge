@@ -1,6 +1,6 @@
 # Profanity case run record — 2026-10-16
 
-The original portable ZIP is represented in this repository as a base64-encoded file at `docs/research/evm-key-forensics/evidence/profanity-master-driven-2026-10-16.zip.base64`. Decode it using the instructions in [recovery guide](../../../ops/RECOVERY.md).
+The original portable ZIP is represented in this repository as a base64-encoded file at `docs/research/evm-key-forensics/evidence/profanity-master-driven-2026-10-16.zip.base64`. Decode it using the instructions in [recovery guide](../../ops/RECOVERY.md).
 
 ## Case and result
 

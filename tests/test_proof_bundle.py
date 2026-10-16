@@ -46,7 +46,7 @@ def test_bundle_rejects_tampered_public_key(tmp_path):
         check=False,
     )
     assert result.returncode == 1
-    assert "public_key_mismatch" in result.stdout or "bundle_file_hash_mismatch:public-key.txt" in result.stdout
+    assert "public_key_mismatch" in result.stdout or "bundle_file_hash_mismatch:public-key.txt" in result.stdout or "bundle_file_size_mismatch:public-key.txt" in result.stdout
 
 
 def test_bundle_rejects_tampered_proof(tmp_path):

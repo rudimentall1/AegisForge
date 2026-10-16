@@ -365,6 +365,15 @@ def run_reproduction_contract(
             "reason": "linux_posix_runner_required",
             "contract_sha256": contract_digest,
         }
+    # A root caller would otherwise make --user 0:0 and violate the runner's
+    # non-root execution guarantee. Fail closed rather than silently running
+    # the experiment as container root.
+    if os.getuid() == 0 or os.getgid() == 0:
+        return {
+            "status": "NOT_RUN",
+            "reason": "non_root_host_identity_required",
+            "contract_sha256": contract_digest,
+        }
 
     output_root = _prepare_output_directory(output_dir, root)
     container_name = "aegisforge-repro-" + uuid.uuid4().hex

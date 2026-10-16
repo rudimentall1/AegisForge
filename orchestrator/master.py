@@ -3114,7 +3114,8 @@ class MasterOrchestrator:
             "SELECT result FROM queue WHERE id = ? OR parent_task_id = ? ORDER BY created_at DESC",
             (root_id, root_id),
         ).fetchall()
-        allowed = {"REPRODUCED", "NOT_REPRODUCED", "INCONCLUSIVE"}
+        # Keep Round verdicts aligned with the attestation vocabulary; never accept CONFIRMED.
+        allowed = {"REPRODUCED", "NOT_REPRODUCED", "INCONCLUSIVE", "OUT_OF_SCOPE"}
         for (raw,) in rows:
             if not raw:
                 continue

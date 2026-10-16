@@ -83,6 +83,9 @@ def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_pat
     )
 
     for role, result, expected_next_role in stages:
+        claimed = queue.claim(f"test-worker-{role}", role=role)
+        assert claimed is not None
+        assert claimed[0] == task_id
         row = queue.get(task_id)
         assert row is not None
         assert row[7] == role

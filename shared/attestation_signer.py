@@ -21,6 +21,11 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from shared.attestation import AttestationError, SIGNATURE_ALGORITHM, sign_attestation
+from shared.attestation_registry import (
+    AttestationRegistryError,
+    CHECKPOINT_REQUEST_SCHEMA_VERSION,
+    sign_registry_checkpoint,
+)
 
 MAX_BODY_BYTES = 256 * 1024
 MAX_RESPONSE_BYTES = 512 * 1024
@@ -61,6 +66,29 @@ def _decode_request(raw: bytes) -> dict[str, Any]:
         raise SignerServiceError("required_fields_missing")
     if keys - REQUIRED_INPUT_FIELDS - OPTIONAL_INPUT_FIELDS:
         raise SignerServiceError("unexpected_request_fields")
+    return value
+
+
+
+
+def _decode_checkpoint_request(raw: bytes) -> dict[str, Any]:
+    try:
+        value = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=lambda item: (_ for _ in ()).throw(
+                SignerServiceError(f"nonstandard_json_constant:{item}")
+            ),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise SignerServiceError("invalid_json") from exc
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"schema_version", "registry"}
+        or value.get("schema_version") != CHECKPOINT_REQUEST_SCHEMA_VERSION
+        or not isinstance(value.get("registry"), dict)
+    ):
+        raise SignerServiceError("registry_checkpoint_request_invalid")
     return value
 
 
@@ -150,7 +178,7 @@ def make_server(
             self._send(404, {"error": "not_found"})
 
         def do_POST(self):
-            if self.path != "/v1/attest":
+            if self.path not in {"/v1/attest", "/v1/registry-checkpoint"}:
                 self._send(404, {"error": "not_found"})
                 return
             if not self._authorized():
@@ -175,31 +203,44 @@ def make_server(
                 self._send(400, {"error": "request_body_truncated"})
                 return
             try:
-                inputs = _decode_request(raw)
-                attestation = sign_attestation(
-                    case_ref=inputs["case_ref"],
-                    finding_ref=inputs["finding_ref"],
-                    reproduction=inputs["reproduction"],
-                    verdict=inputs["verdict"],
-                    verdict_rationale=inputs["verdict_rationale"],
-                    private_key=private_key,
-                    key_id=key_id,
-                    organization=organization,
-                    issued_at=inputs.get("issued_at"),
-                ).to_dict()
-            except (SignerServiceError, AttestationError, TypeError, ValueError) as exc:
+                if self.path == "/v1/attest":
+                    inputs = _decode_request(raw)
+                    attestation = sign_attestation(
+                        case_ref=inputs["case_ref"],
+                        finding_ref=inputs["finding_ref"],
+                        reproduction=inputs["reproduction"],
+                        verdict=inputs["verdict"],
+                        verdict_rationale=inputs["verdict_rationale"],
+                        private_key=private_key,
+                        key_id=key_id,
+                        organization=organization,
+                        issued_at=inputs.get("issued_at"),
+                    ).to_dict()
+                    response = {
+                        "attestation_id": attestation["attestation_id"],
+                        "attestation": attestation,
+                    }
+                else:
+                    inputs = _decode_checkpoint_request(raw)
+                    checkpoint = sign_registry_checkpoint(
+                        registry=inputs["registry"],
+                        private_key=private_key,
+                        key_id=key_id,
+                        organization=organization,
+                    )
+                    response = {
+                        "checkpoint_id": checkpoint["checkpoint_id"],
+                        "checkpoint": checkpoint,
+                    }
+            except (SignerServiceError, AttestationError, AttestationRegistryError, TypeError, ValueError) as exc:
                 reason = str(exc)
                 if not reason or len(reason) > 120:
-                    reason = "invalid_attestation_request"
+                    reason = "invalid_signing_request"
                 self._send(400, {"error": reason})
                 return
-            response = {
-                "attestation_id": attestation["attestation_id"],
-                "attestation": attestation,
-            }
             encoded = json.dumps(response, sort_keys=True, separators=(",", ":")).encode("utf-8")
             if len(encoded) > MAX_RESPONSE_BYTES:
-                self._send(413, {"error": "attestation_response_too_large"})
+                self._send(413, {"error": "signer_response_too_large"})
                 return
             self._send(200, response)
 

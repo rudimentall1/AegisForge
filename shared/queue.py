@@ -570,14 +570,24 @@ class TaskQueue:
 
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            existing = self.db.execute(
-                """
-                SELECT id FROM pending_human_review
-                WHERE case_id = ? AND status = 'OPEN'
-                ORDER BY created_at LIMIT 1
-                """,
-                (case_id,),
-            ).fetchone()
+            if reason.startswith("deadline_exceeded:"):
+                existing = self.db.execute(
+                    """
+                    SELECT id FROM pending_human_review
+                    WHERE case_id = ? AND reason = ? AND status = 'OPEN'
+                    ORDER BY created_at LIMIT 1
+                    """,
+                    (case_id, reason),
+                ).fetchone()
+            else:
+                existing = self.db.execute(
+                    """
+                    SELECT id FROM pending_human_review
+                    WHERE case_id = ? AND status = 'OPEN'
+                    ORDER BY created_at LIMIT 1
+                    """,
+                    (case_id,),
+                ).fetchone()
             if existing:
                 self.db.commit()
                 return existing[0]

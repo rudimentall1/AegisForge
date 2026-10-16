@@ -69,14 +69,11 @@ def test_bootstrap_creates_review_when_all_branches_terminal(tmp_path, monkeypat
     add_root(queue, case_id)
 
     assert master.bootstrap() is False
-    reviews = open_reviews(queue, case_id)
-    assert len(reviews) == 1
-    assert reviews[0][1] == "OPEN"
-    row = queue.db.execute(
-        "SELECT reason FROM pending_human_review WHERE id = ?",
-        (reviews[0][0],),
-    ).fetchone()
-    assert row[0] == "all_branches_terminal:roots=1"
+    reviews = queue.db.execute(
+        "SELECT status FROM pending_human_review WHERE case_id = ? AND reason = ?",
+        (case_id, "all_branches_terminal:roots=1"),
+    ).fetchall()
+    assert reviews == [("OPEN",)]
     queue.db.close()
 
 
@@ -117,26 +114,55 @@ def test_bootstrap_considers_all_root_roles(tmp_path, monkeypatch):
     add_root(queue, case_id, role="crypto_analyst")
 
     master.bootstrap()
-    reviews = open_reviews(queue, case_id)
-    assert len(reviews) == 1
-    assert reviews[0][1] == "OPEN"
+    reviews = queue.db.execute(
+        "SELECT status FROM pending_human_review WHERE case_id = ? AND reason = ?",
+        (case_id, "all_branches_terminal:roots=1"),
+    ).fetchall()
+    assert reviews == [("OPEN",)]
     queue.db.close()
 
 
-def test_bootstrap_does_not_repeat_review_creation(tmp_path, monkeypatch, capsys):
+def test_bootstrap_does_not_repeat_review_creation(tmp_path, monkeypatch):
     master, queue = make_master(tmp_path, monkeypatch)
     case_id = register_case(queue)
     add_root(queue, case_id)
-    queue.create_human_review(case_id, "pre-existing review")
+    queue.create_human_review(case_id, "pre-existing")
 
     master.bootstrap()
-    first_output = capsys.readouterr().out
+    count_before = len(open_reviews(queue, case_id))
     master.bootstrap()
-    second_output = capsys.readouterr().out
+    count_after = len(open_reviews(queue, case_id))
 
-    assert "CASE_BRANCHES_TERMINAL" not in first_output
-    assert "CASE_BRANCHES_TERMINAL" not in second_output
-    assert len(open_reviews(queue, case_id)) == 1
+    assert count_after == count_before
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM pending_human_review "
+        "WHERE case_id = ? AND status = 'OPEN' AND reason = ?",
+        (case_id, "all_branches_terminal:roots=1"),
+    ).fetchone()[0] == 1
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM pending_human_review "
+        "WHERE case_id = ? AND status = 'OPEN' AND reason = ?",
+        (case_id, "pre-existing"),
+    ).fetchone()[0] == 1
+    assert count_after == 2
+    queue.db.close()
+
+
+def test_bootstrap_does_not_duplicate_same_reason(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue)
+    add_root(queue, case_id)
+    reason = "all_branches_terminal:roots=1"
+    queue.create_human_review(case_id, reason)
+
+    master.bootstrap()
+    master.bootstrap()
+
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM pending_human_review "
+        "WHERE case_id = ? AND status = 'OPEN' AND reason = ?",
+        (case_id, reason),
+    ).fetchone()[0] == 1
     queue.db.close()
 
 

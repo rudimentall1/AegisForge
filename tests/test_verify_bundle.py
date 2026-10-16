@@ -59,6 +59,38 @@ def test_level_one_passes_for_valid_bundle(tmp_path):
     assert result["levels"][0]["checked_artifacts"] == 1
 
 
+def test_unmanifested_file_fails_closed(tmp_path):
+    write_bundle(tmp_path)
+    (tmp_path / "untracked-evidence.txt").write_text("unverified bytes", encoding="utf-8")
+
+    result = verify_bundle(tmp_path, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert "unmanifested_bundle_file:untracked-evidence.txt" in result["levels"][0]["error"]
+
+
+def test_unmanifested_empty_directory_fails_closed(tmp_path):
+    write_bundle(tmp_path)
+    (tmp_path / "untracked-empty-dir").mkdir()
+
+    result = verify_bundle(tmp_path, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert "unmanifested_bundle_directory:untracked-empty-dir" in result["levels"][0]["error"]
+
+
+def test_unmanifested_symlink_directory_fails_closed(tmp_path):
+    write_bundle(tmp_path)
+    outside = tmp_path.parent / "outside-bundle-dir"
+    outside.mkdir()
+    (tmp_path / "escape").symlink_to(outside, target_is_directory=True)
+
+    result = verify_bundle(tmp_path, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert "bundle_directory_entry_unsafe:escape" in result["levels"][0]["error"]
+
+
 def test_default_levels_do_not_overclaim_provenance_or_rerun(tmp_path):
     write_bundle(tmp_path)
 

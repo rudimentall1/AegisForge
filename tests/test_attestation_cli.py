@@ -3,9 +3,39 @@ import hashlib
 import json
 import os
 import stat
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from shared.attestation import verify_attestation
+from shared.attestation_signer import make_server
+
 from shared.attestation_cli import main
+
+
+
+
+REQUEST_TOKEN = "attestation-cli-request-test-token-123456789"
+
+
+@contextmanager
+def running_signer(key):
+    server = make_server(
+        "127.0.0.1", 0, private_key=key, key_id="cli-request-key",
+        organization="AegisForge CLI request tests", token=REQUEST_TOKEN,
+    )
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def input_payload(artifact=None, verdict="INCONCLUSIVE"):
@@ -201,3 +231,34 @@ def test_cli_never_accepts_confirmed_verdict(tmp_path, capsys):
     ]) == 3
     assert "verdict_not_allowed" in capsys.readouterr().err
     assert not output.exists()
+
+
+def test_attest_request_uses_loopback_signer_without_private_key_file(tmp_path, capsys, monkeypatch):
+    key = Ed25519PrivateKey.generate()
+    input_path = tmp_path / "input.json"
+    trusted_path = tmp_path / "trusted-keys.json"
+    output_path = tmp_path / "attestation.json"
+    input_path.write_text(json.dumps(input_payload()), encoding="utf-8")
+    public = key.public_key().public_bytes_raw()
+    trusted_path.write_text(
+        json.dumps({"cli-request-key": __import__("base64").b64encode(public).decode("ascii")}),
+        encoding="utf-8",
+    )
+
+    with running_signer(key) as signer_url:
+        monkeypatch.setenv("AEGISFORGE_SIGNER_URL", signer_url)
+        monkeypatch.setenv("AEGISFORGE_SIGNER_TOKEN", REQUEST_TOKEN)
+        assert main([
+            "attest", "request",
+            "--input", str(input_path),
+            "--trusted-keys", str(trusted_path),
+            "--output", str(output_path),
+        ]) == 0
+
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert result["status"] == "SIGNED_BY_SERVICE"
+    assert result["private_key_material_loaded_by_cli"] is False
+    attestation = read_json(output_path)
+    verification = verify_attestation(attestation, trusted_keys=read_json(trusted_path))
+    assert verification.status == "VALID"
+    assert not (tmp_path / "private.key").exists()

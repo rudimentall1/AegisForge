@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,6 +15,16 @@ from tools.evm_key_forensics.solidity_source_pattern import (
     PINNED_PATH,
     PINNED_REPOSITORY,
     inspect_source,
+)
+from tools.evm_key_forensics.uniswap_v2_factory_source_pattern import (
+    PINNED_COMMIT as UNISWAP_FACTORY_COMMIT,
+    PINNED_GIT_BLOB_SHA1 as UNISWAP_FACTORY_GIT_BLOB_SHA1,
+    PINNED_PATH as UNISWAP_FACTORY_PATH,
+    PINNED_REPOSITORY as UNISWAP_FACTORY_REPOSITORY,
+    CONTRACT_ADDRESS as UNISWAP_FACTORY_ADDRESS,
+    CHAIN_ID as UNISWAP_FACTORY_CHAIN_ID,
+    EXPLORER_URL as UNISWAP_FACTORY_EXPLORER_URL,
+    inspect_source as inspect_uniswap_factory_source,
 )
 
 
@@ -434,6 +445,127 @@ class SourceResearcher:
         task.status = "source_researched"
         return task
 
+    def _run_uniswap_v2_factory_fixture(self, task: Task, research_case) -> Task:
+        """Load the pinned Uniswap V2 Factory source and provenance offline."""
+        payload = task.payload if isinstance(task.payload, dict) else {}
+        case_id = payload.get("research_case_id")
+        case = validate_task_binding(research_case, case_id)
+        target_commit = str(getattr(case, "target_commit", "") or "")
+        root = Path(__file__).resolve().parents[2]
+        fixture_path = root / "tests" / "fixtures" / "solidity" / "UniswapV2Factory.sol"
+        manifest_path = root / "tests" / "fixtures" / "solidity" / "UniswapV2Factory.provenance.json"
+        parent = dict(task.result or {})
+        errors = []
+        try:
+            raw = fixture_path.read_bytes()
+            source = raw.decode("utf-8")
+            manifest_raw = manifest_path.read_bytes()
+            manifest = json.loads(manifest_raw.decode("utf-8"))
+            observation = inspect_uniswap_factory_source(
+                source,
+                source_commit=target_commit,
+                source_path=UNISWAP_FACTORY_PATH,
+            )
+            case_scope_digest = hashlib.sha256(manifest_raw).hexdigest()
+            provenance_matches = (
+                manifest.get("schema_version") == "aegisforge-verified-source-provenance-v1"
+                and manifest.get("chain_id") == UNISWAP_FACTORY_CHAIN_ID
+                and manifest.get("contract_address") == UNISWAP_FACTORY_ADDRESS
+                and manifest.get("explorer", {}).get("url") == UNISWAP_FACTORY_EXPLORER_URL
+                and manifest.get("explorer", {}).get("reported_status") == "Source Code Verified Exact Match"
+                and manifest.get("upstream_source", {}).get("repository") == UNISWAP_FACTORY_REPOSITORY
+                and manifest.get("upstream_source", {}).get("commit") == UNISWAP_FACTORY_COMMIT
+                and manifest.get("upstream_source", {}).get("path") == UNISWAP_FACTORY_PATH
+                and manifest.get("upstream_source", {}).get("git_blob_sha1") == UNISWAP_FACTORY_GIT_BLOB_SHA1
+                and case_scope_digest == getattr(case, "scope_digest", None)
+                and getattr(case, "scope_url", None) == UNISWAP_FACTORY_EXPLORER_URL
+                and target_commit == UNISWAP_FACTORY_COMMIT
+            )
+            if not provenance_matches:
+                errors.append("case_or_provenance_manifest_mismatch")
+                observation["errors"] = list(observation.get("errors", [])) + errors
+                observation["conclusion"] = "INCONCLUSIVE"
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raw = b""
+            manifest = {}
+            provenance_matches = False
+            observation = {
+                "schema_version": "aegisforge-uniswap-v2-factory-observation-v1",
+                "target_id": "uniswap-v2-factory-mainnet",
+                "repository": UNISWAP_FACTORY_REPOSITORY,
+                "source_commit": target_commit,
+                "source_path": UNISWAP_FACTORY_PATH,
+                "conclusion": "INCONCLUSIVE",
+                "errors": [f"fixture_or_manifest_read_failed:{type(exc).__name__}"],
+                "finding": False,
+                "vulnerability_confirmed": False,
+                "rpc_used": False,
+                "source_executed": False,
+            }
+        source_url = (
+            f"https://github.com/{UNISWAP_FACTORY_REPOSITORY}/blob/"
+            f"{UNISWAP_FACTORY_COMMIT}/{UNISWAP_FACTORY_PATH}"
+        )
+        source_record = {
+            "source_id": hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:16],
+            "source_url": source_url,
+            "source_kind": "pinned_explorer_verified_source",
+            "source_origin": "repository_checked_in_fixture",
+            "repository": UNISWAP_FACTORY_REPOSITORY,
+            "revision_sha": UNISWAP_FACTORY_COMMIT,
+            "case_target_commit": target_commit,
+            "source_file_path": UNISWAP_FACTORY_PATH,
+            "fetch_status": "local_fixture_loaded" if raw else "local_fixture_unavailable",
+            "content_bytes": len(raw),
+            "content_sha256": hashlib.sha256(raw).hexdigest() if raw else None,
+            "git_blob_sha1": observation.get("source_git_blob_sha1"),
+            "contract_address": UNISWAP_FACTORY_ADDRESS,
+            "chain_id": UNISWAP_FACTORY_CHAIN_ID,
+            "explorer_verification_status": manifest.get("explorer", {}).get("reported_status"),
+            "provenance_manifest_sha256": (
+                hashlib.sha256(manifest_raw).hexdigest() if "manifest_raw" in locals() else None
+            ),
+            "provenance_matches_case": provenance_matches,
+            "source_status_note": (
+                "Pinned local source; Etherscan provenance is recorded in a checked-in manifest. "
+                "No explorer or RPC request is made by this runner."
+            ),
+        }
+        result = dict(parent)
+        result.update({
+            "research_track": "uniswap_v2_factory_fixture",
+            "stage": "sources",
+            "stage_history": list(parent.get("stage_history", [])) + ["source_research"],
+            "research_case_binding": research_case_binding(case),
+            "source_observation": observation,
+            "sources": [source_record],
+            "repository_pins": [{
+                "repository": UNISWAP_FACTORY_REPOSITORY,
+                "requested_ref": UNISWAP_FACTORY_COMMIT,
+                "commit_sha": UNISWAP_FACTORY_COMMIT,
+                "source_path": UNISWAP_FACTORY_PATH,
+                "git_blob_sha1": UNISWAP_FACTORY_GIT_BLOB_SHA1,
+                "pin_status": "immutable_commit_and_blob",
+            }],
+            "source_summary": {
+                "sources_collected": 1 if raw else 0,
+                "pinned_repository_files": 1 if raw else 0,
+                "http_requests": 0,
+            },
+            "scope_guards": {
+                "public_sources_only": True,
+                "synthetic_experiments_only": True,
+                "no_real_wallet_key_recovery": True,
+                "no_live_network_access": True,
+                "source_executed": False,
+                "rpc_used": False,
+                "transactions_sent": False,
+            },
+        })
+        task.result = result
+        task.status = "source_researched"
+        return task
+
     def run(self, task: Task) -> Task:
         task.status = "researching_sources"
         parent = dict(task.result or {})
@@ -445,6 +577,11 @@ class SourceResearcher:
             "https://github.com/openzeppelin/openzeppelin-contracts",
         }:
             return self._run_solidity_source_fixture(task, research_case)
+        if target_repository in {
+            "uniswap/v2-core",
+            "https://github.com/uniswap/v2-core",
+        }:
+            return self._run_uniswap_v2_factory_fixture(task, research_case)
         profanity_case = target_repository in {
             "johguse/profanity",
             "https://github.com/johguse/profanity",

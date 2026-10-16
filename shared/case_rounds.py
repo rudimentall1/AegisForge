@@ -32,9 +32,9 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
         case = queue.get_research_case(case_id)
         if case is None:
             raise CaseRoundError("research_case_not_registered")
-        validate_task_binding(case, case_id)
         if case.status not in {CaseStatus.READY, CaseStatus.RUNNING}:
             raise CaseRoundError(f"research_case_not_runnable:{case.status.value}")
+        validate_task_binding(case, case_id)
 
         active = db.execute(
             """

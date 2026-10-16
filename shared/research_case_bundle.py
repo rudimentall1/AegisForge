@@ -485,6 +485,8 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         or not isinstance(tasks_file.get("tasks"), list)
     ):
         raise ResearchCaseBundleError("tasks_file_schema_invalid")
+    if len(tasks_file["tasks"]) > MAX_TASKS:
+        raise ResearchCaseBundleError("case_task_count_exceeds_limit")
     task_ids = set()
     for task in tasks_file["tasks"]:
         if not isinstance(task, dict) or task.get("research_case_id") != case_id:
@@ -520,6 +522,8 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         or not isinstance(evidence_file.get("observations"), list)
     ):
         raise ResearchCaseBundleError("evidence_file_schema_invalid")
+    if len(evidence_file["observations"]) > MAX_EVIDENCE_ROWS:
+        raise ResearchCaseBundleError("case_evidence_count_exceeds_limit")
     for observation in evidence_file["observations"]:
         if not isinstance(observation, dict) or observation.get("case_id") != case_id:
             raise ResearchCaseBundleError("evidence_case_identity_mismatch")

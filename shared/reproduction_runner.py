@@ -492,7 +492,7 @@ def run_reproduction_contract(
             except subprocess.TimeoutExpired:
                 timed_out = True
                 stop_status = _stop_container(docker_path, container_name, docker_env)
-                if stop_status != "STOPPED":
+                if not stop_status:
                     execution_error = "timeout_stop_unconfirmed"
             except OSError:
                 execution_error = "docker_wait_failed"

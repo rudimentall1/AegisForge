@@ -61,6 +61,23 @@ class TaskQueue:
             )
         """)
 
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS pending_human_review (
+                id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                task_id TEXT,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'OPEN',
+                created_at TEXT NOT NULL,
+                resolved_at TEXT,
+                resolution TEXT
+            )
+        """)
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_hr_case_status
+            ON pending_human_review(case_id, status)
+        """)
+
         columns = {
             row[1]
             for row in self.db.execute("PRAGMA table_info(queue)")
@@ -324,6 +341,84 @@ class TaskQueue:
         payload["execution_mode"] = ExecutionMode(payload["execution_mode"])
         payload["status"] = CaseStatus(payload["status"])
         return ResearchCase(**payload)
+
+    # ---------------------------------------------------------
+    # HUMAN REVIEW QUEUE
+    # ---------------------------------------------------------
+
+    def create_human_review(self, case_id, reason, task_id=None):
+        """Create one open review per case; repeated requests return its ID."""
+        if not isinstance(case_id, str) or not case_id.strip():
+            raise ValueError("human_review_case_id_required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("human_review_reason_required")
+        if task_id is not None and (not isinstance(task_id, str) or not task_id.strip()):
+            raise ValueError("human_review_task_id_invalid")
+
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            existing = self.db.execute(
+                """
+                SELECT id FROM pending_human_review
+                WHERE case_id = ? AND status = 'OPEN'
+                ORDER BY created_at LIMIT 1
+                """,
+                (case_id,),
+            ).fetchone()
+            if existing:
+                self.db.commit()
+                return existing[0]
+
+            review_id = str(uuid.uuid4())
+            created_at = datetime.now(timezone.utc).isoformat()
+            self.db.execute(
+                """
+                INSERT INTO pending_human_review
+                    (id, case_id, task_id, reason, status, created_at)
+                VALUES (?, ?, ?, ?, 'OPEN', ?)
+                """,
+                (review_id, case_id, task_id, self._bounded_description(reason), created_at),
+            )
+            self.db.commit()
+            return review_id
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def list_human_reviews(self, status="OPEN"):
+        """Return human-review records filtered by exact status."""
+        if not isinstance(status, str) or not status.strip():
+            raise ValueError("human_review_status_required")
+        rows = self.db.execute(
+            """
+            SELECT id, case_id, task_id, reason, status, created_at, resolved_at, resolution
+            FROM pending_human_review
+            WHERE status = ?
+            ORDER BY created_at, id
+            """,
+            (status.upper(),),
+        ).fetchall()
+        keys = ("id", "case_id", "task_id", "reason", "status", "created_at", "resolved_at", "resolution")
+        return [dict(zip(keys, row)) for row in rows]
+
+    def resolve_human_review(self, review_id, resolution):
+        """Resolve an open review exactly once; return False if not open/found."""
+        if not isinstance(review_id, str) or not review_id.strip():
+            raise ValueError("human_review_id_required")
+        if not isinstance(resolution, str) or not resolution.strip():
+            raise ValueError("human_review_resolution_required")
+
+        resolved_at = datetime.now(timezone.utc).isoformat()
+        updated = self.db.execute(
+            """
+            UPDATE pending_human_review
+            SET status = 'RESOLVED', resolved_at = ?, resolution = ?
+            WHERE id = ? AND status = 'OPEN'
+            """,
+            (resolved_at, self._bounded_description(resolution), review_id),
+        ).rowcount
+        self.db.commit()
+        return updated == 1
 
     # ---------------------------------------------------------
     # CREATE

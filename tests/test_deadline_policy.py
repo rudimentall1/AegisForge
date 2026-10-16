@@ -39,6 +39,22 @@ def test_deadlines_outside_global_range_are_rejected(days):
         _case("runtime_probe", days)
 
 
+@pytest.mark.parametrize(
+    "technique", ["source_pattern", "crypto_primitive_analysis", "differential_revision"]
+)
+def test_short_deadline_techniques_accept_60_days(technique):
+    case = _case(technique, 60)
+    assert case.rounds[0].disclosure_deadline_days == 60
+
+
+@pytest.mark.parametrize(
+    "technique", ["source_pattern", "crypto_primitive_analysis", "differential_revision"]
+)
+def test_short_deadline_techniques_reject_61_days(technique):
+    with pytest.raises(CaseValidationError):
+        _case(technique, 61)
+
+
 def test_runtime_probe_deadline_30_is_valid():
     case = _case("runtime_probe", 30)
     assert case.rounds[0].technique == "runtime_probe"

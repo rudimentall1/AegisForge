@@ -13,7 +13,7 @@ DOSSIER = {
     "schema_version": 1,
     "dossier_id": "evm-key-forensics-profanity-source-evidence-v1",
     "status": "SOURCE_REVIEW_ONLY",
-    "generated_for_branch": "feat/evm-git-object-source-verifier",
+    "artifact_context": "HISTORICAL_SOURCE_REVIEW_BASELINE; branch names are mutable labels, not provenance",
     "reviewed_upstream": {
         "repository": "https://github.com/johguse/profanity",
         "files": [
@@ -75,6 +75,22 @@ class SourceDossierValidatorTests(unittest.TestCase):
         )
         data = json.loads(dossier_path.read_text(encoding="utf-8"))
         self.assertEqual(validate_dossier(data), [])
+
+    def test_branch_name_is_not_accepted_as_provenance(self):
+        data = copy.deepcopy(DOSSIER)
+        data.pop("artifact_context")
+        data["generated_for_branch"] = "main"
+        errors = validate_dossier(data)
+        self.assertTrue(any(error.startswith("missing_top_level_fields:") for error in errors))
+        self.assertIn("unexpected_top_level_fields:generated_for_branch", errors)
+
+    def test_artifact_context_cannot_be_rewritten(self):
+        data = copy.deepcopy(DOSSIER)
+        data["artifact_context"] = "generated from trusted branch"
+        self.assertIn(
+            "artifact_context_must_not_claim_branch_provenance",
+            validate_dossier(data),
+        )
 
     def test_commit_or_blob_mutation_fails_closed(self):
         data = copy.deepcopy(DOSSIER)

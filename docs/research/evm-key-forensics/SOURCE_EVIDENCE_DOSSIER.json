@@ -2,7 +2,7 @@
   "schema_version": 1,
   "dossier_id": "evm-key-forensics-profanity-source-evidence-v1",
   "status": "SOURCE_REVIEW_ONLY",
-  "generated_for_branch": "feat/evm-git-object-source-verifier",
+  "artifact_context": "HISTORICAL_SOURCE_REVIEW_BASELINE; branch names are mutable labels, not provenance",
   "reviewed_upstream": {
     "repository": "https://github.com/johguse/profanity",
     "files": [

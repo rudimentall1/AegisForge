@@ -34,7 +34,10 @@ def test_bundle_rejects_tampered_public_key(tmp_path):
     write_outcome_proof(proof, proof_path)
     bundle = tmp_path / "bundle"
     export_bundle(proof_path, bundle)
-    (bundle / "public-key.txt").write_text("tampered\n")
+    public_key_path = bundle / "public-key.txt"
+    original_public_key = public_key_path.read_text()
+    replacement_first_char = "A" if original_public_key[:1] != "A" else "B"
+    public_key_path.write_text(replacement_first_char + original_public_key[1:])
     result = subprocess.run(
         [sys.executable, str(bundle / "verify_bundle.py")],
         cwd=bundle,

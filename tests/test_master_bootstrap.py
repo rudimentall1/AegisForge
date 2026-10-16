@@ -171,7 +171,7 @@ def make_round(round_id="round-001", technique="source_pattern", days=30, priori
 def test_bootstrap_creates_root_and_transparency_for_each_round(tmp_path, monkeypatch):
     master, queue = make_master(tmp_path, monkeypatch)
     case = make_case(rounds=(
-        make_round("round-low", "source_pattern", days=90, priority=1),
+        make_round("round-low", "source_pattern", days=30, priority=1),
         make_round("round-high", "synthetic_check", days=30, priority=5),
     ))
     case_id = register_case(queue, case)

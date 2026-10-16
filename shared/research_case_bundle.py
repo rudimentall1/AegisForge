@@ -249,20 +249,23 @@ def export_research_case_bundle(
                 raise ResearchCaseBundleError("task_result_decode_failed") from exc
             if item["result"] is not None and not isinstance(item["result"], (dict, list, str, int, float, bool)):
                 raise ResearchCaseBundleError("task_result_type_unsupported")
-            if isinstance(item["result"], dict):
-                result_binding = item["result"].get("research_case_binding")
-                if result_binding is not None:
-                    try:
-                        result_payload = verify_research_case_binding(result_binding)
-                        # Validate the historical snapshot, including its lifecycle
-                        # enum, before comparing the immutable case contract.
-                        _case_from_payload(result_payload)
-                    except (ValueError, TypeError) as exc:
-                        raise ResearchCaseBundleError("task_result_case_binding_invalid") from exc
-                    if not _same_case_contract(result_payload, case_payload):
-                        raise ResearchCaseBundleError("task_result_case_binding_mismatch")
-                elif item["status"] == "completed":
-                    raise ResearchCaseBundleError("completed_task_missing_case_binding")
+            result_binding = (
+                item["result"].get("research_case_binding")
+                if isinstance(item["result"], dict)
+                else None
+            )
+            if result_binding is not None:
+                try:
+                    result_payload = verify_research_case_binding(result_binding)
+                    # Validate the historical snapshot, including its lifecycle
+                    # enum, before comparing the immutable case contract.
+                    _case_from_payload(result_payload)
+                except (ValueError, TypeError) as exc:
+                    raise ResearchCaseBundleError("task_result_case_binding_invalid") from exc
+                if not _same_case_contract(result_payload, case_payload):
+                    raise ResearchCaseBundleError("task_result_case_binding_mismatch")
+            elif item["status"] == "completed":
+                raise ResearchCaseBundleError("completed_task_missing_case_binding")
             tasks.append(item)
 
         evidence = []

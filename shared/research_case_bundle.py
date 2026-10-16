@@ -445,7 +445,11 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
             raise ResearchCaseBundleError("manifest_member_set_invalid")
         if type(entry["size"]) is not int or entry["size"] < 0:
             raise ResearchCaseBundleError("manifest_member_size_invalid")
-        if not isinstance(entry["sha256"], str) or len(entry["sha256"]) != 64:
+        if (
+            not isinstance(entry["sha256"], str)
+            or len(entry["sha256"]) != 64
+            or any(char not in "0123456789abcdef" for char in entry["sha256"])
+        ):
             raise ResearchCaseBundleError("manifest_member_digest_invalid")
         raw = files[name]
         if entry["size"] != len(raw) or entry["sha256"] != _sha256(raw):

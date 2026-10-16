@@ -396,3 +396,27 @@ def test_standalone_verifier_bounds_reads_by_declared_artifact_size(tmp_path):
 
     assert result["overall_status"] == "FAIL"
     assert "artifact_size_mismatch" in result["levels"][0]["error"]
+
+
+def test_zip_manifest_rejects_non_hex_member_digest(tmp_path):
+    import zipfile
+
+    bundle = _write_research_case_zip(tmp_path)
+    rewritten = tmp_path / "malformed-digest.zip"
+    with zipfile.ZipFile(bundle, "r") as source, zipfile.ZipFile(rewritten, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "manifest.json":
+                manifest = json.loads(data.decode("utf-8"))
+                manifest["entries"][0]["sha256"] = "z" * 64
+                core = {key: manifest[key] for key in ("schema_version", "case_id", "case_digest", "entries")}
+                manifest["bundle_sha256"] = hashlib.sha256(
+                    json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+                ).hexdigest()
+                data = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            target.writestr(info, data)
+
+    result = verify_bundle(rewritten, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert result["levels"][0]["error"] == "manifest_member_digest_invalid"

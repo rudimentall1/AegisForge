@@ -8,11 +8,24 @@ by the research owner as part of case preparation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date as _date
 import re
 from urllib.parse import urlparse
 
 from shared.research_case import ExecutionMode, ResearchCase
+
+
+ALLOWED_TECHNIQUES = frozenset({
+    "source_pattern",
+    "differential_revision",
+    "symbolic_execution",
+    "fuzzing",
+    "formal_verification",
+    "crypto_primitive_analysis",
+    "supply_chain",
+    "runtime_probe",
+})
+_MIN_SCOPE_REVIEW_DATE = _date(2020, 1, 1)
 
 
 _COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
@@ -87,13 +100,39 @@ def validate_case(case: ResearchCase | None) -> GateResult:
     if not isinstance(case.scope_reviewed_on, str) or not case.scope_reviewed_on.strip():
         return GateResult(False, "scope_review_date_missing")
     try:
-        reviewed_on = date.fromisoformat(case.scope_reviewed_on)
+        reviewed_on = _date.fromisoformat(case.scope_reviewed_on)
     except (TypeError, ValueError):
         return GateResult(False, "scope_review_date_invalid")
     if reviewed_on.isoformat() != case.scope_reviewed_on:
         return GateResult(False, "scope_review_date_invalid")
 
+    if reviewed_on > _date.today():
+        return GateResult(False, "scope_review_date_in_future")
+    if reviewed_on < _MIN_SCOPE_REVIEW_DATE:
+        return GateResult(False, "scope_review_date_implausible")
+
     if case.execution_mode not in _ALLOWED_MODES:
         return GateResult(False, "execution_mode_not_allowed")
+
+    allowed = getattr(case, "allowed_techniques", None)
+    if not isinstance(allowed, tuple) or not allowed:
+        return GateResult(False, "allowed_techniques_required")
+    for tech in allowed:
+        if tech not in ALLOWED_TECHNIQUES:
+            return GateResult(False, f"technique_not_allowed:{tech}")
+
+    rounds = getattr(case, "rounds", ())
+    seen_ids = set()
+    for round_spec in rounds:
+        if not isinstance(round_spec.round_id, str) or not round_spec.round_id.strip():
+            return GateResult(False, "round_id_missing")
+        if round_spec.round_id in seen_ids:
+            return GateResult(False, f"duplicate_round_id:{round_spec.round_id}")
+        seen_ids.add(round_spec.round_id)
+        if round_spec.technique not in allowed:
+            return GateResult(
+                False,
+                f"round_technique_not_in_case:{round_spec.round_id}:{round_spec.technique}",
+            )
 
     return GateResult(True, "case_scope_envelope_valid")

@@ -36,11 +36,11 @@ The release acceptance checklist is [docs/PRODUCT-READINESS.md](docs/PRODUCT-REA
 - Evidence-ledger and evidence-manifest components, plus EVM Key Forensics tooling and GitHub Actions checks.
 - Source-pinning and artifact-verification work that explicitly distinguishes object/hash checks from stronger provenance claims.
 - A proposed architecture describing the target workflow and its trust boundaries.
-- A first-class immutable `ResearchCase` contract on `feat/research-case-scope-gate`, persisted in the SQLite-backed queue and bound to explicitly case-linked tasks.
-- Worker-side validation for case-linked tasks and evidence observations that inherit the task's case ID.
+- A first-class immutable `ResearchCase` contract persisted in the SQLite-backed queue, with CLI commands to register and inspect cases.
+- Worker-side fail-closed validation for forensic roles, automatic case-ID inheritance for child tasks, and evidence observations that inherit the task's case ID.
 - Security-boundary tests covering missing scope, mutable source references, mismatched case IDs, prohibited execution modes, queue persistence, and case-linked evidence.
 
-**Integration boundary:** `source_researcher`, `crypto_analyst`, and `lab_runner` now fail closed at the worker boundary when a task has no registered `research_case_id`. Child tasks inherit the parent's case identity unless an explicit ID is supplied, and mismatched or invalid case bindings are blocked before agent execution. Generic non-forensic roles retain compatibility with legacy tasks. This is a worker-level control; the supported end-to-end case creation/export workflow and independent portable-bundle verifier remain release blockers.
+**Integration boundary:** `source_researcher`, `crypto_analyst`, and `lab_runner` now fail closed at the worker boundary when a task has no registered `research_case_id`. Child tasks inherit the parent's case identity unless an explicit ID is supplied, and mismatched or invalid case bindings are blocked before agent execution. Generic non-forensic roles retain compatibility with legacy tasks. The CLI now supports case registration and case-bound forensic task submission. The full end-to-end run-to-evidence workflow and independent portable-bundle verifier still require release-level validation.
 
 ## What is not established
 

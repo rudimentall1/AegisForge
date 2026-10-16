@@ -35,6 +35,27 @@ MAX_MEMBER_COUNT = 4
 MAX_TASKS = 10_000
 MAX_EVIDENCE_ROWS = 20_000
 
+# A result records the case snapshot that existed when its task ran. Lifecycle
+# status can advance later (ready -> running -> confirmed/inconclusive), so
+# provenance checks compare the immutable investigation contract, not status.
+_CASE_IMMUTABLE_FIELDS = (
+    "case_id",
+    "target_repository",
+    "target_commit",
+    "scope_url",
+    "scope_digest",
+    "scope_reviewed_on",
+    "hypothesis",
+    "attacker_capability",
+    "expected_invariant",
+    "falsification_criteria",
+    "execution_mode",
+)
+
+
+def _same_case_contract(left: dict, right: dict) -> bool:
+    return all(left.get(field) == right.get(field) for field in _CASE_IMMUTABLE_FIELDS)
+
 
 class ResearchCaseBundleError(ValueError):
     """Raised when a case bundle is malformed, unsafe, or inconsistent."""
@@ -198,10 +219,13 @@ def export_research_case_bundle(
                 result_binding = item["result"].get("research_case_binding")
                 if result_binding is not None:
                     try:
-                        verify_research_case_binding(result_binding)
-                    except ValueError as exc:
+                        result_payload = verify_research_case_binding(result_binding)
+                        # Validate the historical snapshot, including its lifecycle
+                        # enum, before comparing the immutable case contract.
+                        _case_from_payload(result_payload)
+                    except (ValueError, TypeError) as exc:
                         raise ResearchCaseBundleError("task_result_case_binding_invalid") from exc
-                    if result_binding != binding:
+                    if not _same_case_contract(result_payload, case_payload):
                         raise ResearchCaseBundleError("task_result_case_binding_mismatch")
                 elif item["status"] == "completed":
                     raise ResearchCaseBundleError("completed_task_missing_case_binding")
@@ -438,10 +462,16 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         result = task.get("result")
         if isinstance(result, dict) and result.get("research_case_binding") is not None:
             try:
-                verify_research_case_binding(result["research_case_binding"])
+                result_payload = verify_research_case_binding(
+                    result["research_case_binding"]
+                )
+                # Validate the historical snapshot's enum values and required
+                # fields too; excluding status from contract equality must not
+                # make arbitrary status strings acceptable.
+                _case_from_payload(result_payload)
             except ValueError as exc:
                 raise ResearchCaseBundleError("task_result_case_binding_invalid") from exc
-            if result["research_case_binding"] != binding:
+            if not _same_case_contract(result_payload, case_payload):
                 raise ResearchCaseBundleError("task_result_case_binding_mismatch")
         elif task.get("status") == "completed":
             raise ResearchCaseBundleError("completed_task_missing_case_binding")

@@ -175,3 +175,19 @@ def test_child_task_inherits_parent_research_case(tmp_path):
         "SELECT research_case_id FROM queue WHERE id = ?", (child_id,)
     ).fetchone()
     assert stored == (case.case_id,)
+
+
+
+def test_research_case_binding_is_canonical_and_self_verifying():
+    case = valid_case()
+    binding = research_case_binding(case)
+    assert binding["case_id"] == case.case_id
+    assert verify_research_case_binding(binding)["target_commit"] == case.target_commit
+    assert research_case_binding(case) == binding
+
+
+def test_research_case_binding_rejects_tampered_hypothesis():
+    binding = research_case_binding(valid_case())
+    binding["case"]["hypothesis"] = "mutated after registration"
+    with pytest.raises(CaseValidationError, match="digest_mismatch"):
+        verify_research_case_binding(binding)

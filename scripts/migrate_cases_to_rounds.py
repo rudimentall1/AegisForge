@@ -71,9 +71,6 @@ def migrate(db_path: Path, apply: bool) -> dict:
 
             for root in roots[1:]:
                 root_id = root["id"]
-                if root["planner_decision"] == "DEDUPED_ROOT":
-                    continue
-
                 child_row = connection.execute(
                     """
                     SELECT COUNT(*) FROM queue
@@ -95,6 +92,9 @@ def migrate(db_path: Path, apply: bool) -> dict:
                         f"reason=has_completed_children count={completed_children}",
                         file=sys.stderr,
                     )
+                    continue
+
+                if root["planner_decision"] == "DEDUPED_ROOT":
                     continue
 
                 summary["deduped"].append({"root_id": root_id, "case_id": case_id})

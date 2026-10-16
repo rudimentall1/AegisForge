@@ -36,8 +36,11 @@ def task_main(argv):
     queue = TaskQueue(db_path=args.db)
     try:
         if args.command == "submit":
+            from shared.research_case import CASE_REQUIRED_ROLES
             if not args.description.strip():
                 parser.error("description must not be empty")
+            if args.role in CASE_REQUIRED_ROLES and not args.case_id:
+                parser.error(f"role {args.role!r} requires --case-id for a registered Research Case")
             task_id = queue.add(args.description, role=args.role, research_case_id=args.case_id)
             print(json.dumps({"task_id": task_id, "status": "pending", "role": args.role}, indent=2))
             return 0

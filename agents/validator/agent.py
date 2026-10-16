@@ -15,6 +15,17 @@ from tools.evm_key_forensics.solidity_source_pattern import (
     inspect_source,
 )
 from tools.evm_key_forensics.solidity_fixture_pipeline import synthetic_access_control_controls
+from tools.evm_key_forensics.uniswap_v2_factory_fixture_pipeline import synthetic_fee_setter_controls
+from tools.evm_key_forensics.uniswap_v2_factory_source_pattern import (
+    PINNED_COMMIT as UNISWAP_FACTORY_COMMIT,
+    PINNED_GIT_BLOB_SHA1 as UNISWAP_FACTORY_GIT_BLOB_SHA1,
+    PINNED_PATH as UNISWAP_FACTORY_PATH,
+    PINNED_REPOSITORY as UNISWAP_FACTORY_REPOSITORY,
+    CONTRACT_ADDRESS as UNISWAP_FACTORY_ADDRESS,
+    CHAIN_ID as UNISWAP_FACTORY_CHAIN_ID,
+    EXPLORER_URL as UNISWAP_FACTORY_EXPLORER_URL,
+    inspect_source as inspect_uniswap_factory_source,
+)
 from shared.public_source import ALLOWED_SOURCE_HOSTS, fetch_public_source
 from urllib.parse import urlparse
 from shared.github_client import GitHubClient
@@ -1352,6 +1363,132 @@ class Validator:
         task.status = "validated"
         return task
 
+    def _validate_uniswap_v2_factory_fixture(self, task: Task) -> Task:
+        """Independently recheck pinned Uniswap source, synthetic controls, and review gates."""
+        result = dict(task.result or {})
+        payload = task.payload if isinstance(task.payload, dict) else {}
+        case = payload.get("research_case")
+        case_id = payload.get("research_case_id")
+        checks = {}
+        errors = []
+        try:
+            expected_binding = research_case_binding(case)
+            observed_binding = result.get("research_case_binding")
+            verify_research_case_binding(observed_binding)
+            checks["case_binding_matches"] = observed_binding == expected_binding
+            checks["task_case_id_matches"] = case_id == getattr(case, "case_id", None)
+        except Exception as exc:
+            checks["case_binding_matches"] = False
+            checks["task_case_id_matches"] = False
+            errors.append(f"case_binding_invalid:{type(exc).__name__}")
+
+        target_repository = (
+            str(getattr(case, "target_repository", "") or "").strip().lower().rstrip("/")
+        )
+        target_commit = str(getattr(case, "target_commit", "") or "")
+        checks["case_repository_pinned"] = target_repository == "uniswap/v2-core"
+        checks["case_commit_pinned"] = target_commit == UNISWAP_FACTORY_COMMIT
+        root = Path(__file__).resolve().parents[2]
+        fixture_path = root / "tests" / "fixtures" / "solidity" / "UniswapV2Factory.sol"
+        manifest_path = root / "tests" / "fixtures" / "solidity" / "UniswapV2Factory.provenance.json"
+        raw = b""
+        manifest_raw = b""
+        manifest = {}
+        try:
+            raw = fixture_path.read_bytes()
+            source = raw.decode("utf-8")
+            manifest_raw = manifest_path.read_bytes()
+            manifest = json.loads(manifest_raw.decode("utf-8"))
+            independent_observation = inspect_uniswap_factory_source(
+                source, source_commit=target_commit, source_path=UNISWAP_FACTORY_PATH
+            )
+            checks["source_blob_recomputed"] = (
+                independent_observation.get("source_git_blob_sha1") == UNISWAP_FACTORY_GIT_BLOB_SHA1
+                and hashlib.sha256(raw).hexdigest() == independent_observation.get("source_sha256")
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            independent_observation = {}
+            checks["source_blob_recomputed"] = False
+            errors.append(f"source_fixture_unavailable:{type(exc).__name__}")
+
+        manifest_digest = hashlib.sha256(manifest_raw).hexdigest() if manifest_raw else None
+        checks["provenance_manifest_matches"] = (
+            manifest.get("schema_version") == "aegisforge-verified-source-provenance-v1"
+            and manifest.get("chain_id") == UNISWAP_FACTORY_CHAIN_ID
+            and manifest.get("contract_address") == UNISWAP_FACTORY_ADDRESS
+            and manifest.get("explorer", {}).get("url") == UNISWAP_FACTORY_EXPLORER_URL
+            and manifest.get("explorer", {}).get("reported_status") == "Source Code Verified Exact Match"
+            and manifest.get("upstream_source", {}).get("repository") == UNISWAP_FACTORY_REPOSITORY
+            and manifest.get("upstream_source", {}).get("commit") == UNISWAP_FACTORY_COMMIT
+            and manifest.get("upstream_source", {}).get("path") == UNISWAP_FACTORY_PATH
+            and manifest.get("upstream_source", {}).get("git_blob_sha1") == UNISWAP_FACTORY_GIT_BLOB_SHA1
+            and manifest_digest == getattr(case, "scope_digest", None)
+            and getattr(case, "scope_url", None) == UNISWAP_FACTORY_EXPLORER_URL
+        )
+
+        source_observation = result.get("source_observation")
+        source_observation = source_observation if isinstance(source_observation, dict) else {}
+        checks["source_observation_matches"] = (
+            source_observation.get("conclusion") == independent_observation.get("conclusion")
+            and source_observation.get("source_git_blob_sha1") == independent_observation.get("source_git_blob_sha1")
+            and source_observation.get("source_sha256") == independent_observation.get("source_sha256")
+            and source_observation.get("checks") == independent_observation.get("checks")
+        )
+        source_records = [item for item in result.get("sources", []) if isinstance(item, dict)]
+        checks["source_record_matches"] = (
+            len(source_records) == 1
+            and source_records[0].get("git_blob_sha1") == UNISWAP_FACTORY_GIT_BLOB_SHA1
+            and source_records[0].get("content_sha256") == hashlib.sha256(raw).hexdigest()
+            and source_records[0].get("revision_sha") == UNISWAP_FACTORY_COMMIT
+            and source_records[0].get("provenance_manifest_sha256") == manifest_digest
+            and source_records[0].get("provenance_matches_case") is True
+        )
+
+        expected_synthetic = synthetic_fee_setter_controls()
+        experiments = result.get("lab_experiments")
+        experiment = experiments[0] if isinstance(experiments, list) and experiments else {}
+        checks["synthetic_controls_recomputed"] = (
+            isinstance(experiment, dict)
+            and experiment.get("controls") == expected_synthetic.get("controls")
+            and experiment.get("status") == expected_synthetic.get("status") == "PASSED"
+            and experiment.get("evm_executed") is False
+            and experiment.get("rpc_used") is False
+            and experiment.get("transactions_sent") is False
+            and experiment.get("wallet_material_used") is False
+        )
+        checks["stage_order_preserved"] = result.get("stage_history") == [
+            "source_research", "analysis", "synthetic_experiment"
+        ]
+        checks["no_finding_promoted"] = (
+            result.get("analysis_summary", {}).get("claims_confirmed_by_this_agent") == 0
+            and result.get("solidity_analysis", {}).get("finding_created") is False
+            and result.get("final_status") in {None, "INCONCLUSIVE"}
+        )
+
+        validated = all(checks.values())
+        result.update({
+            "stage": "validation",
+            "stage_history": list(result.get("stage_history", [])) + ["validation", "human_review"],
+            "validation": {
+                "status": "VALIDATED" if validated else "INCONCLUSIVE",
+                "checks": checks,
+                "passed_check_count": sum(checks.values()),
+                "total_check_count": len(checks),
+                "errors": errors,
+            },
+            "review": {
+                "status": "INCONCLUSIVE",
+                "reason": "source patterns and synthetic controls do not establish runtime exploitability",
+                "human_review_required": True,
+                "automatic_confirmation": False,
+                "finding_created": False,
+            },
+            "final_status": "INCONCLUSIVE",
+        })
+        task.result = result
+        task.status = "validated"
+        return task
+
     def _validate_solidity_source_fixture(self, task: Task) -> Task:
         """Recheck the pinned local source and synthetic controls; never infer a finding."""
         result = dict(task.result or {})
@@ -1466,6 +1603,8 @@ class Validator:
     def run(self, task: Task) -> Task:
         task.status = "validating"
         try:
+            if isinstance(task.result, dict) and task.result.get("research_track") == "uniswap_v2_factory_fixture":
+                return self._validate_uniswap_v2_factory_fixture(task)
             if isinstance(task.result, dict) and task.result.get("research_track") == "solidity_source_fixture":
                 return self._validate_solidity_source_fixture(task)
             if isinstance(task.result, dict) and task.result.get("research_track") == "evm_key_forensics":

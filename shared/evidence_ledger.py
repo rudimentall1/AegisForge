@@ -675,6 +675,9 @@ def _safe_artifact_file(root, relative_path):
 
     if not isinstance(relative_path, str) or not relative_path or "\\" in relative_path:
         raise CaseArtifactManifestError("invalid_artifact_path")
+    # Validate the raw spelling before PurePosixPath normalizes "." and repeated "/".
+    if any(part in ("", ".", "..") for part in relative_path.split("/")):
+        raise CaseArtifactManifestError("invalid_artifact_path")
     rel = PurePosixPath(relative_path)
     if rel.is_absolute() or any(part in ("", ".", "..") for part in rel.parts):
         raise CaseArtifactManifestError("invalid_artifact_path")

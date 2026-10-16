@@ -79,6 +79,19 @@ def test_merkle_registry_and_inclusion_proof_round_trip():
     assert result["attestation_id"] == first["attestation_id"]
 
 
+def test_registry_rejects_unknown_snapshot_fields():
+    key = Ed25519PrivateKey.generate()
+    attestation = signed_attestation(key)
+    registry = build_registry([entry_from_attestation(attestation)])
+    registry["unexpected"] = "ignored-by-old-verifiers"
+    try:
+        verify_registry(registry)
+    except AttestationRegistryError as exc:
+        assert str(exc) == "registry_fields_invalid"
+    else:
+        raise AssertionError("registry with unknown fields unexpectedly verified")
+
+
 def test_registry_detects_tampered_entry_and_root():
     key = Ed25519PrivateKey.generate()
     attestation = signed_attestation(key)

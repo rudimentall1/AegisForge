@@ -164,6 +164,8 @@ def _validate_checkpoint(checkpoint: Any) -> None:
 def verify_registry(registry: Any) -> dict[str, Any]:
     if not isinstance(registry, dict):
         raise AttestationRegistryError("registry_must_be_object")
+    if set(registry) != {"schema_version", "hash_algorithm", "tree_algorithm", "size", "entries", "merkle_root", "previous_checkpoint"}:
+        raise AttestationRegistryError("registry_fields_invalid")
     if registry.get("schema_version") != SCHEMA_VERSION:
         raise AttestationRegistryError("unsupported_registry_schema")
     if registry.get("hash_algorithm") != HASH_ALGORITHM:
@@ -259,6 +261,8 @@ def verify_inclusion_proof(
 ) -> dict[str, Any]:
     if not isinstance(proof, dict) or proof.get("schema_version") != PROOF_SCHEMA_VERSION:
         raise AttestationRegistryError("unsupported_inclusion_proof_schema")
+    if set(proof) != {"schema_version", "tree_size", "leaf_index", "entry", "siblings", "merkle_root"}:
+        raise AttestationRegistryError("inclusion_proof_fields_invalid")
     if not _valid_hash(expected_root):
         raise AttestationRegistryError("expected_root_invalid")
     if proof.get("merkle_root") != expected_root:

@@ -13,6 +13,7 @@ import sqlite3
 import sys
 import tempfile
 import zipfile
+import zlib
 from pathlib import Path, PurePosixPath
 
 from shared.research_case import (
@@ -339,7 +340,7 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
                 files[name] = raw
     except zipfile.BadZipFile as exc:
         raise ResearchCaseBundleError("invalid_bundle_zip") from exc
-    except (OSError, RuntimeError, zipfile.LargeZipFile) as exc:
+    except (OSError, RuntimeError, EOFError, KeyError, zlib.error, zipfile.LargeZipFile) as exc:
         raise ResearchCaseBundleError("bundle_read_failed") from exc
 
     manifest = _strict_json(files["manifest.json"], label="manifest")
@@ -353,6 +354,9 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     if not isinstance(entries, list) or len(entries) != len(MEMBERS):
         raise ResearchCaseBundleError("manifest_entries_invalid")
     expected_paths = set(MEMBERS)
+    entry_paths = [entry.get("path") if isinstance(entry, dict) else None for entry in entries]
+    if entry_paths != sorted(entry_paths):
+        raise ResearchCaseBundleError("manifest_entries_not_sorted")
     seen_paths = set()
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != {"path", "sha256", "size"}:

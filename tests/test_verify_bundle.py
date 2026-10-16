@@ -352,3 +352,15 @@ def test_zip_verifier_enforces_evidence_count_limit(tmp_path, monkeypatch):
 
     assert result["overall_status"] == "FAIL"
     assert result["levels"][0]["error"] == "case_evidence_count_exceeds_limit"
+
+
+
+def test_standalone_verifier_bounds_reads_by_declared_artifact_size(tmp_path):
+    manifest, _ = write_bundle(tmp_path)
+    manifest["artifacts"][0]["size_bytes"] = 0
+    rewrite_manifest(tmp_path, manifest)
+
+    result = verify_bundle(tmp_path, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert "artifact_size_mismatch" in result["levels"][0]["error"]

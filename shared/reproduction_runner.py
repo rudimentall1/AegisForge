@@ -79,8 +79,12 @@ def _prepare_output_directory(output_dir: str | Path, workspace_root: Path) -> P
     target = parent / raw.name
     if target.exists() or target.is_symlink():
         raise ReproductionRunnerError("output_directory_must_not_exist")
-    if target == workspace_root or target.is_relative_to(workspace_root):
-        raise ReproductionRunnerError("output_directory_must_be_outside_workspace")
+    if (
+        target == workspace_root
+        or target.is_relative_to(workspace_root)
+        or workspace_root.is_relative_to(target)
+    ):
+        raise ReproductionRunnerError("output_directory_must_be_disjoint_from_workspace")
     target.mkdir(mode=0o700)
     return target
 
@@ -143,6 +147,27 @@ def _docker_call(docker_path: str, arguments: list[str], *, timeout: int, env: d
     )
 
 
+def _remove_container(docker_path: str, container_name: str, env: dict[str, str]) -> str:
+    try:
+        result = _docker_call(
+            docker_path, ["rm", "-f", container_name],
+            timeout=DOCKER_CLEANUP_TIMEOUT_SECONDS, env=env,
+        )
+        return "REMOVED" if result.returncode == 0 else "FAILED"
+    except (subprocess.TimeoutExpired, OSError):
+        return "FAILED"
+
+
+def _stop_container(docker_path: str, container_name: str, env: dict[str, str]) -> None:
+    try:
+        _docker_call(
+            docker_path, ["stop", "--time", "1", container_name],
+            timeout=5, env=env,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+
+
 def run_reproduction_contract(
     contract_payload: object,
     bundle_root: str | Path,
@@ -191,13 +216,13 @@ def run_reproduction_contract(
     timed_out = False
     exit_code = None
     output_result = None
-    start_error = None
+    execution_error = None
 
     try:
         with tempfile.TemporaryDirectory(prefix="aegisforge-reproduction-") as temporary:
             temporary_root = Path(temporary)
             workspace = temporary_root / "workspace"
-            shutil.copytree(root, workspace, symlinks=False)
+            shutil.copytree(root, workspace, symlinks=True)
             _scan_workspace(workspace)
 
             source_path = workspace.joinpath(*contract["target"]["source_path"].split("/"))
@@ -210,16 +235,19 @@ def run_reproduction_contract(
                 raise ReproductionRunnerError("working_directory_missing")
 
             env_file = temporary_root / "contract.env"
-            with env_file.open("x", encoding="utf-8", newline="\n") as stream:
+            with env_file.open("x", encoding="utf-8", newline="\\n") as stream:
                 for key, value in contract["environment"].items():
-                    stream.write(f"{key}={value}\n")
+                    stream.write(f"{key}={value}\\n")
             os.chmod(env_file, 0o600)
 
             if "," in str(workspace) or "," in str(env_file):
                 raise ReproductionRunnerError("docker_mount_path_contains_comma")
 
             uid_gid = f"{os.getuid()}:{os.getgid()}"
-            tmpfs_bytes = min(contract["limits"]["memory_mb"] * 1024 * 1024 // 4, 256 * 1024 * 1024)
+            tmpfs_bytes = min(
+                contract["limits"]["memory_mb"] * 1024 * 1024 // 4,
+                256 * 1024 * 1024,
+            )
             run_args = [
                 "run", "-d",
                 "--name", container_name,
@@ -251,28 +279,34 @@ def run_reproduction_contract(
                 "LANG": "C",
                 "LC_ALL": "C",
             }
+
             try:
                 started = _docker_call(
                     docker_path, run_args, timeout=DOCKER_START_TIMEOUT_SECONDS, env=docker_env
                 )
             except subprocess.TimeoutExpired:
-                start_error = "docker_start_timeout"
-                _docker_call(
-                    docker_path, ["rm", "-f", container_name],
-                    timeout=DOCKER_CLEANUP_TIMEOUT_SECONDS, env=docker_env,
-                )
+                cleanup_status = _remove_container(docker_path, container_name, docker_env)
                 return {
-                    "status": "NOT_RUN",
-                    "reason": start_error,
+                    "status": "NOT_RUN" if cleanup_status == "REMOVED" else "INCOMPLETE",
+                    "reason": "docker_start_timeout",
                     "contract_sha256": contract_digest,
-                    "container_cleanup": "ATTEMPTED",
+                    "container_cleanup": cleanup_status,
                 }
-            if started.returncode != 0 or not started.stdout.strip():
+            except OSError:
                 return {
                     "status": "NOT_RUN",
+                    "reason": "docker_start_failed",
+                    "contract_sha256": contract_digest,
+                }
+
+            if started.returncode != 0 or not started.stdout.strip():
+                cleanup_status = _remove_container(docker_path, container_name, docker_env)
+                return {
+                    "status": "NOT_RUN" if cleanup_status != "FAILED" else "INCOMPLETE",
                     "reason": "docker_container_start_failed",
                     "detail": (started.stderr or "")[:1024],
                     "contract_sha256": contract_digest,
+                    "container_cleanup": cleanup_status,
                 }
 
             try:
@@ -281,18 +315,14 @@ def run_reproduction_contract(
                     timeout=contract["limits"]["timeout_seconds"] + 5, env=docker_env,
                 )
                 if waited.returncode != 0 or not waited.stdout.strip().isdigit():
-                    start_error = "docker_wait_result_invalid"
+                    execution_error = "docker_wait_result_invalid"
                 else:
                     exit_code = int(waited.stdout.strip())
             except subprocess.TimeoutExpired:
                 timed_out = True
-                try:
-                    _docker_call(
-                        docker_path, ["stop", "--time", "1", container_name],
-                        timeout=5, env=docker_env,
-                    )
-                except subprocess.TimeoutExpired:
-                    pass
+                _stop_container(docker_path, container_name, docker_env)
+            except OSError:
+                execution_error = "docker_wait_failed"
 
             try:
                 copied = _docker_call(
@@ -313,14 +343,10 @@ def run_reproduction_contract(
                     }
             except subprocess.TimeoutExpired:
                 output_result = {"status": "FAIL", "error": "container_output_copy_timeout"}
-            try:
-                removed = _docker_call(
-                    docker_path, ["rm", "-f", container_name],
-                    timeout=DOCKER_CLEANUP_TIMEOUT_SECONDS, env=docker_env,
-                )
-                cleanup_status = "REMOVED" if removed.returncode == 0 else "FAILED"
-            except subprocess.TimeoutExpired:
-                cleanup_status = "FAILED"
+            except OSError:
+                output_result = {"status": "FAIL", "error": "container_output_copy_failed"}
+            finally:
+                cleanup_status = _remove_container(docker_path, container_name, docker_env)
     except (OSError, shutil.Error, ReproductionRunnerError) as exc:
         return {
             "status": "INCOMPLETE",
@@ -329,26 +355,21 @@ def run_reproduction_contract(
             "container_cleanup": cleanup_status,
         }
 
-    if timed_out:
-        status = "TIMED_OUT"
-        reason = "reproduction_timeout"
-    elif start_error:
-        status = "INCOMPLETE"
-        reason = start_error
-    elif cleanup_status != "REMOVED":
-        status = "INCOMPLETE"
-        reason = "container_cleanup_failed"
+    if cleanup_status != "REMOVED":
+        status, reason = "INCOMPLETE", "container_cleanup_failed"
+    elif timed_out:
+        status, reason = "TIMED_OUT", "reproduction_timeout"
+    elif execution_error:
+        status, reason = "INCOMPLETE", execution_error
     elif output_result is None or output_result.get("status") != "PASS":
         status = "FAILED"
         reason = (output_result or {}).get("error", "output_validation_failed")
     elif exit_code != contract["expected_exit_code"]:
-        status = "FAILED"
-        reason = "unexpected_exit_code"
+        status, reason = "FAILED", "unexpected_exit_code"
     else:
-        status = "SUCCEEDED"
-        reason = None
+        status, reason = "SUCCEEDED", None
 
-    result = {
+    return {
         "status": status,
         "reason": reason,
         "contract_sha256": contract_digest,
@@ -359,4 +380,3 @@ def run_reproduction_contract(
         "network_access": "disabled",
         "finding_verdict": "UNCHANGED",
     }
-    return result

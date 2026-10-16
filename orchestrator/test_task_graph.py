@@ -141,3 +141,9 @@ def test_running_resource_overcommit_is_rejected():
     )
     with pytest.raises(TaskGraphError, match="resource"):
         dag.plan({"a": "RUNNING", "b": "RUNNING"})
+
+
+@pytest.mark.parametrize("bad_status", ["RUNNING", "SUCCEEDED"])
+def test_dependent_cannot_run_or_succeed_before_dependency(bad_status):
+    with pytest.raises(TaskGraphError, match="before all dependencies succeed"):
+        graph().plan({"lab": bad_status})

@@ -30,6 +30,16 @@ The existing Profanity work is currently a benchmark and synthetic demonstration
 
 The release acceptance checklist is [docs/PRODUCT-READINESS.md](docs/PRODUCT-READINESS.md). The MVP is not release-ready until its blockers are verified against the exact candidate commit. The command-line workflow for creating cases and submitting bound forensic tasks is documented in [docs/RESEARCH-CASE-CLI.md](docs/RESEARCH-CASE-CLI.md).
 
+## Sandbox isolation levels
+
+AegisForge distinguishes analysis-only work from bounded execution. These modes are not equivalent security guarantees:
+
+- `none`: analysis only. The requested code is not executed.
+- `process`: a subprocess launched inside `source_root`, with POSIX `RLIMIT_AS`, `RLIMIT_CPU`, and `RLIMIT_NPROC` limits and bounded stdout/stderr capture. This is **process isolation plus resource limits**, not a filesystem, syscall, or network sandbox.
+- `container`: Docker with `--network=none`, read-only root filesystem and source mount, dropped Linux capabilities, a non-root user, memory/CPU limits, and a bounded temporary filesystem. No seccomp profile is configured in v1; this is **not a complete seccomp sandbox**. The `python:3.12-slim` image must already be available to Docker, because network access is disabled for the container.
+
+The runner never uses `shell=True`. Output is retained only up to `max_output_bytes` per stream; results contain SHA-256 digests and truncation flags, not raw output. A timeout kills the launched process group and raises `SandboxError`. Do not treat either execution mode as sufficient isolation for hostile workloads without additional platform-level controls.
+
 ## Disclosure Timeline
 
 Each configured research round has a default **90-day disclosure deadline** from its recorded start time. A round may set a different positive `disclosure_deadline_days` value in its immutable `RoundSpec`. AegisForge records the round ID, technique, start time, deadline, status, completion time, and a conservative verdict in `round_transparency`.

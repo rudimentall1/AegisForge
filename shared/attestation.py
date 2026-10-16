@@ -409,9 +409,14 @@ def verify_attestation(
             return _result("INVALID", "case_digest_mismatch", attestation_id, checks)
 
     if artifact_root is not None:
-        artifact_status, artifact_reason, paths_ok, artifacts_ok = _verify_artifacts(
-            payload, artifact_root
-        )
+        try:
+            artifact_status, artifact_reason, paths_ok, artifacts_ok = _verify_artifacts(
+                payload, artifact_root
+            )
+        except AttestationError as exc:
+            checks["artifacts_path_safe"] = False
+            checks["artifacts_valid"] = False
+            return _result("INVALID", str(exc), attestation_id, checks)
         checks["artifacts_path_safe"] = paths_ok
         checks["artifacts_valid"] = artifacts_ok
         if artifact_status != "VALID":

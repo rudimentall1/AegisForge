@@ -146,3 +146,19 @@ def test_case_bundle_verifier_rejects_path_traversal_member(tmp_path):
 
     with pytest.raises(ResearchCaseBundleError, match="bundle_member_set_invalid"):
         verify_research_case_bundle(changed)
+
+
+def test_case_bundle_export_rejects_evidence_linked_to_unknown_task(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE evidence_observations SET task_id = ? WHERE atom_id = ?",
+            ("task-outside-case", "atom-001"),
+        )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="evidence_observation_task_not_in_case_bundle",
+    ):
+        export_research_case_bundle(db_path, case.case_id, tmp_path / "orphaned.zip")

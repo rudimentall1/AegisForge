@@ -11,6 +11,8 @@ from shared.result_codec import encode
 from shared.verify_bundle import (
     MANIFEST_FILENAME,
     MANIFEST_SCHEMA_VERSION,
+    REPRODUCTION_CONTRACT_FILENAME,
+    MAX_CONTRACT_BYTES,
     MAX_ARTIFACTS,
     MAX_ARTIFACT_BYTES,
     MAX_MANIFEST_BYTES,
@@ -46,6 +48,57 @@ def rewrite_manifest(root, manifest):
         json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()
     (root / MANIFEST_FILENAME).write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def write_reproduction_bundle(root, *, malformed_contract=False):
+    manifest, _ = write_bundle(root)
+    contract = {
+        "schema_version": "aegisforge-reproduction-contract-v1",
+        "contract_id": "repro-contract-test-001",
+        "case_id": "case-test-001",
+        "hypothesis_id": "hypothesis-test-001",
+        "target": {
+            "repository": "owner/repository",
+            "commit_sha": "a" * 40,
+            "scope_reference": "https://example.com/security-scope",
+            "source_path": "src/target.py",
+        },
+        "toolchain": {
+            "runtime": "python",
+            "version": "3.10.12",
+            "image_ref": "python:3.10-slim@sha256:" + "b" * 64,
+            "image_digest": "sha256:" + "b" * 64,
+        },
+        "command": ["python", "-m", "pytest", "-q"],
+        "working_directory": ".",
+        "environment": {"PYTHONHASHSEED": "0"},
+        "network_access": "disabled",
+        "limits": {
+            "timeout_seconds": 10,
+            "cpu_cores": 1,
+            "memory_mb": 256,
+            "max_processes": 16,
+            "max_output_bytes": 1024 * 1024,
+        },
+        "expected_exit_code": 0,
+        "expected_outputs": [{
+            "path": "results/summary.json",
+            "sha256": hashlib.sha256(b"expected").hexdigest(),
+        }],
+    }
+    raw = b'{"schema_version": "bad"}' if malformed_contract else json.dumps(
+        contract, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    contract_path = root / REPRODUCTION_CONTRACT_FILENAME
+    contract_path.write_bytes(raw)
+    manifest["artifacts"].append({
+        "path": REPRODUCTION_CONTRACT_FILENAME,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "size_bytes": len(raw),
+    })
+    manifest["artifacts"].sort(key=lambda item: item["path"])
+    rewrite_manifest(root, manifest)
+    return contract
 
 
 def test_level_one_passes_for_valid_bundle(tmp_path):
@@ -420,3 +473,190 @@ def test_zip_manifest_rejects_non_hex_member_digest(tmp_path):
 
     assert result["overall_status"] == "FAIL"
     assert result["levels"][0]["error"] == "manifest_member_digest_invalid"
+
+
+
+def test_level_three_does_not_execute_by_default_even_when_contract_is_present(tmp_path, monkeypatch):
+    write_reproduction_bundle(tmp_path)
+
+    def unexpected_execution(*args, **kwargs):
+        raise AssertionError("runner must not execute without explicit opt-in")
+
+    monkeypatch.setattr("shared.verify_bundle.run_reproduction_contract", unexpected_execution)
+    result = verify_bundle(tmp_path)
+
+    assert result["levels"][2]["status"] == "NOT_RUN"
+    assert result["levels"][2]["reason"] == "explicit_run_reproduction_required"
+
+
+def test_level_three_explicit_opt_in_runs_pinned_contract_and_never_changes_verdict(tmp_path, monkeypatch):
+    write_reproduction_bundle(tmp_path)
+    calls = []
+
+    def fake_runner(contract, target_checkout, output_dir):
+        calls.append((contract, target_checkout, output_dir))
+        return {
+            "status": "SUCCEEDED",
+            "reason": None,
+            "contract_sha256": "c" * 64,
+            "exit_code": 0,
+            "output_validation": {"status": "PASS"},
+            "finding_verdict": "UNCHANGED",
+        }
+
+    monkeypatch.setattr("shared.verify_bundle.run_reproduction_contract", fake_runner)
+    result = verify_bundle(
+        tmp_path,
+        max_level=3,
+        run_reproduction=True,
+        target_checkout="/authorized/pinned/checkout",
+        reproduction_output_dir="/tmp/aegisforge-reproduction-output",
+    )
+
+    assert len(calls) == 1
+    assert calls[0][1:] == (
+        "/authorized/pinned/checkout",
+        "/tmp/aegisforge-reproduction-output",
+    )
+    assert calls[0][0]["target"]["commit_sha"] == "a" * 40
+    assert result["levels"][2]["status"] == "PASS"
+    assert result["levels"][2]["finding_verdict"] == "UNCHANGED"
+    assert result["highest_completed_level"] == 1
+    assert result["overall_status"] == "INCOMPLETE"  # level 2 remains INCONCLUSIVE
+
+
+def test_level_three_requires_explicit_target_and_output_paths(tmp_path, monkeypatch):
+    write_reproduction_bundle(tmp_path)
+
+    def unexpected_execution(*args, **kwargs):
+        raise AssertionError("runner must not execute without explicit paths")
+
+    monkeypatch.setattr("shared.verify_bundle.run_reproduction_contract", unexpected_execution)
+    result = verify_bundle(tmp_path, run_reproduction=True)
+
+    assert result["levels"][2]["status"] == "NOT_RUN"
+    assert result["levels"][2]["reason"] == "target_checkout_and_output_dir_required"
+
+
+def test_level_three_does_not_run_unmanifested_contract(tmp_path, monkeypatch):
+    write_bundle(tmp_path)
+    (tmp_path / REPRODUCTION_CONTRACT_FILENAME).write_text("{}", encoding="utf-8")
+
+    def unexpected_execution(*args, **kwargs):
+        raise AssertionError("unmanifested contract must never execute")
+
+    monkeypatch.setattr("shared.verify_bundle.run_reproduction_contract", unexpected_execution)
+    result = verify_bundle(
+        tmp_path,
+        run_reproduction=True,
+        target_checkout="/authorized/pinned/checkout",
+        reproduction_output_dir="/tmp/aegisforge-reproduction-output",
+    )
+
+    assert result["overall_status"] == "FAIL"
+    assert result["levels"][0]["status"] == "FAIL"
+    assert "unmanifested_bundle_file:reproduction-contract.json" in result["levels"][0]["error"]
+
+
+def test_level_three_malformed_contract_fails_closed_without_execution(tmp_path, monkeypatch):
+    write_reproduction_bundle(tmp_path, malformed_contract=True)
+
+    def unexpected_execution(*args, **kwargs):
+        raise AssertionError("malformed contract must never execute")
+
+    monkeypatch.setattr("shared.verify_bundle.run_reproduction_contract", unexpected_execution)
+    result = verify_bundle(
+        tmp_path,
+        run_reproduction=True,
+        target_checkout="/authorized/pinned/checkout",
+        reproduction_output_dir="/tmp/aegisforge-reproduction-output",
+    )
+
+    assert result["levels"][2]["status"] == "FAIL"
+    assert result["levels"][2]["reason"] == "reproduction_contract_invalid"
+
+
+def test_level_three_runner_failure_is_not_a_research_conclusion(tmp_path, monkeypatch):
+    write_reproduction_bundle(tmp_path)
+    monkeypatch.setattr(
+        "shared.verify_bundle.run_reproduction_contract",
+        lambda *args, **kwargs: {
+            "status": "FAILED",
+            "reason": "unexpected_exit_code",
+            "contract_sha256": "c" * 64,
+            "exit_code": 7,
+        },
+    )
+
+    result = verify_bundle(
+        tmp_path,
+        run_reproduction=True,
+        target_checkout="/authorized/pinned/checkout",
+        reproduction_output_dir="/tmp/aegisforge-reproduction-output",
+    )
+
+    assert result["levels"][2]["status"] == "FAIL"
+    assert result["levels"][2]["finding_verdict"] == "UNCHANGED"
+
+
+def test_level_three_timeout_is_inconclusive_not_rejected(tmp_path, monkeypatch):
+    write_reproduction_bundle(tmp_path)
+    monkeypatch.setattr(
+        "shared.verify_bundle.run_reproduction_contract",
+        lambda *args, **kwargs: {
+            "status": "TIMED_OUT",
+            "reason": "reproduction_timeout",
+            "contract_sha256": "c" * 64,
+        },
+    )
+
+    result = verify_bundle(
+        tmp_path,
+        run_reproduction=True,
+        target_checkout="/authorized/pinned/checkout",
+        reproduction_output_dir="/tmp/aegisforge-reproduction-output",
+    )
+
+    assert result["levels"][2]["status"] == "INCONCLUSIVE"
+    assert result["levels"][2]["finding_verdict"] == "UNCHANGED"
+
+
+def test_reproduction_opt_in_requires_level_three(tmp_path):
+    write_bundle(tmp_path)
+    with pytest.raises(ValueError, match="requires_max_level_3"):
+        verify_bundle(tmp_path, max_level=1, run_reproduction=True)
+
+
+@pytest.mark.parametrize("value", ["yes", 1, None])
+def test_reproduction_opt_in_requires_strict_boolean(tmp_path, value):
+    write_bundle(tmp_path)
+    with pytest.raises(ValueError, match="must_be_boolean"):
+        verify_bundle(tmp_path, run_reproduction=value)
+
+
+def test_level_three_oversized_contract_fails_before_unbounded_read(tmp_path, monkeypatch):
+    manifest, _ = write_bundle(tmp_path)
+    raw = b" " * (MAX_CONTRACT_BYTES + 1)
+    (tmp_path / REPRODUCTION_CONTRACT_FILENAME).write_bytes(raw)
+    manifest["artifacts"].append({
+        "path": REPRODUCTION_CONTRACT_FILENAME,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "size_bytes": len(raw),
+    })
+    manifest["artifacts"].sort(key=lambda item: item["path"])
+    rewrite_manifest(tmp_path, manifest)
+
+    def unexpected_execution(*args, **kwargs):
+        raise AssertionError("oversized contract must never execute")
+
+    monkeypatch.setattr("shared.verify_bundle.run_reproduction_contract", unexpected_execution)
+    result = verify_bundle(
+        tmp_path,
+        run_reproduction=True,
+        target_checkout="/authorized/pinned/checkout",
+        reproduction_output_dir="/tmp/aegisforge-reproduction-output",
+    )
+
+    assert result["levels"][2]["status"] == "FAIL"
+    assert result["levels"][2]["reason"] == "reproduction_contract_invalid"
+    assert "contract_size_limit_exceeded" in result["levels"][2]["detail"]

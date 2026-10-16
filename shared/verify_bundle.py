@@ -30,6 +30,17 @@ from shared.research_case_bundle import (
     ResearchCaseBundleError,
     verify_research_case_bundle,
 )
+from shared.reproduction_contract import (
+    MAX_CONTRACT_BYTES,
+    ReproductionContractError,
+    load_reproduction_contract,
+)
+from shared.reproduction_runner import (
+    ReproductionRunnerError,
+    run_reproduction_contract,
+)
+
+REPRODUCTION_CONTRACT_FILENAME = "reproduction-contract.json"
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -259,15 +270,27 @@ def _verify_level_one(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def verify_bundle(path: str | Path, *, max_level: int = 3) -> dict[str, Any]:
-    """Verify an exported bundle without importing the orchestrator or running its contents.
+def verify_bundle(
+    path: str | Path,
+    *,
+    max_level: int = 3,
+    run_reproduction: bool = False,
+    target_checkout: str | Path | None = None,
+    reproduction_output_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Verify a bundle; experiment execution is opt-in and never changes findings.
 
-    max_level=1 is useful for a focused package-integrity check. Levels 2 and 3
-    are deliberately not marked PASS: this implementation does not yet verify
-    workflow attestations against a trust root or execute experiments.
+    max_level=1 checks package integrity. Level 2 remains INCONCLUSIVE until
+    workflow provenance is verified against a trusted issuer. Level 3 remains
+    NOT_RUN unless run_reproduction=True and explicit target/output paths are
+    supplied. No bundle command is executed by default.
     """
     if type(max_level) is not int or max_level not in (1, 2, 3):
         raise ValueError("max_level_must_be_1_2_or_3")
+    if type(run_reproduction) is not bool:
+        raise ValueError("run_reproduction_must_be_boolean")
+    if run_reproduction and max_level < 3:
+        raise ValueError("run_reproduction_requires_max_level_3")
     root = Path(path)
     levels: list[dict[str, Any]] = []
     try:
@@ -298,7 +321,11 @@ def verify_bundle(path: str | Path, *, max_level: int = 3) -> dict[str, Any]:
                     "level": 3,
                     "name": "experiment_rerun",
                     "status": "NOT_RUN",
-                    "reason": "bundle_contents_are_never_executed_by_this_verifier",
+                    "reason": (
+                        "zip_case_bundle_has_no_reproduction_contract"
+                        if run_reproduction
+                        else "explicit_run_reproduction_required"
+                    ),
                 })
             overall = "PASS" if all(item["status"] == "PASS" for item in levels) else "INCOMPLETE"
             highest = 0
@@ -357,12 +384,63 @@ def verify_bundle(path: str | Path, *, max_level: int = 3) -> dict[str, Any]:
             ),
         })
     if max_level >= 3:
-        levels.append({
+        level_three = {
             "level": 3,
             "name": "experiment_rerun",
             "status": "NOT_RUN",
-            "reason": "bundle_contents_are_never_executed_by_this_verifier",
-        })
+            "reason": "explicit_run_reproduction_required",
+        }
+        if run_reproduction:
+            if target_checkout is None or reproduction_output_dir is None:
+                level_three["reason"] = "target_checkout_and_output_dir_required"
+            elif REPRODUCTION_CONTRACT_FILENAME not in levels[0].get("checked_paths", []):
+                level_three["reason"] = "verified_reproduction_contract_not_in_manifest"
+            else:
+                try:
+                    contract_path = _safe_file(root, REPRODUCTION_CONTRACT_FILENAME)
+                    with contract_path.open("rb") as stream:
+                        raw_contract = stream.read(MAX_CONTRACT_BYTES + 1)
+                    if len(raw_contract) > MAX_CONTRACT_BYTES:
+                        raise ReproductionContractError("contract_size_limit_exceeded")
+                    contract = load_reproduction_contract(raw_contract)
+                except (OSError, ValueError, ReproductionContractError) as exc:
+                    level_three.update({
+                        "status": "FAIL",
+                        "reason": "reproduction_contract_invalid",
+                        "detail": str(exc)[:512],
+                    })
+                else:
+                    try:
+                        execution = run_reproduction_contract(
+                            contract,
+                            target_checkout,
+                            reproduction_output_dir,
+                        )
+                    except (OSError, ValueError, ReproductionRunnerError) as exc:
+                        level_three.update({
+                            "status": "INCONCLUSIVE",
+                            "reason": "reproduction_runner_error",
+                            "detail": str(exc)[:512],
+                        })
+                    else:
+                        runner_status = execution.get("status")
+                        status_map = {
+                            "SUCCEEDED": "PASS",
+                            "FAILED": "FAIL",
+                            "TIMED_OUT": "INCONCLUSIVE",
+                            "INCOMPLETE": "INCONCLUSIVE",
+                            "NOT_RUN": "NOT_RUN",
+                        }
+                        level_three["status"] = status_map.get(runner_status, "INCONCLUSIVE")
+                        level_three["reason"] = execution.get("reason")
+                        level_three["runner_status"] = runner_status
+                        level_three["contract_sha256"] = execution.get("contract_sha256")
+                        if "exit_code" in execution:
+                            level_three["exit_code"] = execution["exit_code"]
+                        if "output_validation" in execution:
+                            level_three["output_validation"] = execution["output_validation"]
+                        level_three["finding_verdict"] = "UNCHANGED"
+        levels.append(level_three)
 
     overall = "PASS" if all(item["status"] == "PASS" for item in levels) else "INCOMPLETE"
     return {
@@ -383,8 +461,25 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bundle_path", help="Directory containing case-artifact-manifest.json and its files")
     parser.add_argument("--max-level", type=int, choices=(1, 2, 3), default=3)
+    parser.add_argument(
+        "--run-reproduction",
+        action="store_true",
+        help="Explicitly opt in to isolated level-3 execution; no execution occurs without this flag",
+    )
+    parser.add_argument("--target-checkout", help="Git checkout matching the contract's pinned target commit")
+    parser.add_argument("--reproduction-output-dir", help="New output directory outside the target checkout")
     args = parser.parse_args(argv)
-    result = verify_bundle(args.bundle_path, max_level=args.max_level)
+    if args.run_reproduction and args.max_level < 3:
+        parser.error("--run-reproduction requires --max-level 3")
+    if args.run_reproduction and (not args.target_checkout or not args.reproduction_output_dir):
+        parser.error("--run-reproduction requires --target-checkout and --reproduction-output-dir")
+    result = verify_bundle(
+        args.bundle_path,
+        max_level=args.max_level,
+        run_reproduction=args.run_reproduction,
+        target_checkout=args.target_checkout,
+        reproduction_output_dir=args.reproduction_output_dir,
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["overall_status"] == "PASS" else 1
 

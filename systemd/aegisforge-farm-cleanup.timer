@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly AegisForge-only cleanup
+
+[Timer]
+OnCalendar=Sun *-*-* 04:35:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=aegisforge-farm-cleanup.service
+
+[Install]
+WantedBy=timers.target

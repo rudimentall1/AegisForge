@@ -182,3 +182,19 @@ def test_crypto_analyst_does_not_overstate_incomplete_pinned_evidence():
 
     result = CryptoAnalyst().run(task).result
     assert result["hypotheses"][0]["status"] == "OPEN_NO_PRIMARY_SOURCE_MATCH"
+
+
+def test_failed_seed_fetch_keeps_url_specific_source_kind():
+    def fail_fetch(url):
+        raise ValueError("source_url_not_allowlisted_https")
+
+    researcher = SourceResearcher(github=_FakeGitHub(), fetcher=fail_fetch)
+    source = researcher._fetch_seed_source(
+        "https://nvd.nist.gov/vuln/detail/CVE-2022-40769",
+        "nvd_cve_record",
+        {},
+    )
+
+    assert source["fetch_status"] == "fetch_error"
+    assert source["source_kind"] == "vulnerability_database_record"
+    assert source["classification"] == "unclassified_source"

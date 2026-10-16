@@ -89,7 +89,7 @@ def test_target_source_path_must_be_safe_relative_path(bad_path):
 
 
 def test_scope_reference_must_be_https_url_without_credentials():
-    for value in ("http://example.com/scope", "https://", "https://user:pass@example.com/scope"):
+    for value in ("http://example.com/scope", "https://", "https://user:pass@example.com/scope", "https://[::1"):
         payload = valid_contract()
         payload["target"]["scope_reference"] = value
         with pytest.raises(ReproductionContractError, match="scope_reference_must_be_https_url"):

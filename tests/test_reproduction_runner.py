@@ -61,7 +61,7 @@ def make_workspace(tmp_path):
 def fake_docker(
     monkeypatch, *, output_bytes=b"repro-ok\n", exit_code=0, timeout=False,
     revision="a" * 40, remote="https://github.com/owner/repository.git",
-    tree_tampered_path=None,
+    tree_tampered_path=None, stop_returncode=0,
 ):
     calls = []
     observed = {"env_file": None, "docker_env": None, "run_args": None}
@@ -115,7 +115,9 @@ def fake_docker(
                 raise subprocess.TimeoutExpired(args, kwargs["timeout"])
             return subprocess.CompletedProcess(args, 0, stdout=f"{exit_code}\n", stderr="")
         if operation == "stop":
-            return subprocess.CompletedProcess(args, 0, stdout="container-id\n", stderr="")
+            return subprocess.CompletedProcess(
+                args, stop_returncode, stdout="container-id\n", stderr="stop failed" if stop_returncode else ""
+            )
         if operation == "cp":
             output_root = Path(args[-1])
             (output_root / "results").mkdir(parents=True, exist_ok=True)
@@ -196,6 +198,20 @@ def test_runner_timeout_stops_copies_and_removes_container(tmp_path, monkeypatch
     assert result["reason"] == "reproduction_timeout"
     docker_calls = [call for call in calls if Path(call[0][0]).name == "docker"]
     assert [call[0][1] for call in docker_calls] == ["run", "wait", "stop", "cp", "rm"]
+
+
+def test_runner_does_not_copy_outputs_when_timeout_stop_is_unconfirmed(tmp_path, monkeypatch):
+    root = make_workspace(tmp_path)
+    calls, _ = fake_docker(monkeypatch, timeout=True, stop_returncode=1)
+    output = tmp_path / "output"
+
+    result = run_reproduction_contract(make_contract(), root, output)
+
+    assert result["status"] == "INCOMPLETE"
+    assert result["reason"] == "timeout_stop_unconfirmed"
+    docker_calls = [call for call in calls if Path(call[0][0]).name == "docker"]
+    assert [call[0][1] for call in docker_calls] == ["run", "wait", "stop", "rm"]
+    assert not list(output.rglob("*"))
 
 
 def test_runner_returns_not_run_when_docker_is_unavailable(tmp_path, monkeypatch):

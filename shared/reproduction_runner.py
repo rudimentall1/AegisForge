@@ -25,6 +25,7 @@ from shared.reproduction_contract import (
 
 MAX_WORKSPACE_FILES = 100_000
 MAX_WORKSPACE_BYTES = 1024 * 1024 * 1024
+MAX_GIT_TREE_OUTPUT_BYTES = 32 * 1024 * 1024
 DOCKER_START_TIMEOUT_SECONDS = 30
 DOCKER_CLEANUP_TIMEOUT_SECONDS = 10
 OUTPUT_COPY_TIMEOUT_SECONDS = 30
@@ -170,14 +171,8 @@ def _stop_container(docker_path: str, container_name: str, env: dict[str, str]) 
         pass
 
 
-def _verify_git_target(root: Path, target: dict) -> None:
-    git_directory = root / ".git"
-    if git_directory.is_symlink() or not git_directory.is_dir():
-        raise ReproductionRunnerError("target_git_checkout_required")
-    git_path = shutil.which("git")
-    if not git_path:
-        raise ReproductionRunnerError("git_binary_not_available")
-    git_env = {
+def _git_environment(git_path: str) -> dict[str, str]:
+    return {
         "PATH": f"{Path(git_path).parent}:/usr/bin:/bin",
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": os.devnull,
@@ -187,6 +182,16 @@ def _verify_git_target(root: Path, target: dict) -> None:
         "LANG": "C",
         "LC_ALL": "C",
     }
+
+
+def _verify_git_target(root: Path, target: dict) -> tuple[str, dict[str, str]]:
+    git_directory = root / ".git"
+    if git_directory.is_symlink() or not git_directory.is_dir():
+        raise ReproductionRunnerError("target_git_checkout_required")
+    git_path = shutil.which("git")
+    if not git_path:
+        raise ReproductionRunnerError("git_binary_not_available")
+    git_env = _git_environment(git_path)
     try:
         revision = subprocess.run(
             [git_path, "-C", str(root), "rev-parse", "--verify", "HEAD"],
@@ -198,7 +203,7 @@ def _verify_git_target(root: Path, target: dict) -> None:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ReproductionRunnerError("target_git_identity_check_failed") from exc
-    if revision.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}\s*", revision.stdout or ""):
+    if revision.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}\\s*", revision.stdout or ""):
         raise ReproductionRunnerError("target_git_revision_unavailable")
     if revision.stdout.strip() != target["commit_sha"]:
         raise ReproductionRunnerError("target_git_revision_mismatch")
@@ -221,6 +226,99 @@ def _verify_git_target(root: Path, target: dict) -> None:
         remote_path = remote_path[:-4]
     if remote_path.lower() != target["repository"].lower():
         raise ReproductionRunnerError("target_git_origin_mismatch")
+    return git_path, git_env
+
+
+def _copy_pinned_worktree(
+    root: Path,
+    target: dict,
+    destination: Path,
+    git_path: str,
+    git_env: dict[str, str],
+) -> tuple[int, int]:
+    try:
+        tree = subprocess.run(
+            [git_path, "-C", str(root), "ls-tree", "-r", "-z", "--full-tree", "HEAD"],
+            capture_output=True, text=False, timeout=30, check=False, env=git_env,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ReproductionRunnerError("target_git_tree_read_failed") from exc
+    if tree.returncode != 0:
+        raise ReproductionRunnerError("target_git_tree_read_failed")
+    if len(tree.stdout) > MAX_GIT_TREE_OUTPUT_BYTES:
+        raise ReproductionRunnerError("target_git_tree_output_limit_exceeded")
+
+    entries = [entry for entry in tree.stdout.split(b"\\x00") if entry]
+    if not entries:
+        raise ReproductionRunnerError("target_git_tree_empty")
+    if len(entries) > MAX_WORKSPACE_FILES:
+        raise ReproductionRunnerError("workspace_file_count_limit_exceeded")
+
+    total_bytes = 0
+    copied_files = 0
+    for entry in entries:
+        try:
+            metadata, raw_path = entry.split(b"\\t", 1)
+            mode, object_type, object_id = metadata.split(b" ", 2)
+            relative = os.fsdecode(raw_path)
+        except (ValueError, UnicodeError) as exc:
+            raise ReproductionRunnerError("target_git_tree_entry_invalid") from exc
+        parts = relative.split("/")
+        if (
+            not relative
+            or relative.startswith("/")
+            or "\\\\" in relative
+            or any(part in ("", ".", "..", ".git") for part in parts)
+            or ":" in parts[0]
+            or any(ord(char) < 32 for char in relative)
+        ):
+            raise ReproductionRunnerError("target_git_tree_path_invalid")
+        if mode not in (b"100644", b"100755") or object_type != b"blob":
+            raise ReproductionRunnerError("target_git_tree_non_regular_file_rejected")
+        if not re.fullmatch(rb"[0-9a-f]{40}", object_id):
+            raise ReproductionRunnerError("target_git_tree_object_id_invalid")
+
+        source = root.joinpath(*parts)
+        source_cursor = root
+        for part in parts:
+            source_cursor = source_cursor / part
+            if source_cursor.is_symlink():
+                raise ReproductionRunnerError("workspace_symlink_rejected")
+        try:
+            source_resolved = source.resolve(strict=True)
+            source_resolved.relative_to(root)
+            file_fd = os.open(source, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except (OSError, ValueError) as exc:
+            raise ReproductionRunnerError(f"target_worktree_file_unavailable:{relative}") from exc
+
+        target_path = destination.joinpath(*parts)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha1()
+        with os.fdopen(file_fd, "rb") as input_stream:
+            source_stat = os.fstat(input_stream.fileno())
+            if not stat.S_ISREG(source_stat.st_mode):
+                raise ReproductionRunnerError("workspace_special_file_rejected")
+            file_size = source_stat.st_size
+            total_bytes += file_size
+            if file_size > MAX_WORKSPACE_BYTES or total_bytes > MAX_WORKSPACE_BYTES:
+                raise ReproductionRunnerError("workspace_size_limit_exceeded")
+            digest.update(f"blob {file_size}\\x00".encode("ascii"))
+            actual_size = 0
+            with target_path.open("xb") as output_stream:
+                while True:
+                    chunk = input_stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    actual_size += len(chunk)
+                    if actual_size > file_size or actual_size > MAX_WORKSPACE_BYTES:
+                        raise ReproductionRunnerError("target_worktree_file_changed_during_copy")
+                    digest.update(chunk)
+                    output_stream.write(chunk)
+            if actual_size != file_size or digest.hexdigest().encode("ascii") != object_id:
+                raise ReproductionRunnerError(f"target_worktree_file_mismatch:{relative}")
+        target_path.chmod(0o755 if mode == b"100755" else 0o644)
+        copied_files += 1
+    return copied_files, total_bytes
 
 
 def run_reproduction_contract(
@@ -249,8 +347,7 @@ def run_reproduction_contract(
         raise ReproductionRunnerError("workspace_root_missing_or_invalid") from exc
     if not root.is_dir():
         raise ReproductionRunnerError("workspace_root_must_be_directory")
-    _scan_workspace(root)
-    _verify_git_target(root, contract["target"])
+    git_path, git_env = _verify_git_target(root, contract["target"])
 
     docker_path = shutil.which(docker_binary)
     if not docker_path:
@@ -278,7 +375,8 @@ def run_reproduction_contract(
         with tempfile.TemporaryDirectory(prefix="aegisforge-reproduction-") as temporary:
             temporary_root = Path(temporary)
             workspace = temporary_root / "workspace"
-            shutil.copytree(root, workspace, symlinks=True)
+            workspace.mkdir()
+            _copy_pinned_worktree(root, contract["target"], workspace, git_path, git_env)
             _scan_workspace(workspace)
 
             source_path = workspace.joinpath(*contract["target"]["source_path"].split("/"))

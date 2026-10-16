@@ -240,6 +240,10 @@ def export_research_case_bundle(
                 if len(evidence_rows) > MAX_EVIDENCE_ROWS:
                     raise ResearchCaseBundleError("case_evidence_count_exceeds_limit")
                 evidence = [dict(row) for row in evidence_rows]
+        task_ids_for_case = {task.get("id") for task in tasks if isinstance(task, dict)}
+        for observation in evidence:
+            if observation.get("task_id") not in task_ids_for_case:
+                raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
     except sqlite3.Error as exc:
         raise ResearchCaseBundleError("database_query_failed") from exc
     finally:
@@ -453,6 +457,8 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     for observation in evidence_file["observations"]:
         if not isinstance(observation, dict) or observation.get("case_id") != case_id:
             raise ResearchCaseBundleError("evidence_case_identity_mismatch")
+        if observation.get("task_id") not in task_ids:
+            raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
 
     statuses = {}
     for task in tasks_file["tasks"]:

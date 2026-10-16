@@ -496,7 +496,8 @@ def test_level_three_does_not_execute_by_default_even_when_contract_is_present(t
 def test_level_three_rejects_contract_not_bound_to_manifest_case(
     tmp_path, monkeypatch, field, mismatched_value
 ):
-    manifest, _ = write_reproduction_bundle(tmp_path)
+    write_reproduction_bundle(tmp_path)
+    manifest = json.loads((tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
     contract_path = tmp_path / REPRODUCTION_CONTRACT_FILENAME
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     contract[field] = mismatched_value
@@ -522,7 +523,7 @@ def test_level_three_rejects_contract_not_bound_to_manifest_case(
 
     assert result["levels"][2]["status"] == "FAIL"
     assert result["levels"][2]["reason"] == "reproduction_contract_case_binding_mismatch"
-    assert result["levels"][2]["finding_verdict"] if "finding_verdict" in result["levels"][2] else True
+    assert "finding_verdict" not in result["levels"][2]
     assert result["overall_status"] == "INCOMPLETE"  # level 2 remains INCONCLUSIVE
 
 

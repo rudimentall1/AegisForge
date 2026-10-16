@@ -78,6 +78,23 @@ class TaskQueue:
             ON pending_human_review(case_id, status)
         """)
 
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS round_transparency (
+                round_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                technique TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                disclosure_deadline TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'OPEN',
+                completed_at TEXT,
+                verdict TEXT
+            )
+        """)
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_round_transparency_case_status
+            ON round_transparency(case_id, status)
+        """)
+
         columns = {
             row[1]
             for row in self.db.execute("PRAGMA table_info(queue)")
@@ -91,6 +108,11 @@ class TaskQueue:
         if "research_case_id" not in columns:
             self.db.execute(
                 "ALTER TABLE queue ADD COLUMN research_case_id TEXT"
+            )
+
+        if "round_id" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN round_id TEXT"
             )
 
         if "planner_decision" not in columns:
@@ -345,6 +367,72 @@ class TaskQueue:
     # ---------------------------------------------------------
     # HUMAN REVIEW QUEUE
     # ---------------------------------------------------------
+    def create_round_transparency(
+        self, round_id, case_id, technique, started_at, disclosure_deadline
+    ):
+        """Register a public-facing disclosure timeline for a research round."""
+        required = {
+            "round_id": round_id,
+            "case_id": case_id,
+            "technique": technique,
+            "started_at": started_at,
+            "disclosure_deadline": disclosure_deadline,
+        }
+        if any(not isinstance(value, str) or not value.strip() for value in required.values()):
+            raise ValueError("round_transparency_required_fields")
+        self.db.execute(
+            """
+            INSERT OR IGNORE INTO round_transparency
+                (round_id, case_id, technique, started_at, disclosure_deadline, status)
+            VALUES (?, ?, ?, ?, ?, 'OPEN')
+            """,
+            (round_id, case_id, technique, started_at, disclosure_deadline),
+        )
+        row = self.db.execute(
+            "SELECT case_id, technique, started_at, disclosure_deadline FROM round_transparency WHERE round_id = ?",
+            (round_id,),
+        ).fetchone()
+        expected = (case_id, technique, started_at, disclosure_deadline)
+        if row != expected:
+            raise ValueError("round_transparency_id_conflict")
+        self.db.commit()
+        return round_id
+
+    def list_round_transparency(self, case_id, public_only=False):
+        """List round disclosure metadata without exposing private research content."""
+        if not isinstance(case_id, str) or not case_id.strip():
+            raise ValueError("round_transparency_case_id_required")
+        rows = self.db.execute(
+            """
+            SELECT round_id, technique, started_at, disclosure_deadline,
+                   status, verdict
+            FROM round_transparency
+            WHERE case_id = ?
+            ORDER BY started_at, round_id
+            """,
+            (case_id,),
+        ).fetchall()
+        keys = ("round_id", "technique", "started_at", "deadline", "status", "verdict")
+        return [dict(zip(keys, row)) for row in rows]
+
+    def complete_round_transparency(self, round_id, verdict):
+        """Mark a round complete once; preserve an existing terminal record."""
+        if not isinstance(round_id, str) or not round_id.strip():
+            raise ValueError("round_transparency_round_id_required")
+        if not isinstance(verdict, str) or not verdict.strip():
+            verdict = "INCONCLUSIVE"
+        completed_at = datetime.now(timezone.utc).isoformat()
+        updated = self.db.execute(
+            """
+            UPDATE round_transparency
+            SET status = 'COMPLETED', completed_at = ?, verdict = ?
+            WHERE round_id = ? AND status = 'OPEN'
+            """,
+            (completed_at, verdict.strip()[:128], round_id),
+        ).rowcount
+        self.db.commit()
+        return updated == 1
+
 
     def create_human_review(self, case_id, reason, task_id=None):
         """Create one open review per case; repeated requests return its ID."""
@@ -434,6 +522,7 @@ class TaskQueue:
         evaluation_only=False,
         evaluation_id=None,
         research_case_id=None,
+        round_id=None,
     ):
         task_id = str(uuid.uuid4())
 
@@ -491,9 +580,10 @@ class TaskQueue:
                 allow_failed_parent,
                 evaluation_only,
                 evaluation_id,
-                research_case_id
+                research_case_id,
+                round_id
             )
-            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task_id,
@@ -506,6 +596,7 @@ class TaskQueue:
                 1 if evaluation_only else 0,
                 evaluation_id,
                 research_case_id,
+                round_id,
             ),
         )
 

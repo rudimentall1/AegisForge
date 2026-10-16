@@ -3076,6 +3076,7 @@ class MasterOrchestrator:
             "SELECT case_id FROM research_cases ORDER BY registered_at DESC"
         ).fetchall()
         if case_rows:
+            pipeline_has_active_branch = False
             for (case_id,) in case_rows:
                 case = self.queue.get_research_case(case_id)
                 if case is None:
@@ -3107,6 +3108,7 @@ class MasterOrchestrator:
                             break
 
                     if active_branch:
+                        pipeline_has_active_branch = True
                         self._case_pipeline_idle_logged = False
                         continue
 
@@ -3150,7 +3152,7 @@ class MasterOrchestrator:
                 )
                 return True
 
-            if not self._case_pipeline_idle_logged:
+            if not pipeline_has_active_branch and not self._case_pipeline_idle_logged:
                 print(f"[MASTER] CASE_PIPELINE_IDLE cases={len(case_rows)}", flush=True)
                 self._case_pipeline_idle_logged = True
             return False

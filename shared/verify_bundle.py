@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 import zipfile
@@ -22,6 +23,7 @@ MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
 MAX_TOTAL_ARTIFACT_BYTES = 1024 * 1024 * 1024
 MAX_ARTIFACTS = 10_000
+MAX_BUNDLE_ENTRIES = 100_000
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 from shared.research_case_bundle import (
@@ -96,6 +98,52 @@ def _safe_file(root: Path, relative_path: str) -> Path:
     if not resolved.is_file():
         raise ValueError("artifact_not_regular_file")
     return resolved
+
+
+
+def _reject_unmanifested_entries(root: Path, artifacts: list[dict[str, Any]]) -> None:
+    """Require a directory bundle to contain only manifest-listed files and their parent dirs."""
+    expected_files = {MANIFEST_FILENAME, *(item["path"] for item in artifacts)}
+    expected_dirs: set[str] = set()
+    for relative in expected_files:
+        parent = PurePosixPath(relative).parent
+        while parent.as_posix() != ".":
+            expected_dirs.add(parent.as_posix())
+            parent = parent.parent
+
+    seen_files: set[str] = set()
+    entry_count = 0
+
+    def walk_error(error: OSError) -> None:
+        raise ValueError("bundle_directory_walk_failed") from error
+
+    for current, directories, files in os.walk(
+        root, topdown=True, followlinks=False, onerror=walk_error
+    ):
+        base = Path(current)
+        for directory in directories:
+            candidate = base / directory
+            relative = candidate.relative_to(root).as_posix()
+            if candidate.is_symlink() or not candidate.is_dir():
+                raise ValueError(f"bundle_directory_entry_unsafe:{relative}")
+            if relative not in expected_dirs:
+                raise ValueError(f"unmanifested_bundle_directory:{relative}")
+            entry_count += 1
+        for filename in files:
+            candidate = base / filename
+            relative = candidate.relative_to(root).as_posix()
+            if candidate.is_symlink() or not candidate.is_file():
+                raise ValueError(f"bundle_file_entry_unsafe:{relative}")
+            if relative not in expected_files:
+                raise ValueError(f"unmanifested_bundle_file:{relative}")
+            seen_files.add(relative)
+            entry_count += 1
+        if entry_count > MAX_BUNDLE_ENTRIES:
+            raise ValueError("bundle_entry_count_limit_exceeded")
+
+    if seen_files != expected_files:
+        missing = sorted(expected_files - seen_files)
+        raise ValueError("bundle_expected_files_missing:" + ",".join(missing))
 
 
 def _hash_file(path: Path, *, expected_size: int) -> tuple[str, int]:
@@ -183,6 +231,8 @@ def _verify_level_one(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     actual_manifest_digest = hashlib.sha256(_canonical_json(payload)).hexdigest()
     if actual_manifest_digest != manifest["manifest_sha256"]:
         raise ValueError("manifest_digest_mismatch")
+
+    _reject_unmanifested_entries(root, artifacts)
 
     checked = []
     for item in artifacts:

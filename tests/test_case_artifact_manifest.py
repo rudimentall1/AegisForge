@@ -2,10 +2,12 @@ import hashlib
 import pytest
 
 from shared.evidence_ledger import (
+    CASE_ARTIFACT_MANIFEST_FILENAME,
     CASE_ARTIFACT_MANIFEST_VERSION,
     CaseArtifactManifestError,
     build_case_artifact_manifest,
     verify_case_artifact_manifest,
+    write_case_artifact_manifest,
 )
 
 
@@ -126,3 +128,51 @@ def test_manifest_verifier_rejects_unknown_fields(tmp_path):
     result = verify_case_artifact_manifest(tmp_path, manifest)
 
     assert result == {"status": "FAIL", "errors": ["manifest_fields_invalid"]}
+
+
+
+def test_manifest_writer_creates_bundle_manifest_accepted_by_independent_verifier(tmp_path):
+    from shared.verify_bundle import verify_bundle
+
+    write_artifact(tmp_path)
+    manifest = write_case_artifact_manifest(
+        tmp_path,
+        case_id="case-2026-001",
+        hypothesis_id="hypothesis-entropy-001",
+        artifact_paths=["logs/run.txt"],
+    )
+
+    manifest_path = tmp_path / CASE_ARTIFACT_MANIFEST_FILENAME
+    assert manifest_path.is_file()
+    assert __import__("json").loads(manifest_path.read_text(encoding="utf-8")) == manifest
+    result = verify_bundle(tmp_path, max_level=1)
+    assert result["overall_status"] == "PASS"
+    assert result["levels"][0]["checked_artifacts"] == 1
+
+
+def test_manifest_writer_rejects_self_referential_artifact(tmp_path):
+    write_artifact(tmp_path)
+    with pytest.raises(
+        CaseArtifactManifestError, match="manifest_cannot_include_itself_as_artifact"
+    ):
+        write_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/run.txt", CASE_ARTIFACT_MANIFEST_FILENAME],
+        )
+
+
+def test_manifest_writer_rejects_symlinked_manifest_destination(tmp_path):
+    write_artifact(tmp_path)
+    outside = tmp_path.parent / "existing-manifest.json"
+    outside.write_text("{}", encoding="utf-8")
+    (tmp_path / CASE_ARTIFACT_MANIFEST_FILENAME).symlink_to(outside)
+
+    with pytest.raises(CaseArtifactManifestError, match="manifest_file_must_not_be_symlink"):
+        write_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/run.txt"],
+        )

@@ -11,7 +11,7 @@ except ImportError:
 
 from shared.queue import TaskQueue
 from shared.task import Task
-from shared.research_case import validate_task_binding
+from shared.research_case import validate_worker_case_binding
 from shared.memory import Memory
 
 from shared.capability_policy import (
@@ -541,23 +541,27 @@ class Worker:
 
         research_case_id = task_row[12] if len(task_row) > 12 else None
         research_case = None
-        if research_case_id is not None:
-            try:
+        try:
+            if research_case_id is not None:
                 research_case = self.queue.get_research_case(research_case_id)
-                validate_task_binding(research_case, research_case_id)
-            except (TypeError, ValueError) as exc:
-                error = {
-                    "error": str(exc),
-                    "error_type": type(exc).__name__,
-                    "research_case_id": research_case_id,
-                    "execution_blocked": True,
-                }
-                self.queue.fail(task_id, result=error)
-                print(
-                    f"[{self.worker_id}] RESEARCH CASE GATE BLOCKED {task_id}: {exc}",
-                    flush=True,
-                )
-                return False
+            validate_worker_case_binding(
+                self.role,
+                research_case,
+                research_case_id,
+            )
+        except (TypeError, ValueError) as exc:
+            error = {
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+                "research_case_id": research_case_id,
+                "execution_blocked": True,
+            }
+            self.queue.fail(task_id, result=error)
+            print(
+                f"[{self.worker_id}] RESEARCH CASE GATE BLOCKED {task_id}: {exc}",
+                flush=True,
+            )
+            return False
 
         print(
             f"[{self.worker_id}] "

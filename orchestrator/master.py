@@ -2593,6 +2593,31 @@ class AutonomousPlanner:
                 )
         return processed
 
+    def _registered_research_case_ids(self):
+        rows = self.queue.db.execute(
+            "SELECT case_id FROM research_cases"
+        ).fetchall()
+        return {str(row[0]) for row in rows if row and row[0]}
+
+    def _focus_case_tasks(self, tasks):
+        """Once cases exist, only plan work whose result is bound to one."""
+        case_ids = self._registered_research_case_ids()
+        if not case_ids:
+            return tasks
+        focused = {}
+        for task_id, task in tasks.items():
+            result = task.get("result") if isinstance(task, dict) else None
+            if not isinstance(result, dict):
+                continue
+            binding = result.get("research_case_binding")
+            case_id = (
+                binding.get("case_id") if isinstance(binding, dict)
+                else result.get("research_case_id")
+            )
+            if case_id in case_ids:
+                focused[task_id] = task
+        return focused
+
     def plan(self):
         try:
             compacted = self.queue.compact_completed_results(
@@ -2616,17 +2641,22 @@ class AutonomousPlanner:
                 flush=True,
             )
 
-        shadow_processed = self._process_shadow_evaluations()
+        # Shadow evaluation belongs to the legacy opportunity planner.
+        # Once Research Cases exist, do not create unrelated generic branches.
+        shadow_processed = (
+            0 if self._registered_research_case_ids()
+            else self._process_shadow_evaluations()
+        )
         if shadow_processed:
             print(f"[MASTER] SHADOW EVALUATIONS PROCESSED count={shadow_processed}", flush=True)
 
-        tasks = self._load_tasks()
+        tasks = self._focus_case_tasks(self._load_tasks())
         self._planning_tasks = tasks
 
         recovered = self.recover_failed_tasks(tasks)
 
         if recovered:
-            tasks = self._load_tasks()
+            tasks = self._focus_case_tasks(self._load_tasks())
             self._planning_tasks = tasks
 
         # ---------------------------------------------------------
@@ -3029,12 +3059,6 @@ class MasterOrchestrator:
         self.planner = AutonomousPlanner(self.queue)
 
     def bootstrap(self):
-        # Do not inject a new research root while Master still has a completed
-        # task awaiting planning. Workers can finish children faster than the
-        # 15-second Master tick, so "no live tasks" alone is not an idle signal.
-        if self.queue.has_planner_work():
-            return False
-
         # Once a Research Case is registered, AegisForge's default work is
         # case-bound EVM forensics, not another generic opportunity-discovery
         # cycle. Start a source-research root for the newest runnable case that
@@ -3080,6 +3104,10 @@ class MasterOrchestrator:
                 return True
             # Do not fall back to generic research once the case workflow is
             # established. Register a new case to begin another bounded cycle.
+            return False
+
+        # Preserve the legacy idle guard only when no Research Case exists.
+        if self.queue.has_planner_work():
             return False
 
         row = self.queue.db.execute(

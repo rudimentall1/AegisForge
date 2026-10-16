@@ -110,3 +110,27 @@ def test_master_rejects_unregistered_or_mismatched_case_binding(tmp_path):
         },
     })
     queue.db.close()
+
+
+def test_master_bootstraps_case_even_with_legacy_planner_backlog(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.db")
+    legacy_id = queue.add(
+        description="Legacy generic discovery task",
+        role="researcher",
+    )
+    assert queue.claim("legacy-worker", role="researcher") is not None
+    queue.finish(legacy_id, result={"opportunities": [{"name": "legacy/example"}]})
+    assert queue.has_planner_work()
+
+    case = _case("case-over-legacy-backlog")
+    queue.register_research_case(case)
+    master = MasterOrchestrator.__new__(MasterOrchestrator)
+    master.queue = queue
+
+    assert master.bootstrap() is True
+    row = queue.db.execute(
+        "SELECT role, research_case_id FROM queue WHERE research_case_id = ?",
+        (case.case_id,),
+    ).fetchone()
+    assert row == ("source_researcher", case.case_id)
+    queue.db.close()

@@ -498,12 +498,12 @@ def run_reproduction_contract(
                 execution_error = "docker_wait_failed"
 
             try:
-                if timed_out and stop_status != "STOPPED":
-                    # Do not collect output from a process whose termination
-                    # could not be confirmed. Cleanup still runs in finally.
+                if execution_error:
+                    # A failed/invalid wait or unconfirmed timeout stop leaves
+                    # execution state unknown. Never collect output in that state.
                     output_result = {
                         "status": "NOT_RUN",
-                        "error": "timeout_stop_unconfirmed",
+                        "error": execution_error,
                     }
                 else:
                     copied = _docker_call(

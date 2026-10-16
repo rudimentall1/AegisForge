@@ -14,6 +14,17 @@ SEED_SOURCES = (
     ("https://blog.ethereum.org/2015/08/07/security-alert-1-windowsalethzero-2", "ethereum_foundation"),
     ("https://blog.ethereum.org/2016/06/24/security-alert-smart-contract-wallets-created-in-frontier-are-vulnerable-to-phishing-attacks", "ethereum_foundation"),
 )
+PROFANITY_SEED_SOURCES = (
+    ("https://1inch.com/blog/post/a-vulnerability-disclosed-in-profanity-an-ethereum-vanity-address-tool", "1inch_disclosure"),
+    ("https://github.com/johguse/profanity/issues/61", "upstream_maintainer_disclosure"),
+    ("https://github.com/advisories/GHSA-9q2f-7hm7-62h6", "github_security_advisory"),
+    ("https://nvd.nist.gov/vuln/detail/CVE-2022-40769", "nvd_cve_record"),
+)
+PROFANITY_SEARCH_QUERY_ROUNDS = (
+    ('repo:johguse/profanity "private key safety"', '"Profanity" "createSeed" "mt19937_64"'),
+    ('"CVE-2022-40769" Profanity', '"GHSA-9q2f-7hm7-62h6"'),
+    ('"johguse/profanity" "random_device"', '"Profanity" "seed space" Ethereum'),
+)
 SEARCH_QUERY_ROUNDS = (
     ('"Profanity" "32-bit" vulnerability', '"Ethereum" "regenerate all of your keys"'),
     ('"Profanity" private key recovery', '"C++ 0.9.36" Ethereum key'),
@@ -211,6 +222,19 @@ class SourceResearcher:
                     })
         return sources, pins, errors
 
+    @staticmethod
+    def _seed_source_kind(url):
+        normalized = str(url or "").lower()
+        if "github.com/johguse/profanity/issues/" in normalized:
+            return "maintainer_issue"
+        if "github.com/advisories/" in normalized:
+            return "security_advisory"
+        if "nvd.nist.gov/vuln/detail/" in normalized:
+            return "vulnerability_database_record"
+        if "1inch.com/" in normalized:
+            return "disclosure_analysis"
+        return "official_publication"
+
     def _fetch_seed_source(self, url, source_family, existing):
         old = existing.get(url)
         if old and old.get("status_code") == 200 and old.get("content_sha256"):
@@ -223,7 +247,7 @@ class SourceResearcher:
                 "source_url": url,
                 "final_url": fetched.get("final_url") or url,
                 "source_family": source_family,
-                "source_kind": "official_publication",
+                "source_kind": self._seed_source_kind(url),
                 "title": fetched.get("title"),
                 "status_code": fetched.get("status_code"),
                 "fetch_status": fetched.get("fetch_status", "unknown"),
@@ -313,14 +337,23 @@ class SourceResearcher:
     def run(self, task: Task) -> Task:
         task.status = "researching_sources"
         parent = dict(task.result or {})
+        payload = task.payload if isinstance(task.payload, dict) else {}
+        research_case = payload.get("research_case")
+        target_repository = str(getattr(research_case, "target_repository", "") or "").strip().lower().rstrip("/")
+        profanity_case = target_repository in {
+            "johguse/profanity",
+            "https://github.com/johguse/profanity",
+        }
+        seed_sources = PROFANITY_SEED_SOURCES if profanity_case else SEED_SOURCES
+        query_rounds = PROFANITY_SEARCH_QUERY_ROUNDS if profanity_case else SEARCH_QUERY_ROUNDS
         round_number = int(parent.get("source_search_rounds", 0) or 0) + 1
-        queries = SEARCH_QUERY_ROUNDS[min(round_number - 1, len(SEARCH_QUERY_ROUNDS) - 1)]
+        queries = query_rounds[min(round_number - 1, len(query_rounds) - 1)]
         sources_by_url = {
             item.get("source_url"): dict(item)
             for item in parent.get("sources", [])
             if isinstance(item, dict) and item.get("source_url")
         }
-        for url, family in SEED_SOURCES:
+        for url, family in seed_sources:
             if len(sources_by_url) < self.MAX_SOURCES:
                 source = self._fetch_seed_source(url, family, sources_by_url)
                 sources_by_url[source["source_url"]] = source

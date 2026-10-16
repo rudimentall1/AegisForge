@@ -781,14 +781,6 @@ class AutonomousPlanner:
         # Repeated-role guard
         # -------------------------------------------------
 
-        # Case-bound EVM forensics has its own bounded source -> analysis ->
-        # synthetic lab -> validator route. Do not let generic novelty/quality
-        # heuristics abort a valid stage before the dedicated route is consulted.
-        if self._is_bound_evm_forensics_task(task):
-            dedicated_decision = self._choose_next_raw(task)
-            if isinstance(dedicated_decision, tuple) and len(dedicated_decision) == 5:
-                return dedicated_decision
-
         history = self.branch_history(
             task,
             getattr(self, "_planning_tasks", {}),
@@ -1872,6 +1864,14 @@ class AutonomousPlanner:
         actual result. This outer gate prevents immediate same-role
         transitions from creating autonomous branch stagnation.
         """
+
+        # Case-bound EVM forensics has its own bounded source -> analysis ->
+        # synthetic lab -> validator route. Do not let generic novelty/quality
+        # heuristics abort a valid stage before the dedicated route is consulted.
+        if self._is_bound_evm_forensics_task(task):
+            dedicated_decision = self._choose_next_raw(task)
+            if isinstance(dedicated_decision, tuple) and len(dedicated_decision) == 5:
+                return dedicated_decision
 
         history = self.branch_history(
             task,

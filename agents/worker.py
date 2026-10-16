@@ -11,7 +11,7 @@ except ImportError:
 
 from shared.queue import TaskQueue
 from shared.task import Task
-from shared.research_case import validate_worker_case_binding
+from shared.research_case import validate_worker_case_binding, research_case_binding
 from shared.memory import Memory
 
 from shared.capability_policy import (
@@ -806,6 +806,11 @@ class Worker:
                     )
 
                     return False
+
+            if research_case is not None:
+                if not isinstance(result_value, dict):
+                    raise RuntimeError("research_case_result_must_be_object")
+                result_value["research_case_binding"] = research_case_binding(research_case)
 
             if isinstance(result_value, dict):
                 result_value.setdefault("agent_id", self.agent_id)

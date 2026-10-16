@@ -115,15 +115,16 @@ class TaskGraph:
         self._nodes = by_id
         self.max_parallelism = max_parallelism
         self.max_resource_units = max_resource_units
-        self._validate_acyclic()
+        self._order = self._validate_acyclic()
 
     @property
     def nodes(self) -> Mapping[str, TaskNode]:
         return dict(self._nodes)
 
-    def _validate_acyclic(self) -> None:
+    def _validate_acyclic(self) -> tuple[str, ...]:
         visiting: set[str] = set()
         visited: set[str] = set()
+        order: list[str] = []
 
         def visit(node_id: str) -> None:
             if node_id in visiting:
@@ -135,9 +136,11 @@ class TaskGraph:
                 visit(dependency)
             visiting.remove(node_id)
             visited.add(node_id)
+            order.append(node_id)
 
         for node_id in self._nodes:
             visit(node_id)
+        return tuple(order)
 
     @staticmethod
     def _status(value: object, node_id: str) -> ExecutionStatus:
@@ -188,12 +191,17 @@ class TaskGraph:
         free_slots = self.max_parallelism - running_count
         free_resources = self.max_resource_units - running_resources
 
-        for node_id, node in self._nodes.items():
+        blocked_set: set[str] = set()
+        for node_id in self._order:
+            node = self._nodes[node_id]
             if normalized[node_id] is not ExecutionStatus.PENDING:
                 continue
             dependency_states = [normalized[dep] for dep in node.dependencies]
-            if any(state in _TERMINAL_FAILURES for state in dependency_states):
+            if any(state in _TERMINAL_FAILURES for state in dependency_states) or any(
+                dep in blocked_set for dep in node.dependencies
+            ):
                 blocked.append(node_id)
+                blocked_set.add(node_id)
                 continue
             if not all(state is ExecutionStatus.SUCCEEDED for state in dependency_states):
                 waiting.append(node_id)

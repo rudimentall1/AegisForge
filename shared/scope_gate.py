@@ -51,6 +51,27 @@ def validate_case(case: ResearchCase | None) -> GateResult:
         return GateResult(False, "case_id_missing")
     if not isinstance(case.target_repository, str) or not case.target_repository.strip():
         return GateResult(False, "target_repository_missing")
+    repository = case.target_repository
+    if not (
+        re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
+        or (
+            repository.startswith("https://")
+            and bool(urlparse(repository).netloc)
+        )
+    ):
+        return GateResult(False, "target_repository_invalid")
+
+    required_case_text = (
+        ("hypothesis", "hypothesis_missing"),
+        ("attacker_capability", "attacker_capability_missing"),
+        ("expected_invariant", "expected_invariant_missing"),
+        ("falsification_criteria", "falsification_criteria_missing"),
+    )
+    for field, reason in required_case_text:
+        value = getattr(case, field, None)
+        if not isinstance(value, str) or not value.strip():
+            return GateResult(False, reason)
+
     if not isinstance(case.target_commit, str) or not _COMMIT_RE.fullmatch(case.target_commit):
         return GateResult(False, "target_commit_invalid")
     if not isinstance(case.scope_url, str) or not case.scope_url.strip():

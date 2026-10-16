@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timezone
+from pathlib import Path
 
 from shared.github_client import GitHubClient
 from shared.public_source import fetch_public_source
 from shared.task import Task
+from shared.research_case import research_case_binding, validate_task_binding
+from tools.evm_key_forensics.solidity_source_pattern import (
+    PINNED_COMMIT,
+    PINNED_GIT_BLOB_SHA1,
+    PINNED_PATH,
+    PINNED_REPOSITORY,
+    inspect_source,
+)
 
 
 SEED_SOURCES = (
@@ -334,12 +343,108 @@ class SourceResearcher:
             })
         return leads, filtered_count
 
+    def _run_solidity_source_fixture(self, task: Task, research_case) -> Task:
+        """Load the checked-in immutable source fixture; never fetch or execute it."""
+        payload = task.payload if isinstance(task.payload, dict) else {}
+        case_id = payload.get("research_case_id")
+        case = validate_task_binding(research_case, case_id)
+        target_commit = str(getattr(case, "target_commit", "") or "")
+        fixture_path = (
+            Path(__file__).resolve().parents[2]
+            / "tests" / "fixtures" / "solidity" / "Ownable.sol"
+        )
+        parent = dict(task.result or {})
+        try:
+            raw = fixture_path.read_bytes()
+            source = raw.decode("utf-8")
+            observation = inspect_source(
+                source,
+                source_commit=target_commit,
+                source_path=PINNED_PATH,
+            )
+            source_read_ok = True
+        except (OSError, UnicodeDecodeError) as exc:
+            raw = b""
+            observation = {
+                "schema_version": "aegisforge-solidity-source-observation-v1",
+                "repository": PINNED_REPOSITORY,
+                "source_commit": target_commit,
+                "source_path": PINNED_PATH,
+                "conclusion": "INCONCLUSIVE",
+                "errors": [f"fixture_read_failed:{type(exc).__name__}"],
+                "finding": False,
+                "vulnerability_confirmed": False,
+                "source_executed": False,
+            }
+            source_read_ok = False
+
+        source_url = (
+            f"https://github.com/{PINNED_REPOSITORY}/blob/"
+            f"{PINNED_COMMIT}/{PINNED_PATH}"
+        )
+        source_record = {
+            "source_id": hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:16],
+            "source_url": source_url,
+            "source_kind": "pinned_repository_source",
+            "source_origin": "repository_checked_in_fixture",
+            "repository": PINNED_REPOSITORY,
+            "revision_sha": PINNED_COMMIT,
+            "case_target_commit": target_commit,
+            "source_file_path": PINNED_PATH,
+            "fetch_status": "local_fixture_loaded" if source_read_ok else "local_fixture_unavailable",
+            "content_bytes": len(raw),
+            "content_sha256": hashlib.sha256(raw).hexdigest() if source_read_ok else None,
+            "git_blob_sha1": observation.get("source_git_blob_sha1"),
+            "classification": "solidity_access_control_negative_control",
+            "source_status_note": (
+                "Exact upstream source fixture; no HTTP fetch, compilation, or execution. "
+                "A source pattern match is not a vulnerability finding."
+            ),
+        }
+        result = dict(parent)
+        result.update({
+            "research_track": "solidity_source_fixture",
+            "stage": "sources",
+            "stage_history": list(parent.get("stage_history", [])) + ["source_research"],
+            "research_case_binding": research_case_binding(case),
+            "source_observation": observation,
+            "sources": [source_record],
+            "repository_pins": [{
+                "repository": PINNED_REPOSITORY,
+                "requested_ref": PINNED_COMMIT,
+                "commit_sha": PINNED_COMMIT,
+                "source_path": PINNED_PATH,
+                "git_blob_sha1": PINNED_GIT_BLOB_SHA1,
+                "pin_status": "immutable_commit_and_blob",
+            }],
+            "source_summary": {
+                "sources_collected": 1 if source_read_ok else 0,
+                "pinned_repository_files": 1 if source_read_ok else 0,
+                "http_requests": 0,
+            },
+            "scope_guards": {
+                "public_sources_only": True,
+                "synthetic_experiments_only": True,
+                "no_real_wallet_key_recovery": True,
+                "no_live_network_access": True,
+                "source_executed": False,
+            },
+        })
+        task.result = result
+        task.status = "source_researched"
+        return task
+
     def run(self, task: Task) -> Task:
         task.status = "researching_sources"
         parent = dict(task.result or {})
         payload = task.payload if isinstance(task.payload, dict) else {}
         research_case = payload.get("research_case")
         target_repository = str(getattr(research_case, "target_repository", "") or "").strip().lower().rstrip("/")
+        if target_repository in {
+            "openzeppelin/openzeppelin-contracts",
+            "https://github.com/openzeppelin/openzeppelin-contracts",
+        }:
+            return self._run_solidity_source_fixture(task, research_case)
         profanity_case = target_repository in {
             "johguse/profanity",
             "https://github.com/johguse/profanity",

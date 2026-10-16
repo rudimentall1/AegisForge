@@ -21,6 +21,53 @@ class CryptoAnalyst:
             else getattr(case, "target_repository", "")
         )
         case_repository = str(case_repository or "").strip().lower().rstrip("/")
+        if parent.get("research_track") == "solidity_source_fixture":
+            observation = parent.get("source_observation")
+            observation = observation if isinstance(observation, dict) else {}
+            target_commit = (
+                case.get("target_commit") if isinstance(case, dict)
+                else getattr(case, "target_commit", None)
+            )
+            source_supported = (
+                observation.get("conclusion") == "SOURCE_PATTERN_MATCHED"
+                and observation.get("source_commit") == target_commit
+                and observation.get("source_git_blob_sha1")
+                == "bd96f6661dcbf7b2d4948823ac0e7bfb4ba31fb1"
+                and all(observation.get("checks", {}).values())
+            )
+            result = dict(parent)
+            result.update({
+                "stage": "analysis",
+                "stage_history": list(parent.get("stage_history", [])) + ["analysis"],
+                "solidity_analysis": {
+                    "hypothesis_id": "SOL-OWNABLE-ACCESS-CONTROL-001",
+                    "status": "SOURCE_PATTERN_MATCHED" if source_supported else "INCONCLUSIVE",
+                    "source_supported": source_supported,
+                    "claims_confirmed": 0,
+                    "finding_created": False,
+                    "question": "Does the pinned source route owner-only authorization through onlyOwner/_checkOwner and _msgSender?",
+                    "what_this_does_not_prove": (
+                        "This source observation does not establish compiled behavior, "
+                        "deployed bytecode identity, runtime security, or exploitability."
+                    ),
+                },
+                "hypotheses": [{
+                    "hypothesis_id": "SOL-OWNABLE-ACCESS-CONTROL-001",
+                    "status": "SOURCE_SUPPORTED" if source_supported else "INCONCLUSIVE",
+                    "source_ids": [
+                        item.get("source_id") for item in parent.get("sources", [])
+                        if isinstance(item, dict) and item.get("source_id")
+                    ],
+                    "finding": False,
+                }],
+                "analysis_summary": {
+                    "claims_confirmed_by_this_agent": 0,
+                    "vulnerabilities_confirmed": 0,
+                },
+            })
+            task.result = result
+            task.status = "crypto_analyzed"
+            return task
         if case_repository in {"johguse/profanity", "https://github.com/johguse/profanity"}:
             pinned_dispatcher_sources = [
                 source for source in sources

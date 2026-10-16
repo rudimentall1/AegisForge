@@ -2,9 +2,19 @@ import base64
 import hashlib
 import json
 import os
+from pathlib import Path
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from shared.task import Task
+from shared.research_case import research_case_binding, verify_research_case_binding
+from tools.evm_key_forensics.solidity_source_pattern import (
+    PINNED_COMMIT,
+    PINNED_GIT_BLOB_SHA1,
+    PINNED_PATH,
+    PINNED_REPOSITORY,
+    inspect_source,
+)
+from tools.evm_key_forensics.solidity_fixture_pipeline import synthetic_access_control_controls
 from shared.public_source import ALLOWED_SOURCE_HOSTS, fetch_public_source
 from urllib.parse import urlparse
 from shared.github_client import GitHubClient
@@ -1342,9 +1352,122 @@ class Validator:
         task.status = "validated"
         return task
 
+    def _validate_solidity_source_fixture(self, task: Task) -> Task:
+        """Recheck the pinned local source and synthetic controls; never infer a finding."""
+        result = dict(task.result or {})
+        payload = task.payload if isinstance(task.payload, dict) else {}
+        case = payload.get("research_case")
+        case_id = payload.get("research_case_id")
+        checks = {}
+        errors = []
+        try:
+            expected_binding = research_case_binding(case)
+            observed_binding = result.get("research_case_binding")
+            verify_research_case_binding(observed_binding)
+            checks["case_binding_matches"] = observed_binding == expected_binding
+            checks["task_case_id_matches"] = case_id == getattr(case, "case_id", None)
+        except Exception as exc:
+            checks["case_binding_matches"] = False
+            errors.append(f"case_binding_invalid:{type(exc).__name__}")
+
+        target_repository = (
+            str(getattr(case, "target_repository", "") or "").strip().lower().rstrip("/")
+        )
+        target_commit = str(getattr(case, "target_commit", "") or "")
+        checks["case_repository_pinned"] = target_repository in {
+            "openzeppelin/openzeppelin-contracts",
+            "https://github.com/openzeppelin/openzeppelin-contracts",
+        }
+        checks["case_commit_pinned"] = target_commit == PINNED_COMMIT
+
+        fixture_path = (
+            Path(__file__).resolve().parents[2]
+            / "tests" / "fixtures" / "solidity" / "Ownable.sol"
+        )
+        try:
+            raw = fixture_path.read_bytes()
+            source = raw.decode("utf-8")
+            independent_observation = inspect_source(
+                source, source_commit=target_commit, source_path=PINNED_PATH
+            )
+            checks["source_blob_recomputed"] = (
+                independent_observation.get("source_git_blob_sha1") == PINNED_GIT_BLOB_SHA1
+                and hashlib.sha256(raw).hexdigest()
+                == independent_observation.get("source_sha256")
+            )
+        except (OSError, UnicodeDecodeError) as exc:
+            raw = b""
+            independent_observation = {}
+            checks["source_blob_recomputed"] = False
+            errors.append(f"source_fixture_unavailable:{type(exc).__name__}")
+
+        source_observation = result.get("source_observation")
+        source_observation = source_observation if isinstance(source_observation, dict) else {}
+        checks["source_observation_matches"] = (
+            source_observation.get("conclusion") == independent_observation.get("conclusion")
+            and source_observation.get("source_git_blob_sha1")
+            == independent_observation.get("source_git_blob_sha1")
+            and source_observation.get("source_sha256")
+            == independent_observation.get("source_sha256")
+            and source_observation.get("checks") == independent_observation.get("checks")
+        )
+        source_records = [item for item in result.get("sources", []) if isinstance(item, dict)]
+        checks["source_record_matches"] = (
+            len(source_records) == 1
+            and source_records[0].get("git_blob_sha1") == PINNED_GIT_BLOB_SHA1
+            and source_records[0].get("content_sha256") == hashlib.sha256(raw).hexdigest()
+            and source_records[0].get("revision_sha") == PINNED_COMMIT
+        )
+
+        expected_synthetic = synthetic_access_control_controls()
+        experiments = result.get("lab_experiments")
+        experiment = experiments[0] if isinstance(experiments, list) and experiments else {}
+        checks["synthetic_controls_recomputed"] = (
+            isinstance(experiment, dict)
+            and experiment.get("controls") == expected_synthetic.get("controls")
+            and experiment.get("status") == expected_synthetic.get("status") == "PASSED"
+            and experiment.get("evm_executed") is False
+            and experiment.get("wallet_material_used") is False
+        )
+        checks["stage_order_preserved"] = result.get("stage_history") == [
+            "source_research", "analysis", "synthetic_experiment"
+        ]
+        checks["no_finding_promoted"] = (
+            result.get("analysis_summary", {}).get("claims_confirmed_by_this_agent") == 0
+            and result.get("solidity_analysis", {}).get("finding_created") is False
+        )
+
+        validated = all(checks.values())
+        result.update({
+            "stage": "validation",
+            "stage_history": list(result.get("stage_history", [])) + ["validation", "human_review"],
+            "validation": {
+                "status": "VALIDATED" if validated else "INCONCLUSIVE",
+                "checks": checks,
+                "passed_check_count": sum(checks.values()),
+                "total_check_count": len(checks),
+                "errors": errors,
+            },
+            "review": {
+                "status": "INCONCLUSIVE",
+                "reason": (
+                    "pinned_source_and_synthetic_controls_do_not_establish_solidity_runtime_or_deployed_bytecode_behavior"
+                ),
+                "human_review_required": True,
+                "automatic_confirmation": False,
+                "finding_created": False,
+            },
+            "final_status": "INCONCLUSIVE",
+        })
+        task.result = result
+        task.status = "validated"
+        return task
+
     def run(self, task: Task) -> Task:
         task.status = "validating"
         try:
+            if isinstance(task.result, dict) and task.result.get("research_track") == "solidity_source_fixture":
+                return self._validate_solidity_source_fixture(task)
             if isinstance(task.result, dict) and task.result.get("research_track") == "evm_key_forensics":
                 return self._validate_evm_forensics_dossier(task)
             if self._is_capability_evidence_request(task):

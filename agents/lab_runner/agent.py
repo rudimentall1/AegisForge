@@ -11,6 +11,7 @@ import uuid
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from shared.lab_execution_receipt import build_receipt, receipt_sha256, sign_receipt
 from shared.task import Task
+from tools.evm_key_forensics.solidity_fixture_pipeline import synthetic_access_control_controls
 from shared.research_case import (
     CaseValidationError,
     research_case_binding,
@@ -242,6 +243,26 @@ print(json.dumps({
                 if prior_binding != binding:
                     raise CaseValidationError("research_case_binding_changed_between_stages")
             result["research_case_binding"] = binding
+        if result.get("research_track") == "solidity_source_fixture":
+            experiment = synthetic_access_control_controls()
+            result.update({
+                "stage": "lab",
+                "stage_history": list(result.get("stage_history", [])) + ["synthetic_experiment"],
+                "lab_experiments": [experiment],
+                "lab_summary": {
+                    "experiments_run": 1,
+                    "synthetic_controls_passed": experiment.get("status") == "PASSED",
+                    "historical_implementation_reproduced": False,
+                    "real_private_keys_used": False,
+                    "live_addresses_examined": 0,
+                    "solidity_compiled": False,
+                    "evm_executed": False,
+                    "claim_status": "SYNTHETIC_CONTROL_ONLY",
+                },
+            })
+            task.result = result
+            task.status = "lab_completed"
+            return task
         experiment = (
             self.run_synthetic_entropy_demo(case_binding=binding)
             if binding is not None

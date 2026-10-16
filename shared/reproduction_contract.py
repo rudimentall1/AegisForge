@@ -46,6 +46,27 @@ def _reject_constant(value: str) -> None:
 def _text(value: object, field: str, *, max_bytes: int = _MAX_TEXT_BYTES) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ReproductionContractError(f"{field}_invalid")
+    if value != value.strip():
+        raise ReproductionContractError(f"{field}_whitespace_invalid")
+    _validate_string_bytes(value, field, max_bytes=max_bytes)
+    return value
+
+
+def _exact_text(
+    value: object,
+    field: str,
+    *,
+    max_bytes: int = _MAX_TEXT_BYTES,
+    allow_empty: bool = True,
+) -> str:
+    """Validate a string without trimming; argv and environment values are exact data."""
+    if not isinstance(value, str) or (not allow_empty and not value):
+        raise ReproductionContractError(f"{field}_invalid")
+    _validate_string_bytes(value, field, max_bytes=max_bytes)
+    return value
+
+
+def _validate_string_bytes(value: str, field: str, *, max_bytes: int) -> None:
     try:
         encoded = value.encode("utf-8")
     except UnicodeEncodeError as exc:
@@ -54,7 +75,6 @@ def _text(value: object, field: str, *, max_bytes: int = _MAX_TEXT_BYTES) -> str
         raise ReproductionContractError(f"{field}_invalid")
     if "\x00" in value:
         raise ReproductionContractError(f"{field}_contains_nul")
-    return value.strip()
 
 
 def _safe_relative_path(value: object, field: str, *, allow_root: bool = False) -> str:
@@ -142,7 +162,9 @@ def validate_reproduction_contract(payload: object) -> dict[str, Any]:
         raise ReproductionContractError("command_must_be_bounded_argv")
     normalized_command = []
     for index, arg in enumerate(command):
-        normalized_arg = _text(arg, f"command_arg_{index}", max_bytes=_MAX_TEXT_BYTES)
+        normalized_arg = _exact_text(arg, f"command_arg_{index}", max_bytes=_MAX_TEXT_BYTES)
+        if index == 0 and not normalized_arg.strip():
+            raise ReproductionContractError("command_executable_invalid")
         if "\n" in normalized_arg or "\r" in normalized_arg:
             raise ReproductionContractError(f"command_arg_multiline:{index}")
         normalized_command.append(normalized_arg)
@@ -160,7 +182,7 @@ def validate_reproduction_contract(payload: object) -> dict[str, Any]:
             raise ReproductionContractError("environment_name_invalid")
         if _SENSITIVE_ENV_RE.search(key):
             raise ReproductionContractError(f"environment_secret_name_rejected:{key}")
-        text_value = _text(value, f"environment_value_{key}")
+        text_value = _exact_text(value, f"environment_value_{key}")
         if "\n" in text_value or "\r" in text_value:
             raise ReproductionContractError(f"environment_value_multiline:{key}")
         normalized_environment[key] = text_value

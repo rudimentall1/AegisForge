@@ -32,9 +32,15 @@ The release acceptance checklist is [docs/PRODUCT-READINESS.md](docs/PRODUCT-REA
 
 ## Disclosure Timeline
 
-Each configured research round has a default **90-day disclosure deadline** from its recorded start time. A round may set a different positive `disclosure_deadline_days` value in its immutable `RoundSpec`. AegisForge records the round ID, technique, start time, deadline, status, completion time, and a conservative verdict in `round_transparency`.
+Each configured research round has a default **90-day disclosure deadline** from its recorded start time. A round may set a different `disclosure_deadline_days` value in its immutable `RoundSpec`, subject to the global 7–180 day range and technique-specific limits. AegisForge records the round ID, technique, start time, current deadline, status, completion time, verdict, and any extension metadata in `round_transparency`.
 
-The deadline is a review trigger, not an automatic-publication timer. If a round is still `OPEN` after its deadline, the master creates or prioritizes a human review with reason `deadline_exceeded:<round_id>`. The **grace period** is the human-coordination window after that trigger: reviewers can validate evidence and impact, coordinate remediation and notifications, or document a justified extension before deciding what to disclose. AegisForge does not automatically publish a vulnerability, contact a target, or promote an agent claim to `CONFIRMED`.
+Round statuses have explicit lifecycle meanings:
+
+- `OPEN`: the round is in progress and has not been extended.
+- `EXTENDED`: a human approved the round's single permitted extension and the disclosure deadline was shifted.
+- `COMPLETED`: the round is finished and its verdict is recorded.
+
+An extension can be granted **only once per round and only by human decision**. The extension operation is a review-gated action; repeating it or attempting it on an `EXTENDED` or `COMPLETED` round is a no-op. Both `OPEN` and `EXTENDED` rounds are checked against their current deadline. An overdue round creates or prioritizes a human review with reason `deadline_exceeded:<round_id>`; this is a review trigger, not an automatic-publication timer. AegisForge does not automatically publish a vulnerability, contact a target, or promote an agent claim to `CONFIRMED`.
 
 Public-safe timeline metadata can be queried with:
 

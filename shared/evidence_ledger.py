@@ -1,5 +1,7 @@
 import hashlib
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 
 
@@ -660,6 +662,7 @@ def deserialize_record(model: type[_EvidenceRecord], payload: dict[str, Any]) ->
 # Case-bound file manifest for portable evidence bundles. This is separate from
 # the existing in-memory Merkle manifest used for capability/receipt bindings.
 CASE_ARTIFACT_MANIFEST_VERSION = "aegisforge-case-artifact-manifest-v1"
+CASE_ARTIFACT_MANIFEST_FILENAME = "case-artifact-manifest.json"
 
 
 class CaseArtifactManifestError(ValueError):
@@ -753,6 +756,54 @@ def build_case_artifact_manifest(root, *, case_id, hypothesis_id, artifact_paths
         _manifest_canonical_json(payload).encode("utf-8")
     ).hexdigest()
     return payload
+
+
+
+def write_case_artifact_manifest(root, *, case_id, hypothesis_id, artifact_paths):
+    """Build and atomically write the portable case manifest into the bundle root."""
+    from pathlib import Path
+
+    root_path = Path(root)
+    if root_path.is_symlink():
+        raise CaseArtifactManifestError("artifact_root_must_not_be_symlink")
+    try:
+        root_path = root_path.resolve(strict=True)
+    except (OSError, ValueError) as exc:
+        raise CaseArtifactManifestError("artifact_root_missing_or_invalid") from exc
+    if not root_path.is_dir():
+        raise CaseArtifactManifestError("artifact_root_not_directory")
+    if isinstance(artifact_paths, (str, bytes)) or not isinstance(artifact_paths, (list, tuple, set)):
+        raise CaseArtifactManifestError("artifact_paths_must_be_a_collection")
+    if any(path == CASE_ARTIFACT_MANIFEST_FILENAME for path in artifact_paths):
+        raise CaseArtifactManifestError("manifest_cannot_include_itself_as_artifact")
+
+    target = root_path / CASE_ARTIFACT_MANIFEST_FILENAME
+    if target.is_symlink():
+        raise CaseArtifactManifestError("manifest_file_must_not_be_symlink")
+    manifest = build_case_artifact_manifest(
+        root_path,
+        case_id=case_id,
+        hypothesis_id=hypothesis_id,
+        artifact_paths=artifact_paths,
+    )
+
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=".case-artifact-manifest-", suffix=".tmp", dir=str(root_path)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(manifest, stream, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_name, target)
+    except Exception:
+        try:
+            os.unlink(temporary_name)
+        except OSError:
+            pass
+        raise
+    return manifest
 
 
 def verify_case_artifact_manifest(root, manifest):

@@ -226,15 +226,16 @@ def verify_bundle(path: str | Path, *, max_level: int = 3) -> dict[str, Any]:
                 "bundle_sha256": zip_result["bundle_sha256"],
                 "case_id": zip_result["case_id"],
                 "checked_members": 4,
+                "case_linkage_checked": True,
+                "task_count": zip_result["task_count"],
+                "evidence_observation_count": zip_result["evidence_observation_count"],
             })
             if max_level >= 2:
                 levels.append({
                     "level": 2,
-                    "name": "case_and_evidence_linkage",
-                    "status": "PASS",
-                    "case_id": zip_result["case_id"],
-                    "task_count": zip_result["task_count"],
-                    "evidence_observation_count": zip_result["evidence_observation_count"],
+                    "name": "workflow_provenance",
+                    "status": "INCONCLUSIVE",
+                    "reason": "research_case_bundle_has_no_verified_workflow_attestation",
                 })
             if max_level >= 3:
                 levels.append({
@@ -256,9 +257,9 @@ def verify_bundle(path: str | Path, *, max_level: int = 3) -> dict[str, Any]:
                 "levels": levels,
                 "limitations": [
                     "A valid digest establishes consistency with the supplied manifest, not authenticity or truth.",
-                    "Research-case ZIP validation checks case/task/evidence linkage, not workflow provenance.",
+                    "Research-case ZIP validation checks case/task/evidence linkage, but does not authenticate workflow provenance.",
                     "Experiment rerun and security impact are not established.",
-                    "A PASS at level 1 or 2 does not imply level 3 passed.",
+                    "A PASS at level 1 does not imply workflow provenance or experiment rerun passed.",
                 ],
             }
         if not root.is_dir():

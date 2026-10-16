@@ -241,10 +241,11 @@ def test_research_case_zip_bundle_checks_integrity_and_case_linkage(tmp_path):
 
     result = verify_bundle(bundle, max_level=2)
 
-    assert result["overall_status"] == "PASS"
-    assert result["highest_completed_level"] == 2
-    assert [item["status"] for item in result["levels"]] == ["PASS", "PASS"]
-    assert result["levels"][1]["task_count"] == 1
+    assert result["overall_status"] == "INCOMPLETE"
+    assert result["highest_completed_level"] == 1
+    assert [item["status"] for item in result["levels"]] == ["PASS", "INCONCLUSIVE"]
+    assert result["levels"][0]["case_linkage_checked"] is True
+    assert result["levels"][0]["task_count"] == 1
 
 
 def test_research_case_zip_does_not_claim_experiment_rerun(tmp_path):
@@ -254,5 +255,5 @@ def test_research_case_zip_does_not_claim_experiment_rerun(tmp_path):
 
     assert result["overall_status"] == "INCOMPLETE"
     assert [item["status"] for item in result["levels"]] == [
-        "PASS", "PASS", "NOT_RUN"
+        "PASS", "INCONCLUSIVE", "NOT_RUN"
     ]

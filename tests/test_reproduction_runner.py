@@ -186,6 +186,32 @@ def test_runner_fails_when_exit_code_differs_from_contract(tmp_path, monkeypatch
     assert result["reason"] == "unexpected_exit_code"
 
 
+def test_runner_does_not_copy_outputs_when_timeout_stop_is_unconfirmed(tmp_path, monkeypatch):
+    root = make_workspace(tmp_path)
+    calls, _ = fake_docker(monkeypatch, timeout=True)
+
+    def failed_stop(args, **kwargs):
+        if args[1] == "stop":
+            calls.append((list(args), kwargs))
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="stop failed")
+        original = real_run
+        return original(args, **kwargs)
+
+    real_run = subprocess.run
+    monkeypatch.setattr("shared.reproduction_runner.subprocess.run", failed_stop)
+
+    result = run_reproduction_contract(make_contract(), root, tmp_path / "output")
+
+    docker_operations = [
+        call[0][1] for call in calls if Path(call[0][0]).name == "docker"
+    ]
+    assert result["status"] == "INCOMPLETE"
+    assert result["reason"] == "docker_stop_unconfirmed_after_timeout"
+    assert result["output_validation"]["error"] == "container_stop_unconfirmed"
+    assert "cp" not in docker_operations
+    assert docker_operations[-1] == "rm"
+
+
 def test_runner_timeout_stops_copies_and_removes_container(tmp_path, monkeypatch):
     root = make_workspace(tmp_path)
     calls, _ = fake_docker(monkeypatch, timeout=True)

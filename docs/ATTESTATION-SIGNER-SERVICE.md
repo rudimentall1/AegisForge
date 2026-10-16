@@ -44,7 +44,8 @@ This repository change does not install or start the service on any server.
 
 - `GET /healthz`: loopback health response; no key material.
 - `GET /v1/public-key`: public Ed25519 key metadata.
-- `POST /v1/attest`: bearer-authenticated signing request.
+- `POST /v1/attest`: bearer-authenticated attestation signing request.
+- `POST /v1/registry-checkpoint`: signs only a constrained registry size/root/digest checkpoint.
 - Body limit: 256 KiB. Duplicate JSON keys and unknown fields are rejected.
 - Only verdicts allowed by `shared.attestation` are accepted; `CONFIRMED` is rejected.
 - Request bodies, credentials, and attestation payloads are not written to HTTP logs.
@@ -52,9 +53,10 @@ This repository change does not install or start the service on any server.
 Example master-side call:
 
 ```python
-from shared.attestation_signer_client import request_attestation
+from shared.attestation_signer_client import request_attestation, request_registry_checkpoint
 
 attestation = request_attestation(attestation_input)
+checkpoint = request_registry_checkpoint(registry_snapshot)
 ```
 
 The master process alone receives `AEGISFORGE_SIGNER_TOKEN`. Worker units must not

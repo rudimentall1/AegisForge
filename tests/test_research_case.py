@@ -8,6 +8,7 @@ from shared.research_case import (
     ExecutionMode,
     ResearchCase,
     validate_task_binding,
+    validate_worker_case_binding,
 )
 
 
@@ -145,3 +146,32 @@ def test_claimed_task_carries_case_id_for_worker_gate(tmp_path):
     assert claimed is not None
     assert claimed[0]
     assert claimed[12] == case.case_id
+
+
+@pytest.mark.parametrize("role", ["source_researcher", "crypto_analyst", "lab_runner"])
+def test_forensic_worker_roles_fail_closed_without_case(role):
+    with pytest.raises(CaseValidationError, match="requires a registered research case"):
+        validate_worker_case_binding(role, None, None)
+
+
+def test_generic_worker_role_can_process_legacy_task_without_case():
+    assert validate_worker_case_binding("analyst", None, None) is None
+
+
+def test_forensic_worker_role_accepts_matching_registered_case():
+    case = valid_case()
+    assert validate_worker_case_binding("crypto_analyst", case, case.case_id) is case
+
+
+def test_child_task_inherits_parent_research_case(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    case = valid_case()
+    queue.register_research_case(case)
+    parent_id = queue.add("forensic parent", role="source_researcher",
+                          research_case_id=case.case_id)
+    child_id = queue.add("forensic child", role="crypto_analyst",
+                         parent_task_id=parent_id)
+    stored = queue.db.execute(
+        "SELECT research_case_id FROM queue WHERE id = ?", (child_id,)
+    ).fetchone()
+    assert stored == (case.case_id,)

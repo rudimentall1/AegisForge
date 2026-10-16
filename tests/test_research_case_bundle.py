@@ -398,3 +398,55 @@ def test_case_bundle_verifier_rejects_parent_cycle_even_with_rebuilt_manifest(tm
         match="task_parent_cycle_detected",
     ):
         verify_research_case_bundle(forged_bundle)
+
+
+def test_case_bundle_verifier_rejects_non_string_parent_even_with_rebuilt_manifest(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    bundle = tmp_path / "case.zip"
+    export_research_case_bundle(db_path, case.case_id, bundle)
+
+    with zipfile.ZipFile(bundle, "r") as source:
+        files = {name: source.read(name) for name in source.namelist()}
+
+    tasks = json.loads(files["tasks.json"])
+    tasks["tasks"][0]["parent_task_id"] = []
+    files["tasks.json"] = json.dumps(
+        tasks, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+    manifest = json.loads(files["manifest.json"])
+    manifest["entries"] = [
+        {
+            "path": name,
+            "sha256": hashlib.sha256(files[name]).hexdigest(),
+            "size": len(files[name]),
+        }
+        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+    ]
+    core = {
+        key: manifest[key]
+        for key in ("schema_version", "case_id", "case_digest", "entries")
+    }
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(
+            core, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    files["manifest.json"] = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+    forged_bundle = tmp_path / "rebuilt-manifest.zip"
+    with zipfile.ZipFile(forged_bundle, "w", compression=zipfile.ZIP_DEFLATED) as target:
+        for name, raw in files.items():
+            target.writestr(name, raw)
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_parent_identity_invalid",
+    ):
+        verify_research_case_bundle(forged_bundle)

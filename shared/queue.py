@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -9,7 +10,12 @@ from dataclasses import asdict
 from pathlib import Path
 
 
-DB_PATH = Path("/opt/agent-farm/data/agent_farm.db")
+DB_PATH = Path(
+    os.environ.get(
+        "AEGISFORGE_DB_PATH",
+        str(Path(__file__).resolve().parents[1] / "data" / "agent_farm.db"),
+    )
+)
 
 
 # Retention policy: queue history is a bounded operational cache. EvidenceLedger

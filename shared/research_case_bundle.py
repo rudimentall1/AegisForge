@@ -329,15 +329,28 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
                     raise ResearchCaseBundleError("bundle_symlink_member_rejected")
                 if item.flag_bits & 0x1:
                     raise ResearchCaseBundleError("encrypted_bundle_member_rejected")
+                if item.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                    raise ResearchCaseBundleError("unsupported_bundle_compression")
                 if item.file_size > MAX_MEMBER_BYTES:
                     raise ResearchCaseBundleError(f"bundle_member_exceeds_size_limit:{name}")
                 total_size += item.file_size
                 if total_size > MAX_TOTAL_UNCOMPRESSED_BYTES:
                     raise ResearchCaseBundleError("bundle_uncompressed_size_exceeds_limit")
-                raw = archive.read(item)
-                if len(raw) != item.file_size:
+                chunks = []
+                actual_size = 0
+                with archive.open(item, "r") as stream:
+                    while True:
+                        remaining = MAX_MEMBER_BYTES - actual_size + 1
+                        chunk = stream.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            break
+                        actual_size += len(chunk)
+                        if actual_size > MAX_MEMBER_BYTES:
+                            raise ResearchCaseBundleError(f"bundle_member_exceeds_size_limit:{name}")
+                        chunks.append(chunk)
+                if actual_size != item.file_size:
                     raise ResearchCaseBundleError("bundle_member_size_mismatch")
-                files[name] = raw
+                files[name] = b"".join(chunks)
     except zipfile.BadZipFile as exc:
         raise ResearchCaseBundleError("invalid_bundle_zip") from exc
     except (OSError, RuntimeError, EOFError, KeyError, zlib.error, zipfile.LargeZipFile) as exc:

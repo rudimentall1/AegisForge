@@ -1,6 +1,5 @@
 """Security-focused tests for the portable attestation core."""
 import hashlib
-import json
 from pathlib import Path
 
 import pytest
@@ -93,6 +92,18 @@ def test_unknown_signer_is_untrusted():
 def test_confirmed_verdict_is_never_accepted():
     with pytest.raises(AttestationError, match="verdict_not_allowed"):
         _signed(verdict="CONFIRMED")
+
+
+def test_empty_issuance_timestamp_is_rejected():
+    key = Ed25519PrivateKey.generate()
+    with pytest.raises(AttestationError, match="invalid_issued_at"):
+        sign_attestation(
+            **_inputs(),
+            private_key=key,
+            key_id="test-key",
+            organization="AegisForge test suite",
+            issued_at="",
+        )
 
 
 def test_artifact_digest_and_size_are_verified(tmp_path: Path):

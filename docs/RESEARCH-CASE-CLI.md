@@ -34,7 +34,7 @@ python aegisforge.py tasks case register research-case.json
 python aegisforge.py tasks case show example-evm-case-001
 ```
 
-Use the same SQLite database for registration, task submission, and worker execution. The default database is configured for the agent-farm environment; `--db` is available for isolated local runs and tests.
+Use the same SQLite database for registration, task submission, and worker execution. By default, the database is `data/agent_farm.db` relative to the repository root, so a clean checkout does not depend on the server-specific `/opt/agent-farm` path. Set `AEGISFORGE_DB_PATH` to override it for the master and every worker. The CLI's `--db` option is available for isolated local runs and tests.
 
 ## 3. Submit a bound forensic task
 

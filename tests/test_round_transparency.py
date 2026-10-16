@@ -131,15 +131,9 @@ def test_expired_rounds_excludes_recently_extended(tmp_path):
     _round(queue, "recently-extended", deadline=deadline.isoformat())
     assert queue.grant_extension("recently-extended", "Need a short review") is True
 
-    # Extension is relative to the old deadline, so choose a fresh old deadline
-    # far enough in the future for this test's expected post-extension state.
-    future_deadline = (now + timedelta(days=10)).isoformat()
-    queue.db.execute(
-        "UPDATE round_transparency SET disclosure_deadline = ? WHERE round_id = ?",
-        (future_deadline, "recently-extended"),
-    )
-    queue.db.commit()
-    # Keep the row EXTENDED and verify the query compares the stored new deadline.
+    row = _row(queue, "recently-extended")
+    assert row["status"] == "EXTENDED"
+    assert datetime.fromisoformat(row["disclosure_deadline"]) > now
     assert queue.expired_rounds(now) == []
     queue.db.close()
 

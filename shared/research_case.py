@@ -122,12 +122,12 @@ class ResearchCase:
             object.__setattr__(self, "allowed_techniques", allowed)
         if not isinstance(allowed, tuple) or not allowed:
             raise CaseValidationError("allowed_techniques_required")
-        invalid_technique = next(
-            (tech for tech in allowed if not isinstance(tech, str) or tech not in _allowed_techniques()),
-            None,
-        )
-        if invalid_technique is not None:
-            raise CaseValidationError(f"technique_not_allowed:{invalid_technique}")
+        invalid_techniques = [
+            tech for tech in allowed
+            if not isinstance(tech, str) or tech not in _allowed_techniques()
+        ]
+        if invalid_techniques:
+            raise CaseValidationError(f"technique_not_allowed:{invalid_techniques[0]}")
 
         rounds = self.rounds
         if isinstance(rounds, list):

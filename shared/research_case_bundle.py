@@ -398,6 +398,9 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     binding = case_file["research_case_binding"]
     try:
         case_payload = verify_research_case_binding(binding)
+        validated_case = _case_from_payload(case_payload)
+        if research_case_binding(validated_case) != binding:
+            raise ResearchCaseBundleError("case_binding_not_canonical")
     except ValueError as exc:
         raise ResearchCaseBundleError("case_binding_invalid") from exc
     case_id = binding["case_id"]

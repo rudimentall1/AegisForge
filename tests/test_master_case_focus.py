@@ -134,3 +134,35 @@ def test_master_bootstraps_case_even_with_legacy_planner_backlog(tmp_path):
     ).fetchone()
     assert row == ("source_researcher", case.case_id)
     queue.db.close()
+
+
+def test_branch_history_handles_case_id_column_in_parent_row(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.db")
+    case = _case("branch-history-case")
+    queue.register_research_case(case)
+    parent_id = queue.add(
+        description="Bound source-research root",
+        role="source_researcher",
+        research_case_id=case.case_id,
+    )
+    assert queue.claim("source-worker", role="source_researcher") is not None
+    queue.finish(parent_id, result={
+        "research_track": "evm_key_forensics",
+        "stage": "sources",
+        "research_case_binding": research_case_binding(case),
+    })
+    child_id = queue.add(
+        description="Analyze the bound source evidence",
+        role="crypto_analyst",
+        parent_task_id=parent_id,
+    )
+
+    planner = AutonomousPlanner(queue=queue)
+    history = planner.branch_history(
+        {"id": child_id, "role": "crypto_analyst", "parent_task_id": parent_id, "result": {}},
+        {},
+    )
+
+    assert len(history) == 2
+    assert history[1]["research_case_id"] == case.case_id
+    queue.db.close()

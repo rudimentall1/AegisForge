@@ -46,7 +46,7 @@ def mask_comments_and_strings(source: str) -> str:
 
 def _function_body(source: str, name: str) -> str | None:
     match = re.search(
-        rf"\bfunction\s+{re.escape(name)}\s*\([^)]*\)\s*external\b(?P<body>.*?)\n\s*\}",
+        r"\bfunction\s+" + re.escape(name) + r"\s*\([^)]*\)\s*external\b(?P<body>.*?)\n\s*\}",
         source,
         re.DOTALL,
     )

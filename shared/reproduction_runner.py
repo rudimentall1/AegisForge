@@ -198,7 +198,7 @@ def _verify_git_target(root: Path, target: dict) -> None:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ReproductionRunnerError("target_git_identity_check_failed") from exc
-    if revision.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}\\s*", revision.stdout or ""):
+    if revision.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}\s*", revision.stdout or ""):
         raise ReproductionRunnerError("target_git_revision_unavailable")
     if revision.stdout.strip() != target["commit_sha"]:
         raise ReproductionRunnerError("target_git_revision_mismatch")

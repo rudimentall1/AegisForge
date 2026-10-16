@@ -112,10 +112,15 @@ def validate_reproduction_contract(payload: object) -> dict[str, Any]:
     if not _COMMIT_RE.fullmatch(commit_sha):
         raise ReproductionContractError("target_commit_sha_invalid")
     scope_reference = _text(target["scope_reference"], "scope_reference", max_bytes=2048)
-    parsed_scope = urlsplit(scope_reference)
+    try:
+        parsed_scope = urlsplit(scope_reference)
+        scope_hostname = parsed_scope.hostname
+        _ = parsed_scope.port
+    except ValueError as exc:
+        raise ReproductionContractError("scope_reference_must_be_https_url") from exc
     if (
         parsed_scope.scheme != "https"
-        or not parsed_scope.hostname
+        or not scope_hostname
         or parsed_scope.username is not None
         or parsed_scope.password is not None
         or any(ord(char) < 32 for char in scope_reference)

@@ -14,8 +14,8 @@ import {Context} from "../utils/Context.sol";
  * later be changed with {transferOwnership}.
  *
  * This module is used through inheritance. It will make available the modifier
- * `onlyOwner`, which can be applied to your functions to restrict their use
- * to the owner.
+ * `onlyOwner`, which can be applied to your functions to restrict their use to
+ * the owner.
  */
 abstract contract Ownable is Context {
     address private _owner;
@@ -70,15 +70,15 @@ abstract contract Ownable is Context {
      * @dev Leaves the contract without owner. It will not be possible to call
      * `onlyOwner` functions. Can only be called by the current owner.
      *
-     * NOTE: Renouncing ownership will leave the contract without owner, thereby
-     * disabling any functionality that is only available to the owner.
+     * NOTE: Renouncing ownership will leave the contract without an owner,
+     * thereby disabling any functionality that is only available to the owner.
      */
     function renounceOwnership() public virtual onlyOwner {
         _transferOwnership(address(0));
     }
 
     /**
-     * @dev Transfers ownership to a new account.
+     * @dev Transfers ownership of the contract to a new account (`newOwner`).
      * Can only be called by the current owner.
      */
     function transferOwnership(address newOwner) public virtual onlyOwner {
@@ -89,7 +89,7 @@ abstract contract Ownable is Context {
     }
 
     /**
-     * @dev Transfers ownership to a new account.
+     * @dev Transfers ownership of the contract to a new account (`newOwner`).
      * Internal function without access restriction.
      */
     function _transferOwnership(address newOwner) internal virtual {

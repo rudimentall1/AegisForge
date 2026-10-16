@@ -3247,6 +3247,21 @@ class MasterOrchestrator:
                             all_roots_completed = False
                             continue
 
+                        # A completed root is not terminal until plan() records its
+                        # decision. bootstrap() runs before plan(), so this guard
+                        # prevents the first fast worker result from closing the round
+                        # before the planner can create its child tasks.
+                        if root_status == "completed":
+                            decision_row = self.queue.db.execute(
+                                "SELECT planner_decision FROM queue WHERE id = ?",
+                                (root_id,),
+                            ).fetchone()
+                            planner_decision = decision_row[0] if decision_row else None
+                            if planner_decision is None:
+                                active_branch = True
+                                all_roots_completed = False
+                                continue
+
                         terminal_at = datetime.now(timezone.utc).isoformat()
                         if root_status == "completed":
                             if round_id:

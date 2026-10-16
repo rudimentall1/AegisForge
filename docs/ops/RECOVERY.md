@@ -39,6 +39,14 @@ Use the service deployment instructions for the selected host and review `docs/R
 
 ## Runtime database backup requirements
 
+Run the snapshot helper from the repository root (it is invoked through Bash so the command also works if executable permissions are not preserved by a GitHub file update):
+
+```bash
+bash scripts/backup_aegisforge_state.sh
+```
+
+The helper writes a consistent SQLite snapshot under `~/aegisforge-backups/<UTC timestamp>/`. This snapshot is **not encrypted by the script** and remains on the same host; encrypt it and copy it to a separate destination before treating it as disaster recovery.
+
 - Use SQLite's online backup API or a transactionally consistent snapshot. Do not copy a live SQLite database with a plain `cp` and assume the result is consistent.
 - Keep backups encrypted and access-controlled; include the matching application commit, UTC timestamp, database integrity-check result, and SHA-256 manifest.
 - Retain more than one generation and periodically test restoration into an isolated directory.

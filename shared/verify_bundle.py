@@ -423,23 +423,37 @@ def verify_bundle(
                             "detail": str(exc)[:512],
                         })
                     else:
-                        runner_status = execution.get("status")
-                        status_map = {
-                            "SUCCEEDED": "PASS",
-                            "FAILED": "FAIL",
-                            "TIMED_OUT": "INCONCLUSIVE",
-                            "INCOMPLETE": "INCONCLUSIVE",
-                            "NOT_RUN": "NOT_RUN",
-                        }
-                        level_three["status"] = status_map.get(runner_status, "INCONCLUSIVE")
-                        level_three["reason"] = execution.get("reason")
-                        level_three["runner_status"] = runner_status
-                        level_three["contract_sha256"] = execution.get("contract_sha256")
-                        if "exit_code" in execution:
-                            level_three["exit_code"] = execution["exit_code"]
-                        if "output_validation" in execution:
-                            level_three["output_validation"] = execution["output_validation"]
-                        level_three["finding_verdict"] = "UNCHANGED"
+                        if not isinstance(execution, dict):
+                            level_three.update({
+                                "status": "INCONCLUSIVE",
+                                "reason": "reproduction_runner_result_invalid",
+                                "finding_verdict": "UNCHANGED",
+                            })
+                        else:
+                            runner_status = execution.get("status")
+                            status_map = {
+                                "SUCCEEDED": "PASS",
+                                "FAILED": "FAIL",
+                                "TIMED_OUT": "INCONCLUSIVE",
+                                "INCOMPLETE": "INCONCLUSIVE",
+                                "NOT_RUN": "NOT_RUN",
+                            }
+                            mapped_status = (
+                                status_map.get(runner_status)
+                                if isinstance(runner_status, str)
+                                else None
+                            )
+                            level_three["status"] = mapped_status or "INCONCLUSIVE"
+                            level_three["reason"] = execution.get("reason")
+                            if mapped_status is None and not level_three["reason"]:
+                                level_three["reason"] = "reproduction_runner_status_invalid"
+                            level_three["runner_status"] = runner_status
+                            level_three["contract_sha256"] = execution.get("contract_sha256")
+                            if "exit_code" in execution:
+                                level_three["exit_code"] = execution["exit_code"]
+                            if "output_validation" in execution:
+                                level_three["output_validation"] = execution["output_validation"]
+                            level_three["finding_verdict"] = "UNCHANGED"
         levels.append(level_three)
 
     overall = "PASS" if all(item["status"] == "PASS" for item in levels) else "INCOMPLETE"

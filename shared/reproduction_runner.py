@@ -273,6 +273,8 @@ def _copy_pinned_worktree(
             or any(ord(char) < 32 for char in relative)
         ):
             raise ReproductionRunnerError("target_git_tree_path_invalid")
+        if mode == b"120000":
+            raise ReproductionRunnerError("workspace_symlink_rejected")
         if mode not in (b"100644", b"100755") or object_type != b"blob":
             raise ReproductionRunnerError("target_git_tree_non_regular_file_rejected")
         if not re.fullmatch(rb"[0-9a-f]{40}", object_id):

@@ -687,7 +687,10 @@ def _safe_artifact_file(root, relative_path):
     if rel.parts and ":" in rel.parts[0]:
         raise CaseArtifactManifestError("invalid_artifact_path")
 
-    root_path = Path(root).resolve(strict=True)
+    root_input = Path(root)
+    if root_input.is_symlink():
+        raise CaseArtifactManifestError("artifact_root_must_not_be_symlink")
+    root_path = root_input.resolve(strict=True)
     if not root_path.is_dir():
         raise CaseArtifactManifestError("artifact_root_not_directory")
     candidate = root_path

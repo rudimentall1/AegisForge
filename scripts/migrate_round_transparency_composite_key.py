@@ -5,15 +5,16 @@ Dry-run is the default. Pass --apply only after reviewing the reported plan.
 """
 import argparse
 import json
-import os
 import sqlite3
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB_PATH = Path(
-    os.environ.get("AEGISFORGE_DB_PATH", str(REPO_ROOT / "agent_farm.db"))
-)
+from shared.queue import DB_PATH
+
+
+# Keep migration target identical to TaskQueue, including AEGISFORGE_DB_PATH.
+db_path = DB_PATH
+DEFAULT_DB_PATH = DB_PATH
 
 CREATE_TABLE_SQL = """
 CREATE TABLE {table_name} (

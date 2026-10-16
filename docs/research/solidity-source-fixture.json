@@ -1,0 +1,14 @@
+{
+  "schema_version": "aegisforge-solidity-source-fixture-v1",
+  "purpose": "negative-control source-stage acceptance fixture",
+  "repository": "OpenZeppelin/openzeppelin-contracts",
+  "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+  "path": "contracts/access/Ownable.sol",
+  "git_blob_sha1": "bd96f6661dcbf7b2d4948823ac0e7bfb4ba31fb1",
+  "execution_mode": "local",
+  "source_executed": false,
+  "rpc_used": false,
+  "deployed_contract_verified": false,
+  "finding": false,
+  "final_security_conclusion": "INCONCLUSIVE"
+}

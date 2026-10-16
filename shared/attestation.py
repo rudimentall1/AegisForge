@@ -228,7 +228,7 @@ def sign_attestation(
         key_id, organization,
     )
     key = _private_key(private_key)
-    timestamp = issued_at or datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat() if issued_at is None else issued_at
     if not isinstance(timestamp, str) or not timestamp:
         raise AttestationError("invalid_issued_at")
     try:

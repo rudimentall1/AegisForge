@@ -31,6 +31,7 @@ from shared.research_case_bundle import (
     verify_research_case_bundle,
 )
 from shared.reproduction_contract import (
+    MAX_CONTRACT_BYTES,
     ReproductionContractError,
     load_reproduction_contract,
 )
@@ -397,7 +398,11 @@ def verify_bundle(
             else:
                 try:
                     contract_path = _safe_file(root, REPRODUCTION_CONTRACT_FILENAME)
-                    contract = load_reproduction_contract(contract_path.read_bytes())
+                    with contract_path.open("rb") as stream:
+                        raw_contract = stream.read(MAX_CONTRACT_BYTES + 1)
+                    if len(raw_contract) > MAX_CONTRACT_BYTES:
+                        raise ReproductionContractError("contract_size_limit_exceeded")
+                    contract = load_reproduction_contract(raw_contract)
                 except (OSError, ValueError, ReproductionContractError) as exc:
                     level_three.update({
                         "status": "FAIL",
@@ -464,6 +469,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-checkout", help="Git checkout matching the contract's pinned target commit")
     parser.add_argument("--reproduction-output-dir", help="New output directory outside the target checkout")
     args = parser.parse_args(argv)
+    if args.run_reproduction and args.max_level < 3:
+        parser.error("--run-reproduction requires --max-level 3")
     if args.run_reproduction and (not args.target_checkout or not args.reproduction_output_dir):
         parser.error("--run-reproduction requires --target-checkout and --reproduction-output-dir")
     result = verify_bundle(

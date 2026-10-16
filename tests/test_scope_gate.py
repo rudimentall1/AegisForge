@@ -1,7 +1,7 @@
 import pytest
 
-from shared.research_case import CaseValidationError, ExecutionMode, ResearchCase
-from shared.scope_gate import GateResult, validate_case
+from shared.research_case import CaseValidationError, ExecutionMode, ResearchCase, RoundSpec
+from shared.scope_gate import ALLOWED_TECHNIQUES, GateResult, validate_case
 
 
 def valid_case():
@@ -116,3 +116,76 @@ def test_research_case_constructor_still_rejects_bad_commit():
             expected_invariant="invariant",
             falsification_criteria="counter-test",
         )
+
+
+def test_scope_review_date_in_future_fails_closed():
+    case = bypass_frozen_validation(valid_case(), scope_reviewed_on="2027-01-01")
+    result = validate_case(case)
+    assert result.status == "FAIL"
+    assert result.reason == "scope_review_date_in_future"
+
+
+def test_implausibly_old_scope_review_date_fails_closed():
+    case = bypass_frozen_validation(valid_case(), scope_reviewed_on="2019-12-31")
+    result = validate_case(case)
+    assert result.status == "FAIL"
+    assert result.reason == "scope_review_date_implausible"
+
+
+def test_research_case_constructor_rejects_unknown_technique():
+    with pytest.raises(CaseValidationError, match="technique_not_allowed:made_up"):
+        ResearchCase(
+            case_id="bad-technique",
+            target_repository="example/repo",
+            target_commit="a" * 40,
+            scope_url="https://example.invalid/scope",
+            scope_digest="b" * 64,
+            scope_reviewed_on="2026-10-15",
+            hypothesis="hypothesis",
+            attacker_capability="local caller",
+            expected_invariant="invariant",
+            falsification_criteria="counter-test",
+            allowed_techniques=("made_up",),
+        )
+
+
+def test_scope_gate_technique_allowlist_matches_round_registry():
+    from shared.techniques.registry import TechniqueRegistry
+
+    assert ALLOWED_TECHNIQUES == TechniqueRegistry().names
+
+
+def test_scope_gate_rejects_corrupted_round_technique():
+    case = ResearchCase(
+        case_id="local-round-001",
+        target_repository="example/educational-contract",
+        target_commit="a" * 40,
+        scope_url="https://example.invalid/authorized-lab-scope",
+        scope_digest="b" * 64,
+        scope_reviewed_on="2026-10-15",
+        hypothesis="Hypothesis.",
+        attacker_capability="Synthetic caller.",
+        expected_invariant="Only the owner can mutate.",
+        falsification_criteria="Counter-test.",
+        allowed_techniques=("source_pattern",),
+        rounds=(RoundSpec(
+            round_id="round-1",
+            technique="source_pattern",
+            hypothesis="Check access control.",
+            expected_evidence_atoms=("pinned source",),
+            falsification_criteria="Source identity mismatch.",
+            disclosure_deadline_days=30,
+        ),),
+    )
+    object.__setattr__(case.rounds[0], "technique", "made_up")
+    result = validate_case(case)
+    assert result.status == "FAIL"
+    assert result.reason == "technique_not_allowed:made_up"
+
+
+@pytest.mark.parametrize("rounds", [None, ["not-a-round"], (object(),)])
+def test_scope_gate_rejects_corrupted_round_container(rounds):
+    case = bypass_frozen_validation(valid_case(), rounds=rounds)
+    result = validate_case(case)
+    assert result.status == "FAIL"
+    assert result.reason in {"rounds_invalid", "round_spec_invalid"}

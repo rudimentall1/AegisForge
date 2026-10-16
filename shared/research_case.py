@@ -22,6 +22,12 @@ class CaseValidationError(ValueError):
     """Raised when a research case is incomplete or unsafe to execute."""
 
 
+def _allowed_techniques() -> frozenset[str]:
+    """Lazy import avoids a module cycle with the scope gate."""
+    from shared.scope_gate import ALLOWED_TECHNIQUES
+    return ALLOWED_TECHNIQUES
+
+
 class ExecutionMode(str, Enum):
     LOCAL = "local"
     AUTHORIZED_FORK = "authorized_fork"
@@ -116,8 +122,12 @@ class ResearchCase:
             object.__setattr__(self, "allowed_techniques", allowed)
         if not isinstance(allowed, tuple) or not allowed:
             raise CaseValidationError("allowed_techniques_required")
-        if any(not isinstance(tech, str) or not tech.strip() for tech in allowed):
-            raise CaseValidationError("technique_not_allowed:invalid")
+        invalid_techniques = [
+            tech for tech in allowed
+            if not isinstance(tech, str) or tech not in _allowed_techniques()
+        ]
+        if invalid_techniques:
+            raise CaseValidationError(f"technique_not_allowed:{invalid_techniques[0]}")
 
         rounds = self.rounds
         if isinstance(rounds, list):

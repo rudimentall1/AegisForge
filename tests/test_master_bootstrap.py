@@ -20,7 +20,7 @@ def make_case(case_id="bootstrap-case-001", status="ready", rounds=()):
         falsification_criteria="Counter-tests preserve the invariant for all tested transitions.",
         execution_mode="local",
         status=status,
-        allowed_techniques=("source_pattern", "synthetic_check"),
+        allowed_techniques=("source_pattern", "source_pattern"),
         rounds=rounds,
     )
 
@@ -198,7 +198,7 @@ def test_bootstrap_creates_root_and_transparency_for_each_round(tmp_path, monkey
     master, queue = make_master(tmp_path, monkeypatch)
     case = make_case(rounds=(
         make_round("round-low", "source_pattern", days=30, priority=1),
-        make_round("round-high", "synthetic_check", days=30, priority=5),
+        make_round("round-high", "source_pattern", days=30, priority=5),
     ))
     case_id = register_case(queue, case)
 
@@ -223,7 +223,7 @@ def test_bootstrap_creates_root_and_transparency_for_each_round(tmp_path, monkey
         (case_id,),
     ).fetchall()
     assert [row[0] for row in timelines] == ["round-high", "round-low"]
-    assert timelines[0][1] == "synthetic_check"
+    assert timelines[0][1] == "source_pattern"
     assert timelines[0][4] == "OPEN"
     started = datetime.fromisoformat(timelines[0][2])
     deadline = datetime.fromisoformat(timelines[0][3])
@@ -364,7 +364,7 @@ def test_bootstrap_repairs_partially_created_round_set(tmp_path, monkeypatch):
     master, queue = make_master(tmp_path, monkeypatch)
     case = make_case(rounds=(
         make_round("round-a", "source_pattern"),
-        make_round("round-b", "synthetic_check"),
+        make_round("round-b", "source_pattern"),
     ))
     case_id = register_case(queue, case)
     assert master.bootstrap() is True
@@ -464,7 +464,7 @@ def test_multiple_expired_rounds_create_multiple_reviews(tmp_path, monkeypatch):
     master, queue = make_master(tmp_path, monkeypatch)
     case = make_case(rounds=(
         make_round("r1", "source_pattern"),
-        make_round("r2", "synthetic_check"),
+        make_round("r2", "source_pattern"),
     ))
     case_id = register_case(queue, case)
     assert master.bootstrap() is True

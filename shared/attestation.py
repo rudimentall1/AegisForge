@@ -198,9 +198,7 @@ def _validate_construction(
         raise AttestationError("invalid_network_access")
     if not isinstance(repro["exit_code"], int) or isinstance(repro["exit_code"], bool):
         raise AttestationError("invalid_exit_code")
-    if verdict == "CONFIRMED":
-        raise AttestationError("verdict_not_allowed")
-    if verdict not in ALLOWED_VERDICTS:
+    if not isinstance(verdict, str) or verdict not in ALLOWED_VERDICTS:
         raise AttestationError("verdict_not_allowed")
     if not isinstance(verdict_rationale, str):
         raise AttestationError("invalid_verdict_rationale")
@@ -353,7 +351,7 @@ def verify_attestation(
     checks["schema_version"] = True
 
     verdict = payload.get("verdict")
-    if verdict == "CONFIRMED" or verdict not in ALLOWED_VERDICTS:
+    if not isinstance(verdict, str) or verdict not in ALLOWED_VERDICTS:
         return _result("INVALID", "verdict_not_allowed", attestation_id, checks)
     checks["verdict_allowed"] = True
 

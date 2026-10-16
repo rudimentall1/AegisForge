@@ -272,6 +272,20 @@ def export_research_case_bundle(
             }
             if {"atom_id", "task_id", "role", "observed_at", "case_id"}.issubset(evidence_columns):
                 if "evidence_ledger" in tables:
+                    orphaned_observation = connection.execute(
+                        """
+                        SELECT 1
+                        FROM evidence_observations o
+                        LEFT JOIN evidence_ledger l ON l.atom_id = o.atom_id
+                        WHERE o.case_id = ? AND l.atom_id IS NULL
+                        LIMIT 1
+                        """,
+                        (case_id,),
+                    ).fetchone()
+                    if orphaned_observation is not None:
+                        raise ResearchCaseBundleError(
+                            "evidence_observation_ledger_entry_missing"
+                        )
                     evidence_rows = connection.execute(
                         """
                         SELECT o.atom_id, o.task_id, o.role, o.observed_at, o.case_id,

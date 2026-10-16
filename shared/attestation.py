@@ -62,7 +62,7 @@ def canonical_json(value: Any) -> str:
     """Serialize JSON deterministically using the attestation wire format."""
     try:
         return json.dumps(
-            value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
         )
     except (TypeError, ValueError) as exc:
         raise AttestationError("value_not_canonical_json_serializable") from exc
@@ -287,7 +287,10 @@ def _verify_artifacts(payload: dict[str, Any], artifact_root: str | os.PathLike[
     root = Path(artifact_root)
     if not root.exists() or not root.is_dir():
         return "INVALID", "artifact_root_missing", False, False
-    artifacts = payload.get("reproduction", {}).get("artifacts")
+    reproduction = payload.get("reproduction")
+    if not isinstance(reproduction, dict):
+        return "INVALID", "invalid_reproduction", False, False
+    artifacts = reproduction.get("artifacts")
     if not isinstance(artifacts, list):
         return "INVALID", "invalid_reproduction_artifacts", False, False
     paths_ok = True
@@ -312,6 +315,10 @@ def _verify_artifacts(payload: dict[str, Any], artifact_root: str | os.PathLike[
                     size += len(chunk)
         except OSError:
             return "INVALID", "artifact_unreadable", paths_ok, False
+        if (not isinstance(artifact["size_bytes"], int)
+                or isinstance(artifact["size_bytes"], bool)
+                or artifact["size_bytes"] < 0):
+            return "INVALID", "invalid_artifact_size", paths_ok, False
         if not _is_sha256(artifact["sha256"]):
             return "INVALID", "invalid_artifact_digest", paths_ok, False
         if digest.hexdigest() != artifact["sha256"] or size != artifact["size_bytes"]:
@@ -402,13 +409,9 @@ def verify_attestation(
             return _result("INVALID", "case_digest_mismatch", attestation_id, checks)
 
     if artifact_root is not None:
-        try:
-            artifact_status, artifact_reason, paths_ok, artifacts_ok = _verify_artifacts(
-                payload, artifact_root
-            )
-        except AttestationError as exc:
-            checks["artifacts_path_safe"] = False
-            return _result("INVALID", str(exc), attestation_id, checks)
+        artifact_status, artifact_reason, paths_ok, artifacts_ok = _verify_artifacts(
+            payload, artifact_root
+        )
         checks["artifacts_path_safe"] = paths_ok
         checks["artifacts_valid"] = artifacts_ok
         if artifact_status != "VALID":

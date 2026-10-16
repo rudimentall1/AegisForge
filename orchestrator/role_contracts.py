@@ -230,6 +230,12 @@ def validate_role_input(
 def validate_role_output(role: str, result: Any) -> None:
     """Validate the established output shape without upgrading its claims."""
     result = _mapping(result, role=role, field="output")
+    for field in ("research_outcome", "conclusion"):
+        claim = result.get(field)
+        if isinstance(claim, str) and claim.upper() in {"CONFIRMED", "REJECTED"}:
+            raise RoleContractError(
+                f"{role} cannot promote an agent output to {claim.upper()}"
+            )
 
     if role == "analyst":
         required = (

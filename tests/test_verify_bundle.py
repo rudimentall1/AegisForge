@@ -599,6 +599,35 @@ def test_level_three_runner_failure_is_not_a_research_conclusion(tmp_path, monke
     assert result["levels"][2]["finding_verdict"] == "UNCHANGED"
 
 
+@pytest.mark.parametrize(
+    "runner_result,expected_reason",
+    [
+        (None, "reproduction_runner_result_invalid"),
+        ({"status": []}, "reproduction_runner_status_invalid"),
+        ({"status": "UNRECOGNIZED"}, "reproduction_runner_status_invalid"),
+    ],
+)
+def test_level_three_malformed_runner_result_fails_closed(
+    tmp_path, monkeypatch, runner_result, expected_reason
+):
+    write_reproduction_bundle(tmp_path)
+    monkeypatch.setattr(
+        "shared.verify_bundle.run_reproduction_contract",
+        lambda *args, **kwargs: runner_result,
+    )
+
+    result = verify_bundle(
+        tmp_path,
+        run_reproduction=True,
+        target_checkout="/authorized/pinned/checkout",
+        reproduction_output_dir="/tmp/aegisforge-reproduction-output",
+    )
+
+    assert result["levels"][2]["status"] == "INCONCLUSIVE"
+    assert result["levels"][2]["reason"] == expected_reason
+    assert result["levels"][2]["finding_verdict"] == "UNCHANGED"
+
+
 def test_level_three_timeout_is_inconclusive_not_rejected(tmp_path, monkeypatch):
     write_reproduction_bundle(tmp_path)
     monkeypatch.setattr(

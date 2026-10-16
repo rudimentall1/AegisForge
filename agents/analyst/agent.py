@@ -1,4 +1,5 @@
 from shared.task import Task
+from orchestrator.role_contracts import validate_role_input, validate_role_output
 
 
 class Analyst:
@@ -89,6 +90,7 @@ class Analyst:
     def run(self, task: Task) -> Task:
         task.status = "analyzing"
         try:
+            validate_role_input(self.name, task.result if task.result is not None else {})
             result = task.result or {}
             repositories = result.get("repositories", [])
             existing_opportunities = result.get("opportunities", [])
@@ -138,6 +140,7 @@ class Analyst:
                 "opportunities": opportunities[:10],
                 "count": len(analysis),
             }
+            validate_role_output(self.name, task.result)
             task.status = "analyzed"
         except Exception as exc:
             task.status = "analysis_failed"

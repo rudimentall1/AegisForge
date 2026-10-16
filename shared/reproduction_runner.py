@@ -286,6 +286,8 @@ def _copy_pinned_worktree(
             source_cursor = source_cursor / part
             if source_cursor.is_symlink():
                 raise ReproductionRunnerError("workspace_symlink_rejected")
+        target_path = destination.joinpath(*parts)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             source_resolved = source.resolve(strict=True)
             source_resolved.relative_to(root)
@@ -293,8 +295,6 @@ def _copy_pinned_worktree(
         except (OSError, ValueError) as exc:
             raise ReproductionRunnerError(f"target_worktree_file_unavailable:{relative}") from exc
 
-        target_path = destination.joinpath(*parts)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha1()
         with os.fdopen(file_fd, "rb") as input_stream:
             source_stat = os.fstat(input_stream.fileno())

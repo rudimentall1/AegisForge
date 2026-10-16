@@ -248,3 +248,31 @@ def test_runner_rejects_working_tree_content_not_matching_pinned_commit(tmp_path
 
     assert result["status"] == "INCOMPLETE"
     assert result["reason"] == "target_worktree_file_mismatch:src/target.py"
+
+
+@pytest.mark.parametrize(
+    "uid,gid",
+    [
+        (0, 1000),
+        (1000, 0),
+        (0, 0),
+    ],
+)
+def test_runner_refuses_root_host_identity_before_starting_container(
+    tmp_path, monkeypatch, uid, gid
+):
+    root = make_workspace(tmp_path)
+    calls, _ = fake_docker(monkeypatch)
+    monkeypatch.setattr("shared.reproduction_runner.os.getuid", lambda: uid)
+    monkeypatch.setattr("shared.reproduction_runner.os.getgid", lambda: gid)
+
+    result = run_reproduction_contract(
+        make_contract(),
+        root,
+        tmp_path / "output",
+    )
+
+    assert result["status"] == "NOT_RUN"
+    assert result["reason"] == "non_root_host_identity_required"
+    assert not (tmp_path / "output").exists()
+    assert not any(Path(call[0][0]).name == "docker" for call in calls)

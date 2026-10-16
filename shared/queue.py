@@ -429,6 +429,11 @@ class TaskQueue:
         self.db.commit()
         return updated == 1
 
+    def complete_round_transparency(self, round_id, verdict) -> bool:
+        """Backward-compatible completion entrypoint for the existing master."""
+        completed_at = datetime.now(timezone.utc).isoformat()
+        return self.complete_round(round_id, completed_at, verdict)
+
     def list_rounds_for_case(self, case_id) -> list[dict]:
         """Return disclosure timeline fields for a single registered case."""
         if not isinstance(case_id, str) or not case_id.strip():

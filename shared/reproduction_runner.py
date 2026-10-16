@@ -235,9 +235,9 @@ def run_reproduction_contract(
                 raise ReproductionRunnerError("working_directory_missing")
 
             env_file = temporary_root / "contract.env"
-            with env_file.open("x", encoding="utf-8", newline="\\n") as stream:
+            with env_file.open("x", encoding="utf-8", newline="\n") as stream:
                 for key, value in contract["environment"].items():
-                    stream.write(f"{key}={value}\\n")
+                    stream.write(f"{key}={value}\n")
             os.chmod(env_file, 0o600)
 
             if "," in str(workspace) or "," in str(env_file):

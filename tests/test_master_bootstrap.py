@@ -156,7 +156,7 @@ def test_bootstrap_legacy_path_unchanged(tmp_path, monkeypatch):
 
 
 
-def make_round(round_id="round-001", technique="source_pattern", days=90, priority=0):
+def make_round(round_id="round-001", technique="source_pattern", days=30, priority=0):
     return RoundSpec(
         round_id=round_id,
         technique=technique,

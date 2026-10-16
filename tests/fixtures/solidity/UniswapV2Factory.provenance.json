@@ -1,0 +1,27 @@
+{
+  "schema_version": "aegisforge-verified-source-provenance-v1",
+  "target_id": "uniswap-v2-factory-mainnet",
+  "contract_name": "UniswapV2Factory",
+  "chain_id": 1,
+  "contract_address": "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f",
+  "explorer": {
+    "name": "Etherscan",
+    "url": "https://etherscan.io/address/0x5c69bee701ef814a2b6a3edd4b1652cb9cc5aa6f",
+    "reported_status": "Source Code Verified Exact Match",
+    "checked_on": "2026-10-16"
+  },
+  "upstream_source": {
+    "repository": "Uniswap/v2-core",
+    "commit": "4dd59067c76dea4a0e8e4bfdda41877a6b16dedc",
+    "path": "contracts/UniswapV2Factory.sol",
+    "git_blob_sha1": "a66ad8247b88cbd4e547b0f9dee8fceede51a358",
+    "source_url": "https://github.com/Uniswap/v2-core/blob/4dd59067c76dea4a0e8e4bfdda41877a6b16dedc/contracts/UniswapV2Factory.sol"
+  },
+  "constraints": {
+    "runtime_rpc_used": false,
+    "transactions_sent": false,
+    "explorer_checked_at_runtime": false,
+    "source_fixture_checked_into_repository": true,
+    "verification_claim_means_explorer_reported_exact_match_not_formal_verification": true
+  }
+}

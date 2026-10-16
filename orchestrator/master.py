@@ -3263,8 +3263,7 @@ class MasterOrchestrator:
                                     f"round={round_id} id={task_id}",
                                     flush=True,
                                 )
-                            pipeline_has_active_branch = True
-                            continue
+                            return True
 
                     active_branch = False
                     for root_id, _role, root_status, _round_id, _created_at in roots:

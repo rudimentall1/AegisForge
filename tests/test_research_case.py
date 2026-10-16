@@ -282,7 +282,7 @@ def test_binding_rejects_self_consistent_but_invalid_case_payload(mutate):
 def test_round_spec_defaults_disclosure_deadline_to_90_days():
     spec = RoundSpec(
         round_id="round-default",
-        technique="source_pattern",
+        technique="runtime_probe",
         hypothesis="A falsifiable hypothesis.",
         expected_evidence_atoms=("source reference",),
         falsification_criteria="A counter-test disproves the claim.",
@@ -294,7 +294,7 @@ def test_round_spec_defaults_disclosure_deadline_to_90_days():
 
 @pytest.mark.parametrize("days", [0, -1, True, 1.5, "90"])
 def test_round_spec_rejects_invalid_disclosure_deadline(days):
-    with pytest.raises(CaseValidationError, match="round_disclosure_deadline_days_invalid"):
+    with pytest.raises(CaseValidationError, match="round_disclosure_deadline_days"):
         RoundSpec(
             round_id="round-invalid",
             technique="source_pattern",

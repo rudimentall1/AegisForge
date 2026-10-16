@@ -3079,9 +3079,23 @@ class MasterOrchestrator:
             "Do not execute downloaded or historical code, handle wallet/key material, "
             "or infer exposure of individual wallets. Agent output is not a confirmed finding."
         )
+        # The round's technique determines the initial specialist. Unsupported
+        # techniques are deliberately routed to the registry's NOT_IMPLEMENTED
+        # path rather than silently falling back to unrelated research.
+        root_roles = {
+            "source_pattern": "source_researcher",
+            "differential_revision": "source_researcher",
+            "crypto_primitive_analysis": "crypto_analyst",
+            "runtime_probe": "lab_runner",
+            "fuzzing": "source_researcher",
+            "symbolic_execution": "source_researcher",
+            "formal_verification": "source_researcher",
+            "supply_chain": "source_researcher",
+        }
+        root_role = root_roles.get(round_spec.technique, "source_researcher")
         task_id = self.queue.add(
             description=description,
-            role="source_researcher",
+            role=root_role,
             research_case_id=case.case_id,
             round_id=round_spec.round_id,
         )

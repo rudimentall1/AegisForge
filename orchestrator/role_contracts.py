@@ -193,15 +193,16 @@ def validate_role_input(
             raise RoleContractError("analyst.research_scope must be a non-empty string")
 
     elif role == "security_checker":
+        raw_reviews = result.get("technical_review", [])
+        if raw_reviews is None or raw_reviews == []:
+            raise RoleContractError(
+                "Security Checker received no technical_review from Developer"
+            )
         reviews = _list_of_mappings(
-            result.get("technical_review"),
+            raw_reviews,
             role=role,
             field="technical_review",
         )
-        if not reviews:
-            raise RoleContractError(
-                "security_checker.technical_review must not be empty"
-            )
 
     elif role == "lab_runner":
         payload = _mapping(

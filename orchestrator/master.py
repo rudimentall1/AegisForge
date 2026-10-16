@@ -3062,6 +3062,38 @@ class MasterOrchestrator:
         self.planner = AutonomousPlanner(self.queue)
         self._case_pipeline_idle_logged = False
 
+    def _create_round_root(self, case, round_spec: object) -> str:
+        """Create a case-bound root task and its disclosure timeline."""
+        started_at = datetime.now(timezone.utc)
+        deadline = started_at + timedelta(
+            days=round_spec.disclosure_deadline_days
+        )
+        description = (
+            f"Research round {round_spec.round_id} for case {case.case_id}. "
+            f"Technique: {round_spec.technique}. Priority: {round_spec.priority}. "
+            f"Hypothesis: {round_spec.hypothesis}. "
+            f"Expected evidence atoms: {', '.join(round_spec.expected_evidence_atoms)}. "
+            f"Falsification criteria: {round_spec.falsification_criteria}. "
+            f"Disclosure deadline: {deadline.isoformat()}. "
+            "Use immutable public sources and bounded local/synthetic experiments only. "
+            "Do not execute downloaded or historical code, handle wallet/key material, "
+            "or infer exposure of individual wallets. Agent output is not a confirmed finding."
+        )
+        task_id = self.queue.add(
+            description=description,
+            role="source_researcher",
+            research_case_id=case.case_id,
+            round_id=round_spec.round_id,
+        )
+        self.queue.create_round_transparency(
+            round_id=round_spec.round_id,
+            case_id=case.case_id,
+            technique=round_spec.technique,
+            started_at=started_at.isoformat(),
+            disclosure_deadline=deadline.isoformat(),
+        )
+        return task_id
+
     def _round_verdict(self, root_id: str) -> str:
         """Extract a conservative verdict from stored task output."""
         rows = self.queue.db.execute(
@@ -3168,7 +3200,7 @@ class MasterOrchestrator:
 
                 roots = self.queue.db.execute(
                     """
-                    SELECT id, role, status, round_id FROM queue
+                    SELECT id, role, status, round_id, created_at FROM queue
                     WHERE parent_task_id IS NULL AND research_case_id = ?
                     ORDER BY created_at ASC, id ASC
                     """,
@@ -3176,8 +3208,66 @@ class MasterOrchestrator:
                 ).fetchall()
 
                 if roots:
+                    # Repair a partially created round set after a restart. A
+                    # task root is the durable identity; missing timeline rows
+                    # are reconstructed from its original created_at timestamp.
+                    if case.rounds:
+                        specs_by_id = {item.round_id: item for item in case.rounds}
+                        existing_round_ids = {
+                            row[3] for row in roots if row[3] in specs_by_id
+                        }
+                        for root_id, _role, _status, round_id, created_at in roots:
+                            spec = specs_by_id.get(round_id)
+                            if spec is None:
+                                continue
+                            timeline_exists = self.queue.db.execute(
+                                "SELECT 1 FROM round_transparency WHERE round_id = ?",
+                                (round_id,),
+                            ).fetchone()
+                            if timeline_exists:
+                                continue
+                            try:
+                                started_at = datetime.fromisoformat(
+                                    str(created_at).replace("Z", "+00:00")
+                                )
+                                if started_at.tzinfo is None:
+                                    started_at = started_at.replace(tzinfo=timezone.utc)
+                            except (TypeError, ValueError):
+                                started_at = datetime.now(timezone.utc)
+                            deadline = started_at + timedelta(
+                                days=spec.disclosure_deadline_days
+                            )
+                            self.queue.create_round_transparency(
+                                round_id=round_id,
+                                case_id=case_id,
+                                technique=spec.technique,
+                                started_at=started_at.isoformat(),
+                                disclosure_deadline=deadline.isoformat(),
+                            )
+                        missing_specs = [
+                            item for item in case.rounds
+                            if item.round_id not in existing_round_ids
+                        ]
+                        if missing_specs:
+                            created = []
+                            for round_spec in sorted(
+                                missing_specs,
+                                key=lambda item: (-item.priority, item.round_id),
+                            ):
+                                task_id = self._create_round_root(case, round_spec)
+                                created.append((round_spec.round_id, task_id))
+                            self._case_pipeline_idle_logged = False
+                            for round_id, task_id in created:
+                                print(
+                                    f"[MASTER] BOOTSTRAP_ROUND case={case_id} "
+                                    f"round={round_id} id={task_id}",
+                                    flush=True,
+                                )
+                            pipeline_has_active_branch = True
+                            continue
+
                     active_branch = False
-                    for root_id, _role, root_status, _round_id in roots:
+                    for root_id, _role, root_status, _round_id, _created_at in roots:
                         active_children_row = self.queue.db.execute(
                             """
                             SELECT COUNT(*) FROM queue
@@ -3196,7 +3286,7 @@ class MasterOrchestrator:
                         self._case_pipeline_idle_logged = False
                         continue
 
-                    for root_id, _role, _root_status, round_id in roots:
+                    for root_id, _role, _root_status, round_id, _created_at in roots:
                         if round_id:
                             self.queue.complete_round_transparency(
                                 round_id, self._round_verdict(root_id)
@@ -3227,34 +3317,7 @@ class MasterOrchestrator:
                     for round_spec in sorted(
                         case.rounds, key=lambda item: (-item.priority, item.round_id)
                     ):
-                        started_at = datetime.now(timezone.utc)
-                        deadline = started_at + timedelta(
-                            days=round_spec.disclosure_deadline_days
-                        )
-                        description = (
-                            f"Research round {round_spec.round_id} for case {case.case_id}. "
-                            f"Technique: {round_spec.technique}. Priority: {round_spec.priority}. "
-                            f"Hypothesis: {round_spec.hypothesis}. "
-                            f"Expected evidence atoms: {', '.join(round_spec.expected_evidence_atoms)}. "
-                            f"Falsification criteria: {round_spec.falsification_criteria}. "
-                            f"Disclosure deadline: {deadline.isoformat()}. "
-                            "Use immutable public sources and bounded local/synthetic experiments only. "
-                            "Do not execute downloaded or historical code, handle wallet/key material, "
-                            "or infer exposure of individual wallets. Agent output is not a confirmed finding."
-                        )
-                        task_id = self.queue.add(
-                            description=description,
-                            role="source_researcher",
-                            research_case_id=case_id,
-                            round_id=round_spec.round_id,
-                        )
-                        self.queue.create_round_transparency(
-                            round_id=round_spec.round_id,
-                            case_id=case_id,
-                            technique=round_spec.technique,
-                            started_at=started_at.isoformat(),
-                            disclosure_deadline=deadline.isoformat(),
-                        )
+                        task_id = self._create_round_root(case, round_spec)
                         created.append((round_spec.round_id, task_id))
                     self._case_pipeline_idle_logged = False
                     for round_id, task_id in created:

@@ -14,14 +14,20 @@ def queue(tmp_path, monkeypatch):
 
 def test_create_human_review_is_idempotent_per_open_case(queue):
     first = queue.create_human_review("case-a", "all branches terminal")
-    second = queue.create_human_review("case-a", "different reason", task_id="task-2")
+    repeated = queue.create_human_review("case-a", "all branches terminal")
+    different = queue.create_human_review("case-a", "deadline_exceeded:round-1", task_id="task-2")
+    repeated_different = queue.create_human_review("case-a", "deadline_exceeded:round-1", task_id="task-3")
 
-    assert second == first
+    assert repeated == first
+    assert different != first
+    assert repeated_different == different
     rows = queue.list_human_reviews()
-    assert len(rows) == 1
-    assert rows[0]["id"] == first
-    assert rows[0]["reason"] == "all branches terminal"
-    assert rows[0]["task_id"] is None
+    assert len(rows) == 2
+    by_reason = {row["reason"]: row for row in rows}
+    assert by_reason["all branches terminal"]["id"] == first
+    assert by_reason["all branches terminal"]["task_id"] is None
+    assert by_reason["deadline_exceeded:round-1"]["id"] == different
+    assert by_reason["deadline_exceeded:round-1"]["task_id"] == "task-2"
 
 
 def test_list_human_reviews_filters_by_status(queue):

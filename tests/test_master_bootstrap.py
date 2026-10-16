@@ -69,14 +69,11 @@ def test_bootstrap_creates_review_when_all_branches_terminal(tmp_path, monkeypat
     add_root(queue, case_id)
 
     assert master.bootstrap() is False
-    reviews = open_reviews(queue, case_id)
-    assert len(reviews) == 1
-    assert reviews[0][1] == "OPEN"
-    row = queue.db.execute(
-        "SELECT reason FROM pending_human_review WHERE id = ?",
-        (reviews[0][0],),
-    ).fetchone()
-    assert row[0] == "all_branches_terminal:roots=1"
+    reviews = queue.db.execute(
+        "SELECT status FROM pending_human_review WHERE case_id = ? AND reason = ?",
+        (case_id, "all_branches_terminal:roots=1"),
+    ).fetchall()
+    assert reviews == [("OPEN",)]
     queue.db.close()
 
 
@@ -117,26 +114,55 @@ def test_bootstrap_considers_all_root_roles(tmp_path, monkeypatch):
     add_root(queue, case_id, role="crypto_analyst")
 
     master.bootstrap()
-    reviews = open_reviews(queue, case_id)
-    assert len(reviews) == 1
-    assert reviews[0][1] == "OPEN"
+    reviews = queue.db.execute(
+        "SELECT status FROM pending_human_review WHERE case_id = ? AND reason = ?",
+        (case_id, "all_branches_terminal:roots=1"),
+    ).fetchall()
+    assert reviews == [("OPEN",)]
     queue.db.close()
 
 
-def test_bootstrap_does_not_repeat_review_creation(tmp_path, monkeypatch, capsys):
+def test_bootstrap_does_not_repeat_review_creation(tmp_path, monkeypatch):
     master, queue = make_master(tmp_path, monkeypatch)
     case_id = register_case(queue)
     add_root(queue, case_id)
-    queue.create_human_review(case_id, "pre-existing review")
+    queue.create_human_review(case_id, "pre-existing")
 
     master.bootstrap()
-    first_output = capsys.readouterr().out
+    count_before = len(open_reviews(queue, case_id))
     master.bootstrap()
-    second_output = capsys.readouterr().out
+    count_after = len(open_reviews(queue, case_id))
 
-    assert "CASE_BRANCHES_TERMINAL" not in first_output
-    assert "CASE_BRANCHES_TERMINAL" not in second_output
-    assert len(open_reviews(queue, case_id)) == 1
+    assert count_after == count_before
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM pending_human_review "
+        "WHERE case_id = ? AND status = 'OPEN' AND reason = ?",
+        (case_id, "all_branches_terminal:roots=1"),
+    ).fetchone()[0] == 1
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM pending_human_review "
+        "WHERE case_id = ? AND status = 'OPEN' AND reason = ?",
+        (case_id, "pre-existing"),
+    ).fetchone()[0] == 1
+    assert count_after == 2
+    queue.db.close()
+
+
+def test_bootstrap_does_not_duplicate_same_reason(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue)
+    add_root(queue, case_id)
+    reason = "all_branches_terminal:roots=1"
+    queue.create_human_review(case_id, reason)
+
+    master.bootstrap()
+    master.bootstrap()
+
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM pending_human_review "
+        "WHERE case_id = ? AND status = 'OPEN' AND reason = ?",
+        (case_id, reason),
+    ).fetchone()[0] == 1
     queue.db.close()
 
 
@@ -216,7 +242,7 @@ def test_terminal_round_records_completion_and_never_auto_confirms(tmp_path, mon
     ).fetchone()[0]
     queue.db.execute(
         "UPDATE queue SET status = 'completed', result = ? WHERE id = ?",
-        (json.dumps({"verdict": "CONFIRMED"}), root),
+        (json.dumps({"research_validation": {"verdict": "REPRODUCED"}}), root),
     )
     queue.db.commit()
 
@@ -230,7 +256,7 @@ def test_terminal_round_records_completion_and_never_auto_confirms(tmp_path, mon
     ).fetchone()
     assert row[0] == "COMPLETED"
     assert row[1] is not None
-    assert row[2] == "INCONCLUSIVE"
+    assert row[2] == "REPRODUCED"
     queue.db.close()
 
 
@@ -280,4 +306,133 @@ def test_bootstrap_repairs_partially_created_round_set(tmp_path, monkeypatch):
     ).fetchall()
     assert roots == [("round-a",), ("round-b",)]
     assert timelines == [("round-a",), ("round-b",)]
+    queue.db.close()
+
+
+def test_master_calls_new_complete_round(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue, make_case(rounds=(make_round(),)))
+    assert master.bootstrap() is True
+    root = queue.db.execute(
+        "SELECT id FROM queue WHERE parent_task_id IS NULL AND round_id = ?",
+        ("round-001",),
+    ).fetchone()[0]
+    queue.db.execute(
+        "UPDATE queue SET status = 'completed', result = ? WHERE id = ?",
+        (json.dumps({"research_validation": {"verdict": "NOT_REPRODUCED"}}), root),
+    )
+    queue.db.commit()
+
+    calls = []
+    original = queue.complete_round
+
+    def record_complete(round_id, completed_at, verdict):
+        calls.append((round_id, completed_at, verdict))
+        return original(round_id, completed_at, verdict)
+
+    monkeypatch.setattr(queue, "complete_round", record_complete)
+    assert master.bootstrap() is False
+    assert len(calls) == 1
+    assert calls[0][0] == "round-001"
+    assert datetime.fromisoformat(calls[0][1]).tzinfo is not None
+    assert calls[0][2] == "NOT_REPRODUCED"
+    queue.db.close()
+
+
+def test_master_uses_expired_rounds_for_review(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue, make_case(rounds=(make_round(),)))
+    assert master.bootstrap() is True
+    root = queue.db.execute(
+        "SELECT id FROM queue WHERE parent_task_id IS NULL AND round_id = ?",
+        ("round-001",),
+    ).fetchone()[0]
+    queue.add(description="active child", role="crypto_analyst", parent_task_id=root)
+    expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    queue.db.execute(
+        "UPDATE round_transparency SET disclosure_deadline = ? WHERE round_id = ?",
+        (expired, "round-001"),
+    )
+    queue.db.commit()
+
+    calls = []
+    original = queue.expired_rounds
+
+    def record_expired(now):
+        calls.append(now)
+        return original(now)
+
+    monkeypatch.setattr(queue, "expired_rounds", record_expired)
+    assert master.bootstrap() is False
+    assert calls and isinstance(calls[0], datetime)
+    review = queue.db.execute(
+        "SELECT reason FROM pending_human_review WHERE case_id = ?",
+        (case_id,),
+    ).fetchone()
+    assert review == ("deadline_exceeded:round-001",)
+    queue.db.close()
+
+
+def test_complete_round_removed_from_queue(tmp_path, monkeypatch):
+    _master, queue = make_master(tmp_path, monkeypatch)
+    legacy_name = "complete_round_" + "transparency"
+    assert hasattr(queue, "complete_round")
+    assert not hasattr(queue, legacy_name)
+    queue.db.close()
+
+
+def test_multiple_expired_rounds_create_multiple_reviews(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case = make_case(rounds=(
+        make_round("r1", "source_pattern"),
+        make_round("r2", "synthetic_check"),
+    ))
+    case_id = register_case(queue, case)
+    assert master.bootstrap() is True
+
+    expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    queue.db.execute(
+        "UPDATE round_transparency SET disclosure_deadline = ? WHERE case_id = ?",
+        (expired, case_id),
+    )
+    queue.db.commit()
+
+    assert master.bootstrap() is False
+    reviews = queue.db.execute(
+        "SELECT reason, status FROM pending_human_review WHERE case_id = ? ORDER BY created_at, id",
+        (case_id,),
+    ).fetchall()
+    assert reviews == [
+        ("deadline_exceeded:r1", "OPEN"),
+        ("deadline_exceeded:r2", "OPEN"),
+    ]
+    queue.db.close()
+
+
+def test_terminal_branch_and_expired_round_create_separate_reviews(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue)
+    add_root(queue, case_id, status="completed")
+
+    expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    queue.create_round_transparency(
+        round_id="r1",
+        case_id=case_id,
+        technique="source_pattern",
+        started_at=(datetime.now(timezone.utc) - timedelta(days=31)).isoformat(),
+        disclosure_deadline=expired,
+    )
+
+    assert master.bootstrap() is False
+    reviews = queue.db.execute(
+        "SELECT reason, status FROM pending_human_review WHERE case_id = ? ORDER BY created_at, id",
+        (case_id,),
+    ).fetchall()
+    assert reviews == [
+        ("deadline_exceeded:r1", "OPEN"),
+        ("all_branches_terminal:roots=1", "OPEN"),
+    ] or reviews == [
+        ("all_branches_terminal:roots=1", "OPEN"),
+        ("deadline_exceeded:r1", "OPEN"),
+    ]
     queue.db.close()

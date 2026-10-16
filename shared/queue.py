@@ -429,11 +429,6 @@ class TaskQueue:
         self.db.commit()
         return updated == 1
 
-    def complete_round_transparency(self, round_id, verdict) -> bool:
-        """Backward-compatible completion entrypoint for the existing master."""
-        completed_at = datetime.now(timezone.utc).isoformat()
-        return self.complete_round(round_id, completed_at, verdict)
-
     def list_rounds_for_case(self, case_id) -> list[dict]:
         """Return disclosure timeline fields for a single registered case."""
         if not isinstance(case_id, str) or not case_id.strip():
@@ -560,7 +555,7 @@ class TaskQueue:
         return [dict(zip(keys, row)) for row in rows]
 
     def create_human_review(self, case_id, reason, task_id=None):
-        """Create one open review per case; repeated requests return its ID."""
+        """Create one open review per (case, reason); repeated requests return its ID."""
         if not isinstance(case_id, str) or not case_id.strip():
             raise ValueError("human_review_case_id_required")
         if not isinstance(reason, str) or not reason.strip():
@@ -573,10 +568,10 @@ class TaskQueue:
             existing = self.db.execute(
                 """
                 SELECT id FROM pending_human_review
-                WHERE case_id = ? AND status = 'OPEN'
-                ORDER BY created_at LIMIT 1
+                WHERE case_id = ? AND reason = ? AND status = 'OPEN'
+                ORDER BY created_at, id LIMIT 1
                 """,
-                (case_id,),
+                (case_id, reason),
             ).fetchone()
             if existing:
                 self.db.commit()

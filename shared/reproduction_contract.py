@@ -149,13 +149,20 @@ def validate_reproduction_contract(payload: object) -> dict[str, Any]:
     source_path = _safe_relative_path(target["source_path"], "target_source_path")
 
     toolchain = _object(top["toolchain"], "toolchain", {
-        "runtime", "version", "image_digest",
+        "runtime", "version", "image_ref", "image_digest",
     })
     runtime = _text(toolchain["runtime"], "toolchain_runtime", max_bytes=128)
     runtime_version = _text(toolchain["version"], "toolchain_version", max_bytes=128)
     image_digest = _text(toolchain["image_digest"], "toolchain_image_digest", max_bytes=71)
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
         raise ReproductionContractError("toolchain_image_digest_invalid")
+    image_ref = _text(toolchain["image_ref"], "toolchain_image_ref", max_bytes=512)
+    if (
+        not re.fullmatch(r"[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}", image_ref)
+        or not image_ref.endswith("@" + image_digest)
+        or image_ref.endswith("/")
+    ):
+        raise ReproductionContractError("toolchain_image_ref_invalid")
 
     command = top["command"]
     if not isinstance(command, list) or not command or len(command) > _MAX_COMMAND_ARGS:
@@ -235,6 +242,7 @@ def validate_reproduction_contract(payload: object) -> dict[str, Any]:
         "toolchain": {
             "runtime": runtime,
             "version": runtime_version,
+            "image_ref": image_ref,
             "image_digest": image_digest,
         },
         "command": normalized_command,

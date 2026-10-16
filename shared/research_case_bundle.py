@@ -314,6 +314,7 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
             if len(set(names)) != len(names) or set(names) != ALL_MEMBERS:
                 raise ResearchCaseBundleError("bundle_member_set_invalid")
             total_size = 0
+            actual_total_size = 0
             files = {}
             for item in infos:
                 name = item.filename
@@ -350,6 +351,9 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
                         chunks.append(chunk)
                 if actual_size != item.file_size:
                     raise ResearchCaseBundleError("bundle_member_size_mismatch")
+                actual_total_size += actual_size
+                if actual_total_size > MAX_TOTAL_UNCOMPRESSED_BYTES:
+                    raise ResearchCaseBundleError("bundle_uncompressed_size_exceeds_limit")
                 files[name] = b"".join(chunks)
     except zipfile.BadZipFile as exc:
         raise ResearchCaseBundleError("invalid_bundle_zip") from exc

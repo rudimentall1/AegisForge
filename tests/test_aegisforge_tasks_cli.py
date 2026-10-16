@@ -33,3 +33,52 @@ def test_submit_rejects_unknown_role(tmp_path):
     result = run_cli(tmp_path / "queue.db", "submit", "--role", "root", "do things")
     assert result.returncode != 0
     assert "invalid choice" in result.stderr
+
+
+def test_case_register_and_forensic_task_submission(tmp_path):
+    db = tmp_path / "queue.db"
+    case_file = tmp_path / "case.json"
+    case = {
+        "case_id": "cli-case-001",
+        "target_repository": "example/project",
+        "target_commit": "a" * 40,
+        "scope_url": "https://example.com/scope",
+        "scope_digest": "b" * 64,
+        "scope_reviewed_on": "2026-10-16",
+        "hypothesis": "A bounded local test may violate an accounting invariant.",
+        "attacker_capability": "An unprivileged caller can invoke the public method.",
+        "expected_invariant": "The recorded balance equals the independently calculated balance.",
+        "falsification_criteria": "Counter-tests preserve the invariant for all tested transitions.",
+        "execution_mode": "local",
+        "status": "ready",
+    }
+    case_file.write_text(json.dumps(case), encoding="utf-8")
+
+    registered = run_cli(db, "case", "register", str(case_file))
+    assert registered.returncode == 0, registered.stderr
+    assert json.loads(registered.stdout)["case_id"] == case["case_id"]
+
+    submitted = run_cli(
+        db, "submit", "--role", "crypto_analyst", "--case-id", case["case_id"],
+        "Run local invariant test",
+    )
+    assert submitted.returncode == 0, submitted.stderr
+    task = json.loads(submitted.stdout)
+    assert task["status"] == "pending"
+    assert task["role"] == "crypto_analyst"
+
+    status = run_cli(db, "case", "show", case["case_id"])
+    assert status.returncode == 0, status.stderr
+    assert json.loads(status.stdout)["target_commit"] == case["target_commit"]
+
+
+def test_forensic_cli_submission_without_case_is_blocked_by_worker_gate(tmp_path):
+    db = tmp_path / "queue.db"
+    submitted = run_cli(db, "submit", "--role", "crypto_analyst", "unbound research task")
+    assert submitted.returncode == 0, submitted.stderr
+    # Queue submission remains possible for backward compatibility, but the
+    # worker must fail closed before executing a forensic role without a case.
+    from shared.research_case import validate_worker_case_binding, CaseValidationError
+    import pytest
+    with pytest.raises(CaseValidationError, match="requires a registered research case"):
+        validate_worker_case_binding("crypto_analyst", None, None)

@@ -162,14 +162,15 @@ def _remove_container(docker_path: str, container_name: str, env: dict[str, str]
         return "FAILED"
 
 
-def _stop_container(docker_path: str, container_name: str, env: dict[str, str]) -> None:
+def _stop_container(docker_path: str, container_name: str, env: dict[str, str]) -> str:
     try:
-        _docker_call(
+        result = _docker_call(
             docker_path, ["stop", "--time", "1", container_name],
             timeout=5, env=env,
         )
+        return "STOPPED" if result.returncode == 0 else "FAILED"
     except (subprocess.TimeoutExpired, OSError):
-        pass
+        return "FAILED"
 
 
 def _git_environment(git_path: str) -> dict[str, str]:
@@ -379,6 +380,7 @@ def run_reproduction_contract(
     container_name = "aegisforge-repro-" + uuid.uuid4().hex
     cleanup_status = "NOT_NEEDED"
     timed_out = False
+    stop_status = None
     exit_code = None
     output_result = None
     execution_error = None
@@ -489,27 +491,37 @@ def run_reproduction_contract(
                     exit_code = int(waited.stdout.strip())
             except subprocess.TimeoutExpired:
                 timed_out = True
-                _stop_container(docker_path, container_name, docker_env)
+                stop_status = _stop_container(docker_path, container_name, docker_env)
+                if stop_status != "STOPPED":
+                    execution_error = "timeout_stop_unconfirmed"
             except OSError:
                 execution_error = "docker_wait_failed"
 
             try:
-                copied = _docker_call(
-                    docker_path, ["cp", f"{container_name}:/output/.", str(output_root)],
-                    timeout=OUTPUT_COPY_TIMEOUT_SECONDS, env=docker_env,
-                )
-                if copied.returncode == 0:
-                    output_result = _verify_outputs(
-                        output_root,
-                        contract["expected_outputs"],
-                        contract["limits"]["max_output_bytes"],
-                    )
-                else:
+                if timed_out and stop_status != "STOPPED":
+                    # Do not collect output from a process whose termination
+                    # could not be confirmed. Cleanup still runs in finally.
                     output_result = {
-                        "status": "FAIL",
-                        "error": "container_output_copy_failed",
-                        "detail": (copied.stderr or "")[:1024],
+                        "status": "NOT_RUN",
+                        "error": "timeout_stop_unconfirmed",
                     }
+                else:
+                    copied = _docker_call(
+                        docker_path, ["cp", f"{container_name}:/output/.", str(output_root)],
+                        timeout=OUTPUT_COPY_TIMEOUT_SECONDS, env=docker_env,
+                    )
+                    if copied.returncode == 0:
+                        output_result = _verify_outputs(
+                            output_root,
+                            contract["expected_outputs"],
+                            contract["limits"]["max_output_bytes"],
+                        )
+                    else:
+                        output_result = {
+                            "status": "FAIL",
+                            "error": "container_output_copy_failed",
+                            "detail": (copied.stderr or "")[:1024],
+                        }
             except subprocess.TimeoutExpired:
                 output_result = {"status": "FAIL", "error": "container_output_copy_timeout"}
             except OSError:
@@ -526,10 +538,10 @@ def run_reproduction_contract(
 
     if cleanup_status != "REMOVED":
         status, reason = "INCOMPLETE", "container_cleanup_failed"
-    elif timed_out:
-        status, reason = "TIMED_OUT", "reproduction_timeout"
     elif execution_error:
         status, reason = "INCOMPLETE", execution_error
+    elif timed_out:
+        status, reason = "TIMED_OUT", "reproduction_timeout"
     elif output_result is None or output_result.get("status") != "PASS":
         status = "FAILED"
         reason = (output_result or {}).get("error", "output_validation_failed")

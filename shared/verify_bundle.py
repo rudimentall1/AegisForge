@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import sys
+import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -22,6 +23,11 @@ MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
 MAX_TOTAL_ARTIFACT_BYTES = 1024 * 1024 * 1024
 MAX_ARTIFACTS = 10_000
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+from shared.research_case_bundle import (
+    ResearchCaseBundleError,
+    verify_research_case_bundle,
+)
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -211,6 +217,50 @@ def verify_bundle(path: str | Path, *, max_level: int = 3) -> dict[str, Any]:
     try:
         if root.is_symlink():
             raise ValueError("bundle_root_must_not_be_symlink")
+        if root.is_file() and zipfile.is_zipfile(root):
+            zip_result = verify_research_case_bundle(root)
+            levels.append({
+                "level": 1,
+                "name": "package_integrity",
+                "status": "PASS",
+                "bundle_sha256": zip_result["bundle_sha256"],
+                "case_id": zip_result["case_id"],
+                "checked_members": 4,
+            })
+            if max_level >= 2:
+                levels.append({
+                    "level": 2,
+                    "name": "case_and_evidence_linkage",
+                    "status": "PASS",
+                    "case_id": zip_result["case_id"],
+                    "task_count": zip_result["task_count"],
+                    "evidence_observation_count": zip_result["evidence_observation_count"],
+                })
+            if max_level >= 3:
+                levels.append({
+                    "level": 3,
+                    "name": "experiment_rerun",
+                    "status": "NOT_RUN",
+                    "reason": "bundle_contents_are_never_executed_by_this_verifier",
+                })
+            overall = "PASS" if all(item["status"] == "PASS" for item in levels) else "INCOMPLETE"
+            highest = 0
+            for item in levels:
+                if item["status"] != "PASS":
+                    break
+                highest = item["level"]
+            return {
+                "schema_version": 1,
+                "overall_status": overall,
+                "highest_completed_level": highest,
+                "levels": levels,
+                "limitations": [
+                    "A valid digest establishes consistency with the supplied manifest, not authenticity or truth.",
+                    "Research-case ZIP validation checks case/task/evidence linkage, not workflow provenance.",
+                    "Experiment rerun and security impact are not established.",
+                    "A PASS at level 1 or 2 does not imply level 3 passed.",
+                ],
+            }
         if not root.is_dir():
             raise ValueError("bundle_root_missing_or_not_directory")
         root = root.resolve(strict=True)
@@ -219,7 +269,7 @@ def verify_bundle(path: str | Path, *, max_level: int = 3) -> dict[str, Any]:
             raise ValueError("manifest_missing_or_not_regular_file")
         manifest = _load_manifest(manifest_path)
         levels.append(_verify_level_one(root, manifest))
-    except (OSError, ValueError, TypeError, RecursionError) as exc:
+    except (OSError, ValueError, TypeError, RecursionError, ResearchCaseBundleError) as exc:
         levels.append({
             "level": 1,
             "name": "package_integrity",

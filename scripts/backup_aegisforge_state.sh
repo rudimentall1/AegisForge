@@ -41,4 +41,4 @@ PY
 )
 printf '%s  %s\n' "$(sha256sum "$DEST/agent_farm.db" | cut -d ' ' -f1)" "agent_farm.db" > "$DEST/SHA256SUMS"
 printf 'Local backup created: %s\n' "$DEST"
-printf 'WARNING: copy this encrypted backup to a separate host/object store to protect against server loss.\n'
+printf 'WARNING: encrypt this backup and copy it to a separate host/object store to protect against server loss.\n'

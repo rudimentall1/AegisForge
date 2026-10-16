@@ -296,7 +296,7 @@ def test_case_bundle_export_rejects_parent_task_outside_case(tmp_path):
         )
 
 
-def test_case_bundle_verifier_rejects_parent_missing_from_bundle_even_with_rebuilt_manifest(tmp_path):
+def test_case_bundle_verifier_rejects_parent_cycle_even_with_rebuilt_manifest(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)
     bundle = tmp_path / "case.zip"
@@ -306,7 +306,7 @@ def test_case_bundle_verifier_rejects_parent_missing_from_bundle_even_with_rebui
         files = {name: source.read(name) for name in source.namelist()}
 
     tasks = json.loads(files["tasks.json"])
-    tasks["tasks"][0]["parent_task_id"] = "task-from-another-case"
+    tasks["tasks"][0]["parent_task_id"] = tasks["tasks"][0]["id"]
     files["tasks.json"] = json.dumps(
         tasks, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
         allow_nan=False,
@@ -343,6 +343,6 @@ def test_case_bundle_verifier_rejects_parent_missing_from_bundle_even_with_rebui
 
     with pytest.raises(
         ResearchCaseBundleError,
-        match="task_parent_not_in_case_bundle",
+        match="task_parent_cycle_detected",
     ):
         verify_research_case_bundle(forged_bundle)

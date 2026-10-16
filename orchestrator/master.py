@@ -17,6 +17,7 @@ from shared.result_codec import decode as decode_result
 from shared.evidence_ledger import EvidenceLedger
 from shared.action_intent import default_capability_intent
 from shared.intelligence_quality import IntelligenceQualityEvaluator
+from shared.research_case import CaseStatus, research_case_binding, verify_research_case_binding
 
 
 DECISIONS = {
@@ -779,6 +780,14 @@ class AutonomousPlanner:
         # -------------------------------------------------
         # Repeated-role guard
         # -------------------------------------------------
+
+        # Case-bound EVM forensics has its own bounded source -> analysis ->
+        # synthetic lab -> validator route. Do not let generic novelty/quality
+        # heuristics abort a valid stage before the dedicated route is consulted.
+        if self._is_bound_evm_forensics_task(task):
+            dedicated_decision = self._choose_next_raw(task)
+            if isinstance(dedicated_decision, tuple) and len(dedicated_decision) == 5:
+                return dedicated_decision
 
         history = self.branch_history(
             task,
@@ -1832,6 +1841,28 @@ class AutonomousPlanner:
                 )
 
         return None
+
+    def _is_bound_evm_forensics_task(self, task):
+        """Return true only for a registered case whose canonical binding is present."""
+        if not isinstance(task, dict) or task.get("role") not in {
+            "source_researcher", "crypto_analyst", "lab_runner", "validator",
+        }:
+            return False
+        result = task.get("result")
+        if not isinstance(result, dict) or result.get("research_track") != "evm_key_forensics":
+            return False
+        binding = result.get("research_case_binding")
+        if not isinstance(binding, dict):
+            return False
+        try:
+            verify_research_case_binding(binding)
+            registered_case = self.queue.get_research_case(binding.get("case_id"))
+            return (
+                registered_case is not None
+                and research_case_binding(registered_case) == binding
+            )
+        except (TypeError, ValueError):
+            return False
 
     def choose_next(self, task):
         """
@@ -2979,6 +3010,53 @@ class MasterOrchestrator:
         # task awaiting planning. Workers can finish children faster than the
         # 15-second Master tick, so "no live tasks" alone is not an idle signal.
         if self.queue.has_planner_work():
+            return False
+
+        # Once a Research Case is registered, AegisForge's default work is
+        # case-bound EVM forensics, not another generic opportunity-discovery
+        # cycle. Start a source-research root for the newest runnable case that
+        # does not already have one. Existing legacy queue history is preserved.
+        case_rows = self.queue.db.execute(
+            "SELECT case_id FROM research_cases ORDER BY registered_at DESC"
+        ).fetchall()
+        if case_rows:
+            for (case_id,) in case_rows:
+                case = self.queue.get_research_case(case_id)
+                if case is None or case.status not in {CaseStatus.READY, CaseStatus.RUNNING}:
+                    continue
+                existing_root = self.queue.db.execute(
+                    """
+                    SELECT 1 FROM queue
+                    WHERE role = 'source_researcher'
+                      AND parent_task_id IS NULL
+                      AND research_case_id = ?
+                    LIMIT 1
+                    """,
+                    (case_id,),
+                ).fetchone()
+                if existing_root:
+                    continue
+                description = (
+                    f"Begin bounded EVM Key Forensics for registered case {case.case_id}. "
+                    f"Target: {case.target_repository}@{case.target_commit}. "
+                    f"Approved scope: {case.scope_url} (SHA-256 {case.scope_digest}). "
+                    f"Hypothesis: {case.hypothesis}. "
+                    "Use immutable public sources and record provenance. Do not execute downloaded or historical code, "
+                    "handle wallet/key material, or infer exposure of individual wallets."
+                )
+                task_id = self.queue.add(
+                    description=description,
+                    role="source_researcher",
+                    research_case_id=case_id,
+                )
+                print(
+                    f"[MASTER] BOOTSTRAP_CASE role=source_researcher "
+                    f"case={case_id} id={task_id}",
+                    flush=True,
+                )
+                return True
+            # Do not fall back to generic research once the case workflow is
+            # established. Register a new case to begin another bounded cycle.
             return False
 
         row = self.queue.db.execute(

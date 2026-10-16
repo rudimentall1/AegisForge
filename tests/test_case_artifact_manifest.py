@@ -75,7 +75,7 @@ def test_manifest_builder_rejects_missing_or_malformed_case_id(tmp_path, case_id
         )
 
 
-@pytest.mark.parametrize("path", ["../outside.txt", "/tmp/outside.txt", "logs\\run.txt", "C:/outside.txt"])
+@pytest.mark.parametrize("path", ["../outside.txt", "/tmp/outside.txt", "logs\\run.txt", "C:/outside.txt", "logs/./run.txt", "logs//run.txt"])
 def test_manifest_builder_rejects_malformed_nonempty_artifact_paths(tmp_path, path):
     write_artifact(tmp_path)
     with pytest.raises(CaseArtifactManifestError, match="invalid_artifact_path"):

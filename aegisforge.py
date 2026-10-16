@@ -39,6 +39,10 @@ def task_main(argv):
     case_resolve.add_argument("review_id")
     case_resolve.add_argument("resolution")
     case_resolve.add_argument("--db", help=argparse.SUPPRESS)
+    case_rounds = case_sub.add_parser("rounds", help="list public disclosure timelines for case rounds")
+    case_rounds.add_argument("--public", action="store_true", help="return public-safe round metadata only")
+    case_rounds.add_argument("case_id")
+    case_rounds.add_argument("--db", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     queue = TaskQueue(db_path=args.db)
     try:
@@ -65,6 +69,14 @@ def task_main(argv):
                     "resolution": args.resolution,
                 }, indent=2, ensure_ascii=False))
                 return 0 if ok else 1
+            if args.case_command == "rounds":
+                if queue.get_research_case(args.case_id) is None:
+                    print("NOT_FOUND")
+                    return 1
+                rows = queue.list_round_transparency(args.case_id, public_only=args.public)
+                print(json.dumps({"case_id": args.case_id, "rounds": rows, "count": len(rows)},
+                                 indent=2, ensure_ascii=False, default=str))
+                return 0
             if args.case_command == "register":
                 from pathlib import Path
                 from shared.research_case import ResearchCase

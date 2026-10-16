@@ -2,7 +2,7 @@ import json
 import os
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from shared.result_codec import encode, decode
 from shared.research_case import CaseStatus, ExecutionMode, ResearchCase, validate_task_binding
@@ -87,8 +87,26 @@ class TaskQueue:
                 disclosure_deadline TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'OPEN',
                 completed_at TEXT,
-                verdict TEXT
+                verdict TEXT,
+                extension_granted_at TEXT,
+                extension_reason TEXT
             )
+        """)
+        round_columns = {
+            row[1]
+            for row in self.db.execute("PRAGMA table_info(round_transparency)")
+        }
+        if "extension_granted_at" not in round_columns:
+            self.db.execute(
+                "ALTER TABLE round_transparency ADD COLUMN extension_granted_at TEXT"
+            )
+        if "extension_reason" not in round_columns:
+            self.db.execute(
+                "ALTER TABLE round_transparency ADD COLUMN extension_reason TEXT"
+            )
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rt_status_deadline
+            ON round_transparency(status, disclosure_deadline)
         """)
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_round_transparency_case_status
@@ -369,8 +387,8 @@ class TaskQueue:
     # ---------------------------------------------------------
     def create_round_transparency(
         self, round_id, case_id, technique, started_at, disclosure_deadline
-    ):
-        """Register a public-facing disclosure timeline for a research round."""
+    ) -> None:
+        """Register public-safe disclosure metadata once per round ID."""
         required = {
             "round_id": round_id,
             "case_id": case_id,
@@ -388,51 +406,158 @@ class TaskQueue:
             """,
             (round_id, case_id, technique, started_at, disclosure_deadline),
         )
-        row = self.db.execute(
-            "SELECT case_id, technique, started_at, disclosure_deadline FROM round_transparency WHERE round_id = ?",
-            (round_id,),
-        ).fetchone()
-        expected = (case_id, technique, started_at, disclosure_deadline)
-        if row != expected:
-            raise ValueError("round_transparency_id_conflict")
         self.db.commit()
-        return round_id
 
-    def list_round_transparency(self, case_id, public_only=False):
-        """List round disclosure metadata without exposing private research content."""
+    def complete_round(self, round_id, completed_at, verdict) -> bool:
+        """Complete an active round once; repeated or missing IDs are no-ops."""
+        if (
+            not isinstance(round_id, str) or not round_id.strip()
+            or not isinstance(completed_at, str) or not completed_at.strip()
+        ):
+            return False
+        allowed_verdicts = {"REPRODUCED", "NOT_REPRODUCED", "INCONCLUSIVE"}
+        if not isinstance(verdict, str) or verdict.strip().upper() not in allowed_verdicts:
+            verdict = "INCONCLUSIVE"
+        updated = self.db.execute(
+            """
+            UPDATE round_transparency
+            SET status = 'COMPLETED', completed_at = ?, verdict = ?
+            WHERE round_id = ? AND status IN ('OPEN', 'EXTENDED')
+            """,
+            (completed_at, verdict.strip().upper(), round_id),
+        ).rowcount
+        self.db.commit()
+        return updated == 1
+
+    def complete_round_transparency(self, round_id, verdict) -> bool:
+        """Backward-compatible completion entrypoint for the existing master."""
+        completed_at = datetime.now(timezone.utc).isoformat()
+        return self.complete_round(round_id, completed_at, verdict)
+
+    def list_rounds_for_case(self, case_id) -> list[dict]:
+        """Return disclosure timeline fields for a single registered case."""
         if not isinstance(case_id, str) or not case_id.strip():
             raise ValueError("round_transparency_case_id_required")
         rows = self.db.execute(
             """
-            SELECT round_id, technique, started_at, disclosure_deadline,
-                   status, verdict
+            SELECT round_id, case_id, technique, started_at, disclosure_deadline,
+                   status, completed_at, verdict, extension_granted_at, extension_reason
             FROM round_transparency
             WHERE case_id = ?
             ORDER BY started_at, round_id
             """,
             (case_id,),
         ).fetchall()
-        keys = ("round_id", "technique", "started_at", "deadline", "status", "verdict")
+        keys = (
+            "round_id", "case_id", "technique", "started_at", "disclosure_deadline",
+            "status", "completed_at", "verdict", "extension_granted_at", "extension_reason",
+        )
         return [dict(zip(keys, row)) for row in rows]
 
-    def complete_round_transparency(self, round_id, verdict):
-        """Mark a round complete once; preserve an existing terminal record."""
-        if not isinstance(round_id, str) or not round_id.strip():
-            raise ValueError("round_transparency_round_id_required")
-        if not isinstance(verdict, str) or not verdict.strip():
-            verdict = "INCONCLUSIVE"
-        completed_at = datetime.now(timezone.utc).isoformat()
-        updated = self.db.execute(
-            """
-            UPDATE round_transparency
-            SET status = 'COMPLETED', completed_at = ?, verdict = ?
-            WHERE round_id = ? AND status = 'OPEN'
-            """,
-            (completed_at, verdict.strip()[:128], round_id),
-        ).rowcount
-        self.db.commit()
-        return updated == 1
+    def list_round_transparency(self, case_id, public_only=False):
+        """Backward-compatible alias used by the existing public timeline CLI."""
+        rows = self.list_rounds_for_case(case_id)
+        public_fields = (
+            "round_id", "technique", "started_at", "deadline", "status", "verdict",
+            "extension_granted_at",
+        )
+        if public_only:
+            return [
+                {
+                    "round_id": row["round_id"],
+                    "technique": row["technique"],
+                    "started_at": row["started_at"],
+                    "deadline": row["disclosure_deadline"],
+                    "status": row["status"],
+                    "verdict": row["verdict"],
+                    "extension_granted_at": row["extension_granted_at"],
+                }
+                for row in rows
+            ]
+        return [
+            {
+                **row,
+                "deadline": row["disclosure_deadline"],
+            }
+            for row in rows
+        ]
 
+    def grant_extension(self, round_id, reason, days=14) -> bool:
+        """Grant the one permitted extension to an OPEN round; otherwise no-op."""
+        if (
+            not isinstance(round_id, str) or not round_id.strip()
+            or not isinstance(reason, str) or not reason.strip()
+            or not isinstance(days, int) or isinstance(days, bool) or days <= 0
+        ):
+            return False
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute(
+                """
+                SELECT disclosure_deadline, extension_granted_at
+                FROM round_transparency
+                WHERE round_id = ? AND status = 'OPEN'
+                """,
+                (round_id,),
+            ).fetchone()
+            if row is None or row[1] is not None:
+                self.db.rollback()
+                return False
+            try:
+                current_deadline = datetime.fromisoformat(
+                    str(row[0]).replace("Z", "+00:00")
+                )
+            except (TypeError, ValueError):
+                self.db.rollback()
+                return False
+            if current_deadline.tzinfo is None:
+                current_deadline = current_deadline.replace(tzinfo=timezone.utc)
+            new_deadline = (current_deadline + timedelta(days=days)).isoformat()
+            granted_at = datetime.now(timezone.utc).isoformat()
+            updated = self.db.execute(
+                """
+                UPDATE round_transparency
+                SET disclosure_deadline = ?, status = 'EXTENDED',
+                    extension_granted_at = ?, extension_reason = ?
+                WHERE round_id = ? AND status = 'OPEN'
+                  AND extension_granted_at IS NULL
+                """,
+                (new_deadline, granted_at, reason.strip()[:1000], round_id),
+            ).rowcount
+            if updated != 1:
+                self.db.rollback()
+                return False
+            self.db.commit()
+            return True
+        except Exception:
+            self.db.rollback()
+            return False
+
+    def expired_rounds(self, now) -> list[dict]:
+        """Return overdue OPEN or EXTENDED rounds using their current deadline."""
+        if isinstance(now, datetime):
+            now_text = now.isoformat()
+        elif isinstance(now, str) and now.strip():
+            now_text = now
+        else:
+            return []
+        if now_text.endswith("Z"):
+            now_text = now_text[:-1] + "+00:00"
+        rows = self.db.execute(
+            """
+            SELECT round_id, case_id, technique, started_at, disclosure_deadline,
+                   status, completed_at, verdict, extension_granted_at, extension_reason
+            FROM round_transparency
+            WHERE status IN ('OPEN', 'EXTENDED') AND disclosure_deadline < ?
+            ORDER BY disclosure_deadline, round_id
+            """,
+            (now_text,),
+        ).fetchall()
+        keys = (
+            "round_id", "case_id", "technique", "started_at", "disclosure_deadline",
+            "status", "completed_at", "verdict", "extension_granted_at", "extension_reason",
+        )
+        return [dict(zip(keys, row)) for row in rows]
 
     def create_human_review(self, case_id, reason, task_id=None):
         """Create one open review per case; repeated requests return its ID."""

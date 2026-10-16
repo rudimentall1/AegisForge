@@ -68,9 +68,24 @@ class RoundSpec:
         if (
             not isinstance(self.disclosure_deadline_days, int)
             or isinstance(self.disclosure_deadline_days, bool)
-            or self.disclosure_deadline_days <= 0
+            or not 7 <= self.disclosure_deadline_days <= 180
         ):
-            raise CaseValidationError("round_disclosure_deadline_days_invalid")
+            raise CaseValidationError(
+                "round_disclosure_deadline_days_out_of_range:7..180"
+            )
+        short_deadline_techniques = {
+            "source_pattern",
+            "crypto_primitive_analysis",
+            "differential_revision",
+        }
+        if (
+            self.technique in short_deadline_techniques
+            and self.disclosure_deadline_days > 60
+        ):
+            raise CaseValidationError(
+                f"round_disclosure_deadline_days_exceeds_technique_max:"
+                f"{self.technique}:60"
+            )
 
 
 @dataclass(frozen=True, slots=True)

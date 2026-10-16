@@ -12,6 +12,7 @@ from shared.verify_bundle import (
     MANIFEST_FILENAME,
     MANIFEST_SCHEMA_VERSION,
     REPRODUCTION_CONTRACT_FILENAME,
+    MAX_CONTRACT_BYTES,
     MAX_ARTIFACTS,
     MAX_ARTIFACT_BYTES,
     MAX_MANIFEST_BYTES,
@@ -630,3 +631,31 @@ def test_reproduction_opt_in_requires_strict_boolean(tmp_path, value):
     write_bundle(tmp_path)
     with pytest.raises(ValueError, match="must_be_boolean"):
         verify_bundle(tmp_path, run_reproduction=value)
+
+
+def test_level_three_oversized_contract_fails_before_unbounded_read(tmp_path, monkeypatch):
+    manifest, _ = write_bundle(tmp_path)
+    raw = b" " * (MAX_CONTRACT_BYTES + 1)
+    (tmp_path / REPRODUCTION_CONTRACT_FILENAME).write_bytes(raw)
+    manifest["artifacts"].append({
+        "path": REPRODUCTION_CONTRACT_FILENAME,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "size_bytes": len(raw),
+    })
+    manifest["artifacts"].sort(key=lambda item: item["path"])
+    rewrite_manifest(tmp_path, manifest)
+
+    def unexpected_execution(*args, **kwargs):
+        raise AssertionError("oversized contract must never execute")
+
+    monkeypatch.setattr("shared.verify_bundle.run_reproduction_contract", unexpected_execution)
+    result = verify_bundle(
+        tmp_path,
+        run_reproduction=True,
+        target_checkout="/authorized/pinned/checkout",
+        reproduction_output_dir="/tmp/aegisforge-reproduction-output",
+    )
+
+    assert result["levels"][2]["status"] == "FAIL"
+    assert result["levels"][2]["reason"] == "reproduction_contract_invalid"
+    assert "contract_size_limit_exceeded" in result["levels"][2]["detail"]

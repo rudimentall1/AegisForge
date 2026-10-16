@@ -284,3 +284,19 @@ def test_manifest_verifier_enforces_total_size_limit(tmp_path, monkeypatch):
     result = verify_case_artifact_manifest(tmp_path, manifest)
 
     assert result == {"status": "FAIL", "errors": ["bundle_size_limit_exceeded"]}
+
+
+
+def test_manifest_verifier_bounds_reads_by_declared_artifact_size(tmp_path):
+    write_artifact(tmp_path)
+    manifest = build(tmp_path)
+    manifest["artifacts"][0]["size_bytes"] = 0
+    payload = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
+    manifest["manifest_sha256"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
+
+    result = verify_case_artifact_manifest(tmp_path, manifest)
+
+    assert result["status"] == "FAIL"
+    assert result["errors"][0].startswith("artifact_unavailable:logs/run.txt:")

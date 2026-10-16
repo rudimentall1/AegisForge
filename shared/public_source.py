@@ -12,6 +12,7 @@ import requests
 ALLOWED_SOURCE_HOSTS = {
     "blog.ethereum.org", "ethereum.org", "1inch.com", "www.1inch.com",
     "github.com", "www.github.com", "api.github.com", "raw.githubusercontent.com",
+    "nvd.nist.gov",
 }
 MAX_BODY_BYTES = 1_500_000
 MAX_TEXT_CHARS = 18_000

@@ -32,7 +32,8 @@ def test_round_runner_writes_new_artifact_without_overwriting(tmp_path, capsys):
 
     assert main(["--output", str(output_path)]) == 2
     assert output_path.read_bytes() == first
-    assert "File exists" in capsys.readouterr().err or "file exists" in capsys.readouterr().err.lower()
+    error = capsys.readouterr().err.lower()
+    assert "file exists" in error
 
 
 def test_round_runner_output_is_not_a_deployed_contract_claim():

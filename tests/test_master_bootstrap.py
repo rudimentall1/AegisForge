@@ -334,7 +334,7 @@ def test_bootstrap_terminalizes_failed_root_without_decision(tmp_path, monkeypat
     assert queue.db.execute(
         "SELECT status FROM round_transparency WHERE case_id = ? AND round_id = ?",
         (case_id, "round-001"),
-    ).fetchone() == ("FAILED", None)
+    ).fetchone() == ("FAILED",)
     queue.db.close()
 
 

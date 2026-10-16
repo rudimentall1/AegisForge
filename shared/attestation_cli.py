@@ -132,7 +132,7 @@ def _keygen(args) -> int:
     return 0
 
 
-def _create_attestation(args) -> int:
+def _create_local_attestation(args) -> int:
     inputs = _load_json(args.input)
     if not isinstance(inputs, dict):
         raise ValueError("attestation_input_must_be_object")
@@ -373,16 +373,20 @@ def main(argv=None) -> int:
     keygen.add_argument("--private-key-file", required=True)
     keygen.add_argument("--public-key-file", required=True)
     keygen.add_argument("--key-id", required=True)
-    request = attest_sub.add_parser("request", help="request signing from the loopback signer; no private key file")
+    create = attest_sub.add_parser("create", help="request signing from the loopback signer; no private key file")
+    create.add_argument("--input", required=True)
+    create.add_argument("--trusted-keys", required=True)
+    create.add_argument("--output", required=True)
+    request = attest_sub.add_parser("request", help="alias for attest create")
     request.add_argument("--input", required=True)
     request.add_argument("--trusted-keys", required=True)
     request.add_argument("--output", required=True)
-    create = attest_sub.add_parser("create", help="offline administrative signing from a local private key")
-    create.add_argument("--input", required=True)
-    create.add_argument("--private-key-file", required=True)
-    create.add_argument("--key-id", required=True)
-    create.add_argument("--organization", required=True)
-    create.add_argument("--output", required=True)
+    create_local = attest_sub.add_parser("create-local", help="offline administrative signing from a local private key")
+    create_local.add_argument("--input", required=True)
+    create_local.add_argument("--private-key-file", required=True)
+    create_local.add_argument("--key-id", required=True)
+    create_local.add_argument("--organization", required=True)
+    create_local.add_argument("--output", required=True)
 
     verify = sub.add_parser("verify", help="verify an attestation in three tiers")
     verify.add_argument("attestation")
@@ -396,9 +400,9 @@ def main(argv=None) -> int:
         if args.command == "attest":
             if args.attest_command == "keygen":
                 return _keygen(args)
-            if args.attest_command == "request":
+            if args.attest_command in {"create", "request"}:
                 return _request_attestation(args)
-            return _create_attestation(args)
+            return _create_local_attestation(args)
         if args.level in {"2", "3"} and not args.trusted_keys:
             raise ValueError("tier2_and_tier3_require_trusted_keys")
         return _verify(args)

@@ -103,7 +103,7 @@ def create_signed(tmp_path, monkeypatch, *, artifact=None, verdict="INCONCLUSIVE
     ]) == 0
     input_path.write_text(json.dumps(input_payload(artifact, verdict)), encoding="utf-8")
     assert main([
-        "attest", "create",
+        "attest", "create-local",
         "--input", str(input_path),
         "--private-key-file", str(private_path),
         "--key-id", "cli-test-key",
@@ -168,7 +168,7 @@ def test_cli_rejects_private_key_with_open_permissions(tmp_path, capsys):
     private_path.chmod(0o644)
     output = tmp_path / "should-not-exist.json"
     assert main([
-        "attest", "create", "--input", str(input_path),
+        "attest", "create-local", "--input", str(input_path),
         "--private-key-file", str(private_path), "--key-id", "cli-test-key",
         "--organization", "AegisForge CLI tests", "--output", str(output),
     ]) == 3
@@ -202,7 +202,7 @@ def test_cli_tampering_and_untrusted_signer_have_distinct_exit_codes(tmp_path, c
     ]) == 0
     fresh_input.write_text(json.dumps(input_payload()), encoding="utf-8")
     assert main([
-        "attest", "create", "--input", str(fresh_input),
+        "attest", "create-local", "--input", str(fresh_input),
         "--private-key-file", str(private_path), "--key-id", "other-key",
         "--organization", "AegisForge CLI tests", "--output", str(fresh_attestation),
     ]) == 0
@@ -225,7 +225,7 @@ def test_cli_never_accepts_confirmed_verdict(tmp_path, capsys):
     ]) == 0
     input_path.write_text(json.dumps(input_payload(verdict="CONFIRMED")), encoding="utf-8")
     assert main([
-        "attest", "create", "--input", str(input_path),
+        "attest", "create-local", "--input", str(input_path),
         "--private-key-file", str(private_path), "--key-id", "owner-key",
         "--organization", "AegisForge CLI tests", "--output", str(output),
     ]) == 3
@@ -249,7 +249,7 @@ def test_attest_request_uses_loopback_signer_without_private_key_file(tmp_path, 
         monkeypatch.setenv("AEGISFORGE_SIGNER_URL", signer_url)
         monkeypatch.setenv("AEGISFORGE_SIGNER_TOKEN", REQUEST_TOKEN)
         assert main([
-            "attest", "request",
+            "attest", "create",
             "--input", str(input_path),
             "--trusted-keys", str(trusted_path),
             "--output", str(output_path),

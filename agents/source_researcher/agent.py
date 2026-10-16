@@ -261,7 +261,7 @@ class SourceResearcher:
         except Exception as exc:
             return {
                 "source_id": self.source_id(url), "source_url": url,
-                "source_family": source_family, "source_kind": "official_publication",
+                "source_family": source_family, "source_kind": self._seed_source_kind(url),
                 "fetch_status": "fetch_error", "status_code": None, "content_sha256": None,
                 "retrieved_at": datetime.now(timezone.utc).isoformat(),
                 "classification": "unclassified_source", "fetch_error_type": type(exc).__name__,

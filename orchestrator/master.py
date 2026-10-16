@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from collections import Counter
 
 PROJECT_ROOT = os.path.dirname(
@@ -3061,6 +3062,123 @@ class MasterOrchestrator:
         self.planner = AutonomousPlanner(self.queue)
         self._case_pipeline_idle_logged = False
 
+    def _create_round_root(self, case, round_spec: object) -> str:
+        """Create a case-bound root task and its disclosure timeline."""
+        started_at = datetime.now(timezone.utc)
+        deadline = started_at + timedelta(
+            days=round_spec.disclosure_deadline_days
+        )
+        description = (
+            f"Research round {round_spec.round_id} for case {case.case_id}. "
+            f"Technique: {round_spec.technique}. Priority: {round_spec.priority}. "
+            f"Hypothesis: {round_spec.hypothesis}. "
+            f"Expected evidence atoms: {', '.join(round_spec.expected_evidence_atoms)}. "
+            f"Falsification criteria: {round_spec.falsification_criteria}. "
+            f"Disclosure deadline: {deadline.isoformat()}. "
+            "Use immutable public sources and bounded local/synthetic experiments only. "
+            "Do not execute downloaded or historical code, handle wallet/key material, "
+            "or infer exposure of individual wallets. Agent output is not a confirmed finding."
+        )
+        task_id = self.queue.add(
+            description=description,
+            role="source_researcher",
+            research_case_id=case.case_id,
+            round_id=round_spec.round_id,
+        )
+        self.queue.create_round_transparency(
+            round_id=round_spec.round_id,
+            case_id=case.case_id,
+            technique=round_spec.technique,
+            started_at=started_at.isoformat(),
+            disclosure_deadline=deadline.isoformat(),
+        )
+        return task_id
+
+    def _round_verdict(self, root_id: str) -> str:
+        """Extract a conservative verdict from stored task output."""
+        rows = self.queue.db.execute(
+            "SELECT result FROM queue WHERE id = ? OR parent_task_id = ? ORDER BY created_at DESC",
+            (root_id, root_id),
+        ).fetchall()
+        allowed = {"REJECTED", "INCONCLUSIVE", "OUT_OF_SCOPE"}
+        for (raw,) in rows:
+            if not raw:
+                continue
+            try:
+                value = self.planner.parse_result(raw)
+            except Exception:
+                continue
+            if not isinstance(value, dict):
+                continue
+            candidate = value.get("verdict") or value.get("conclusion")
+            if isinstance(candidate, str):
+                normalized = candidate.strip().upper().replace("-", "_").replace(" ", "_")
+                # CONFIRMED requires an explicit human decision; agent output
+                # alone must never promote a finding.
+                if normalized == "CONFIRMED":
+                    return "INCONCLUSIVE"
+                if normalized in allowed:
+                    return normalized
+        return "INCONCLUSIVE"
+
+    def _check_round_deadlines(self, case_id: str) -> None:
+        """Open or prioritize a human review for each expired OPEN round."""
+        now = datetime.now(timezone.utc)
+        rows = self.queue.db.execute(
+            """
+            SELECT round_id, disclosure_deadline
+            FROM round_transparency
+            WHERE case_id = ? AND status = 'OPEN'
+            ORDER BY disclosure_deadline, round_id
+            """,
+            (case_id,),
+        ).fetchall()
+        for round_id, deadline_text in rows:
+            try:
+                deadline = datetime.fromisoformat(
+                    str(deadline_text).replace("Z", "+00:00")
+                )
+                if deadline.tzinfo is None:
+                    deadline = deadline.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                # Malformed timeline data must not be silently treated as
+                # expired; keep it visible for manual inspection.
+                continue
+            if deadline >= now:
+                continue
+
+            reason = f"deadline_exceeded:{round_id}"
+            existing = self.queue.db.execute(
+                """
+                SELECT id, reason FROM pending_human_review
+                WHERE case_id = ? AND status = 'OPEN'
+                ORDER BY created_at LIMIT 1
+                """,
+                (case_id,),
+            ).fetchone()
+            should_log = False
+            if existing:
+                review_id, current_reason = existing
+                if not str(current_reason).startswith("deadline_exceeded:"):
+                    self.queue.db.execute(
+                        "UPDATE pending_human_review SET reason = ? WHERE id = ?",
+                        (reason, review_id),
+                    )
+                    self.queue.db.commit()
+                    should_log = True
+            else:
+                review_id = self.queue.create_human_review(
+                    case_id=case_id,
+                    reason=reason,
+                )
+                should_log = True
+            if should_log:
+                print(
+                    f"[MASTER] ROUND_DEADLINE_EXCEEDED case={case_id} "
+                    f"round={round_id} review={review_id}",
+                    flush=True,
+                )
+
     def _human_review_exists(self, case_id: str) -> bool:
         row = self.queue.db.execute(
             "SELECT 1 FROM pending_human_review "
@@ -3082,9 +3200,11 @@ class MasterOrchestrator:
                 if case is None:
                     continue
 
+                self._check_round_deadlines(case_id)
+
                 roots = self.queue.db.execute(
                     """
-                    SELECT id, role, status FROM queue
+                    SELECT id, role, status, round_id, created_at FROM queue
                     WHERE parent_task_id IS NULL AND research_case_id = ?
                     ORDER BY created_at ASC, id ASC
                     """,
@@ -3092,8 +3212,65 @@ class MasterOrchestrator:
                 ).fetchall()
 
                 if roots:
+                    # Repair a partially created round set after a restart. A
+                    # task root is the durable identity; missing timeline rows
+                    # are reconstructed from its original created_at timestamp.
+                    if case.rounds:
+                        specs_by_id = {item.round_id: item for item in case.rounds}
+                        existing_round_ids = {
+                            row[3] for row in roots if row[3] in specs_by_id
+                        }
+                        for root_id, _role, _status, round_id, created_at in roots:
+                            spec = specs_by_id.get(round_id)
+                            if spec is None:
+                                continue
+                            timeline_exists = self.queue.db.execute(
+                                "SELECT 1 FROM round_transparency WHERE round_id = ?",
+                                (round_id,),
+                            ).fetchone()
+                            if timeline_exists:
+                                continue
+                            try:
+                                started_at = datetime.fromisoformat(
+                                    str(created_at).replace("Z", "+00:00")
+                                )
+                                if started_at.tzinfo is None:
+                                    started_at = started_at.replace(tzinfo=timezone.utc)
+                            except (TypeError, ValueError):
+                                started_at = datetime.now(timezone.utc)
+                            deadline = started_at + timedelta(
+                                days=spec.disclosure_deadline_days
+                            )
+                            self.queue.create_round_transparency(
+                                round_id=round_id,
+                                case_id=case_id,
+                                technique=spec.technique,
+                                started_at=started_at.isoformat(),
+                                disclosure_deadline=deadline.isoformat(),
+                            )
+                        missing_specs = [
+                            item for item in case.rounds
+                            if item.round_id not in existing_round_ids
+                        ]
+                        if missing_specs:
+                            created = []
+                            for round_spec in sorted(
+                                missing_specs,
+                                key=lambda item: (-item.priority, item.round_id),
+                            ):
+                                task_id = self._create_round_root(case, round_spec)
+                                created.append((round_spec.round_id, task_id))
+                            self._case_pipeline_idle_logged = False
+                            for round_id, task_id in created:
+                                print(
+                                    f"[MASTER] BOOTSTRAP_ROUND case={case_id} "
+                                    f"round={round_id} id={task_id}",
+                                    flush=True,
+                                )
+                            return True
+
                     active_branch = False
-                    for root_id, _role, root_status in roots:
+                    for root_id, _role, root_status, _round_id, _created_at in roots:
                         active_children_row = self.queue.db.execute(
                             """
                             SELECT COUNT(*) FROM queue
@@ -3111,6 +3288,12 @@ class MasterOrchestrator:
                         pipeline_has_active_branch = True
                         self._case_pipeline_idle_logged = False
                         continue
+
+                    for root_id, _role, _root_status, round_id, _created_at in roots:
+                        if round_id:
+                            self.queue.complete_round_transparency(
+                                round_id, self._round_verdict(root_id)
+                            )
 
                     existed_before = self._human_review_exists(case_id)
                     review_id = self.queue.create_human_review(
@@ -3131,6 +3314,22 @@ class MasterOrchestrator:
                         reason=f"case_terminal_no_root:{case.status.value}",
                     )
                     continue
+
+                if case.rounds:
+                    created = []
+                    for round_spec in sorted(
+                        case.rounds, key=lambda item: (-item.priority, item.round_id)
+                    ):
+                        task_id = self._create_round_root(case, round_spec)
+                        created.append((round_spec.round_id, task_id))
+                    self._case_pipeline_idle_logged = False
+                    for round_id, task_id in created:
+                        print(
+                            f"[MASTER] BOOTSTRAP_ROUND case={case_id} "
+                            f"round={round_id} id={task_id}",
+                            flush=True,
+                        )
+                    return bool(created)
 
                 description = (
                     f"Begin bounded EVM Key Forensics for registered case {case.case_id}. "

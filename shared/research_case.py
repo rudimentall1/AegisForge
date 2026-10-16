@@ -48,6 +48,7 @@ class RoundSpec:
     expected_evidence_atoms: tuple[str, ...]
     falsification_criteria: str
     priority: int = 0
+    disclosure_deadline_days: int = 90
 
     def __post_init__(self) -> None:
         for field_name in ("round_id", "technique", "hypothesis", "falsification_criteria"):
@@ -64,6 +65,12 @@ class RoundSpec:
             raise CaseValidationError("round_expected_evidence_atoms_invalid")
         if not isinstance(self.priority, int) or isinstance(self.priority, bool):
             raise CaseValidationError("round_priority_invalid")
+        if (
+            not isinstance(self.disclosure_deadline_days, int)
+            or isinstance(self.disclosure_deadline_days, bool)
+            or self.disclosure_deadline_days <= 0
+        ):
+            raise CaseValidationError("round_disclosure_deadline_days_invalid")
 
 
 @dataclass(frozen=True, slots=True)

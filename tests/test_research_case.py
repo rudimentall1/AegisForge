@@ -10,6 +10,7 @@ from shared.research_case import (
     CaseValidationError,
     ExecutionMode,
     ResearchCase,
+    RoundSpec,
     research_case_binding,
     verify_research_case_binding,
     validate_task_binding,
@@ -275,3 +276,51 @@ def test_binding_rejects_self_consistent_but_invalid_case_payload(mutate):
 
     with pytest.raises(CaseValidationError, match="research_case_binding_payload_invalid"):
         verify_research_case_binding(binding)
+
+
+
+def test_round_spec_defaults_disclosure_deadline_to_90_days():
+    spec = RoundSpec(
+        round_id="round-default",
+        technique="source_pattern",
+        hypothesis="A falsifiable hypothesis.",
+        expected_evidence_atoms=("source reference",),
+        falsification_criteria="A counter-test disproves the claim.",
+        priority=7,
+    )
+    assert spec.priority == 7
+    assert spec.disclosure_deadline_days == 90
+
+
+@pytest.mark.parametrize("days", [0, -1, True, 1.5, "90"])
+def test_round_spec_rejects_invalid_disclosure_deadline(days):
+    with pytest.raises(CaseValidationError, match="round_disclosure_deadline_days_invalid"):
+        RoundSpec(
+            round_id="round-invalid",
+            technique="source_pattern",
+            hypothesis="A falsifiable hypothesis.",
+            expected_evidence_atoms=("source reference",),
+            falsification_criteria="A counter-test disproves the claim.",
+            disclosure_deadline_days=days,
+        )
+
+
+def test_round_spec_deadline_survives_case_json_round_trip():
+    case = valid_case(
+        allowed_techniques=("source_pattern",),
+        rounds=[{
+            "round_id": "round-json",
+            "technique": "source_pattern",
+            "hypothesis": "A falsifiable hypothesis.",
+            "expected_evidence_atoms": ["source reference", "counter-test"],
+            "falsification_criteria": "A counter-test disproves the claim.",
+            "priority": 4,
+            "disclosure_deadline_days": 45,
+        }],
+    )
+    queue = TaskQueue(db_path=":memory:")
+    queue.register_research_case(case)
+    restored = queue.get_research_case(case.case_id)
+    assert restored.rounds[0].disclosure_deadline_days == 45
+    assert restored.rounds[0].priority == 4
+    queue.db.close()

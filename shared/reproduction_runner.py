@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import stat
 import subprocess
 import tempfile
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from shared.reproduction_contract import (
     ReproductionContractError,
@@ -168,6 +170,59 @@ def _stop_container(docker_path: str, container_name: str, env: dict[str, str]) 
         pass
 
 
+def _verify_git_target(root: Path, target: dict) -> None:
+    git_directory = root / ".git"
+    if git_directory.is_symlink() or not git_directory.is_dir():
+        raise ReproductionRunnerError("target_git_checkout_required")
+    git_path = shutil.which("git")
+    if not git_path:
+        raise ReproductionRunnerError("git_binary_not_available")
+    git_env = {
+        "PATH": f"{Path(git_path).parent}:/usr/bin:/bin",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "LANG": "C",
+        "LC_ALL": "C",
+    }
+    try:
+        revision = subprocess.run(
+            [git_path, "-C", str(root), "rev-parse", "--verify", "HEAD"],
+            capture_output=True, text=True, timeout=5, check=False, env=git_env,
+        )
+        remote = subprocess.run(
+            [git_path, "-C", str(root), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=5, check=False, env=git_env,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ReproductionRunnerError("target_git_identity_check_failed") from exc
+    if revision.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}\\s*", revision.stdout or ""):
+        raise ReproductionRunnerError("target_git_revision_unavailable")
+    if revision.stdout.strip() != target["commit_sha"]:
+        raise ReproductionRunnerError("target_git_revision_mismatch")
+    if remote.returncode != 0:
+        raise ReproductionRunnerError("target_git_origin_unavailable")
+    remote_value = (remote.stdout or "").strip()
+    if remote_value.startswith("git@github.com:"):
+        remote_path = remote_value[len("git@github.com:"):]
+    else:
+        try:
+            parsed = urlsplit(remote_value)
+            if parsed.scheme not in ("https", "ssh") or parsed.hostname != "github.com":
+                raise ReproductionRunnerError("target_git_origin_mismatch")
+            if parsed.username not in (None, "git") or parsed.password is not None:
+                raise ReproductionRunnerError("target_git_origin_credentials_rejected")
+            remote_path = parsed.path.lstrip("/")
+        except ValueError as exc:
+            raise ReproductionRunnerError("target_git_origin_mismatch") from exc
+    if remote_path.endswith(".git"):
+        remote_path = remote_path[:-4]
+    if remote_path.lower() != target["repository"].lower():
+        raise ReproductionRunnerError("target_git_origin_mismatch")
+
+
 def run_reproduction_contract(
     contract_payload: object,
     bundle_root: str | Path,
@@ -195,6 +250,7 @@ def run_reproduction_contract(
     if not root.is_dir():
         raise ReproductionRunnerError("workspace_root_must_be_directory")
     _scan_workspace(root)
+    _verify_git_target(root, contract["target"])
 
     docker_path = shutil.which(docker_binary)
     if not docker_path:

@@ -76,6 +76,29 @@ def fake_docker(
                 return subprocess.CompletedProcess(args, 0, stdout=revision + "\n", stderr="")
             if "remote" in args:
                 return subprocess.CompletedProcess(args, 0, stdout=remote + "\n", stderr="")
+            if "ls-tree" in args:
+                root = Path(args[args.index("-C") + 1])
+                entries = []
+                for path in root.rglob("*"):
+                    relative_path = path.relative_to(root)
+                    if ".git" in relative_path.parts:
+                        continue
+                    if path.is_dir() and not path.is_symlink():
+                        continue
+                    relative = relative_path.as_posix()
+                    if path.is_symlink():
+                        file_bytes = os.fsencode(os.readlink(path))
+                        mode = b"120000"
+                    else:
+                        file_bytes = path.read_bytes()
+                        mode = b"100755" if path.stat().st_mode & 0o111 else b"100644"
+                    object_id = hashlib.sha1(
+                        f"blob {len(file_bytes)}\\x00".encode("ascii") + file_bytes
+                    ).hexdigest().encode("ascii")
+                    entries.append(
+                        mode + b" blob " + object_id + b"\\t" + os.fsencode(relative) + b"\\x00"
+                    )
+                return subprocess.CompletedProcess(args, 0, stdout=b"".join(entries), stderr=b"")
             raise AssertionError(f"unexpected git operation: {args}")
         operation = args[1]
         if operation == "run":

@@ -218,19 +218,15 @@ def validate_role_input(
         )
         case_id = payload.get("research_case_id")
         case = payload.get("research_case")
-        if (case_id is None) != (case is None):
+        # Case-to-task binding remains enforced by the existing public
+        # shared.research_case.validate_task_binding contract. Do not
+        # pre-empt its established exception type or error semantics here.
+        if case_id is not None and (
+            not isinstance(case_id, str) or not case_id.strip()
+        ):
             raise RoleContractError(
-                "lab_runner requires research_case_id and research_case together"
+                "lab_runner.research_case_id must be a non-empty string"
             )
-        if case_id is not None:
-            if not isinstance(case_id, str) or not case_id.strip():
-                raise RoleContractError(
-                    "lab_runner.research_case_id must be a non-empty string"
-                )
-            if getattr(case, "case_id", None) != case_id:
-                raise RoleContractError(
-                    "lab_runner research case identifier does not match its case"
-                )
 
 
 def validate_role_output(role: str, result: Any) -> None:

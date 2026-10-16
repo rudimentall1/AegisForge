@@ -72,13 +72,13 @@ def test_case_register_and_forensic_task_submission(tmp_path):
     assert json.loads(status.stdout)["target_commit"] == case["target_commit"]
 
 
-def test_forensic_cli_submission_without_case_is_blocked_by_worker_gate(tmp_path):
-    db = tmp_path / "queue.db"
-    submitted = run_cli(db, "submit", "--role", "crypto_analyst", "unbound research task")
-    assert submitted.returncode == 0, submitted.stderr
-    # Queue submission remains possible for backward compatibility, but the
-    # worker must fail closed before executing a forensic role without a case.
-    from shared.research_case import validate_worker_case_binding, CaseValidationError
-    import pytest
-    with pytest.raises(CaseValidationError, match="requires a registered research case"):
-        validate_worker_case_binding("crypto_analyst", None, None)
+def test_forensic_cli_submission_without_case_is_rejected(tmp_path):
+    result = run_cli(
+        tmp_path / "queue.db",
+        "submit",
+        "--role",
+        "crypto_analyst",
+        "unbound research task",
+    )
+    assert result.returncode != 0
+    assert "requires --case-id" in result.stderr

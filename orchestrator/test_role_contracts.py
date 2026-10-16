@@ -97,12 +97,12 @@ def test_security_checker_output_rejects_inconsistent_finding_total():
         validate_role_output("security_checker", output)
 
 
-def test_lab_runner_requires_matching_case_binding_pair():
-    with pytest.raises(RoleContractError, match="together"):
+def test_lab_runner_rejects_empty_case_identifier():
+    with pytest.raises(RoleContractError, match="non-empty string"):
         validate_role_input(
             "lab_runner",
             {},
-            {"research_case_id": "case-1"},
+            {"research_case_id": ""},
         )
 
 

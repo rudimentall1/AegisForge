@@ -61,6 +61,7 @@ def make_workspace(tmp_path):
 def fake_docker(
     monkeypatch, *, output_bytes=b"repro-ok\n", exit_code=0, timeout=False,
     revision="a" * 40, remote="https://github.com/owner/repository.git",
+    tree_tampered_path=None,
 ):
     calls = []
     observed = {"env_file": None, "docker_env": None, "run_args": None}
@@ -95,6 +96,8 @@ def fake_docker(
                     object_id = hashlib.sha1(
                         f"blob {len(file_bytes)}\x00".encode("ascii") + file_bytes
                     ).hexdigest().encode("ascii")
+                    if relative == tree_tampered_path:
+                        object_id = b"d" * 40
                     entries.append(
                         mode + b" blob " + object_id + b"\t" + os.fsencode(relative) + b"\x00"
                     )
@@ -211,9 +214,12 @@ def test_runner_rejects_symlinks_in_workspace(tmp_path, monkeypatch):
     outside = tmp_path / "outside.txt"
     outside.write_text("outside", encoding="utf-8")
     (root / "src" / "escape").symlink_to(outside)
+    fake_docker(monkeypatch)
 
-    with pytest.raises(ReproductionRunnerError, match="workspace_symlink_rejected"):
-        run_reproduction_contract(make_contract(), root, tmp_path / "output")
+    result = run_reproduction_contract(make_contract(), root, tmp_path / "output")
+
+    assert result["status"] == "INCOMPLETE"
+    assert result["reason"] == "workspace_symlink_rejected"
 
 
 def test_runner_rejects_output_directory_inside_workspace(tmp_path, monkeypatch):
@@ -231,3 +237,14 @@ def test_runner_rejects_checkout_at_wrong_commit(tmp_path, monkeypatch):
 
     with pytest.raises(ReproductionRunnerError, match="target_git_revision_mismatch"):
         run_reproduction_contract(make_contract(), root, tmp_path / "output")
+
+
+
+def test_runner_rejects_working_tree_content_not_matching_pinned_commit(tmp_path, monkeypatch):
+    root = make_workspace(tmp_path)
+    fake_docker(monkeypatch, tree_tampered_path="src/target.py")
+
+    result = run_reproduction_contract(make_contract(), root, tmp_path / "output")
+
+    assert result["status"] == "INCOMPLETE"
+    assert result["reason"] == "target_worktree_file_mismatch:src/target.py"

@@ -553,8 +553,9 @@ def test_level_three_does_not_run_unmanifested_contract(tmp_path, monkeypatch):
         reproduction_output_dir="/tmp/aegisforge-reproduction-output",
     )
 
-    assert result["levels"][2]["status"] == "NOT_RUN"
-    assert result["levels"][2]["reason"] == "verified_reproduction_contract_not_in_manifest"
+    assert result["overall_status"] == "FAIL"
+    assert result["levels"][0]["status"] == "FAIL"
+    assert "unmanifested_bundle_file:reproduction-contract.json" in result["levels"][0]["error"]
 
 
 def test_level_three_malformed_contract_fails_closed_without_execution(tmp_path, monkeypatch):

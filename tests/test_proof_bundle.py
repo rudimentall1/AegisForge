@@ -103,3 +103,22 @@ def test_bundle_rejects_revoked_attestor(tmp_path):
     result=subprocess.run([sys.executable,str(bundle/"verify_bundle.py")],cwd=bundle,text=True,capture_output=True,check=False)
     assert result.returncode == 1
     assert "registry" in result.stdout or "signature" in result.stdout
+
+
+def test_bundle_rejects_tampered_manifest_file(tmp_path):
+    proof = _proof()
+    proof_path = tmp_path / "outcome-proof.json"
+    write_outcome_proof(proof, proof_path)
+    bundle = tmp_path / "bundle"
+    export_bundle(proof_path, bundle)
+    manifest = bundle / "evidence-manifest.json"
+    manifest.write_text(manifest.read_text() + " ")
+    result = subprocess.run(
+        [sys.executable, str(bundle / "verify_bundle.py")],
+        cwd=bundle,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "bundle_file_size_mismatch:evidence-manifest.json" in result.stdout or "bundle_file_hash_mismatch:evidence-manifest.json" in result.stdout

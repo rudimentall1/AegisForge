@@ -655,3 +655,166 @@ def deserialize_record(model: type[_EvidenceRecord], payload: dict[str, Any]) ->
     if not isinstance(model, type) or not issubclass(model, _EvidenceRecord):
         raise TypeError("model must be a supported versioned evidence model")
     return model.model_validate(payload)
+
+
+# Case-bound file manifest for portable evidence bundles. This is separate from
+# the existing in-memory Merkle manifest used for capability/receipt bindings.
+CASE_ARTIFACT_MANIFEST_VERSION = "aegisforge-case-artifact-manifest-v1"
+
+
+class CaseArtifactManifestError(ValueError):
+    """A case-bound evidence manifest or artifact path is invalid."""
+
+
+def _manifest_canonical_json(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _safe_artifact_file(root, relative_path):
+    from pathlib import Path, PurePosixPath
+
+    if not isinstance(relative_path, str) or not relative_path or "\\" in relative_path:
+        raise CaseArtifactManifestError("invalid_artifact_path")
+    # Validate the raw spelling before PurePosixPath normalizes "." and repeated "/".
+    if any(part in ("", ".", "..") for part in relative_path.split("/")):
+        raise CaseArtifactManifestError("invalid_artifact_path")
+    rel = PurePosixPath(relative_path)
+    if rel.is_absolute() or any(part in ("", ".", "..") for part in rel.parts):
+        raise CaseArtifactManifestError("invalid_artifact_path")
+    if rel.parts and ":" in rel.parts[0]:
+        raise CaseArtifactManifestError("invalid_artifact_path")
+
+    root_path = Path(root).resolve(strict=True)
+    if not root_path.is_dir():
+        raise CaseArtifactManifestError("artifact_root_not_directory")
+    candidate = root_path
+    for part in rel.parts:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise CaseArtifactManifestError("symlink_artifact_not_allowed")
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(root_path)
+    except (OSError, ValueError) as exc:
+        raise CaseArtifactManifestError("artifact_path_outside_root_or_missing") from exc
+    if not resolved.is_file():
+        raise CaseArtifactManifestError("artifact_not_regular_file")
+    return resolved
+
+
+def _file_sha256(path):
+    hasher = hashlib.sha256()
+    size = 0
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            hasher.update(chunk)
+            size += len(chunk)
+    return hasher.hexdigest(), size
+
+
+def _case_manifest_payload(case_id, hypothesis_id, artifacts):
+    return {
+        "schema_version": CASE_ARTIFACT_MANIFEST_VERSION,
+        "case_id": case_id,
+        "hypothesis_id": hypothesis_id,
+        "artifacts": artifacts,
+    }
+
+
+def build_case_artifact_manifest(root, *, case_id, hypothesis_id, artifact_paths):
+    """Build a portable manifest linking each artifact's bytes to a case and hypothesis."""
+    from pathlib import PurePosixPath
+
+    for name, value in (("case_id", case_id), ("hypothesis_id", hypothesis_id)):
+        if not isinstance(value, str) or not value.strip():
+            raise CaseArtifactManifestError(f"invalid_{name}")
+    if isinstance(artifact_paths, (str, bytes)) or not isinstance(artifact_paths, (list, tuple, set)):
+        raise CaseArtifactManifestError("artifact_paths_must_be_a_collection")
+    if not artifact_paths:
+        raise CaseArtifactManifestError("artifact_paths_required")
+
+    normalized = []
+    seen = set()
+    for relative_path in artifact_paths:
+        path = _safe_artifact_file(root, relative_path)
+        normalized_path = PurePosixPath(relative_path).as_posix()
+        if normalized_path in seen:
+            raise CaseArtifactManifestError("duplicate_artifact_path")
+        seen.add(normalized_path)
+        sha256, size_bytes = _file_sha256(path)
+        normalized.append({
+            "path": normalized_path,
+            "sha256": sha256,
+            "size_bytes": size_bytes,
+        })
+    normalized.sort(key=lambda item: item["path"])
+    payload = _case_manifest_payload(case_id.strip(), hypothesis_id.strip(), normalized)
+    payload["manifest_sha256"] = hashlib.sha256(
+        _manifest_canonical_json(payload).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+def verify_case_artifact_manifest(root, manifest):
+    """Return explicit PASS/FAIL checks; never treat malformed or missing evidence as success."""
+    if not isinstance(manifest, dict):
+        return {"status": "FAIL", "errors": ["manifest_must_be_an_object"]}
+    expected_keys = {
+        "schema_version", "case_id", "hypothesis_id", "artifacts", "manifest_sha256"
+    }
+    if set(manifest) != expected_keys:
+        return {"status": "FAIL", "errors": ["manifest_fields_invalid"]}
+    if manifest.get("schema_version") != CASE_ARTIFACT_MANIFEST_VERSION:
+        return {"status": "FAIL", "errors": ["unsupported_manifest_schema"]}
+    for field in ("case_id", "hypothesis_id", "manifest_sha256"):
+        value = manifest.get(field)
+        if not isinstance(value, str) or not value.strip():
+            return {"status": "FAIL", "errors": [f"invalid_{field}"]}
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        return {"status": "FAIL", "errors": ["artifacts_required"]}
+
+    seen = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256", "size_bytes"}:
+            return {"status": "FAIL", "errors": ["artifact_entry_invalid"]}
+        path = artifact.get("path")
+        digest = artifact.get("sha256")
+        size = artifact.get("size_bytes")
+        if not isinstance(path, str) or not path:
+            return {"status": "FAIL", "errors": ["artifact_path_invalid"]}
+        if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            return {"status": "FAIL", "errors": [f"artifact_digest_invalid:{path}"]}
+        if type(size) is not int or size < 0:
+            return {"status": "FAIL", "errors": [f"artifact_size_invalid:{path}"]}
+        if path in seen:
+            return {"status": "FAIL", "errors": ["duplicate_artifact_path"]}
+        seen.add(path)
+
+    payload = _case_manifest_payload(
+        manifest["case_id"], manifest["hypothesis_id"], artifacts
+    )
+    actual_manifest_digest = hashlib.sha256(
+        _manifest_canonical_json(payload).encode("utf-8")
+    ).hexdigest()
+    if actual_manifest_digest != manifest["manifest_sha256"]:
+        return {"status": "FAIL", "errors": ["manifest_digest_mismatch"]}
+
+    for artifact in artifacts:
+        try:
+            path = _safe_artifact_file(root, artifact["path"])
+            actual_digest, actual_size = _file_sha256(path)
+        except (CaseArtifactManifestError, OSError, ValueError) as exc:
+            return {"status": "FAIL", "errors": [f"artifact_unavailable:{artifact['path']}:{exc}"]}
+        if actual_digest != artifact["sha256"]:
+            return {"status": "FAIL", "errors": [f"artifact_digest_mismatch:{artifact['path']}"]}
+        if actual_size != artifact["size_bytes"]:
+            return {"status": "FAIL", "errors": [f"artifact_size_mismatch:{artifact['path']}"]}
+    return {
+        "status": "PASS",
+        "case_id": manifest["case_id"],
+        "hypothesis_id": manifest["hypothesis_id"],
+        "checked_artifacts": len(artifacts),
+        "manifest_sha256": manifest["manifest_sha256"],
+        "errors": [],
+    }

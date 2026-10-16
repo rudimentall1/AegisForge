@@ -2180,6 +2180,7 @@ class AutonomousPlanner:
                     raw_result,
                     capability_intent,
                     allow_failed_parent,
+                    research_case_id,
                 ) = row
 
                 current = {
@@ -2189,6 +2190,7 @@ class AutonomousPlanner:
                     "role": role,
                     "parent_task_id": parent_task_id,
                     "finished_at": finished_at,
+                    "research_case_id": research_case_id,
                     "result": self.parse_result(raw_result),
                     "planner_decision": None,
                     "planner_decided_at": None,

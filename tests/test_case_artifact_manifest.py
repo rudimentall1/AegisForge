@@ -177,3 +177,23 @@ def test_manifest_writer_rejects_symlinked_manifest_destination(tmp_path):
             hypothesis_id="hypothesis-entropy-001",
             artifact_paths=["logs/run.txt"],
         )
+
+
+
+def test_manifest_builder_rejects_self_reference_even_if_file_exists(tmp_path):
+    write_artifact(tmp_path)
+    write_artifact(
+        tmp_path,
+        relative_path=CASE_ARTIFACT_MANIFEST_FILENAME,
+        content=b"stale manifest",
+    )
+
+    with pytest.raises(
+        CaseArtifactManifestError, match="manifest_cannot_include_itself_as_artifact"
+    ):
+        build_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/run.txt", CASE_ARTIFACT_MANIFEST_FILENAME],
+        )

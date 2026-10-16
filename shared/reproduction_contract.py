@@ -9,8 +9,10 @@ import hashlib
 import json
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 REPRODUCTION_CONTRACT_VERSION = "aegisforge-reproduction-contract-v1"
+MAX_CONTRACT_BYTES = 2 * 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -42,7 +44,13 @@ def _reject_constant(value: str) -> None:
 
 
 def _text(value: object, field: str, *, max_bytes: int = _MAX_TEXT_BYTES) -> str:
-    if not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > max_bytes:
+    if not isinstance(value, str) or not value.strip():
+        raise ReproductionContractError(f"{field}_invalid")
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ReproductionContractError(f"{field}_invalid_unicode") from exc
+    if len(encoded) > max_bytes:
         raise ReproductionContractError(f"{field}_invalid")
     if "\x00" in value:
         raise ReproductionContractError(f"{field}_contains_nul")
@@ -95,14 +103,24 @@ def validate_reproduction_contract(payload: object) -> dict[str, Any]:
         "repository", "commit_sha", "scope_reference", "source_path",
     })
     repository = _text(target["repository"], "target_repository", max_bytes=256)
-    if not _REPOSITORY_RE.fullmatch(repository):
+    if (
+        not _REPOSITORY_RE.fullmatch(repository)
+        or any(part in (".", "..") for part in repository.split("/"))
+    ):
         raise ReproductionContractError("target_repository_invalid")
     commit_sha = _text(target["commit_sha"], "target_commit_sha", max_bytes=40)
     if not _COMMIT_RE.fullmatch(commit_sha):
         raise ReproductionContractError("target_commit_sha_invalid")
     scope_reference = _text(target["scope_reference"], "scope_reference", max_bytes=2048)
-    if not scope_reference.startswith("https://"):
-        raise ReproductionContractError("scope_reference_must_be_https")
+    parsed_scope = urlsplit(scope_reference)
+    if (
+        parsed_scope.scheme != "https"
+        or not parsed_scope.hostname
+        or parsed_scope.username is not None
+        or parsed_scope.password is not None
+        or any(ord(char) < 32 for char in scope_reference)
+    ):
+        raise ReproductionContractError("scope_reference_must_be_https_url")
     source_path = _safe_relative_path(target["source_path"], "target_source_path")
 
     toolchain = _object(top["toolchain"], "toolchain", {
@@ -119,7 +137,10 @@ def validate_reproduction_contract(payload: object) -> dict[str, Any]:
         raise ReproductionContractError("command_must_be_bounded_argv")
     normalized_command = []
     for index, arg in enumerate(command):
-        normalized_command.append(_text(arg, f"command_arg_{index}", max_bytes=_MAX_TEXT_BYTES))
+        normalized_arg = _text(arg, f"command_arg_{index}", max_bytes=_MAX_TEXT_BYTES)
+        if "\n" in normalized_arg or "\r" in normalized_arg:
+            raise ReproductionContractError(f"command_arg_multiline:{index}")
+        normalized_command.append(normalized_arg)
 
     working_directory = _safe_relative_path(
         top["working_directory"], "working_directory", allow_root=True
@@ -202,11 +223,19 @@ def validate_reproduction_contract(payload: object) -> dict[str, Any]:
 def load_reproduction_contract(raw: bytes | str) -> dict[str, Any]:
     """Strictly parse JSON and validate it; duplicate keys and nonstandard numbers fail."""
     if isinstance(raw, bytes):
+        if len(raw) > MAX_CONTRACT_BYTES:
+            raise ReproductionContractError("contract_size_limit_exceeded")
         try:
             text = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ReproductionContractError("contract_invalid_utf8") from exc
     elif isinstance(raw, str):
+        try:
+            encoded = raw.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ReproductionContractError("contract_invalid_unicode") from exc
+        if len(encoded) > MAX_CONTRACT_BYTES:
+            raise ReproductionContractError("contract_size_limit_exceeded")
         text = raw
     else:
         raise ReproductionContractError("contract_input_must_be_bytes_or_text")

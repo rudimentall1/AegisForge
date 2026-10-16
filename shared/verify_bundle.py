@@ -403,10 +403,20 @@ def verify_bundle(
                     if len(raw_contract) > MAX_CONTRACT_BYTES:
                         raise ReproductionContractError("contract_size_limit_exceeded")
                     contract = load_reproduction_contract(raw_contract)
+                    if (
+                        contract["case_id"] != levels[0]["case_id"]
+                        or contract["hypothesis_id"] != levels[0]["hypothesis_id"]
+                    ):
+                        raise ReproductionContractError(
+                            "reproduction_contract_case_binding_mismatch"
+                        )
                 except (OSError, ValueError, ReproductionContractError) as exc:
+                    reason = str(exc)
+                    if reason != "reproduction_contract_case_binding_mismatch":
+                        reason = "reproduction_contract_invalid"
                     level_three.update({
                         "status": "FAIL",
-                        "reason": "reproduction_contract_invalid",
+                        "reason": reason,
                         "detail": str(exc)[:512],
                     })
                 else:

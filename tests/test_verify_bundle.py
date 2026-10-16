@@ -489,6 +489,44 @@ def test_level_three_does_not_execute_by_default_even_when_contract_is_present(t
     assert result["levels"][2]["reason"] == "explicit_run_reproduction_required"
 
 
+@pytest.mark.parametrize(
+    "field,mismatched_value",
+    [("case_id", "case-from-another-bundle"), ("hypothesis_id", "hypothesis-from-another-bundle")],
+)
+def test_level_three_rejects_contract_not_bound_to_manifest_case(
+    tmp_path, monkeypatch, field, mismatched_value
+):
+    write_reproduction_bundle(tmp_path)
+    manifest = json.loads((tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    contract_path = tmp_path / REPRODUCTION_CONTRACT_FILENAME
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract[field] = mismatched_value
+    raw = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    contract_path.write_bytes(raw)
+    for artifact in manifest["artifacts"]:
+        if artifact["path"] == REPRODUCTION_CONTRACT_FILENAME:
+            artifact["sha256"] = hashlib.sha256(raw).hexdigest()
+            artifact["size_bytes"] = len(raw)
+    rewrite_manifest(tmp_path, manifest)
+
+    def unexpected_execution(*args, **kwargs):
+        raise AssertionError("mismatched case-bound contract must never execute")
+
+    monkeypatch.setattr("shared.verify_bundle.run_reproduction_contract", unexpected_execution)
+    result = verify_bundle(
+        tmp_path,
+        max_level=3,
+        run_reproduction=True,
+        target_checkout="/authorized/pinned/checkout",
+        reproduction_output_dir="/tmp/aegisforge-reproduction-output",
+    )
+
+    assert result["levels"][2]["status"] == "FAIL"
+    assert result["levels"][2]["reason"] == "reproduction_contract_case_binding_mismatch"
+    assert "finding_verdict" not in result["levels"][2]
+    assert result["overall_status"] == "INCOMPLETE"  # level 2 remains INCONCLUSIVE
+
+
 def test_level_three_explicit_opt_in_runs_pinned_contract_and_never_changes_verdict(tmp_path, monkeypatch):
     write_reproduction_bundle(tmp_path)
     calls = []

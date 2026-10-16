@@ -6,7 +6,7 @@
 
 AegisForge is a reproducible security-research and forensic evidence platform. Its primary workflow binds an authorized target and immutable source revision to a falsifiable hypothesis, controlled experiment, counter-tests, evidence artifacts, and an independently reviewable conclusion.
 
-**EVM Key Forensics is a core research direction, not a disposable experiment or a separate competing product.** The first active bounty target is SSV Network. Historical EVM key-generation research, including the Profanity benchmark, remains a separate forensic track.
+**EVM Key Forensics is the product focus.** The immediate goal is to finish a dependable, reproducible forensic workflow and ship an honest MVP. Active SSV bounty hunting is paused; it is not the current delivery priority. Historical EVM key-generation research, including the Profanity benchmark, is the proving track, but synthetic demonstrations must not be presented as historical runtime reproduction.
 
 ## Decisions
 
@@ -38,7 +38,7 @@ These statements describe implementation components, not proof that the full end
 - Case identity is not yet guaranteed across every executor record, experiment dossier, and exported evidence manifest.
 - The independent human source-review record is a procedure/template, not proof that independent review has occurred.
 - The Profanity benchmark is not a historical runtime reproduction.
-- The SSV investigation has no confirmed eligible vulnerability established by the evidence reviewed so far.
+- The SSV investigation has no confirmed eligible vulnerability; bounty hunting is paused while the product is completed.
 - Main-branch CI status must be checked explicitly; an empty status response is not a passing result.
 - Research Case must be mandatory at all security-research entrypoints and execution boundaries.
 - Evidence replay must be validated from pinned inputs in a clean environment before calling a case independently reproducible.
@@ -63,20 +63,16 @@ Other branches also exist for Research Case scope enforcement, executor identity
 
 ## Priority order
 
-1. Reconcile overlapping open PRs and update documentation to reflect current main.
-2. Make Research Case binding mandatory across security-research entrypoints and execution boundaries without silently breaking unrelated workflows.
-3. Propagate case ID, pinned target revision, and scope digest through experiment records and evidence manifests.
-4. Run one authorized SSV case end to end, including counter-tests, impact analysis, and explicit inconclusive outcomes where necessary.
-5. Validate evidence replay in a clean environment and document exactly what was independently verified.
-6. Only then expand integrations, agent specializations, or hosted/team-product functionality.
+1. Consolidate and validate the open PRs against current main; remove duplicated or superseded work.
+2. Close the EVM Key Forensics end-to-end workflow: pinned public source → structured hypothesis → bounded synthetic/local experiment → validator → portable evidence bundle.
+3. Enforce case identity at every relevant entrypoint and actual execution boundary; legacy tasks must not bypass the research gate.
+4. Propagate case ID, pinned target revision, and scope digest through experiment records, evidence ledger, and exported manifests.
+5. Verify tamper rejection and clean-runner replay; make CI and the release checklist the acceptance gate.
+6. Update user-facing setup instructions and ship a reproducible sample case. Do not add integrations, agent specializations, or hosted features until this works.
 
 ## SSV research boundary
 
-SSV Network is the first active bounty target. Scope was rechecked on 2026-10-16; Immunefi lists the program scope as last updated 2026-09-13. The pinned research source is `ssvlabs/ssv-network@9bb7b21d4432f34f623bed3e0bb3fa77f1e5d2b9` (`mainnet-v2.0.0`). Re-pin and re-check the scope before each new case or submission. Differences between a tagged release and a moving branch are leads only.
-
-**Bounty exclusion rule:** Immunefi's current program terms state that vulnerabilities identified in prior audits and issues documented on `docs.ssv.network` or in any branch of the specified repository are ineligible. The published known-issues list already covers effective-balance root drift and liquidation, removed-operator fee-index accounting, permissionless dust-deposit stale-cluster reverts, theoretical `uint64` accounting overflow, liquidator-liveness assumptions, validator-capacity griefing during migration/reactivation, and operator-fee rounding. Do not recycle these as new findings without a demonstrably distinct, unlisted root cause and impact. Testing must remain on local forks; the program prohibits mainnet and public-testnet testing.
-
-The operator-migration/effective-balance accounting lead has not established a confirmed exploit path. Preserve that status until a test proves otherwise. Use explicit `INCONCLUSIVE` or `NOT_REPRODUCED` results when evidence is insufficient. Do not submit a report unless an authorized, reproducible path demonstrates in-scope security impact.
+SSV bounty hunting is paused by product decision. The reviewed source and scope notes remain research history, not an active execution queue. Do not start new SSV hunts or spend product-completion time on bounty hypotheses unless the user explicitly reopens that track. No eligible SSV vulnerability has been established.
 
 ## Product and commercial hypothesis
 

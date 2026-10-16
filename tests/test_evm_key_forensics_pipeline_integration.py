@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 
 from agents.crypto_analyst.agent import CryptoAnalyst
+from agents.lab_runner.agent import LabRunner
 from agents.source_researcher.agent import SourceResearcher
 from agents.validator.agent import Validator
 from shared.task import Task
@@ -95,7 +96,14 @@ def test_source_researcher_crypto_analyst_validator_preserve_evidence_boundaries
     )
     assert result["analysis_summary"]["claims_confirmed_by_this_agent"] == 0
 
-    validated = Validator(source_fetcher=fake_public_fetch).run(analyzed)
+    labbed = LabRunner().run(analyzed)
+    assert labbed.status == "lab_completed"
+    assert labbed.result["stage"] == "lab"
+    assert labbed.result["lab_summary"]["synthetic_subprocess_passed"] is True
+    assert labbed.result["lab_summary"]["historical_implementation_reproduced"] is False
+    assert labbed.result["lab_summary"]["real_private_keys_used"] is False
+
+    validated = Validator(source_fetcher=fake_public_fetch).run(labbed)
     assert validated.status == "validated"
     validation = validated.result["research_validation"]
     assert validated.result["stage"] == "validation"

@@ -3095,89 +3095,47 @@ class MasterOrchestrator:
         return task_id
 
     def _round_verdict(self, root_id: str) -> str:
-        """Extract a conservative verdict from stored task output."""
+        """Read the final validator verdict; never infer confirmation from other fields."""
         rows = self.queue.db.execute(
             "SELECT result FROM queue WHERE id = ? OR parent_task_id = ? ORDER BY created_at DESC",
             (root_id, root_id),
         ).fetchall()
-        allowed = {"REJECTED", "INCONCLUSIVE", "OUT_OF_SCOPE"}
+        allowed = {"REPRODUCED", "NOT_REPRODUCED", "INCONCLUSIVE"}
         for (raw,) in rows:
             if not raw:
                 continue
             try:
-                value = self.planner.parse_result(raw)
+                result = self.planner.parse_result(raw)
             except Exception:
                 continue
-            if not isinstance(value, dict):
+            if not isinstance(result, dict):
                 continue
-            candidate = value.get("verdict") or value.get("conclusion")
-            if isinstance(candidate, str):
-                normalized = candidate.strip().upper().replace("-", "_").replace(" ", "_")
-                # CONFIRMED requires an explicit human decision; agent output
-                # alone must never promote a finding.
-                if normalized == "CONFIRMED":
-                    return "INCONCLUSIVE"
-                if normalized in allowed:
-                    return normalized
+            validation = result.get("research_validation")
+            if not isinstance(validation, dict):
+                continue
+            verdict = validation.get("verdict") or "INCONCLUSIVE"
+            if not isinstance(verdict, str):
+                return "INCONCLUSIVE"
+            normalized = verdict.strip().upper().replace("-", "_").replace(" ", "_")
+            return normalized if normalized in allowed else "INCONCLUSIVE"
         return "INCONCLUSIVE"
 
-    def _check_round_deadlines(self, case_id: str) -> None:
-        """Open or prioritize a human review for each expired OPEN round."""
-        now = datetime.now(timezone.utc)
-        rows = self.queue.db.execute(
-            """
-            SELECT round_id, disclosure_deadline
-            FROM round_transparency
-            WHERE case_id = ? AND status = 'OPEN'
-            ORDER BY disclosure_deadline, round_id
-            """,
-            (case_id,),
-        ).fetchall()
-        for round_id, deadline_text in rows:
-            try:
-                deadline = datetime.fromisoformat(
-                    str(deadline_text).replace("Z", "+00:00")
-                )
-                if deadline.tzinfo is None:
-                    deadline = deadline.replace(tzinfo=timezone.utc)
-            except (TypeError, ValueError):
-                # Malformed timeline data must not be silently treated as
-                # expired; keep it visible for manual inspection.
+    def _check_round_deadlines(self, case_id: str, now=None) -> None:
+        """Create one idempotent human review for every overdue active round."""
+        now = now or datetime.now(timezone.utc)
+        for round_info in self.queue.expired_rounds(now):
+            if round_info.get("case_id") != case_id:
                 continue
-            if deadline >= now:
+            round_id = round_info.get("round_id")
+            if not isinstance(round_id, str) or not round_id:
                 continue
-
             reason = f"deadline_exceeded:{round_id}"
-            existing = self.queue.db.execute(
-                """
-                SELECT id, reason FROM pending_human_review
-                WHERE case_id = ? AND status = 'OPEN'
-                ORDER BY created_at LIMIT 1
-                """,
-                (case_id,),
-            ).fetchone()
-            should_log = False
-            if existing:
-                review_id, current_reason = existing
-                if not str(current_reason).startswith("deadline_exceeded:"):
-                    self.queue.db.execute(
-                        "UPDATE pending_human_review SET reason = ? WHERE id = ?",
-                        (reason, review_id),
-                    )
-                    self.queue.db.commit()
-                    should_log = True
-            else:
-                review_id = self.queue.create_human_review(
-                    case_id=case_id,
-                    reason=reason,
-                )
-                should_log = True
-            if should_log:
-                print(
-                    f"[MASTER] ROUND_DEADLINE_EXCEEDED case={case_id} "
-                    f"round={round_id} review={review_id}",
-                    flush=True,
-                )
+            review_id = self.queue.create_human_review(case_id=case_id, reason=reason)
+            print(
+                f"[MASTER] ROUND_DEADLINE_EXCEEDED case={case_id} "
+                f"round={round_id} review={review_id}",
+                flush=True,
+            )
 
     def _human_review_exists(self, case_id: str) -> bool:
         row = self.queue.db.execute(
@@ -3291,9 +3249,9 @@ class MasterOrchestrator:
 
                     for root_id, _role, _root_status, round_id, _created_at in roots:
                         if round_id:
-                            self.queue.complete_round_transparency(
-                                round_id, self._round_verdict(root_id)
-                            )
+                            completed_at = datetime.now(timezone.utc).isoformat()
+                            verdict = self._round_verdict(root_id)
+                            self.queue.complete_round(round_id, completed_at, verdict)
 
                     existed_before = self._human_review_exists(case_id)
                     review_id = self.queue.create_human_review(

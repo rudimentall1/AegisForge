@@ -24,3 +24,21 @@ developer-result-before-recursive-inspection.json
 
 .DS_Store
 artifacts/outcome-proofs/
+
+# AegisForge data — ключи, БД, бэкапы
+data/*.key
+data/*.db
+data/*.db-*
+data/*.db.*
+data/*.db.gz
+data/*.sqlite
+data/*.sqlite3
+data/*.bak
+data/*.backup*
+data/*.backup_*
+data/*.backup-*
+data/.*.json
+*.backup_*
+*.backup_*.py
+*.bak.*
+*.bak_*

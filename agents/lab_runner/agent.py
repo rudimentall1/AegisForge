@@ -11,6 +11,7 @@ import uuid
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from shared.lab_execution_receipt import build_receipt, receipt_sha256, sign_receipt
 from shared.task import Task
+from orchestrator.role_contracts import validate_role_input, validate_role_output
 from shared.research_case import (
     CaseValidationError,
     research_case_binding,
@@ -228,6 +229,7 @@ print(json.dumps({
 
     def run(self, task: Task) -> Task:
         task.status = "running_synthetic_lab"
+        validate_role_input(self.name, task.result if task.result is not None else {}, task.payload)
         result = dict(task.result or {})
         payload = task.payload if isinstance(task.payload, dict) else {}
         task_case_id = payload.get("research_case_id")
@@ -262,6 +264,7 @@ print(json.dumps({
                 "receipt_is_signed": experiment["execution_receipt_signed"],
             },
         })
+        validate_role_output(self.name, result)
         task.result = result
         task.status = "lab_completed"
         return task

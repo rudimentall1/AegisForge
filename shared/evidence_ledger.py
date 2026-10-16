@@ -530,3 +530,128 @@ class EvidenceLedger:
             "FROM evidence_ledger"
         ).fetchone()
         return {"atoms": row[0], "confirmations": row[1]}
+
+# Versioned, portable evidence records. ResearchCase remains the canonical
+# domain contract in shared.research_case; TypeAdapter validates that contract
+# instead of introducing a second ResearchCase class.
+from dataclasses import asdict as _dataclass_asdict
+from enum import Enum as _Enum
+from typing import Any, Literal
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
+
+
+EVIDENCE_SCHEMA_VERSION = "aegisforge-evidence-v1"
+
+
+class _EvidenceRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    schema_version: Literal["aegisforge-evidence-v1"]
+
+
+class Hypothesis(_EvidenceRecord):
+    """Falsifiable, scope-bound research hypothesis."""
+    hypothesis_id: str
+    claim: str
+    affected_component: str
+    source_revision: str
+    source_locations: list[str]
+    attacker_capability: str
+    preconditions: list[str]
+    expected_invariant: str
+    reproduction_procedure: str
+    counter_test: str
+    impact_path: str
+    scope_reference: str
+    scope_status: Literal["IN_SCOPE", "OUT_OF_SCOPE", "UNVERIFIED"]
+    conclusion: Literal["CONFIRMED", "REJECTED", "INCONCLUSIVE", "OUT_OF_SCOPE", "NOT_REPRODUCED"]
+    evidence_refs: list[str]
+
+
+class EvidenceArtifact(_EvidenceRecord):
+    """Content-addressable artifact metadata; the manifest verifier checks bytes."""
+    artifact_id: str
+    case_id: str
+    target_revision: str
+    scope_reference: str
+    hypothesis_id: str
+    relative_path: str
+    media_type: str
+    sha256: str
+    size_bytes: int
+
+
+class VerificationCheck(_EvidenceRecord):
+    check_id: str
+    level: Literal[1, 2, 3, 4, 5]
+    status: Literal["PASS", "FAIL", "SKIP", "INCONCLUSIVE"]
+    detail: str
+    artifact_refs: list[str]
+
+
+class Finding(_EvidenceRecord):
+    finding_id: str
+    case_id: str
+    hypothesis_id: str
+    title: str
+    claim: str
+    impact: str
+    severity_rationale: str
+    conclusion: Literal["CONFIRMED", "REJECTED", "INCONCLUSIVE", "OUT_OF_SCOPE", "NOT_REPRODUCED"]
+    evidence_refs: list[str]
+
+
+def _plain(value: Any) -> Any:
+    """Convert dataclasses/enums to stable JSON-compatible primitives."""
+    if hasattr(value, "__dataclass_fields__"):
+        value = _dataclass_asdict(value)
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, _Enum):
+        return value.value
+    return value
+
+
+def serialize_research_case(case: Any) -> dict[str, Any]:
+    """Serialize the existing ResearchCase domain type in a versioned envelope."""
+    from shared.research_case import ResearchCase
+    if not isinstance(case, ResearchCase):
+        raise TypeError("case must be shared.research_case.ResearchCase")
+    data = _plain(case)
+    return {
+        "schema_version": EVIDENCE_SCHEMA_VERSION,
+        "record_type": "ResearchCase",
+        "data": data,
+    }
+
+
+def deserialize_research_case(payload: dict[str, Any]):
+    """Validate a versioned envelope against the canonical ResearchCase type."""
+    from shared.research_case import ResearchCase
+    if not isinstance(payload, dict):
+        raise ValueError("ResearchCase envelope must be an object")
+    if payload.get("schema_version") != EVIDENCE_SCHEMA_VERSION:
+        raise ValueError("Unsupported or missing evidence schema_version")
+    if payload.get("record_type") != "ResearchCase":
+        raise ValueError("Unexpected record_type for ResearchCase envelope")
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("ResearchCase envelope data must be an object")
+    # Pydantic validates the existing dataclass without defining a competing
+    # ResearchCase model or weakening its own fail-closed __post_init__ checks.
+    return TypeAdapter(ResearchCase).validate_python(data)
+
+
+def serialize_record(record: _EvidenceRecord) -> dict[str, Any]:
+    """Return a JSON-compatible, versioned record with strict model validation."""
+    if not isinstance(record, _EvidenceRecord):
+        raise TypeError("record must be a versioned evidence record")
+    return record.model_dump(mode="json")
+
+
+def deserialize_record(model: type[_EvidenceRecord], payload: dict[str, Any]) -> _EvidenceRecord:
+    """Strictly deserialize one evidence record; unknown fields and omissions fail."""
+    if not isinstance(model, type) or not issubclass(model, _EvidenceRecord):
+        raise TypeError("model must be a supported versioned evidence model")
+    return model.model_validate(payload)

@@ -95,8 +95,10 @@ class RoleExecutionResult:
     """Separates execution health from a research conclusion.
 
     A role result is not a finding. In particular, failed, timed-out, or
-    incomplete execution can never produce CONFIRMED or REJECTED. Promotion to
-    CONFIRMED also requires evidence references and explicit human approval.
+    incomplete execution can never produce CONFIRMED or REJECTED. A CONFIRMED
+    outcome also requires evidence references and a reference to a human
+    approval record. This type does not authenticate that record; a trusted
+    control-plane verifier must validate it before accepting the conclusion.
     """
 
     role: str
@@ -105,7 +107,7 @@ class RoleExecutionResult:
     errors: tuple[RoleError, ...] = ()
     evidence_refs: tuple[str, ...] = ()
     research_outcome: ResearchOutcome | None = None
-    human_approved: bool = False
+    human_approval_ref: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.role, str) or self.role not in AGENT_B_ROLES:
@@ -121,8 +123,19 @@ class RoleExecutionResult:
             raise RoleContractError("unsupported execution state")
         if not isinstance(self.payload, dict):
             raise RoleContractError("role payload must be a dictionary")
-        if not isinstance(self.human_approved, bool):
-            raise RoleContractError("human_approved must be a boolean")
+        if self.human_approval_ref is not None and (
+            not isinstance(self.human_approval_ref, str)
+            or not self.human_approval_ref.strip()
+        ):
+            raise RoleContractError(
+                "human_approval_ref must be a non-empty string when provided"
+            )
+        for field in ("research_outcome", "conclusion"):
+            claim = self.payload.get(field)
+            if claim is not None and claim != "":
+                raise RoleContractError(
+                    "role payload cannot embed an agent-authored research conclusion"
+                )
         if isinstance(self.research_outcome, str):
             try:
                 object.__setattr__(
@@ -158,8 +171,8 @@ class RoleExecutionResult:
         if self.research_outcome is ResearchOutcome.CONFIRMED:
             if not self.evidence_refs:
                 raise RoleContractError("CONFIRMED requires evidence references")
-            if not self.human_approved:
-                raise RoleContractError("CONFIRMED requires human approval")
+            if not self.human_approval_ref:
+                raise RoleContractError("CONFIRMED requires a human approval reference")
         if self.research_outcome is ResearchOutcome.REJECTED and not self.evidence_refs:
             raise RoleContractError("REJECTED requires counter-evidence references")
 

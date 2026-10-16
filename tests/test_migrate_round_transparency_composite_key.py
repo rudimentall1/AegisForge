@@ -1,4 +1,8 @@
+import os
 import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 
 from scripts import migrate_round_transparency_composite_key as migration
 from shared import queue
@@ -65,3 +69,32 @@ def test_migration_apply_preserves_rows_and_is_idempotent(tmp_path):
 def test_default_path_matches_queue_default():
     assert migration.db_path == queue.DB_PATH
     assert migration.DEFAULT_DB_PATH == queue.DB_PATH
+
+ 
+def test_migration_script_runs_as_subprocess(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    db_path = tmp_path / "agent_farm.db"
+    _legacy_db(db_path)
+
+    env = os.environ.copy()
+    env["AEGISFORGE_DB_PATH"] = str(db_path)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/migrate_round_transparency_composite_key.py",
+            "--dry-run",
+            "--db-path",
+            str(db_path),
+        ],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert str(db_path) in result.stdout
+    assert '"row_count_before": 1' in result.stdout
+    assert '"mode": "dry-run"' in result.stdout

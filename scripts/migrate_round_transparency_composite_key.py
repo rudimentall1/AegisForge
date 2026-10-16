@@ -12,7 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = Path(
-    os.environ.get("AEGISFORGE_DB_PATH", str(REPO_ROOT / "data" / "agent_farm.db"))
+    os.environ.get("AEGISFORGE_DB_PATH", str(REPO_ROOT / "agent_farm.db"))
 )
 
 CREATE_TABLE_SQL = """

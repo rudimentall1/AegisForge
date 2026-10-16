@@ -477,3 +477,18 @@ def test_case_bundle_export_rejects_multi_task_parent_cycle(tmp_path):
             db_path, case.case_id, tmp_path / "cyclic-lineage.zip"
         )
 
+
+def test_case_bundle_export_rejects_observation_without_ledger_record(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("DELETE FROM evidence_ledger WHERE atom_id = ?", ("atom-001",))
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="evidence_observation_ledger_entry_missing",
+    ):
+        export_research_case_bundle(
+            db_path, case.case_id, tmp_path / "orphaned-ledger-entry.zip"
+        )
+

@@ -3156,24 +3156,28 @@ class MasterOrchestrator:
                 """,
                 (case_id,),
             ).fetchone()
+            should_log = False
             if existing:
                 review_id, current_reason = existing
-                if current_reason != reason:
+                if not str(current_reason).startswith("deadline_exceeded:"):
                     self.queue.db.execute(
                         "UPDATE pending_human_review SET reason = ? WHERE id = ?",
                         (reason, review_id),
                     )
                     self.queue.db.commit()
+                    should_log = True
             else:
                 review_id = self.queue.create_human_review(
                     case_id=case_id,
                     reason=reason,
                 )
-            print(
-                f"[MASTER] ROUND_DEADLINE_EXCEEDED case={case_id} "
-                f"round={round_id} review={review_id}",
-                flush=True,
-            )
+                should_log = True
+            if should_log:
+                print(
+                    f"[MASTER] ROUND_DEADLINE_EXCEEDED case={case_id} "
+                    f"round={round_id} review={review_id}",
+                    flush=True,
+                )
 
     def _human_review_exists(self, case_id: str) -> bool:
         row = self.queue.db.execute(

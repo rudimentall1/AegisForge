@@ -253,3 +253,31 @@ def test_expired_open_round_creates_deadline_review_while_branch_active(tmp_path
     ).fetchone()
     assert review == ("deadline_exceeded:round-001", "OPEN")
     queue.db.close()
+
+
+
+def test_bootstrap_repairs_partially_created_round_set(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case = make_case(rounds=(
+        make_round("round-a", "source_pattern"),
+        make_round("round-b", "synthetic_check"),
+    ))
+    case_id = register_case(queue, case)
+    assert master.bootstrap() is True
+
+    queue.db.execute("DELETE FROM queue WHERE round_id = ?", ("round-b",))
+    queue.db.execute("DELETE FROM round_transparency WHERE round_id = ?", ("round-b",))
+    queue.db.commit()
+
+    assert master.bootstrap() is True
+    roots = queue.db.execute(
+        "SELECT round_id FROM queue WHERE parent_task_id IS NULL AND research_case_id = ? ORDER BY round_id",
+        (case_id,),
+    ).fetchall()
+    timelines = queue.db.execute(
+        "SELECT round_id FROM round_transparency WHERE case_id = ? ORDER BY round_id",
+        (case_id,),
+    ).fetchall()
+    assert roots == [("round-a",), ("round-b",)]
+    assert timelines == [("round-a",), ("round-b",)]
+    queue.db.close()

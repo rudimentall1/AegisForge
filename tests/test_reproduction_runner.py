@@ -59,7 +59,7 @@ def make_workspace(tmp_path):
 
 
 def fake_docker(
-    monkeypatch, *, output_bytes=b"repro-ok\\n", exit_code=0, timeout=False,
+    monkeypatch, *, output_bytes=b"repro-ok\n", exit_code=0, timeout=False,
     revision="a" * 40, remote="https://github.com/owner/repository.git",
 ):
     calls = []
@@ -73,9 +73,9 @@ def fake_docker(
         calls.append((list(args), kwargs))
         if Path(args[0]).name == "git":
             if "rev-parse" in args:
-                return subprocess.CompletedProcess(args, 0, stdout=revision + "\\n", stderr="")
+                return subprocess.CompletedProcess(args, 0, stdout=revision + "\n", stderr="")
             if "remote" in args:
-                return subprocess.CompletedProcess(args, 0, stdout=remote + "\\n", stderr="")
+                return subprocess.CompletedProcess(args, 0, stdout=remote + "\n", stderr="")
             raise AssertionError(f"unexpected git operation: {args}")
         operation = args[1]
         if operation == "run":
@@ -83,20 +83,20 @@ def fake_docker(
             observed["docker_env"] = dict(kwargs["env"])
             env_file = Path(args[args.index("--env-file") + 1])
             observed["env_file"] = env_file.read_text(encoding="utf-8")
-            return subprocess.CompletedProcess(args, 0, stdout="container-id\\n", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="container-id\n", stderr="")
         if operation == "wait":
             if timeout:
                 raise subprocess.TimeoutExpired(args, kwargs["timeout"])
-            return subprocess.CompletedProcess(args, 0, stdout=f"{exit_code}\\n", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout=f"{exit_code}\n", stderr="")
         if operation == "stop":
-            return subprocess.CompletedProcess(args, 0, stdout="container-id\\n", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="container-id\n", stderr="")
         if operation == "cp":
             output_root = Path(args[-1])
             (output_root / "results").mkdir(parents=True, exist_ok=True)
             (output_root / "results" / "summary.json").write_bytes(output_bytes)
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if operation == "rm":
-            return subprocess.CompletedProcess(args, 0, stdout="container-id\\n", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="container-id\n", stderr="")
         raise AssertionError(f"unexpected docker operation: {operation}")
 
     monkeypatch.setattr("shared.reproduction_runner.subprocess.run", run)

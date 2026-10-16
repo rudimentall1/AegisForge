@@ -30,6 +30,20 @@ The existing Profanity work is currently a benchmark and synthetic demonstration
 
 The release acceptance checklist is [docs/PRODUCT-READINESS.md](docs/PRODUCT-READINESS.md). The MVP is not release-ready until its blockers are verified against the exact candidate commit. The command-line workflow for creating cases and submitting bound forensic tasks is documented in [docs/RESEARCH-CASE-CLI.md](docs/RESEARCH-CASE-CLI.md).
 
+## Disclosure Timeline
+
+Each configured research round has a default **90-day disclosure deadline** from its recorded start time. A round may set a different positive `disclosure_deadline_days` value in its immutable `RoundSpec`. AegisForge records the round ID, technique, start time, deadline, status, completion time, and a conservative verdict in `round_transparency`.
+
+The deadline is a review trigger, not an automatic-publication timer. If a round is still `OPEN` after its deadline, the master creates or prioritizes a human review with reason `deadline_exceeded:<round_id>`. The **grace period** is the human-coordination window after that trigger: reviewers can validate evidence and impact, coordinate remediation and notifications, or document a justified extension before deciding what to disclose. AegisForge does not automatically publish a vulnerability, contact a target, or promote an agent claim to `CONFIRMED`.
+
+Public-safe timeline metadata can be queried with:
+
+```bash
+aegisforge tasks case rounds --public <case_id>
+```
+
+The command returns only round identifiers, techniques, timestamps, status, and verdict metadata; it does not expose hypotheses, private evidence, or reproduction details.
+
 ## What exists today
 
 - A Python agent and orchestration codebase with task queueing and research roles.

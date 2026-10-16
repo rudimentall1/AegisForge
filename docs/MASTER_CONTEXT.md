@@ -97,6 +97,7 @@ The long-term moat is not the number of agents. It is the evidence model, reliab
 - [Architecture](ARCHITECTURE.md)
 - [Legacy agent plan status](LEGACY-AGENT-PLAN-STATUS.md)
 - [EVM Key Forensics](EVM-KEY-FORENSICS.md)
+- [Product Readiness Gate](PRODUCT-READINESS.md)
 - [Source provenance notes](evm-key-forensics-source-provenance.md)
 - [SSV Network Bug Bounty](https://immunefi.com/bug-bounty/ssvnetwork/information/)
 - [SSV Network scope](https://immunefi.com/bug-bounty/ssvnetwork/scope/)

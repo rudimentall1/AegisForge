@@ -20,13 +20,15 @@ AegisForge is being built around a controlled research loop:
 6. **Package evidence.** Preserve tool versions, commands, logs, outputs, hashes, limitations, and machine-readable conclusions.
 7. **Verify independently.** Allow another reviewer to check what the evidence actually establishes without trusting the author's narrative.
 
-## First proving ground: SSV Network
+## Product focus: EVM Key Forensics
 
-The first active research target is the [SSV Network Bug Bounty on Immunefi](https://immunefi.com/bug-bounty/ssvnetwork/information/), subject to its current [program scope](https://immunefi.com/bug-bounty/ssvnetwork/scope/).
+The immediate goal is to ship a reliable forensic workflow, not to keep expanding bounty hunts. Active SSV Network vulnerability research is paused while the product is completed.
 
-The investigation has examined differences involving operator migration and effective-balance accounting across source revisions. **No eligible exploit path with demonstrated impact has been established.** These observations are research leads, not a bounty finding. A report is justified only if a reproducible test demonstrates an in-scope security impact.
+The first release should take a pinned public source revision and a falsifiable forensic question through source analysis, a bounded local or synthetic experiment, validation, and export of a portable evidence bundle. Another engineer should be able to inspect the bundle and understand exactly what was and was not established.
 
-A hypothesis should be rejected or stopped when evidence shows expected behavior, an existing mitigation, out-of-scope conditions, or no meaningful impact.
+The existing Profanity work is currently a benchmark and synthetic demonstration, not proof that the historical implementation has been reproduced and not evidence about any individual wallet. The product must preserve that distinction in code, tests, reports, and documentation.
+
+The release acceptance checklist is [docs/PRODUCT-READINESS.md](docs/PRODUCT-READINESS.md). The MVP is not release-ready until its blockers are verified against the exact candidate commit.
 
 ## What exists today
 
@@ -108,7 +110,7 @@ Possible future models include team workspaces, private research history, and ev
 
 ## What success means
 
-AegisForge succeeds when an independent reviewer can reconstruct the pinned environment, rerun the relevant checks, understand the attack preconditions and impact, and reach the same conclusion from the evidence — without needing to trust the author's reputation or an LLM's explanation.
+For the first EVM Key Forensics release, an independent reviewer can validate the pinned source and portable evidence bundle, rerun the documented checks, distinguish synthetic results from historical reproduction, and reach the same conclusion without trusting the author or an LLM. Release readiness is tracked in [docs/PRODUCT-READINESS.md](docs/PRODUCT-READINESS.md).
 
 The long-term asset is not the number of agents. It is the verification tooling, reproducible research history, and workflow quality accumulated across investigations.
 

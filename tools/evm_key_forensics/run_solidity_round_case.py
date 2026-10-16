@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from datetime import datetime, timezone
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -84,6 +85,7 @@ def make_case() -> ResearchCase:
 
 
 def run_case() -> dict:
+    run_started_at = datetime.now(timezone.utc).isoformat()
     case = make_case()
     task = Task(
         task_id="solidity-round-acceptance",
@@ -130,9 +132,12 @@ def run_case() -> dict:
     if not isinstance(validated.result, dict):
         raise RuntimeError("validator_result_missing")
     result = validated.result
+    run_completed_at = datetime.now(timezone.utc).isoformat()
     return {
         "schema_version": SCHEMA_VERSION,
         "case_id": case.case_id,
+        "run_started_at": run_started_at,
+        "run_completed_at": run_completed_at,
         "target": {
             "repository": PINNED_REPOSITORY,
             "commit": PINNED_COMMIT,

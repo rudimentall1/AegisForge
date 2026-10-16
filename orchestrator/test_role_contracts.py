@@ -175,3 +175,18 @@ def test_agent_output_cannot_claim_confirmed_finding():
     output["research_outcome"] = "CONFIRMED"
     with pytest.raises(RoleContractError, match="cannot promote"):
         validate_role_output("analyst", output)
+
+@pytest.mark.parametrize("state", ["SUCCEEDED ", "success", 7])
+def test_execution_result_rejects_malformed_nonempty_state(state):
+    with pytest.raises(RoleContractError, match="execution state"):
+        RoleExecutionResult(role="analyst", execution_state=state, payload={})
+
+
+def test_execution_result_rejects_malformed_nonempty_outcome():
+    with pytest.raises(RoleContractError, match="research outcome"):
+        RoleExecutionResult(
+            role="analyst",
+            execution_state=ExecutionState.SUCCEEDED,
+            payload={},
+            research_outcome="probably confirmed",
+        )

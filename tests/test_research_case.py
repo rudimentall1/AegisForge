@@ -153,7 +153,7 @@ def test_claimed_task_carries_case_id_for_worker_gate(tmp_path):
     assert claimed[12] == case.case_id
 
 
-@pytest.mark.parametrize("role", ["source_researcher", "crypto_analyst", "lab_runner"])
+@pytest.mark.parametrize("role", ["source_researcher", "crypto_analyst", "lab_runner", "validator"])
 def test_forensic_worker_roles_fail_closed_without_case(role):
     with pytest.raises(CaseValidationError, match="requires a registered research case"):
         validate_worker_case_binding(role, None, None)

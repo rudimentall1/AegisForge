@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 import pytest
 
 from shared.queue import TaskQueue
@@ -247,3 +250,27 @@ def test_queue_rejects_case_bound_child_with_missing_parent(tmp_path):
             parent_task_id="missing-parent-id",
             research_case_id=case.case_id,
         )
+
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload.update(target_commit="not-a-commit"),
+        lambda payload: payload.pop("target_commit"),
+        lambda payload: payload.update(execution_mode="live"),
+        lambda payload: payload.update(unexpected_field="accepted?"),
+    ],
+    ids=["invalid-commit", "missing-required-field", "prohibited-mode", "unknown-field"],
+)
+def test_binding_rejects_self_consistent_but_invalid_case_payload(mutate):
+    binding = research_case_binding(valid_case())
+    mutate(binding["case"])
+    canonical = json.dumps(
+        binding["case"], sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    # Recomputing the digest must not make an invalid case contract acceptable.
+    binding["case_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    with pytest.raises(CaseValidationError, match="research_case_binding_payload_invalid"):
+        verify_research_case_binding(binding)

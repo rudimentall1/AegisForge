@@ -2,7 +2,7 @@ import json
 import os
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from shared.result_codec import encode, decode
 from shared.research_case import CaseStatus, ExecutionMode, ResearchCase, validate_task_binding
@@ -515,7 +515,7 @@ class TaskQueue:
                 raise ValueError("round_transparency_deadline_invalid")
             if current_deadline.tzinfo is None:
                 current_deadline = current_deadline.replace(tzinfo=timezone.utc)
-            new_deadline = (current_deadline + __import__("datetime").timedelta(days=days)).isoformat()
+            new_deadline = (current_deadline + timedelta(days=days)).isoformat()
             granted_at = datetime.now(timezone.utc).isoformat()
             updated = self.db.execute(
                 """

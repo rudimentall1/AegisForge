@@ -173,7 +173,7 @@ def test_timeout_can_be_explicitly_inconclusive():
 def test_agent_output_cannot_claim_confirmed_finding():
     output = analyst_output()
     output["research_outcome"] = "CONFIRMED"
-    with pytest.raises(RoleContractError, match="cannot promote"):
+    with pytest.raises(RoleContractError, match="cannot declare a final research conclusion"):
         validate_role_output("analyst", output)
 
 @pytest.mark.parametrize("state", ["SUCCEEDED ", "success", 7])
@@ -190,3 +190,9 @@ def test_execution_result_rejects_malformed_nonempty_outcome():
             payload={},
             research_outcome="probably confirmed",
         )
+
+def test_agent_output_rejects_non_string_conclusion_payload():
+    output = analyst_output()
+    output["research_outcome"] = {"status": "CONFIRMED"}
+    with pytest.raises(RoleContractError, match="must not contain an agent-authored conclusion"):
+        validate_role_output("analyst", output)

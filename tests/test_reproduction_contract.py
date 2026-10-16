@@ -30,6 +30,7 @@ def valid_contract():
         "toolchain": {
             "runtime": "python",
             "version": "3.10.12",
+            "image_ref": "python:3.10-slim@sha256:" + "b" * 64,
             "image_digest": "sha256:" + "b" * 64,
         },
         "command": ["python", "-m", "pytest", "tests/test_target.py", "-q"],
@@ -188,4 +189,13 @@ def test_empty_command_executable_is_rejected():
     payload["command"][0] = "   "
 
     with pytest.raises(ReproductionContractError, match="command_executable_invalid"):
+        validate_reproduction_contract(payload)
+
+
+
+def test_toolchain_image_reference_must_be_pinned_to_matching_digest():
+    payload = valid_contract()
+    payload["toolchain"]["image_ref"] = "python:3.10-slim:latest@sha256:" + "d" * 64
+
+    with pytest.raises(ReproductionContractError, match="toolchain_image_ref_invalid"):
         validate_reproduction_contract(payload)

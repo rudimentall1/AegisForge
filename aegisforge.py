@@ -127,6 +127,9 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] in {"attest", "verify"}:
         from shared.attestation_cli import main as attestation_main
         raise SystemExit(attestation_main(sys.argv[1:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "registry":
+        from shared.attestation_registry_cli import main as registry_main
+        raise SystemExit(registry_main(sys.argv[1:]))
     if len(sys.argv) > 1 and sys.argv[1] == "tasks":
         raise SystemExit(task_main(sys.argv[2:]))
     raise SystemExit(outcome_main(sys.argv[1:]))

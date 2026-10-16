@@ -1,4 +1,5 @@
 import hashlib
+import json
 import pytest
 
 from shared.evidence_ledger import (
@@ -144,7 +145,7 @@ def test_manifest_writer_creates_bundle_manifest_accepted_by_independent_verifie
 
     manifest_path = tmp_path / CASE_ARTIFACT_MANIFEST_FILENAME
     assert manifest_path.is_file()
-    assert __import__("json").loads(manifest_path.read_text(encoding="utf-8")) == manifest
+    assert json.loads(manifest_path.read_text(encoding="utf-8")) == manifest
     result = verify_bundle(tmp_path, max_level=1)
     assert result["overall_status"] == "PASS"
     assert result["levels"][0]["checked_artifacts"] == 1

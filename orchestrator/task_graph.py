@@ -173,6 +173,15 @@ class TaskGraph:
             node_id: self._status(statuses.get(node_id, ExecutionStatus.PENDING), node_id)
             for node_id in self._nodes
         }
+        for node_id, node in self._nodes.items():
+            if normalized[node_id] in {ExecutionStatus.RUNNING, ExecutionStatus.SUCCEEDED}:
+                if any(
+                    normalized[dependency] is not ExecutionStatus.SUCCEEDED
+                    for dependency in node.dependencies
+                ):
+                    raise TaskGraphError(
+                        f"task {node_id!r} cannot be RUNNING or SUCCEEDED before all dependencies succeed"
+                    )
         running = [
             self._nodes[node_id]
             for node_id, status in normalized.items()

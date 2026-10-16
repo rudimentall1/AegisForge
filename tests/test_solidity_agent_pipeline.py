@@ -9,6 +9,13 @@ from shared.task import Task
 from tools.evm_key_forensics.solidity_source_pattern import PINNED_COMMIT
 
 
+class NoNetworkGitHub:
+    BASE_URL = "https://api.github.com"
+
+    def get_json(self, *args, **kwargs):
+        raise AssertionError("the pinned local fixture must not perform GitHub requests")
+
+
 def make_case(commit=PINNED_COMMIT):
     return ResearchCase(
         case_id="openzeppelin-ownable-fixture-001",
@@ -53,7 +60,7 @@ def run_agent_pipeline(case):
             "technique": "source_pattern",
         },
     )
-    sourced = SourceResearcher().run(task)
+    sourced = SourceResearcher(github=NoNetworkGitHub()).run(task)
     analyzed = CryptoAnalyst().run(sourced)
     labbed = LabRunner().run(analyzed)
     return Validator().run(labbed)
@@ -103,7 +110,7 @@ def test_validator_rejects_tampered_synthetic_control_result():
             "technique": "source_pattern",
         },
     )
-    sourced = SourceResearcher().run(task)
+    sourced = SourceResearcher(github=NoNetworkGitHub()).run(task)
     analyzed = CryptoAnalyst().run(sourced)
     labbed = LabRunner().run(analyzed)
     labbed.result["lab_experiments"][0]["controls"]["non_owner_rejected"] = False

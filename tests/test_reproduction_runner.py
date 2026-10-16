@@ -93,10 +93,10 @@ def fake_docker(
                         file_bytes = path.read_bytes()
                         mode = b"100755" if path.stat().st_mode & 0o111 else b"100644"
                     object_id = hashlib.sha1(
-                        f"blob {len(file_bytes)}\\x00".encode("ascii") + file_bytes
+                        f"blob {len(file_bytes)}\x00".encode("ascii") + file_bytes
                     ).hexdigest().encode("ascii")
                     entries.append(
-                        mode + b" blob " + object_id + b"\\t" + os.fsencode(relative) + b"\\x00"
+                        mode + b" blob " + object_id + b"\t" + os.fsencode(relative) + b"\x00"
                     )
                 return subprocess.CompletedProcess(args, 0, stdout=b"".join(entries), stderr=b"")
             raise AssertionError(f"unexpected git operation: {args}")

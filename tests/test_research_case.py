@@ -207,3 +207,43 @@ def test_research_case_binding_rejects_tampered_target_commit():
     with pytest.raises(CaseValidationError, match="digest_mismatch"):
         verify_research_case_binding(binding)
 
+
+
+def test_queue_rejects_child_bound_to_a_different_research_case(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    parent_case = valid_case()
+    other_case = valid_case(
+        case_id="ssv-eb-002",
+        target_commit="c" * 40,
+        scope_digest="d" * 64,
+        hypothesis="A separate hypothesis must not inherit the first case's lineage.",
+    )
+    queue.register_research_case(parent_case)
+    queue.register_research_case(other_case)
+    parent_id = queue.add(
+        "parent investigation",
+        role="source_researcher",
+        research_case_id=parent_case.case_id,
+    )
+
+    with pytest.raises(ValueError, match="research_case_parent_mismatch"):
+        queue.add(
+            "cross-case child",
+            role="crypto_analyst",
+            parent_task_id=parent_id,
+            research_case_id=other_case.case_id,
+        )
+
+
+def test_queue_rejects_case_bound_child_with_missing_parent(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    case = valid_case()
+    queue.register_research_case(case)
+
+    with pytest.raises(ValueError, match="research_case_parent_task_not_found"):
+        queue.add(
+            "orphaned case-bound child",
+            role="crypto_analyst",
+            parent_task_id="missing-parent-id",
+            research_case_id=case.case_id,
+        )

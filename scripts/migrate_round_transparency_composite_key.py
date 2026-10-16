@@ -6,8 +6,12 @@ Dry-run is the default. Pass --apply only after reviewing the reported plan.
 import argparse
 import json
 import sqlite3
+import sys
 from pathlib import Path
 
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from shared.queue import DB_PATH
 
@@ -144,9 +148,14 @@ def migrate(db_path, apply=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH)
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--apply", action="store_true",
         help="Apply the migration. Without this flag, the script is dry-run only.",
+    )
+    mode.add_argument(
+        "--dry-run", action="store_true",
+        help="Explicitly select dry-run mode (the default).",
     )
     args = parser.parse_args()
     print(json.dumps(migrate(args.db_path, apply=args.apply), indent=2))

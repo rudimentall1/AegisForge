@@ -9,14 +9,14 @@ import time
 import sys
 from pathlib import Path
 
-ROOT = Path("/opt/agent-farm")
+ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from shared.result_codec import encode
 
-DB = Path("/opt/agent-farm/data/agent_farm.db")
-STATE = Path("/opt/agent-farm/data/.db_compactor_state.json")
+DB = ROOT / "data" / "agent_farm.db"
+STATE = ROOT / "data" / ".db_compactor_state.json"
 MAGIC = b"AFZ1"
 
 

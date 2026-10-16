@@ -133,19 +133,27 @@ def test_execution_failure_timeout_or_incomplete_cannot_be_conclusive(state, out
             errors=(RoleError(code="tool_failure", message="synthetic failure"),),
             evidence_refs=("evidence://synthetic",),
             research_outcome=outcome,
-            human_approved=True,
+            human_approval_ref="review://human-approval",
         )
 
 
-def test_confirmed_requires_evidence_and_human_approval():
-    with pytest.raises(RoleContractError, match="human approval"):
+def test_confirmed_requires_evidence_and_human_approval_reference():
+    with pytest.raises(RoleContractError, match="human approval reference"):
         RoleExecutionResult(
             role="security_checker",
             execution_state=ExecutionState.SUCCEEDED,
             payload={},
             evidence_refs=("evidence://synthetic",),
             research_outcome=ResearchOutcome.CONFIRMED,
-            human_approved=False,
+        )
+
+
+def test_execution_result_rejects_agent_conclusion_hidden_in_payload():
+    with pytest.raises(RoleContractError, match="cannot embed"):
+        RoleExecutionResult(
+            role="analyst",
+            execution_state=ExecutionState.SUCCEEDED,
+            payload={"research_outcome": "CONFIRMED"},
         )
 
 

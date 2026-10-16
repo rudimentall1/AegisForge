@@ -38,6 +38,7 @@ def test_valid_local_case_passes_gate():
     [
         ({"target_commit": "not-a-commit-sha"}, "target_commit_invalid"),
         ({"target_commit": "g" * 40}, "target_commit_invalid"),
+        ({"target_repository": "not-a-repository"}, "target_repository_invalid"),
         ({"scope_digest": "not-a-sha256-digest"}, "scope_digest_invalid"),
         ({"scope_digest": "z" * 64}, "scope_digest_invalid"),
         ({"scope_url": ""}, "scope_reference_missing"),
@@ -51,6 +52,24 @@ def test_malformed_but_present_scope_fields_fail_closed(changes, reason):
     case = bypass_frozen_validation(valid_case(), **changes)
     result = validate_case(case)
     assert not result.allowed
+    assert result.status == "FAIL"
+    assert result.reason == reason
+
+
+
+
+@pytest.mark.parametrize(
+    ("field", "reason"),
+    [
+        ("hypothesis", "hypothesis_missing"),
+        ("attacker_capability", "attacker_capability_missing"),
+        ("expected_invariant", "expected_invariant_missing"),
+        ("falsification_criteria", "falsification_criteria_missing"),
+    ],
+)
+def test_gate_revalidates_required_case_fields_after_construction(field, reason):
+    case = bypass_frozen_validation(valid_case(), **{field: ""})
+    result = validate_case(case)
     assert result.status == "FAIL"
     assert result.reason == reason
 

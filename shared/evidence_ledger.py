@@ -663,6 +663,9 @@ def deserialize_record(model: type[_EvidenceRecord], payload: dict[str, Any]) ->
 # the existing in-memory Merkle manifest used for capability/receipt bindings.
 CASE_ARTIFACT_MANIFEST_VERSION = "aegisforge-case-artifact-manifest-v1"
 CASE_ARTIFACT_MANIFEST_FILENAME = "case-artifact-manifest.json"
+MAX_CASE_ARTIFACTS = 10_000
+MAX_CASE_ARTIFACT_BYTES = 256 * 1024 * 1024
+MAX_CASE_ARTIFACT_TOTAL_BYTES = 1024 * 1024 * 1024
 
 
 class CaseArtifactManifestError(ValueError):
@@ -708,13 +711,17 @@ def _safe_artifact_file(root, relative_path):
     return resolved
 
 
-def _file_sha256(path):
+def _file_sha256(path, *, max_bytes=None):
+    if max_bytes is None:
+        max_bytes = MAX_CASE_ARTIFACT_BYTES
     hasher = hashlib.sha256()
     size = 0
     with open(path, "rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            hasher.update(chunk)
             size += len(chunk)
+            if size > max_bytes:
+                raise CaseArtifactManifestError("artifact_size_limit_exceeded")
+            hasher.update(chunk)
     return hasher.hexdigest(), size
 
 
@@ -738,9 +745,12 @@ def build_case_artifact_manifest(root, *, case_id, hypothesis_id, artifact_paths
         raise CaseArtifactManifestError("artifact_paths_must_be_a_collection")
     if not artifact_paths:
         raise CaseArtifactManifestError("artifact_paths_required")
+    if len(artifact_paths) > MAX_CASE_ARTIFACTS:
+        raise CaseArtifactManifestError("artifact_count_limit_exceeded")
 
     normalized = []
     seen = set()
+    total_size = 0
     for relative_path in artifact_paths:
         if relative_path == CASE_ARTIFACT_MANIFEST_FILENAME:
             raise CaseArtifactManifestError("manifest_cannot_include_itself_as_artifact")
@@ -750,6 +760,9 @@ def build_case_artifact_manifest(root, *, case_id, hypothesis_id, artifact_paths
             raise CaseArtifactManifestError("duplicate_artifact_path")
         seen.add(normalized_path)
         sha256, size_bytes = _file_sha256(path)
+        total_size += size_bytes
+        if total_size > MAX_CASE_ARTIFACT_TOTAL_BYTES:
+            raise CaseArtifactManifestError("bundle_size_limit_exceeded")
         normalized.append({
             "path": normalized_path,
             "sha256": sha256,
@@ -829,8 +842,11 @@ def verify_case_artifact_manifest(root, manifest):
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         return {"status": "FAIL", "errors": ["artifacts_required"]}
+    if len(artifacts) > MAX_CASE_ARTIFACTS:
+        return {"status": "FAIL", "errors": ["artifact_count_limit_exceeded"]}
 
     seen = set()
+    total_size = 0
     for artifact in artifacts:
         if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256", "size_bytes"}:
             return {"status": "FAIL", "errors": ["artifact_entry_invalid"]}
@@ -843,6 +859,11 @@ def verify_case_artifact_manifest(root, manifest):
             return {"status": "FAIL", "errors": [f"artifact_digest_invalid:{path}"]}
         if type(size) is not int or size < 0:
             return {"status": "FAIL", "errors": [f"artifact_size_invalid:{path}"]}
+        if size > MAX_CASE_ARTIFACT_BYTES:
+            return {"status": "FAIL", "errors": [f"artifact_size_limit_exceeded:{path}"]}
+        total_size += size
+        if total_size > MAX_CASE_ARTIFACT_TOTAL_BYTES:
+            return {"status": "FAIL", "errors": ["bundle_size_limit_exceeded"]}
         if path in seen:
             return {"status": "FAIL", "errors": ["duplicate_artifact_path"]}
         seen.add(path)

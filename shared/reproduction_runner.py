@@ -162,14 +162,16 @@ def _remove_container(docker_path: str, container_name: str, env: dict[str, str]
         return "FAILED"
 
 
-def _stop_container(docker_path: str, container_name: str, env: dict[str, str]) -> None:
+def _stop_container(docker_path: str, container_name: str, env: dict[str, str]) -> bool:
+    """Return whether Docker confirmed that the timed-out container was stopped."""
     try:
-        _docker_call(
+        result = _docker_call(
             docker_path, ["stop", "--time", "1", container_name],
             timeout=5, env=env,
         )
+        return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
-        pass
+        return False
 
 
 def _git_environment(git_path: str) -> dict[str, str]:
@@ -489,27 +491,35 @@ def run_reproduction_contract(
                     exit_code = int(waited.stdout.strip())
             except subprocess.TimeoutExpired:
                 timed_out = True
-                _stop_container(docker_path, container_name, docker_env)
+                if not _stop_container(docker_path, container_name, docker_env):
+                    execution_error = "docker_stop_unconfirmed_after_timeout"
             except OSError:
                 execution_error = "docker_wait_failed"
 
             try:
-                copied = _docker_call(
-                    docker_path, ["cp", f"{container_name}:/output/.", str(output_root)],
-                    timeout=OUTPUT_COPY_TIMEOUT_SECONDS, env=docker_env,
-                )
-                if copied.returncode == 0:
-                    output_result = _verify_outputs(
-                        output_root,
-                        contract["expected_outputs"],
-                        contract["limits"]["max_output_bytes"],
-                    )
-                else:
+                if timed_out and execution_error == "docker_stop_unconfirmed_after_timeout":
+                    # Never copy/validate outputs while the timed-out process may still write.
                     output_result = {
-                        "status": "FAIL",
-                        "error": "container_output_copy_failed",
-                        "detail": (copied.stderr or "")[:1024],
+                        "status": "INCOMPLETE",
+                        "error": "container_stop_unconfirmed",
                     }
+                else:
+                    copied = _docker_call(
+                        docker_path, ["cp", f"{container_name}:/output/.", str(output_root)],
+                        timeout=OUTPUT_COPY_TIMEOUT_SECONDS, env=docker_env,
+                    )
+                    if copied.returncode == 0:
+                        output_result = _verify_outputs(
+                            output_root,
+                            contract["expected_outputs"],
+                            contract["limits"]["max_output_bytes"],
+                        )
+                    else:
+                        output_result = {
+                            "status": "FAIL",
+                            "error": "container_output_copy_failed",
+                            "detail": (copied.stderr or "")[:1024],
+                        }
             except subprocess.TimeoutExpired:
                 output_result = {"status": "FAIL", "error": "container_output_copy_timeout"}
             except OSError:

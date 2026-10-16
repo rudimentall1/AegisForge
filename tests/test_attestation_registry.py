@@ -1,6 +1,8 @@
 import base64
 import hashlib
 import json
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -15,8 +17,33 @@ from shared.attestation_registry import (
     verify_inclusion_proof,
     verify_registry,
     verify_registry_chain,
+    verify_signed_checkpoint,
 )
 from shared.attestation_registry_cli import main
+from shared.attestation_signer import make_server
+
+
+
+
+SIGNER_TOKEN = "registry-test-token-long-enough-for-local-signing-123"
+
+
+@contextmanager
+def running_signer(key):
+    server = make_server(
+        "127.0.0.1", 0, private_key=key, key_id="registry-test-key",
+        organization="AegisForge registry tests", token=SIGNER_TOKEN,
+    )
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def signed_attestation(key, finding_id="finding-registry-001"):
@@ -139,13 +166,14 @@ def test_registry_chain_rejects_modified_prefix():
         raise AssertionError("modified prefix unexpectedly verified")
 
 
-def test_cli_add_verify_proof_and_verify_proof(tmp_path, capsys):
+def test_cli_add_checkpoint_verify_proof_and_verify_proof(tmp_path, capsys, monkeypatch):
     key = Ed25519PrivateKey.generate()
     attestation = signed_attestation(key)
     attestation_path = tmp_path / "attestation.json"
     trusted_path = tmp_path / "trusted.json"
     registry_path = tmp_path / "registry.json"
     proof_path = tmp_path / "proof.json"
+    checkpoint_path = tmp_path / "checkpoint.json"
     write_json(attestation_path, attestation)
     public = key.public_key().public_bytes_raw()
     write_json(trusted_path, {"registry-test-key": base64.b64encode(public).decode("ascii")})
@@ -163,6 +191,27 @@ def test_cli_add_verify_proof_and_verify_proof(tmp_path, capsys):
     assert verified["valid"] is True
     assert verified["root_trust"] == "UNANCHORED"
 
+    with running_signer(key) as signer_url:
+        monkeypatch.setenv("AEGISFORGE_SIGNER_URL", signer_url)
+        monkeypatch.setenv("AEGISFORGE_SIGNER_TOKEN", SIGNER_TOKEN)
+        assert main([
+            "checkpoint", "--registry", str(registry_path),
+            "--trusted-keys", str(trusted_path), "--output", str(checkpoint_path),
+        ]) == 0
+        checkpoint_result = json.loads(capsys.readouterr().out.strip())
+        assert checkpoint_result["status"] == "CHECKPOINT_SIGNED"
+        assert checkpoint_result["root_trust"] == "SIGNED_CHECKPOINT"
+
+    checkpoint_doc = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert main([
+        "verify", "--registry", str(registry_path),
+        "--checkpoint", str(checkpoint_path), "--trusted-keys", str(trusted_path),
+        "--expected-checkpoint-id", checkpoint_doc["checkpoint_id"], "--expected-size", "1",
+    ]) == 0
+    verified_checkpoint = json.loads(capsys.readouterr().out.strip())
+    assert verified_checkpoint["root_trust"] == "SIGNED_CHECKPOINT"
+    assert verified_checkpoint["checkpoint"]["valid"] is True
+
     assert main([
         "proof", "--registry", str(registry_path),
         "--attestation-id", attestation["attestation_id"],
@@ -175,11 +224,21 @@ def test_cli_add_verify_proof_and_verify_proof(tmp_path, capsys):
     assert main([
         "verify-proof", "--proof", str(proof_path),
         "--attestation", str(attestation_path), "--trusted-keys", str(trusted_path),
-        "--expected-root", registry["merkle_root"], "--expected-size", "1",
+        "--checkpoint", str(checkpoint_path),
+        "--expected-checkpoint-id", checkpoint_doc["checkpoint_id"], "--expected-size", "1",
     ]) == 0
     proof_result = json.loads(capsys.readouterr().out.strip())
     assert proof_result["status"] == "VALID"
-    assert proof_result["root_trust"] == "EXTERNALLY_PINNED"
+    assert proof_result["root_trust"] == "SIGNED_CHECKPOINT"
+
+    assert main([
+        "verify-proof", "--proof", str(proof_path),
+        "--attestation", str(attestation_path), "--trusted-keys", str(trusted_path),
+        "--checkpoint", str(checkpoint_path), "--expected-checkpoint-id", "0" * 64,
+    ]) == 1
+    rollback_result = json.loads(capsys.readouterr().out.strip())
+    assert rollback_result["status"] == "INVALID"
+    assert rollback_result["reason"] == "checkpoint_id_mismatch"
 
 
 def test_cli_rejects_untrusted_attestation(tmp_path, capsys):

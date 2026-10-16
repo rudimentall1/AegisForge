@@ -9,7 +9,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from shared.attestation import verify_attestation
 from shared.attestation_signer import MAX_BODY_BYTES, make_server
-from shared.attestation_signer_client import SignerClientError, request_attestation
+from shared.attestation_signer_client import (
+    SignerClientError,
+    request_attestation,
+    request_registry_checkpoint,
+)
+from shared.attestation_registry import build_registry, verify_signed_checkpoint
 
 
 TOKEN = "test-only-token-that-is-long-enough-123456"
@@ -165,3 +170,41 @@ def test_public_key_and_health_endpoints_do_not_expose_private_material():
             assert public["key_id"] == "test-signer"
             assert len(base64.b64decode(public["public_key"])) == 32
             assert "private_key" not in public
+
+
+def test_master_client_requests_signed_registry_checkpoint():
+    import hashlib
+
+    registry = build_registry([{
+        "attestation_id": hashlib.sha256(b"attestation-id").hexdigest(),
+        "attestation_sha256": hashlib.sha256(b"signed-attestation").hexdigest(),
+        "case_digest": hashlib.sha256(b"case-digest").hexdigest(),
+        "verdict": "INCONCLUSIVE",
+        "issued_at": "2026-10-16T10:00:00+00:00",
+        "key_id": "test-signer",
+    }])
+    with running_signer() as (_, key, url):
+        checkpoint = request_registry_checkpoint(registry, base_url=url, token=TOKEN)
+        verified = verify_signed_checkpoint(
+            checkpoint,
+            trusted_keys={"test-signer": key.public_key()},
+            registry=registry,
+        )
+        assert verified["valid"] is True
+        assert verified["root_trust"] == "SIGNED_CHECKPOINT"
+        assert checkpoint["registry"]["merkle_root"] == registry["merkle_root"]
+
+
+def test_signer_rejects_malformed_registry_checkpoint_request():
+    with running_signer() as (_, __, url):
+        status, body = direct_request(
+            url,
+            path="/v1/registry-checkpoint",
+            body=json.dumps({
+                "schema_version": "wrong-schema",
+                "registry": {},
+            }).encode(),
+            token=TOKEN,
+        )
+        assert status == 400
+        assert body["error"] == "registry_checkpoint_request_invalid"

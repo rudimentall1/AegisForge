@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from shared.attestation import verify_attestation, canonical_json, sha256_hex
+from shared.attestation_signer_client import SignerClientError, request_registry_checkpoint
 from shared.attestation_registry import (
     AttestationRegistryError,
     build_inclusion_proof,
@@ -18,6 +19,7 @@ from shared.attestation_registry import (
     entry_from_attestation,
     registry_sha256,
     verify_inclusion_proof,
+    verify_signed_checkpoint,
     verify_registry,
     verify_registry_chain,
 )
@@ -112,6 +114,27 @@ def _add(args) -> int:
     return 0
 
 
+
+
+def _checkpoint(args) -> int:
+    registry = _load_json(args.registry)
+    verify_registry(registry)
+    trusted = _load_trusted_keys(args.trusted_keys)
+    checkpoint = request_registry_checkpoint(registry)
+    verified = verify_signed_checkpoint(checkpoint, trusted_keys=trusted, registry=registry)
+    _write_new_json(args.output, checkpoint)
+    print(json.dumps({
+        "status": "CHECKPOINT_SIGNED",
+        "checkpoint_id": verified["checkpoint_id"],
+        "merkle_root": verified["merkle_root"],
+        "size": verified["size"],
+        "key_id": verified["key_id"],
+        "output": str(args.output),
+        "root_trust": "SIGNED_CHECKPOINT",
+    }, sort_keys=True))
+    return 0
+
+
 def _verify(args) -> int:
     registry = _load_json(args.registry)
     result = verify_registry(registry)
@@ -119,6 +142,27 @@ def _verify(args) -> int:
     if args.previous_registry:
         previous = _load_json(args.previous_registry)
         output["chain"] = verify_registry_chain(registry, previous)
+    if args.expected_checkpoint_id or args.expected_size is not None:
+        if not args.checkpoint:
+            raise ValueError("expected_checkpoint_options_require_checkpoint")
+    if args.checkpoint:
+        if not args.trusted_keys:
+            raise ValueError("--checkpoint_requires_--trusted-keys")
+        checkpoint = _load_json(args.checkpoint)
+        trusted = _load_trusted_keys(args.trusted_keys)
+        checked = verify_signed_checkpoint(checkpoint, trusted_keys=trusted, registry=registry)
+        if args.expected_checkpoint_id and checked["checkpoint_id"] != args.expected_checkpoint_id:
+            print(json.dumps({"status": "INVALID", "reason": "checkpoint_id_mismatch"}, sort_keys=True))
+            return 1
+        if args.expected_size is not None and checked["size"] != args.expected_size:
+            print(json.dumps({"status": "INVALID", "reason": "checkpoint_size_mismatch"}, sort_keys=True))
+            return 1
+        output["checkpoint"] = {
+            "valid": True,
+            "checkpoint_id": checked["checkpoint_id"],
+            "key_id": checked["key_id"],
+        }
+        output["root_trust"] = "SIGNED_CHECKPOINT"
     print(json.dumps(output, sort_keys=True))
     return 0
 
@@ -145,6 +189,7 @@ def _proof(args) -> int:
 def _verify_proof(args) -> int:
     proof = _load_json(args.proof)
     attestation = _load_json(args.attestation)
+    checkpoint = _load_json(args.checkpoint)
     trusted = _load_trusted_keys(args.trusted_keys)
     signature_result = verify_attestation(attestation, trusted_keys=trusted)
     if signature_result.status != "VALID":
@@ -154,10 +199,18 @@ def _verify_proof(args) -> int:
             "attestation_id": signature_result.attestation_id,
         }, sort_keys=True))
         return 2 if signature_result.status == "UNTRUSTED" else 1
+    checkpoint_result = verify_signed_checkpoint(checkpoint, trusted_keys=trusted)
+    if args.expected_checkpoint_id and checkpoint_result["checkpoint_id"] != args.expected_checkpoint_id:
+        print(json.dumps({"status": "INVALID", "reason": "checkpoint_id_mismatch"}, sort_keys=True))
+        return 1
+    if args.expected_size is not None and checkpoint_result["size"] != args.expected_size:
+        print(json.dumps({"status": "INVALID", "reason": "checkpoint_size_mismatch"}, sort_keys=True))
+        return 1
+    summary = checkpoint["registry"]
     result = verify_inclusion_proof(
         proof,
-        expected_root=args.expected_root,
-        expected_size=args.expected_size,
+        expected_root=summary["merkle_root"],
+        expected_size=summary["size"],
     )
     if (
         result["attestation_id"] != attestation.get("attestation_id")
@@ -167,8 +220,9 @@ def _verify_proof(args) -> int:
     print(json.dumps({
         "status": "VALID",
         "signature": "VALID",
+        "checkpoint_id": checkpoint_result["checkpoint_id"],
         "inclusion_proof": result,
-        "root_trust": "EXTERNALLY_PINNED",
+        "root_trust": "SIGNED_CHECKPOINT",
     }, sort_keys=True))
     return 0
 
@@ -182,9 +236,18 @@ def main(argv=None) -> int:
     add.add_argument("--previous-registry")
     add.add_argument("--output", required=True)
 
-    verify = sub.add_parser("verify", help="verify a registry snapshot and optional predecessor link")
+    checkpoint = sub.add_parser("checkpoint", help="ask the loopback signer to sign a registry root")
+    checkpoint.add_argument("--registry", required=True)
+    checkpoint.add_argument("--trusted-keys", required=True)
+    checkpoint.add_argument("--output", required=True)
+
+    verify = sub.add_parser("verify", help="verify a registry snapshot, checkpoint, and optional predecessor link")
     verify.add_argument("--registry", required=True)
     verify.add_argument("--previous-registry")
+    verify.add_argument("--checkpoint")
+    verify.add_argument("--trusted-keys")
+    verify.add_argument("--expected-checkpoint-id")
+    verify.add_argument("--expected-size", type=int)
 
     proof = sub.add_parser("proof", help="create an inclusion proof for an attestation ID")
     proof.add_argument("--registry", required=True)
@@ -195,7 +258,8 @@ def main(argv=None) -> int:
     verify_proof.add_argument("--proof", required=True)
     verify_proof.add_argument("--attestation", required=True)
     verify_proof.add_argument("--trusted-keys", required=True)
-    verify_proof.add_argument("--expected-root", required=True)
+    verify_proof.add_argument("--checkpoint", required=True)
+    verify_proof.add_argument("--expected-checkpoint-id")
     verify_proof.add_argument("--expected-size", type=int)
     args = parser.parse_args(argv)
 
@@ -204,9 +268,11 @@ def main(argv=None) -> int:
             return _add(args)
         if args.command == "verify":
             return _verify(args)
+        if args.command == "checkpoint":
+            return _checkpoint(args)
         if args.command == "proof":
             return _proof(args)
         return _verify_proof(args)
-    except (OSError, ValueError, AttestationRegistryError) as exc:
+    except (OSError, ValueError, SignerClientError, AttestationRegistryError) as exc:
         print(json.dumps({"status": "ERROR", "error": str(exc)[:200]}, sort_keys=True), file=sys.stderr)
         return 3

@@ -103,7 +103,7 @@ def create_signed(tmp_path, monkeypatch, *, artifact=None, verdict="INCONCLUSIVE
     ]) == 0
     input_path.write_text(json.dumps(input_payload(artifact, verdict)), encoding="utf-8")
     assert main([
-        "attest", "create",
+        "attest", "create-local",
         "--input", str(input_path),
         "--private-key-file", str(private_path),
         "--key-id", "cli-test-key",
@@ -249,7 +249,7 @@ def test_attest_request_uses_loopback_signer_without_private_key_file(tmp_path, 
         monkeypatch.setenv("AEGISFORGE_SIGNER_URL", signer_url)
         monkeypatch.setenv("AEGISFORGE_SIGNER_TOKEN", REQUEST_TOKEN)
         assert main([
-            "attest", "request",
+            "attest", "create",
             "--input", str(input_path),
             "--trusted-keys", str(trusted_path),
             "--output", str(output_path),

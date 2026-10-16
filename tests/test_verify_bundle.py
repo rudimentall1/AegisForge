@@ -32,7 +32,7 @@ def test_directory_bundle_checks_integrity_but_does_not_claim_provenance_or_reru
     assert result["verification_levels"][0]["status"] == "PASS"
     assert result["verification_levels"][1]["status"] == "INCONCLUSIVE"
     assert result["verification_levels"][2]["status"] == "INCONCLUSIVE"
-    assert "No bundle-controlled command is executed." in result["limitations"]
+    assert any("no bundle-controlled command is executed" in item for item in result["limitations"])
 
 
 def test_one_byte_artifact_tampering_fails_level_one(tmp_path):

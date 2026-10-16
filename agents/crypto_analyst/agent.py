@@ -21,6 +21,62 @@ class CryptoAnalyst:
             else getattr(case, "target_repository", "")
         )
         case_repository = str(case_repository or "").strip().lower().rstrip("/")
+        if parent.get("research_track") == "uniswap_v2_factory_fixture":
+            from tools.evm_key_forensics.uniswap_v2_factory_source_pattern import (
+                PINNED_COMMIT,
+                PINNED_GIT_BLOB_SHA1,
+            )
+            observation = parent.get("source_observation")
+            observation = observation if isinstance(observation, dict) else {}
+            target_commit = (
+                case.get("target_commit") if isinstance(case, dict)
+                else getattr(case, "target_commit", None)
+            )
+            source_records = [item for item in parent.get("sources", []) if isinstance(item, dict)]
+            source_supported = (
+                observation.get("conclusion") == "SOURCE_PATTERN_MATCHED"
+                and observation.get("source_commit") == target_commit == PINNED_COMMIT
+                and observation.get("source_git_blob_sha1") == PINNED_GIT_BLOB_SHA1
+                and all(observation.get("checks", {}).values())
+                and len(source_records) == 1
+                and source_records[0].get("provenance_matches_case") is True
+            )
+            result = dict(parent)
+            result.update({
+                "stage": "analysis",
+                "stage_history": list(parent.get("stage_history", [])) + ["analysis"],
+                "solidity_analysis": {
+                    "hypothesis_id": "SOL-UNISWAP-V2-FACTORY-FEE-SETTER-001",
+                    "status": "SOURCE_PATTERN_MATCHED" if source_supported else "INCONCLUSIVE",
+                    "source_supported": source_supported,
+                    "claims_confirmed": 0,
+                    "finding_created": False,
+                    "question": (
+                        "Does the pinned Uniswap V2 Factory source require feeToSetter "
+                        "authorization before feeTo or feeToSetter mutations?"
+                    ),
+                    "what_this_does_not_prove": (
+                        "Source-level authorization patterns do not establish compiled behavior, "
+                        "current deployed bytecode identity, or runtime safety."
+                    ),
+                },
+                "hypotheses": [{
+                    "hypothesis_id": "SOL-UNISWAP-V2-FACTORY-FEE-SETTER-001",
+                    "status": "SOURCE_SUPPORTED" if source_supported else "INCONCLUSIVE",
+                    "source_ids": [
+                        item.get("source_id") for item in source_records
+                        if item.get("source_id")
+                    ],
+                    "finding": False,
+                }],
+                "analysis_summary": {
+                    "claims_confirmed_by_this_agent": 0,
+                    "vulnerabilities_confirmed": 0,
+                },
+            })
+            task.result = result
+            task.status = "crypto_analyzed"
+            return task
         if parent.get("research_track") == "solidity_source_fixture":
             observation = parent.get("source_observation")
             observation = observation if isinstance(observation, dict) else {}

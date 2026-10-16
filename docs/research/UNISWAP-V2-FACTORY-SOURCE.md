@@ -35,3 +35,16 @@ pytest -q tests/test_uniswap_v2_factory_source_pattern.py
 A successful result means only that the checked-in source has the expected Git blob identity and the listed source-level patterns. The provenance manifest records the explorer's reported exact-match status, but this command does not independently recompile the contract, query the chain, or verify deployed bytecode. Source-code verification is not formal verification and does not prove the contract is safe.
 
 No EVM execution, RPC request, transaction, wallet material, private key, or automatic vulnerability verdict is involved. This is a negative-control source target; a source-pattern match is not a finding.
+
+
+## End-to-end Round acceptance command
+
+Run the pinned target through `source_researcher` → `crypto_analyst` → `lab_runner` → `Validator` → human review, with each technique-bearing role dispatched through the allowlisted Round registry:
+
+```bash
+python -m tools.evm_key_forensics.run_uniswap_v2_factory_round_case
+python -m tools.evm_key_forensics.run_uniswap_v2_factory_round_case --output ./artifacts/uniswap-v2-factory-round.json
+pytest -q tests/test_uniswap_v2_factory_round_pipeline.py
+```
+
+The run rechecks the local source and provenance manifest, then runs a pure-Python fee-setter equality predicate. It never reads live chain state. Even if all evidence checks pass, the overall research status remains `INCONCLUSIVE`, and human review is required. The source-level access-control observation is not a vulnerability finding and is not a claim that the deployed contract is safe.

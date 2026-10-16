@@ -128,3 +128,26 @@ def validate_task_binding(case: ResearchCase | None, task_case_id: str | None) -
             f"Case status {case.status.value!r} does not permit execution"
         )
     return case
+
+
+# These roles perform security-research operations whose outputs must be
+# traceable to one immutable case. Generic orchestration/business tasks remain
+# compatible with legacy queue records.
+CASE_REQUIRED_ROLES = frozenset({"source_researcher", "crypto_analyst", "lab_runner"})
+
+
+def validate_worker_case_binding(
+    role: str,
+    case: ResearchCase | None,
+    task_case_id: str | None,
+) -> ResearchCase | None:
+    """Enforce case binding at the worker boundary for forensic roles."""
+    if not task_case_id:
+        if role in CASE_REQUIRED_ROLES:
+            raise CaseValidationError(
+                f"Role {role!r} requires a registered research case; execution denied"
+            )
+        if case is not None:
+            raise CaseValidationError("Research case payload has no task binding")
+        return None
+    return validate_task_binding(case, task_case_id)

@@ -53,6 +53,7 @@ from model_research.agent import ModelResearcher
 from agents.source_researcher.agent import SourceResearcher
 from agents.crypto_analyst.agent import CryptoAnalyst
 from agents.lab_runner.agent import LabRunner
+from shared.techniques.registry import TechniqueRegistry
 
 
 WORKFLOW_ID = "web3-security-pipeline-v1"
@@ -498,6 +499,28 @@ class Worker:
             },
         }
 
+    def _resolve_round_spec(self, task_id, research_case):
+        """Resolve the round technique for a task or its ancestor root."""
+        if research_case is None:
+            return None
+        rounds = getattr(research_case, "rounds", ()) or ()
+        specs = {item.round_id: item for item in rounds}
+        current_id = task_id
+        visited = set()
+        while current_id and current_id not in visited:
+            visited.add(current_id)
+            row = self.queue.db.execute(
+                "SELECT parent_task_id, round_id FROM queue WHERE id = ?",
+                (current_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            parent_id, round_id = row
+            if round_id and round_id in specs:
+                return specs[round_id]
+            current_id = parent_id
+        return None
+
     def run_once(self):
         recovered = self.queue.recover_stale_running(
             stale_minutes=10
@@ -590,6 +613,8 @@ class Worker:
                     flush=True,
                 )
 
+            round_spec = self._resolve_round_spec(task_id, research_case)
+            technique = getattr(round_spec, "technique", None)
             task = Task(
                 task_id=task_id,
                 description=description,
@@ -603,6 +628,8 @@ class Worker:
                     "capability_intent": capability_intent,
                     "research_case_id": research_case_id,
                     "research_case": research_case,
+                    "round_spec": round_spec,
+                    "technique": technique,
                 },
                 result=parent_result,
                 status="running",
@@ -739,7 +766,19 @@ class Worker:
                 return False
 
 
-            result = self.agent.run(task)
+            if (
+                technique
+                and self.role in {"source_researcher", "crypto_analyst", "lab_runner"}
+            ):
+                result = TechniqueRegistry().dispatch(
+                    technique=technique,
+                    role=self.role,
+                    task=task,
+                    delegate=self.agent,
+                )
+            else:
+                # Preserve legacy tasks and non-technique roles unchanged.
+                result = self.agent.run(task)
 
             print(
                 f"[{self.worker_id}] DEBUG AFTER AGENT:",

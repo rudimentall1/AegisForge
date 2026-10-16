@@ -39,6 +39,34 @@ class CaseStatus(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class RoundSpec:
+    """One bounded hypothesis/technique round against the case's pinned revision."""
+
+    round_id: str
+    technique: str
+    hypothesis: str
+    expected_evidence_atoms: tuple[str, ...]
+    falsification_criteria: str
+    priority: int = 0
+
+    def __post_init__(self) -> None:
+        for field_name in ("round_id", "technique", "hypothesis", "falsification_criteria"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise CaseValidationError(f"{field_name}_required")
+        atoms = self.expected_evidence_atoms
+        if isinstance(atoms, list):
+            atoms = tuple(atoms)
+            object.__setattr__(self, "expected_evidence_atoms", atoms)
+        if not isinstance(atoms, tuple) or not atoms:
+            raise CaseValidationError("round_expected_evidence_atoms_required")
+        if any(not isinstance(atom, str) or not atom.strip() for atom in atoms):
+            raise CaseValidationError("round_expected_evidence_atoms_invalid")
+        if not isinstance(self.priority, int) or isinstance(self.priority, bool):
+            raise CaseValidationError("round_priority_invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class ResearchCase:
     """Immutable identity and authorization envelope for one investigation."""
 
@@ -54,8 +82,45 @@ class ResearchCase:
     falsification_criteria: str
     execution_mode: ExecutionMode = ExecutionMode.LOCAL
     status: CaseStatus = CaseStatus.READY
+    allowed_techniques: tuple[str, ...] = ("source_pattern",)
+    rounds: tuple[RoundSpec, ...] = ()
 
     def __post_init__(self) -> None:
+        # JSON-loaded case records naturally contain lists/dicts. Normalize them
+        # into the immutable tuple/dataclass representation before validation.
+        allowed = self.allowed_techniques
+        if isinstance(allowed, list):
+            allowed = tuple(allowed)
+            object.__setattr__(self, "allowed_techniques", allowed)
+        if not isinstance(allowed, tuple) or not allowed:
+            raise CaseValidationError("allowed_techniques_required")
+        if any(not isinstance(tech, str) or not tech.strip() for tech in allowed):
+            raise CaseValidationError("technique_not_allowed:invalid")
+
+        rounds = self.rounds
+        if isinstance(rounds, list):
+            try:
+                rounds = tuple(
+                    item if isinstance(item, RoundSpec) else RoundSpec(**item)
+                    for item in rounds
+                )
+            except (TypeError, ValueError) as exc:
+                raise CaseValidationError("round_spec_invalid") from exc
+            object.__setattr__(self, "rounds", rounds)
+        if not isinstance(rounds, tuple):
+            raise CaseValidationError("rounds_must_be_tuple")
+        seen_round_ids = set()
+        for round_spec in rounds:
+            if not isinstance(round_spec, RoundSpec):
+                raise CaseValidationError("round_spec_invalid")
+            if round_spec.round_id in seen_round_ids:
+                raise CaseValidationError(f"duplicate_round_id:{round_spec.round_id}")
+            seen_round_ids.add(round_spec.round_id)
+            if round_spec.technique not in allowed:
+                raise CaseValidationError(
+                    f"round_technique_not_in_allowed:{round_spec.round_id}:{round_spec.technique}"
+                )
+
         required = {
             "case_id": self.case_id,
             "target_repository": self.target_repository,
@@ -162,7 +227,7 @@ def research_case_binding(case: ResearchCase) -> dict:
     """Create a canonical, self-checking provenance envelope for a case."""
     if not isinstance(case, ResearchCase):
         raise CaseValidationError("research_case_required")
-    payload = asdict(case)
+    payload = json.loads(json.dumps(asdict(case), default=str))
     payload["execution_mode"] = case.execution_mode.value
     payload["status"] = case.status.value
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -188,7 +253,7 @@ def verify_research_case_binding(binding: dict) -> dict:
     # contract before treating it as a usable provenance record.
     try:
         case = ResearchCase(**payload)
-        normalized_payload = asdict(case)
+        normalized_payload = json.loads(json.dumps(asdict(case), default=str))
         normalized_payload["execution_mode"] = case.execution_mode.value
         normalized_payload["status"] = case.status.value
         if normalized_payload != payload:

@@ -197,3 +197,20 @@ def test_manifest_builder_rejects_self_reference_even_if_file_exists(tmp_path):
             hypothesis_id="hypothesis-entropy-001",
             artifact_paths=["logs/run.txt", CASE_ARTIFACT_MANIFEST_FILENAME],
         )
+
+
+
+def test_manifest_builder_rejects_symlinked_root(tmp_path):
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    write_artifact(actual)
+    alias = tmp_path / "alias"
+    alias.symlink_to(actual, target_is_directory=True)
+
+    with pytest.raises(CaseArtifactManifestError, match="artifact_root_must_not_be_symlink"):
+        build_case_artifact_manifest(
+            alias,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/run.txt"],
+        )

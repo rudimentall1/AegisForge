@@ -11,6 +11,12 @@ import uuid
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from shared.lab_execution_receipt import build_receipt, receipt_sha256, sign_receipt
 from shared.task import Task
+from shared.research_case import (
+    CaseValidationError,
+    research_case_binding,
+    validate_task_binding,
+    verify_research_case_binding,
+)
 
 
 class LabRunner:
@@ -65,7 +71,7 @@ print(json.dumps({
         return hashlib.sha256(value).hexdigest()
 
     @classmethod
-    def run_synthetic_entropy_demo(cls) -> dict:
+    def run_synthetic_entropy_demo(cls, *, case_binding: dict | None = None) -> dict:
         command = [sys.executable, "-c", cls._SYNTHETIC_EXPERIMENT_SCRIPT]
         script_bytes = cls._SYNTHETIC_EXPERIMENT_SCRIPT.encode("utf-8")
         run_id = uuid.uuid4().hex
@@ -139,16 +145,28 @@ print(json.dumps({
         result_payload_bytes = json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         ).encode("utf-8")
+        receipt_inputs = {
+            "source_kind": "repository_owned_synthetic_demo",
+            "source_revision": None,
+            "test_vector_id": "synthetic-vector-12bit-v1",
+            "argv": command,
+            "script_source_sha256": record["script_source_sha256"],
+        }
+        if case_binding is not None:
+            case_payload = verify_research_case_binding(case_binding)
+            receipt_inputs["research_case"] = {
+                "schema_version": case_binding["schema_version"],
+                "case_id": case_binding["case_id"],
+                "case_digest": case_binding["case_digest"],
+                "target_repository": case_payload["target_repository"],
+                "target_commit": case_payload["target_commit"],
+                "scope_digest": case_payload["scope_digest"],
+            }
+
         receipt = build_receipt(
             run_id=run_id,
             experiment_id="synthetic-entropy-demo-v1",
-            inputs={
-                "source_kind": "repository_owned_synthetic_demo",
-                "source_revision": None,
-                "test_vector_id": "synthetic-vector-12bit-v1",
-                "argv": command,
-                "script_source_sha256": record["script_source_sha256"],
-            },
+            inputs=receipt_inputs,
             execution={
                 "exit_code": record["exit_code"],
                 "timed_out": record["timed_out"],
@@ -211,7 +229,20 @@ print(json.dumps({
     def run(self, task: Task) -> Task:
         task.status = "running_synthetic_lab"
         result = dict(task.result or {})
-        experiment = self.run_synthetic_entropy_demo()
+        payload = task.payload if isinstance(task.payload, dict) else {}
+        task_case_id = payload.get("research_case_id")
+        research_case = payload.get("research_case")
+        binding = None
+        if task_case_id is not None or research_case is not None:
+            case = validate_task_binding(research_case, task_case_id)
+            binding = research_case_binding(case)
+            prior_binding = result.get("research_case_binding")
+            if prior_binding is not None:
+                verify_research_case_binding(prior_binding)
+                if prior_binding != binding:
+                    raise CaseValidationError("research_case_binding_changed_between_stages")
+            result["research_case_binding"] = binding
+        experiment = self.run_synthetic_entropy_demo(case_binding=binding)
         result.update({
             "research_track": "evm_key_forensics",
             "stage": "lab",

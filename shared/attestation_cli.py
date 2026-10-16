@@ -23,6 +23,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from shared.attestation_signer_client import SignerClientError, request_attestation
+from shared.attestation_workflow import WORKFLOW_VERDICTS, run_attestation_workflow
 from shared.attestation import (
     ALLOWED_VERDICTS,
     SCHEMA_VERSION,
@@ -387,6 +388,13 @@ def main(argv=None) -> int:
     create_local.add_argument("--key-id", required=True)
     create_local.add_argument("--organization", required=True)
     create_local.add_argument("--output", required=True)
+    workflow = attest_sub.add_parser("workflow", help="human-gated source-evidence attestation and local Merkle registry workflow")
+    workflow.add_argument("--evidence", required=True, help="validated offline Round-run JSON")
+    workflow.add_argument("--verdict", choices=tuple(sorted(WORKFLOW_VERDICTS)), required=True)
+    workflow.add_argument("--rationale", required=True, help="explicit human rationale for the selected verdict")
+    workflow.add_argument("--trusted-keys", required=True)
+    workflow.add_argument("--output-dir", required=True, help="existing directory; output files must not already exist")
+    workflow.add_argument("--previous-registry")
 
     verify = sub.add_parser("verify", help="verify an attestation in three tiers")
     verify.add_argument("attestation")
@@ -402,6 +410,17 @@ def main(argv=None) -> int:
                 return _keygen(args)
             if args.attest_command in {"create", "request"}:
                 return _request_attestation(args)
+            if args.attest_command == "workflow":
+                summary = run_attestation_workflow(
+                    evidence_path=args.evidence,
+                    verdict=args.verdict,
+                    rationale=args.rationale,
+                    trusted_keys_path=args.trusted_keys,
+                    output_dir=args.output_dir,
+                    previous_registry_path=args.previous_registry,
+                )
+                print(json.dumps(summary, sort_keys=True))
+                return 0
             return _create_local_attestation(args)
         if args.level in {"2", "3"} and not args.trusted_keys:
             raise ValueError("tier2_and_tier3_require_trusted_keys")

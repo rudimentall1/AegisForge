@@ -84,3 +84,86 @@ def verify_artifact_bindings(manifest, artifacts):
         if digest(artifacts[artifact_id]) != entry["digest"]:
             raise EvidenceManifestError(f"manifest_artifact_mismatch:{artifact_id}")
     return {"valid": True, "checked": tuple(required)}
+
+
+# Source-coordinate records complement the artifact Merkle manifest above.
+# Hashes establish byte identity, not authenticity or independent origin.
+import re
+
+_SOURCE_SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
+_SOURCE_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_SOURCE_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def source_excerpt_digest(excerpt):
+    """Hash exact UTF-8 excerpt bytes without whitespace normalization."""
+    if not isinstance(excerpt, str):
+        raise TypeError("excerpt_must_be_text")
+    return hashlib.sha256(excerpt.encode("utf-8")).hexdigest()
+
+
+def build_source_record(repository, commit_sha, path, start_line, end_line, blob_sha, excerpt):
+    """Build and validate a record identifying an excerpt at a pinned revision."""
+    record = {
+        "repository": repository, "commit_sha": commit_sha, "path": path,
+        "start_line": start_line, "end_line": end_line, "git_blob_sha": blob_sha,
+        "excerpt_sha256": source_excerpt_digest(excerpt), "excerpt": excerpt,
+        "limitations": [
+            "Hashes establish byte identity, not source authenticity.",
+            "Pinned source text does not establish independent provenance.",
+            "This record alone does not establish exploitability, runtime reproduction, or individual wallet exposure.",
+        ],
+    }
+    validate_source_record(record)
+    return record
+
+
+def validate_source_record(record):
+    """Validate source coordinates and digest without inferring authenticity."""
+    if not isinstance(record, dict):
+        raise EvidenceManifestError("source_record_must_be_object")
+    if not isinstance(record.get("repository"), str) or not _SOURCE_REPOSITORY_RE.fullmatch(record["repository"]):
+        raise EvidenceManifestError("source_repository_must_be_owner_repo")
+    if not isinstance(record.get("commit_sha"), str) or not _SOURCE_SHA1_RE.fullmatch(record["commit_sha"]):
+        raise EvidenceManifestError("source_commit_sha_invalid")
+    path = record.get("path")
+    if (
+        not isinstance(path, str)
+        or not path.strip()
+        or path != path.strip()
+        or path.startswith("/")
+        or "\\" in path
+        or ":" in path
+        or "\x00" in path
+        or any(part in {"", ".", ".."} for part in path.split("/"))
+    ):
+        raise EvidenceManifestError("source_path_invalid")
+    start_line, end_line = record.get("start_line"), record.get("end_line")
+    if type(start_line) is not int or type(end_line) is not int or start_line < 1 or end_line < start_line:
+        raise EvidenceManifestError("source_line_range_invalid")
+    if not isinstance(record.get("git_blob_sha"), str) or not _SOURCE_SHA1_RE.fullmatch(record["git_blob_sha"]):
+        raise EvidenceManifestError("source_git_blob_sha_invalid")
+    excerpt = record.get("excerpt")
+    if not isinstance(excerpt, str) or not excerpt:
+        raise EvidenceManifestError("source_excerpt_required")
+    digest_value = record.get("excerpt_sha256")
+    if not isinstance(digest_value, str) or not _SOURCE_SHA256_RE.fullmatch(digest_value):
+        raise EvidenceManifestError("source_excerpt_sha256_invalid")
+    if source_excerpt_digest(excerpt) != digest_value:
+        raise EvidenceManifestError("source_excerpt_sha256_mismatch")
+    limitations = record.get("limitations")
+    if not isinstance(limitations, list) or not all(isinstance(item, str) and item.strip() for item in limitations):
+        raise EvidenceManifestError("source_limitations_required")
+    combined = " ".join(limitations).lower()
+    if "source authenticity" not in combined or "independent provenance" not in combined:
+        raise EvidenceManifestError("source_limitations_must_distinguish_integrity_from_provenance")
+    overclaims = (
+        "proves source authenticity",
+        "proves independent provenance",
+        "establishes source authenticity",
+        "establishes independent provenance",
+        "confirms source authenticity",
+        "confirms independent provenance",
+    )
+    if any(claim in combined for claim in overclaims):
+        raise EvidenceManifestError("source_limitations_must_distinguish_integrity_from_provenance")

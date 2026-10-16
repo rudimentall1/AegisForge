@@ -739,6 +739,8 @@ def build_case_artifact_manifest(root, *, case_id, hypothesis_id, artifact_paths
     normalized = []
     seen = set()
     for relative_path in artifact_paths:
+        if relative_path == CASE_ARTIFACT_MANIFEST_FILENAME:
+            raise CaseArtifactManifestError("manifest_cannot_include_itself_as_artifact")
         path = _safe_artifact_file(root, relative_path)
         normalized_path = PurePosixPath(relative_path).as_posix()
         if normalized_path in seen:

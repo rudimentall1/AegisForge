@@ -335,6 +335,18 @@ class TaskQueue:
         research_case_id=None,
     ):
         task_id = str(uuid.uuid4())
+
+        # Child tasks inherit their parent's immutable research-case identity
+        # unless an explicit case ID is supplied. This prevents orchestration
+        # layers from accidentally dropping provenance between agent stages.
+        if research_case_id is None and parent_task_id:
+            parent_case = self.db.execute(
+                "SELECT research_case_id FROM queue WHERE id = ?",
+                (parent_task_id,),
+            ).fetchone()
+            if parent_case is not None and parent_case[0]:
+                research_case_id = parent_case[0]
+
         if research_case_id is not None:
             case_payload = self.get_research_case(research_case_id)
             if case_payload is None:

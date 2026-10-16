@@ -331,3 +331,24 @@ def test_nonstandard_json_constant_fails_closed(tmp_path):
 
     assert result["overall_status"] == "FAIL"
     assert "nonstandard_json_constant" in result["levels"][0]["error"]
+
+
+
+def test_zip_verifier_enforces_task_count_limit(tmp_path, monkeypatch):
+    bundle = _write_research_case_zip(tmp_path)
+    monkeypatch.setattr("shared.research_case_bundle.MAX_TASKS", 0)
+
+    result = verify_bundle(bundle, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert result["levels"][0]["error"] == "case_task_count_exceeds_limit"
+
+
+def test_zip_verifier_enforces_evidence_count_limit(tmp_path, monkeypatch):
+    bundle = _write_research_case_zip(tmp_path)
+    monkeypatch.setattr("shared.research_case_bundle.MAX_EVIDENCE_ROWS", 0)
+
+    result = verify_bundle(bundle, max_level=1)
+
+    assert result["overall_status"] == "FAIL"
+    assert result["levels"][0]["error"] == "case_evidence_count_exceeds_limit"

@@ -43,3 +43,16 @@ investigation. The lab stage exercises a pure-Python owner-equality predicate; i
 does not compile Solidity or execute the EVM. The validator may report its evidence
 checks as validated while the research conclusion remains `INCONCLUSIVE`. Human
 review is required, and automatic confirmation remains disabled.
+
+
+## Round-registry acceptance command
+
+Run the bounded source-pattern case through the allowlisted Round technique registry and the existing source, crypto-analysis, lab, and validator agents:
+
+```bash
+python -m tools.evm_key_forensics.run_solidity_round_case
+python -m tools.evm_key_forensics.run_solidity_round_case --output ./artifacts/solidity-round-acceptance.json
+pytest -q tests/test_solidity_round_cli_runner.py
+```
+
+The output file is created exclusively and never overwrites an existing path. The runner deliberately returns `INCONCLUSIVE` as the research verdict even when the evidence checks pass. It records that the source is a checked-in public source fixture and that deployed-contract identity is not verified. This closes the offline Round-dispatch acceptance path; it does **not** complete the separate milestone of using a deployed contract whose source has been verified by a block explorer.

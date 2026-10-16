@@ -1,6 +1,4 @@
 import hashlib
-import json
-
 import pytest
 
 from shared.evidence_ledger import (
@@ -109,23 +107,15 @@ def test_manifest_verifier_rejects_tampered_manifest_digest(tmp_path):
     assert result == {"status": "FAIL", "errors": ["manifest_digest_mismatch"]}
 
 
-def test_manifest_verifier_rejects_duplicate_artifact_paths(tmp_path):
+def test_manifest_builder_rejects_duplicate_artifact_paths(tmp_path):
     write_artifact(tmp_path)
-    manifest = build_case_artifact_manifest(
-        tmp_path,
-        case_id="case-2026-001",
-        hypothesis_id="hypothesis-entropy-001",
-        artifact_paths=["logs/run.txt", "logs/run.txt"],
-    )
-
-    # Builder rejects duplicates before creating an ambiguous manifest.
-    assert manifest["artifacts"] == [
-        {
-            "path": "logs/run.txt",
-            "sha256": hashlib.sha256(b"original evidence\\x00bytes").hexdigest(),
-            "size_bytes": len(b"original evidence\\x00bytes"),
-        }
-    ]
+    with pytest.raises(CaseArtifactManifestError, match="duplicate_artifact_path"):
+        build_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/run.txt", "logs/run.txt"],
+        )
 
 
 def test_manifest_verifier_rejects_unknown_fields(tmp_path):

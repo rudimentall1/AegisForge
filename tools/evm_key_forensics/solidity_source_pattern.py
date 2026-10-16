@@ -23,18 +23,18 @@ MAX_SOURCE_BYTES = 128 * 1024
 
 def git_blob_sha1(source_bytes: bytes) -> str:
     return hashlib.sha1(
-        f"blob {len(source_bytes)}\\0".encode("ascii") + source_bytes
+        f"blob {len(source_bytes)}\0".encode("ascii") + source_bytes
     ).hexdigest()
 
 
 def mask_comments_and_strings(source: str) -> str:
     """Replace comments and quoted literals while preserving token boundaries."""
     pattern = re.compile(
-        r'//[^\\n]*|/\\*.*?\\*/|"(?:\\\\.|[^"\\\\])*"|'
-        r"'(?:\\\\.|[^'\\\\])*'",
+        r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|'
+        r"'(?:\\.|[^'\\])*'",
         re.DOTALL,
     )
-    return pattern.sub(lambda match: re.sub(r"[^\\n]", " ", match.group(0)), source)
+    return pattern.sub(lambda match: re.sub(r"[^\n]", " ", match.group(0)), source)
 
 
 def inspect_source(
@@ -60,11 +60,11 @@ def inspect_source(
 
     masked = mask_comments_and_strings(source)
     checks = {
-        "owner_modifier_present": bool(re.search(r"\\bmodifier\\s+onlyOwner\\s*\\(", masked)),
-        "modifier_calls_owner_check": bool(re.search(r"\\bmodifier\\s+onlyOwner\\s*\\(\\s*\\)\\s*\\{\\s*_checkOwner\\s*\\(\\s*\\)\\s*;", masked)),
-        "owner_compared_with_msg_sender": bool(re.search(r"\\bowner\\s*\\(\\s*\\)\\s*!=\\s*_msgSender\\s*\\(\\s*\\)", masked)),
-        "tx_origin_absent_from_code": not bool(re.search(r"\\btx\\s*\\.\\s*origin\\b", masked)),
-        "zero_address_guard_present": bool(re.search(r"address\\s*\\(\\s*0\\s*\\)", masked)),
+        "owner_modifier_present": bool(re.search(r"\bmodifier\s+onlyOwner\s*\(", masked)),
+        "modifier_calls_owner_check": bool(re.search(r"\bmodifier\s+onlyOwner\s*\(\s*\)\s*\{\s*_checkOwner\s*\(\s*\)\s*;", masked)),
+        "owner_compared_with_msg_sender": bool(re.search(r"\bowner\s*\(\s*\)\s*!=\s*_msgSender\s*\(\s*\)", masked)),
+        "tx_origin_absent_from_code": not bool(re.search(r"\btx\s*\.\s*origin\b", masked)),
+        "zero_address_guard_present": bool(re.search(r"address\s*\(\s*0\s*\)", masked)),
     }
     if not all(checks.values()):
         errors.append("expected_access_control_invariant_not_observed")

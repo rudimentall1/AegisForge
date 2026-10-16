@@ -5,6 +5,7 @@ import pytest
 from shared.evidence_ledger import (
     CASE_ARTIFACT_MANIFEST_FILENAME,
     CASE_ARTIFACT_MANIFEST_VERSION,
+    MAX_CASE_ARTIFACTS,
     CaseArtifactManifestError,
     build_case_artifact_manifest,
     verify_case_artifact_manifest,
@@ -177,3 +178,125 @@ def test_manifest_writer_rejects_symlinked_manifest_destination(tmp_path):
             hypothesis_id="hypothesis-entropy-001",
             artifact_paths=["logs/run.txt"],
         )
+
+
+
+def test_manifest_builder_rejects_self_reference_even_if_file_exists(tmp_path):
+    write_artifact(tmp_path)
+    write_artifact(
+        tmp_path,
+        relative_path=CASE_ARTIFACT_MANIFEST_FILENAME,
+        content=b"stale manifest",
+    )
+
+    with pytest.raises(
+        CaseArtifactManifestError, match="manifest_cannot_include_itself_as_artifact"
+    ):
+        build_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/run.txt", CASE_ARTIFACT_MANIFEST_FILENAME],
+        )
+
+
+
+def test_manifest_builder_rejects_symlinked_root(tmp_path):
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    write_artifact(actual)
+    alias = tmp_path / "alias"
+    alias.symlink_to(actual, target_is_directory=True)
+
+    with pytest.raises(CaseArtifactManifestError, match="artifact_root_must_not_be_symlink"):
+        build_case_artifact_manifest(
+            alias,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/run.txt"],
+        )
+
+
+
+def test_manifest_builder_rejects_artifact_count_over_limit(tmp_path):
+    with pytest.raises(CaseArtifactManifestError, match="artifact_count_limit_exceeded"):
+        build_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["missing.bin"] * (MAX_CASE_ARTIFACTS + 1),
+        )
+
+
+def test_manifest_builder_rejects_file_over_size_limit(tmp_path, monkeypatch):
+    write_artifact(tmp_path, content=b"three")
+    monkeypatch.setattr("shared.evidence_ledger.MAX_CASE_ARTIFACT_BYTES", 2)
+
+    with pytest.raises(CaseArtifactManifestError, match="artifact_size_limit_exceeded"):
+        build_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/run.txt"],
+        )
+
+
+def test_manifest_builder_rejects_total_size_over_limit(tmp_path, monkeypatch):
+    write_artifact(tmp_path, "logs/one.txt", b"12")
+    write_artifact(tmp_path, "logs/two.txt", b"34")
+    monkeypatch.setattr("shared.evidence_ledger.MAX_CASE_ARTIFACT_TOTAL_BYTES", 3)
+
+    with pytest.raises(CaseArtifactManifestError, match="bundle_size_limit_exceeded"):
+        build_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/one.txt", "logs/two.txt"],
+        )
+
+
+def test_manifest_verifier_enforces_artifact_count_limit(tmp_path, monkeypatch):
+    write_artifact(tmp_path)
+    manifest = build(tmp_path)
+    monkeypatch.setattr("shared.evidence_ledger.MAX_CASE_ARTIFACTS", 0)
+
+    result = verify_case_artifact_manifest(tmp_path, manifest)
+
+    assert result == {"status": "FAIL", "errors": ["artifact_count_limit_exceeded"]}
+
+
+def test_manifest_verifier_enforces_file_size_limit(tmp_path, monkeypatch):
+    write_artifact(tmp_path)
+    manifest = build(tmp_path)
+    monkeypatch.setattr("shared.evidence_ledger.MAX_CASE_ARTIFACT_BYTES", 1)
+
+    result = verify_case_artifact_manifest(tmp_path, manifest)
+
+    assert result["status"] == "FAIL"
+    assert "artifact_size_limit_exceeded" in result["errors"][0]
+
+
+def test_manifest_verifier_enforces_total_size_limit(tmp_path, monkeypatch):
+    write_artifact(tmp_path)
+    manifest = build(tmp_path)
+    monkeypatch.setattr("shared.evidence_ledger.MAX_CASE_ARTIFACT_TOTAL_BYTES", 1)
+
+    result = verify_case_artifact_manifest(tmp_path, manifest)
+
+    assert result == {"status": "FAIL", "errors": ["bundle_size_limit_exceeded"]}
+
+
+
+def test_manifest_verifier_bounds_reads_by_declared_artifact_size(tmp_path):
+    write_artifact(tmp_path)
+    manifest = build(tmp_path)
+    manifest["artifacts"][0]["size_bytes"] = 0
+    payload = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
+    manifest["manifest_sha256"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
+
+    result = verify_case_artifact_manifest(tmp_path, manifest)
+
+    assert result["status"] == "FAIL"
+    assert result["errors"][0].startswith("artifact_unavailable:logs/run.txt:")

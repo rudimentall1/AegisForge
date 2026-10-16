@@ -109,6 +109,8 @@ def _hash_file(path: Path, *, expected_size: int) -> tuple[str, int]:
             if not chunk:
                 break
             total += len(chunk)
+            if total > expected_size:
+                raise ValueError("artifact_size_mismatch")
             if total > MAX_ARTIFACT_BYTES:
                 raise ValueError("artifact_size_limit_exceeded")
             digest.update(chunk)

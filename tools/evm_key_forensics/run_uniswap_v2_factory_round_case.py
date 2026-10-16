@@ -83,8 +83,8 @@ def make_case() -> ResearchCase:
     )
 
 
-def run_case() -> dict:
-    case = make_case()
+def run_case(case: ResearchCase | None = None) -> dict:
+    case = case or make_case()
     task = Task(
         task_id="uniswap-v2-factory-round-acceptance",
         description="Run the pinned Uniswap V2 Factory source-pattern acceptance case offline.",

@@ -265,6 +265,10 @@ def export_research_case_bundle(
                     raise ResearchCaseBundleError("case_evidence_count_exceeds_limit")
                 evidence = [dict(row) for row in evidence_rows]
         task_ids_for_case = {task.get("id") for task in tasks if isinstance(task, dict)}
+        for task in tasks:
+            parent_id = task.get("parent_task_id")
+            if parent_id is not None and parent_id not in task_ids_for_case:
+                raise ResearchCaseBundleError("task_parent_not_in_case_bundle")
         for observation in evidence:
             if observation.get("task_id") not in task_ids_for_case:
                 raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
@@ -475,6 +479,11 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
                 raise ResearchCaseBundleError("task_result_case_binding_mismatch")
         elif task.get("status") == "completed":
             raise ResearchCaseBundleError("completed_task_missing_case_binding")
+
+    for task in tasks_file["tasks"]:
+        parent_id = task.get("parent_task_id")
+        if parent_id is not None and parent_id not in task_ids:
+            raise ResearchCaseBundleError("task_parent_not_in_case_bundle")
 
     evidence_file = _strict_json(files["evidence.json"], label="evidence")
     if (

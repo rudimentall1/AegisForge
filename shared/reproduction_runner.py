@@ -425,6 +425,9 @@ def run_reproduction_contract(
                 "--security-opt=no-new-privileges",
                 "--pids-limit", str(contract["limits"]["max_processes"]),
                 "--memory", f'{contract["limits"]["memory_mb"]}m',
+                # Docker's memory limit alone can allow an additional swap budget.
+                # Equal memory and memory+swap limits disable container swap usage.
+                "--memory-swap", f'{contract["limits"]["memory_mb"]}m',
                 "--cpus", str(contract["limits"]["cpu_cores"]),
                 "--ulimit", "core=0:0",
                 "--user", uid_gid,

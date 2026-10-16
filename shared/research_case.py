@@ -135,7 +135,7 @@ def validate_task_binding(case: ResearchCase | None, task_case_id: str | None) -
 # These roles perform security-research operations whose outputs must be
 # traceable to one immutable case. Generic orchestration/business tasks remain
 # compatible with legacy queue records.
-CASE_REQUIRED_ROLES = frozenset({"source_researcher", "crypto_analyst", "lab_runner", "validator"})
+CASE_REQUIRED_ROLES = frozenset({"source_researcher", "crypto_analyst", "lab_runner"})
 
 
 def validate_worker_case_binding(

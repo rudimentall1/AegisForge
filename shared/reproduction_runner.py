@@ -77,7 +77,8 @@ def _prepare_output_directory(output_dir: str | Path, workspace_root: Path) -> P
     raw = Path(output_dir)
     if raw.exists() or raw.is_symlink():
         raise ReproductionRunnerError("output_directory_must_not_exist")
-    raw.parent.mkdir(parents=True, exist_ok=True)
+    if not raw.parent.exists():
+        raise ReproductionRunnerError("output_parent_must_exist")
     parent = raw.parent.resolve(strict=True)
     target = parent / raw.name
     if target.exists() or target.is_symlink():

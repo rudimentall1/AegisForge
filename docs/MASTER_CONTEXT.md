@@ -72,9 +72,11 @@ Other branches also exist for Research Case scope enforcement, executor identity
 
 ## SSV research boundary
 
-SSV Network is the first active bounty target. Every hypothesis must be tied to the current program scope and exact source revision used. Differences between a tagged release and a moving branch are leads only. Do not submit a report unless an authorized, reproducible path demonstrates in-scope security impact.
+SSV Network is the first active bounty target. Scope was rechecked on 2026-10-16; Immunefi lists the program scope as last updated 2026-09-13. The pinned research source is `ssvlabs/ssv-network@9bb7b21d4432f34f623bed3e0bb3fa77f1e5d2b9` (`mainnet-v2.0.0`). Re-pin and re-check the scope before each new case or submission. Differences between a tagged release and a moving branch are leads only.
 
-The operator-migration/effective-balance accounting lead has not established a confirmed exploit path. Preserve that status until a test proves otherwise. Use explicit `INCONCLUSIVE` or `NOT_REPRODUCED` results when evidence is insufficient.
+**Bounty exclusion rule:** Immunefi's current program terms state that vulnerabilities identified in prior audits and issues documented on `docs.ssv.network` or in any branch of the specified repository are ineligible. The published known-issues list already covers effective-balance root drift and liquidation, removed-operator fee-index accounting, permissionless dust-deposit stale-cluster reverts, theoretical `uint64` accounting overflow, liquidator-liveness assumptions, validator-capacity griefing during migration/reactivation, and operator-fee rounding. Do not recycle these as new findings without a demonstrably distinct, unlisted root cause and impact. Testing must remain on local forks; the program prohibits mainnet and public-testnet testing.
+
+The operator-migration/effective-balance accounting lead has not established a confirmed exploit path. Preserve that status until a test proves otherwise. Use explicit `INCONCLUSIVE` or `NOT_REPRODUCED` results when evidence is insufficient. Do not submit a report unless an authorized, reproducible path demonstrates in-scope security impact.
 
 ## Product and commercial hypothesis
 

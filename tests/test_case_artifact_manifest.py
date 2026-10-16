@@ -5,6 +5,7 @@ import pytest
 from shared.evidence_ledger import (
     CASE_ARTIFACT_MANIFEST_FILENAME,
     CASE_ARTIFACT_MANIFEST_VERSION,
+    MAX_CASE_ARTIFACTS,
     CaseArtifactManifestError,
     build_case_artifact_manifest,
     verify_case_artifact_manifest,
@@ -214,3 +215,72 @@ def test_manifest_builder_rejects_symlinked_root(tmp_path):
             hypothesis_id="hypothesis-entropy-001",
             artifact_paths=["logs/run.txt"],
         )
+
+
+
+def test_manifest_builder_rejects_artifact_count_over_limit(tmp_path):
+    with pytest.raises(CaseArtifactManifestError, match="artifact_count_limit_exceeded"):
+        build_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["missing.bin"] * (MAX_CASE_ARTIFACTS + 1),
+        )
+
+
+def test_manifest_builder_rejects_file_over_size_limit(tmp_path, monkeypatch):
+    write_artifact(tmp_path, content=b"three")
+    monkeypatch.setattr("shared.evidence_ledger.MAX_CASE_ARTIFACT_BYTES", 2)
+
+    with pytest.raises(CaseArtifactManifestError, match="artifact_size_limit_exceeded"):
+        build_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/run.txt"],
+        )
+
+
+def test_manifest_builder_rejects_total_size_over_limit(tmp_path, monkeypatch):
+    write_artifact(tmp_path, "logs/one.txt", b"12")
+    write_artifact(tmp_path, "logs/two.txt", b"34")
+    monkeypatch.setattr("shared.evidence_ledger.MAX_CASE_ARTIFACT_TOTAL_BYTES", 3)
+
+    with pytest.raises(CaseArtifactManifestError, match="bundle_size_limit_exceeded"):
+        build_case_artifact_manifest(
+            tmp_path,
+            case_id="case-2026-001",
+            hypothesis_id="hypothesis-entropy-001",
+            artifact_paths=["logs/one.txt", "logs/two.txt"],
+        )
+
+
+def test_manifest_verifier_enforces_artifact_count_limit(tmp_path, monkeypatch):
+    write_artifact(tmp_path)
+    manifest = build(tmp_path)
+    monkeypatch.setattr("shared.evidence_ledger.MAX_CASE_ARTIFACTS", 0)
+
+    result = verify_case_artifact_manifest(tmp_path, manifest)
+
+    assert result == {"status": "FAIL", "errors": ["artifact_count_limit_exceeded"]}
+
+
+def test_manifest_verifier_enforces_file_size_limit(tmp_path, monkeypatch):
+    write_artifact(tmp_path)
+    manifest = build(tmp_path)
+    monkeypatch.setattr("shared.evidence_ledger.MAX_CASE_ARTIFACT_BYTES", 1)
+
+    result = verify_case_artifact_manifest(tmp_path, manifest)
+
+    assert result["status"] == "FAIL"
+    assert "artifact_size_limit_exceeded" in result["errors"][0]
+
+
+def test_manifest_verifier_enforces_total_size_limit(tmp_path, monkeypatch):
+    write_artifact(tmp_path)
+    manifest = build(tmp_path)
+    monkeypatch.setattr("shared.evidence_ledger.MAX_CASE_ARTIFACT_TOTAL_BYTES", 1)
+
+    result = verify_case_artifact_manifest(tmp_path, manifest)
+
+    assert result == {"status": "FAIL", "errors": ["bundle_size_limit_exceeded"]}

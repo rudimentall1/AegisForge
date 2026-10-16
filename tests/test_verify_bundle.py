@@ -9,7 +9,7 @@ from shared.verify_bundle import verify_bundle
 def make_bundle(root):
     artifact = root / "logs" / "run.txt"
     artifact.parent.mkdir(parents=True, exist_ok=True)
-    artifact.write_bytes(b"synthetic evidence\x00")
+    artifact.write_bytes(b"synthetic evidence\\x00")
     manifest = build_case_artifact_manifest(
         root,
         case_id="case-test-001",
@@ -27,6 +27,8 @@ def test_directory_bundle_checks_integrity_but_does_not_claim_provenance_or_reru
 
     result = verify_bundle(tmp_path)
 
+    assert result["valid"] is True
+    assert result["complete"] is False
     assert result["verification_levels"][0]["status"] == "PASS"
     assert result["verification_levels"][1]["status"] == "INCONCLUSIVE"
     assert result["verification_levels"][2]["status"] == "INCONCLUSIVE"
@@ -40,6 +42,7 @@ def test_one_byte_artifact_tampering_fails_level_one(tmp_path):
     result = verify_bundle(tmp_path)
 
     assert result["valid"] is False
+    assert result["complete"] is False
     assert result["verification_levels"][0]["status"] == "FAIL"
     assert "artifact_digest_mismatch" in result["verification_levels"][0]["detail"]
 

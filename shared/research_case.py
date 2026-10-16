@@ -5,9 +5,11 @@ can be adopted incrementally without duplicating orchestration logic.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from enum import Enum
+import hashlib
+import json
 import re
 from urllib.parse import urlparse
 
@@ -151,3 +153,41 @@ def validate_worker_case_binding(
             raise CaseValidationError("Research case payload has no task binding")
         return None
     return validate_task_binding(case, task_case_id)
+
+
+CASE_BINDING_SCHEMA = "aegisforge-research-case-binding-v1"
+
+
+def research_case_binding(case: ResearchCase) -> dict:
+    """Create a canonical, self-checking provenance envelope for a case."""
+    if not isinstance(case, ResearchCase):
+        raise CaseValidationError("research_case_required")
+    payload = asdict(case)
+    payload["execution_mode"] = case.execution_mode.value
+    payload["status"] = case.status.value
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return {
+        "schema_version": CASE_BINDING_SCHEMA,
+        "case_id": case.case_id,
+        "case_digest": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "case": payload,
+    }
+
+
+def verify_research_case_binding(binding: dict) -> dict:
+    """Verify that a result's case identity and immutable case fields agree."""
+    if not isinstance(binding, dict) or binding.get("schema_version") != CASE_BINDING_SCHEMA:
+        raise CaseValidationError("invalid_research_case_binding_schema")
+    payload = binding.get("case")
+    if not isinstance(payload, dict):
+        raise CaseValidationError("research_case_binding_payload_missing")
+    if payload.get("case_id") != binding.get("case_id"):
+        raise CaseValidationError("research_case_binding_id_mismatch")
+    try:
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    except (TypeError, ValueError) as exc:
+        raise CaseValidationError("research_case_binding_payload_invalid") from exc
+    if digest != binding.get("case_digest"):
+        raise CaseValidationError("research_case_binding_digest_mismatch")
+    return payload

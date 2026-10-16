@@ -353,3 +353,60 @@ def test_complete_round_removed_from_queue(tmp_path, monkeypatch):
     assert hasattr(queue, "complete_round")
     assert not hasattr(queue, legacy_name)
     queue.db.close()
+
+
+def test_multiple_expired_rounds_create_multiple_reviews(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case = make_case(rounds=(
+        make_round("r1", "source_pattern"),
+        make_round("r2", "synthetic_check"),
+    ))
+    case_id = register_case(queue, case)
+    assert master.bootstrap() is True
+
+    expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    queue.db.execute(
+        "UPDATE round_transparency SET disclosure_deadline = ? WHERE case_id = ?",
+        (expired, case_id),
+    )
+    queue.db.commit()
+
+    assert master.bootstrap() is False
+    reviews = queue.db.execute(
+        "SELECT reason, status FROM pending_human_review WHERE case_id = ? ORDER BY created_at, id",
+        (case_id,),
+    ).fetchall()
+    assert reviews == [
+        ("deadline_exceeded:r1", "OPEN"),
+        ("deadline_exceeded:r2", "OPEN"),
+    ]
+    queue.db.close()
+
+
+def test_terminal_branch_and_expired_round_create_separate_reviews(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue)
+    add_root(queue, case_id, status="completed")
+
+    expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    queue.create_round_transparency(
+        round_id="r1",
+        case_id=case_id,
+        technique="source_pattern",
+        started_at=(datetime.now(timezone.utc) - timedelta(days=31)).isoformat(),
+        disclosure_deadline=expired,
+    )
+
+    assert master.bootstrap() is False
+    reviews = queue.db.execute(
+        "SELECT reason, status FROM pending_human_review WHERE case_id = ? ORDER BY created_at, id",
+        (case_id,),
+    ).fetchall()
+    assert reviews == [
+        ("deadline_exceeded:r1", "OPEN"),
+        ("all_branches_terminal:roots=1", "OPEN"),
+    ] or reviews == [
+        ("all_branches_terminal:roots=1", "OPEN"),
+        ("deadline_exceeded:r1", "OPEN"),
+    ]
+    queue.db.close()

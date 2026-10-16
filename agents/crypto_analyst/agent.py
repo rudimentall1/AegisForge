@@ -13,6 +13,131 @@ class CryptoAnalyst:
         parent = dict(task.result or {})
         sources = [item for item in parent.get("sources", []) if isinstance(item, dict)]
         leads = [item for item in parent.get("source_leads", []) if isinstance(item, dict)]
+        payload = task.payload if isinstance(task.payload, dict) else {}
+        case = payload.get("research_case")
+        case_repository = (
+            case.get("target_repository", "")
+            if isinstance(case, dict)
+            else getattr(case, "target_repository", "")
+        )
+        case_repository = str(case_repository or "").strip().lower().rstrip("/")
+        if case_repository in {"johguse/profanity", "https://github.com/johguse/profanity"}:
+            pinned_dispatcher_sources = [
+                source for source in sources
+                if source.get("repository") == "johguse/profanity"
+                and source.get("source_file_path") == "Dispatcher.cpp"
+                and source.get("revision_sha") in {
+                    "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+                    "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+                }
+                and source.get("status_code") == 200
+                and isinstance(source.get("content_sha256"), str)
+                and len(source["content_sha256"]) == 64
+            ]
+            primary_disclosures = [
+                source for source in sources
+                if source.get("source_kind") in {
+                    "maintainer_issue", "security_advisory",
+                    "vulnerability_database_record", "disclosure_analysis",
+                }
+                and source.get("status_code") == 200
+                and source.get("content_sha256")
+            ]
+            relevant_sources = [
+                source for source in sources
+                if source.get("repository") == "johguse/profanity"
+                or source in primary_disclosures
+            ]
+            source_ids = list(dict.fromkeys(
+                str(source.get("source_id"))
+                for source in relevant_sources
+                if isinstance(source.get("source_id"), str) and source.get("source_id")
+            ))
+            source_supported = len(pinned_dispatcher_sources) >= 2 and bool(primary_disclosures)
+            result = dict(parent)
+            result.update({
+                "research_track": "evm_key_forensics",
+                "stage": "analysis",
+                "case_analysis": {
+                    "target_repository": "johguse/profanity",
+                    "target_commit": (
+                        case.get("target_commit") if isinstance(case, dict)
+                        else getattr(case, "target_commit", None)
+                    ),
+                    "pinned_dispatcher_revision_count": len(pinned_dispatcher_sources),
+                    "primary_disclosure_source_count": len(primary_disclosures),
+                    "source_supported_seed_space_hypothesis": source_supported,
+                },
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "H-PROFANITY-SEED-SPACE",
+                        "question": (
+                            case.get("hypothesis") if isinstance(case, dict)
+                            else getattr(case, "hypothesis", None)
+                        ) or "Does the pinned Profanity source seed its PRNG from one random_device result rather than independent entropy draws?",
+                        "status": "SOURCE_SUPPORTED_REPRODUCTION_PENDING" if source_supported else "OPEN_NO_PRIMARY_SOURCE_MATCH",
+                        "source_ids": source_ids,
+                        "required_evidence": [
+                            "exact immutable pre-disclosure and post-disclosure Dispatcher.cpp identities",
+                            "upstream maintainer disclosure and public security advisory",
+                            "runtime/toolchain behavior kept separate from source-level inference",
+                            "bounded synthetic control tests; no historical application execution",
+                        ],
+                        "what_this_does_not_prove": "It does not establish effective runtime entropy, historical binary provenance, exploitability of every build, or exposure of any wallet.",
+                    },
+                    {
+                        "hypothesis_id": "H-PROFANITY-HISTORICAL-RUNTIME",
+                        "question": "Has AegisForge independently reproduced the behavior of the historical Profanity implementation?",
+                        "status": "NOT_ESTABLISHED",
+                        "source_ids": [],
+                        "required_evidence": [
+                            "isolated historical implementation test with synthetic-only vectors",
+                            "pinned toolchain and runtime",
+                            "independent runner attestation and trusted receipt",
+                        ],
+                        "what_this_does_not_prove": "A source review or toy entropy demonstration is not historical runtime reproduction.",
+                    },
+                    {
+                        "hypothesis_id": "H-PROFANITY-WALLET-EXPOSURE",
+                        "question": "Does this evidence establish that any particular wallet or address is vulnerable?",
+                        "status": "UNPROVEN",
+                        "source_ids": [],
+                        "required_evidence": [
+                            "separate authorized evidence and independent review; never infer from address appearance, age, balance, or inactivity",
+                        ],
+                        "what_this_does_not_prove": "No individual wallet is assessed by this case.",
+                    },
+                ],
+                "analysis_summary": {
+                    "source_count": len(sources),
+                    "relevant_case_source_count": len(relevant_sources),
+                    "pinned_dispatcher_revision_count": len(pinned_dispatcher_sources),
+                    "primary_disclosure_source_count": len(primary_disclosures),
+                    "claims_confirmed_by_this_agent": 0,
+                    "note": "This is source-backed triage, not an exploit reproduction or wallet-exposure finding.",
+                },
+                "confounder_sources": [
+                    {
+                        "source_id": source.get("source_id"),
+                        "source_url": source.get("source_url"),
+                        "classification": source.get("classification"),
+                        "interpretation": "Different failure class; excluded from the Profanity seed-space claim.",
+                    }
+                    for source in sources
+                    if source.get("classification") in {
+                        "key_file_creation_or_storage_issue",
+                        "smart_contract_wallet_logic_issue",
+                    }
+                ],
+                "next_experiment": {
+                    "type": "synthetic_entropy_demo",
+                    "purpose": "Check the case pipeline's synthetic controls and evidence integrity without executing historical Profanity.",
+                    "explicit_limit": "This is not a reproduction of Profanity, secp256k1, or a real wallet.",
+                },
+            })
+            task.result = result
+            task.status = "crypto_analyzed"
+            return task
         by_class = {}
         for source in sources:
             by_class.setdefault(source.get("classification"), []).append(source)

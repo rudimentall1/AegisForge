@@ -163,6 +163,25 @@ def test_case_bundle_rejects_unknown_historical_status_even_with_recomputed_dige
         export_research_case_bundle(db_path, case.case_id, tmp_path / "invalid-status.zip")
 
 
+def test_case_bundle_export_rejects_completed_non_object_result_before_writing(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE queue SET result = ? WHERE id = ?",
+            (encode("legacy completed result"), "task-001"),
+        )
+
+    output = tmp_path / "case-invalid.zip"
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="completed_task_missing_case_binding",
+    ):
+        export_research_case_bundle(db_path, case.case_id, output)
+
+    assert not output.exists()
+
+
 def test_case_bundle_export_fails_for_unknown_case(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     _database(db_path)

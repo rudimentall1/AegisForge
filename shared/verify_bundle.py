@@ -68,6 +68,7 @@ def verify_bundle(path: str | Path) -> dict:
     if bundle_path.is_symlink():
         return {
             "valid": False,
+            "complete": False,
             "verification_levels": [
                 _level(1, "package_integrity", "FAIL", "bundle_path_must_not_be_symlink")
             ],
@@ -76,12 +77,22 @@ def verify_bundle(path: str | Path) -> dict:
 
     if bundle_path.is_dir():
         manifest_path = bundle_path / "manifest.json"
+        if manifest_path.is_symlink():
+            return {
+                "valid": False,
+                "complete": False,
+                "verification_levels": [
+                    _level(1, "package_integrity", "FAIL", "manifest_path_must_not_be_symlink")
+                ],
+                "limitations": ["No workflow provenance or experiment replay was established."],
+            }
         try:
             manifest = _strict_json(manifest_path)
             result = verify_case_artifact_manifest(bundle_path, manifest)
         except (BundleVerificationError, OSError, ValueError, TypeError) as exc:
             return {
                 "valid": False,
+                "complete": False,
                 "verification_levels": [
                     _level(1, "package_integrity", "FAIL", str(exc) or "manifest_invalid")
                 ],
@@ -90,6 +101,7 @@ def verify_bundle(path: str | Path) -> dict:
         if result.get("status") != "PASS":
             return {
                 "valid": False,
+                "complete": False,
                 "verification_levels": [
                     _level(1, "package_integrity", "FAIL", ";".join(result.get("errors", [])))
                 ],
@@ -110,6 +122,7 @@ def verify_bundle(path: str | Path) -> dict:
         except (ResearchCaseBundleError, OSError, ValueError, TypeError) as exc:
             return {
                 "valid": False,
+                "complete": False,
                 "verification_levels": [
                     _level(1, "package_integrity", "FAIL", str(exc) or "bundle_invalid")
                 ],
@@ -127,6 +140,7 @@ def verify_bundle(path: str | Path) -> dict:
     else:
         return {
             "valid": False,
+            "complete": False,
             "verification_levels": [
                 _level(1, "package_integrity", "FAIL", "unsupported_bundle_path_or_format")
             ],
@@ -138,8 +152,11 @@ def verify_bundle(path: str | Path) -> dict:
         "No trusted sandboxed replay adapter is configured; recorded execution metadata "
         "is not treated as a rerun.",
     ))
+    has_failure = any(item["status"] == "FAIL" for item in levels)
+    complete = all(item["status"] == "PASS" for item in levels)
     return {
-        "valid": all(item["status"] in {"PASS", "SKIP"} for item in levels),
+        "valid": not has_failure,
+        "complete": complete,
         "verification_levels": levels,
         "limitations": [
             "A matching digest establishes integrity relative to the supplied manifest, not authenticity.",
@@ -160,7 +177,7 @@ def main(argv=None) -> int:
     print(json.dumps(result, sort_keys=True, indent=2, ensure_ascii=False))
     if any(item["status"] == "FAIL" for item in result["verification_levels"]):
         return 1
-    if any(item["status"] == "INCONCLUSIVE" for item in result["verification_levels"]):
+    if not result["complete"]:
         return 2
     return 0
 

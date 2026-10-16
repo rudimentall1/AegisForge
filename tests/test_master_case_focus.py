@@ -110,3 +110,35 @@ def test_master_rejects_unregistered_or_mismatched_case_binding(tmp_path):
         },
     })
     queue.db.close()
+
+
+def test_master_ignores_legacy_unbound_tasks_once_cases_exist(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.db")
+    case = _case()
+    queue.register_research_case(case)
+    planner = AutonomousPlanner.__new__(AutonomousPlanner)
+    planner.queue = queue
+
+    focused = planner._focus_case_tasks({
+        "legacy-market-task": {
+            "id": "legacy-market-task",
+            "role": "researcher",
+            "result": {"research_track": "commercial_opportunity_discovery"},
+        },
+        "bound-case-task": {
+            "id": "bound-case-task",
+            "role": "source_researcher",
+            "result": {
+                "research_track": "evm_key_forensics",
+                "research_case_binding": research_case_binding(case),
+            },
+        },
+        "case-gate-failure": {
+            "id": "case-gate-failure",
+            "role": "source_researcher",
+            "result": {"research_case_id": case.case_id, "execution_blocked": True},
+        },
+    })
+
+    assert set(focused) == {"bound-case-task", "case-gate-failure"}
+    queue.db.close()

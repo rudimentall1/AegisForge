@@ -72,6 +72,8 @@ def _validate_task_parent_graph(tasks: list[dict]) -> set[str]:
         parent_id = task.get("parent_task_id")
         if not isinstance(task_id, str) or not task_id or task_id in task_ids:
             raise ResearchCaseBundleError("task_identity_invalid")
+        if parent_id is not None and not isinstance(parent_id, str):
+            raise ResearchCaseBundleError("task_parent_identity_invalid")
         task_ids.add(task_id)
         parents[task_id] = parent_id
 

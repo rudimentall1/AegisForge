@@ -40,7 +40,7 @@ The release acceptance checklist is [docs/PRODUCT-READINESS.md](docs/PRODUCT-REA
 - Worker-side validation for case-linked tasks and evidence observations that inherit the task's case ID.
 - Security-boundary tests covering missing scope, mutable source references, mismatched case IDs, prohibited execution modes, queue persistence, and case-linked evidence.
 
-**Integration boundary:** this gate currently applies to tasks that explicitly provide `research_case_id`. Legacy tasks without a case ID retain the existing execution path for compatibility. The gate is therefore an incremental control, not yet a universal enforcement point across every entrypoint, executor, and task type. The PR remains open while the latest CI run is checked.
+**Integration boundary:** `source_researcher`, `crypto_analyst`, and `lab_runner` now fail closed at the worker boundary when a task has no registered `research_case_id`. Child tasks inherit the parent's case identity unless an explicit ID is supplied, and mismatched or invalid case bindings are blocked before agent execution. Generic non-forensic roles retain compatibility with legacy tasks. This is a worker-level control; the supported end-to-end case creation/export workflow and independent portable-bundle verifier remain release blockers.
 
 ## What is not established
 

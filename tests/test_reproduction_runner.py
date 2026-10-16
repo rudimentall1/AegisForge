@@ -152,6 +152,10 @@ def test_runner_uses_network_disabled_bounded_container_and_verifies_outputs(tmp
     assert "--cap-drop=ALL" in args
     assert "--pids-limit" in args
     assert "--memory" in args
+    assert "--memory-swap" in args
+    memory_index = args.index("--memory")
+    swap_index = args.index("--memory-swap")
+    assert args[memory_index + 1] == args[swap_index + 1] == "256m"
     assert "--cpus" in args
     assert "--log-driver=none" in args
     assert "AegisForge_HOST_SECRET_TEST_SENTINEL" not in observed["docker_env"]

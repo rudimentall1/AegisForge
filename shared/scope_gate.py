@@ -12,7 +12,7 @@ from datetime import date as _date
 import re
 from urllib.parse import urlparse
 
-from shared.research_case import ExecutionMode, ResearchCase
+from shared.research_case import ExecutionMode, ResearchCase, RoundSpec
 
 
 ALLOWED_TECHNIQUES = frozenset({
@@ -122,13 +122,19 @@ def validate_case(case: ResearchCase | None) -> GateResult:
             return GateResult(False, f"technique_not_allowed:{tech}")
 
     rounds = getattr(case, "rounds", ())
+    if not isinstance(rounds, tuple):
+        return GateResult(False, "rounds_invalid")
     seen_ids = set()
     for round_spec in rounds:
+        if not isinstance(round_spec, RoundSpec):
+            return GateResult(False, "round_spec_invalid")
         if not isinstance(round_spec.round_id, str) or not round_spec.round_id.strip():
             return GateResult(False, "round_id_missing")
         if round_spec.round_id in seen_ids:
             return GateResult(False, f"duplicate_round_id:{round_spec.round_id}")
         seen_ids.add(round_spec.round_id)
+        if not isinstance(round_spec.technique, str) or round_spec.technique not in ALLOWED_TECHNIQUES:
+            return GateResult(False, f"technique_not_allowed:{round_spec.technique}")
         if round_spec.technique not in allowed:
             return GateResult(
                 False,

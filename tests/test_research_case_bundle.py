@@ -2,7 +2,7 @@ import hashlib
 import json
 import sqlite3
 import zipfile
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import pytest
 
@@ -105,6 +105,31 @@ def test_case_bundle_export_is_portable_and_deterministic(tmp_path):
     assert report["authenticity"] == "UNSIGNED_INTEGRITY_ONLY"
     assert first.read_bytes() == second.read_bytes()
     assert verify_research_case_bundle(first) == report
+
+
+def test_case_bundle_accepts_historical_binding_after_case_status_changes(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+
+    # The registered case currently says READY, but the completed task keeps
+    # the valid snapshot from when it ran under RUNNING status.
+    historical_case = replace(case, status="running")
+    result = {
+        "stage": "validation",
+        "research_case_binding": research_case_binding(historical_case),
+        "research_validation": {"historical_reproduction_confirmed": False},
+    }
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE queue SET result = ? WHERE id = ?",
+            (encode(result), "task-001"),
+        )
+
+    bundle = tmp_path / "historical-status.zip"
+    report = export_research_case_bundle(db_path, case.case_id, bundle)
+
+    assert report["valid"] is True
+    assert verify_research_case_bundle(bundle) == report
 
 
 def test_case_bundle_export_fails_for_unknown_case(tmp_path):

@@ -108,7 +108,7 @@ class RoleExecutionResult:
     human_approved: bool = False
 
     def __post_init__(self) -> None:
-        if self.role not in AGENT_B_ROLES:
+        if not isinstance(self.role, str) or self.role not in AGENT_B_ROLES:
             raise RoleContractError(f"unsupported Agent B role: {self.role!r}")
         if isinstance(self.execution_state, str):
             try:
@@ -117,6 +117,8 @@ class RoleExecutionResult:
                 )
             except ValueError as exc:
                 raise RoleContractError("unsupported execution state") from exc
+        if not isinstance(self.execution_state, ExecutionState):
+            raise RoleContractError("unsupported execution state")
         if not isinstance(self.payload, dict):
             raise RoleContractError("role payload must be a dictionary")
         if not isinstance(self.human_approved, bool):
@@ -128,6 +130,10 @@ class RoleExecutionResult:
                 )
             except ValueError as exc:
                 raise RoleContractError("unsupported research outcome") from exc
+        if self.research_outcome is not None and not isinstance(
+            self.research_outcome, ResearchOutcome
+        ):
+            raise RoleContractError("unsupported research outcome")
         if not isinstance(self.errors, tuple) or any(
             not isinstance(item, RoleError) for item in self.errors
         ):

@@ -118,7 +118,7 @@ def validate_case(case: ResearchCase | None) -> GateResult:
     if not isinstance(allowed, tuple) or not allowed:
         return GateResult(False, "allowed_techniques_required")
     for tech in allowed:
-        if tech not in ALLOWED_TECHNIQUES:
+        if not isinstance(tech, str) or tech not in ALLOWED_TECHNIQUES:
             return GateResult(False, f"technique_not_allowed:{tech}")
 
     rounds = getattr(case, "rounds", ())

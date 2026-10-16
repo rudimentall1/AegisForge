@@ -169,3 +169,23 @@ def test_contract_is_declaration_only_and_does_not_execute_command():
     assert result["network_access"] == "disabled"
     assert "execution_result" not in result
     assert "finding" not in result
+
+
+
+def test_command_and_environment_values_preserve_exact_bytes():
+    payload = valid_contract()
+    payload["command"].append("  --exact-argument  ")
+    payload["environment"]["EXTRA_VALUE"] = "  exact value  "
+
+    normalized = validate_reproduction_contract(payload)
+
+    assert normalized["command"][-1] == "  --exact-argument  "
+    assert normalized["environment"]["EXTRA_VALUE"] == "  exact value  "
+
+
+def test_empty_command_executable_is_rejected():
+    payload = valid_contract()
+    payload["command"][0] = "   "
+
+    with pytest.raises(ReproductionContractError, match="command_executable_invalid"):
+        validate_reproduction_contract(payload)

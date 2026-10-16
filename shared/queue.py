@@ -342,16 +342,23 @@ class TaskQueue:
     ):
         task_id = str(uuid.uuid4())
 
-        # Child tasks inherit their parent's immutable research-case identity
-        # unless an explicit case ID is supplied. This prevents orchestration
-        # layers from accidentally dropping provenance between agent stages.
-        if research_case_id is None and parent_task_id:
-            parent_case = self.db.execute(
+        # Case provenance must remain consistent across the task graph.
+        # Inherit a parent's case by default and reject attempts to attach a
+        # child to a different case (or to detach a case-bound parent).
+        if parent_task_id:
+            parent_row = self.db.execute(
                 "SELECT research_case_id FROM queue WHERE id = ?",
                 (parent_task_id,),
             ).fetchone()
-            if parent_case is not None and parent_case[0]:
-                research_case_id = parent_case[0]
+            parent_case_id = parent_row[0] if parent_row is not None else None
+            if research_case_id is None and parent_case_id:
+                research_case_id = parent_case_id
+            elif research_case_id != parent_case_id and (
+                research_case_id is not None or parent_case_id is not None
+            ):
+                if parent_row is None:
+                    raise ValueError("research_case_parent_task_not_found")
+                raise ValueError("research_case_parent_mismatch")
 
         if research_case_id is not None:
             case_payload = self.get_research_case(research_case_id)

@@ -242,8 +242,7 @@ print(json.dumps({
                 if prior_binding != binding:
                     raise CaseValidationError("research_case_binding_changed_between_stages")
             result["research_case_binding"] = binding
-        experiment = self.run_synthetic_entropy_demo(case_binding=binding)
-        result.update({
+        experiment = (\n            self.run_synthetic_entropy_demo(case_binding=binding)\n            if binding is not None\n            else self.run_synthetic_entropy_demo()\n        )\n        result.update({
             "research_track": "evm_key_forensics",
             "stage": "lab",
             "lab_experiments": [experiment],

@@ -293,7 +293,11 @@ def validate_role_output(role: str, result: Any) -> None:
             raise RoleContractError(
                 "synthetic lab must not claim historical implementation reproduction"
             )
-        if type(summary["live_addresses_examined"]) is not int or summary["live_addresses_examined"] != 0:
+        if type(summary["live_addresses_examined"]) is not int or summary["live_addresses_examined"] < 0:
+            raise RoleContractError(
+                "lab_runner.live_addresses_examined must be a non-negative integer"
+            )
+        if summary["live_addresses_examined"] != 0:
             raise RoleContractError("synthetic lab must not examine live addresses")
         if type(summary["experiments_run"]) is not int or summary["experiments_run"] < 1:
             raise RoleContractError("lab_runner.experiments_run must be a positive integer")

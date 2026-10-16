@@ -169,3 +169,9 @@ def test_timeout_can_be_explicitly_inconclusive():
     )
     assert result.execution_state is ExecutionState.TIMED_OUT
     assert result.research_outcome is ResearchOutcome.INCONCLUSIVE
+
+def test_agent_output_cannot_claim_confirmed_finding():
+    output = analyst_output()
+    output["research_outcome"] = "CONFIRMED"
+    with pytest.raises(RoleContractError, match="cannot promote"):
+        validate_role_output("analyst", output)

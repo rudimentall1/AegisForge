@@ -152,7 +152,7 @@ def test_research_case_constructor_rejects_unknown_technique():
 def test_scope_gate_technique_allowlist_matches_round_registry():
     from shared.techniques.registry import TechniqueRegistry
 
-    assert ALLOWED_TECHNIQUES == frozenset(TechniqueRegistry().techniques)
+    assert ALLOWED_TECHNIQUES == TechniqueRegistry().names
 
 
 def test_scope_gate_rejects_corrupted_round_technique():

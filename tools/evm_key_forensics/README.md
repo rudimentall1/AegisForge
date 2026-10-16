@@ -71,6 +71,27 @@ Exit codes:
 
 A self-consistent artifact is not necessarily authentic: anyone able to edit an unsigned artifact can recompute its hashes. A trusted signature authenticates the signed statement under the configured key, not the honesty, isolation, or correctness of the runner. The verifier is offline and does not contact the issuer.
 
+## Portable research-case evidence bundle
+
+Export a registered research case and its linked queue results and case-scoped evidence observations from the SQLite database. The exporter opens the database read-only and writes a deterministic ZIP:
+
+```sh
+python -m shared.research_case_bundle export \
+  --db data/agent_farm.db \
+  --case-id YOUR_CASE_ID \
+  --output research-case-evidence.zip
+```
+
+Verify the bundle on a clean machine without access to the original database:
+
+```sh
+python -m shared.research_case_bundle verify research-case-evidence.zip
+```
+
+The verifier checks archive paths and size limits, manifest and file hashes, the immutable case binding, task-to-case linkage, and evidence observation linkage. It never executes bundle contents or contacts a service. A successful result means `UNSIGNED_INTEGRITY_ONLY`; it does not authenticate the runner or prove that a finding is exploitable.
+
+Completed task results without a valid case binding are rejected during export. This is intentional: legacy queue history is not silently promoted to case-bound evidence. The command prints a JSON report and returns exit code 0 on successful export/verification, or 1 on failure.
+
 ## Known-vulnerability benchmark
 
 The source-backed Profanity benchmark defines evidence labels, negative controls, confounder handling, and the acceptance boundary for a known historical case:

@@ -82,3 +82,57 @@ def test_forensic_cli_submission_without_case_is_rejected(tmp_path):
     )
     assert result.returncode != 0
     assert "requires --case-id" in result.stderr
+
+
+
+def test_case_reviews_lists_open_reviews(tmp_path):
+    from shared.queue import TaskQueue
+
+    db = tmp_path / "queue.db"
+    queue = TaskQueue(db_path=db)
+    review_id = queue.create_human_review("cli-case-review", "all branches terminal")
+    queue.db.close()
+
+    result = run_cli(db, "case", "reviews")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["count"] == 1
+    assert payload["reviews"][0]["id"] == review_id
+    assert payload["reviews"][0]["status"] == "OPEN"
+
+
+def test_case_resolve_marks_review_resolved(tmp_path):
+    from shared.queue import TaskQueue
+
+    db = tmp_path / "queue.db"
+    queue = TaskQueue(db_path=db)
+    review_id = queue.create_human_review("cli-case-resolve", "all branches terminal")
+    queue.db.close()
+
+    result = run_cli(db, "case", "resolve", review_id, "new round needed")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "review_id": review_id,
+        "resolved": True,
+        "resolution": "new round needed",
+    }
+
+    queue = TaskQueue(db_path=db)
+    reviews = queue.list_human_reviews(status="RESOLVED")
+    queue.db.close()
+    assert len(reviews) == 1
+    assert reviews[0]["id"] == review_id
+    assert reviews[0]["resolution"] == "new round needed"
+
+
+def test_case_resolve_returns_error_for_unknown_id(tmp_path):
+    result = run_cli(
+        tmp_path / "queue.db",
+        "case",
+        "resolve",
+        "missing-review-id",
+        "new round needed",
+    )
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["resolved"] is False

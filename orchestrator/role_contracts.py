@@ -238,9 +238,14 @@ def validate_role_output(role: str, result: Any) -> None:
     result = _mapping(result, role=role, field="output")
     for field in ("research_outcome", "conclusion"):
         claim = result.get(field)
-        if isinstance(claim, str) and claim.upper() in {"CONFIRMED", "REJECTED"}:
+        if claim is not None and claim != "":
+            if not isinstance(claim, str):
+                raise RoleContractError(
+                    f"{role}.{field} must not contain an agent-authored conclusion"
+                )
             raise RoleContractError(
-                f"{role} cannot promote an agent output to {claim.upper()}"
+                f"{role} cannot declare a final research conclusion; "
+                "agent output is an untrusted proposal"
             )
 
     if role == "analyst":

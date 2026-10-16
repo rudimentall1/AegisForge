@@ -80,8 +80,8 @@ class TaskQueue:
 
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS round_transparency (
-                round_id TEXT PRIMARY KEY,
                 case_id TEXT NOT NULL,
+                round_id TEXT NOT NULL,
                 technique TEXT NOT NULL,
                 started_at TEXT NOT NULL,
                 disclosure_deadline TEXT NOT NULL,
@@ -89,7 +89,8 @@ class TaskQueue:
                 completed_at TEXT,
                 verdict TEXT,
                 extension_granted_at TEXT,
-                extension_reason TEXT
+                extension_reason TEXT,
+                PRIMARY KEY (case_id, round_id)
             )
         """)
         round_columns = {
@@ -388,7 +389,7 @@ class TaskQueue:
     def create_round_transparency(
         self, round_id, case_id, technique, started_at, disclosure_deadline
     ) -> None:
-        """Register public-safe disclosure metadata once per round ID."""
+        """Register public-safe disclosure metadata once per (case, round)."""
         required = {
             "round_id": round_id,
             "case_id": case_id,
@@ -408,10 +409,11 @@ class TaskQueue:
         )
         self.db.commit()
 
-    def complete_round(self, round_id, completed_at, verdict) -> bool:
-        """Complete an active round once; repeated or missing IDs are no-ops."""
+    def complete_round(self, case_id, round_id, completed_at, verdict) -> bool:
+        """Complete one case-scoped active round; repeated or missing IDs are no-ops."""
         if (
-            not isinstance(round_id, str) or not round_id.strip()
+            not isinstance(case_id, str) or not case_id.strip()
+            or not isinstance(round_id, str) or not round_id.strip()
             or not isinstance(completed_at, str) or not completed_at.strip()
         ):
             return False
@@ -422,9 +424,28 @@ class TaskQueue:
             """
             UPDATE round_transparency
             SET status = 'COMPLETED', completed_at = ?, verdict = ?
-            WHERE round_id = ? AND status IN ('OPEN', 'EXTENDED')
+            WHERE case_id = ? AND round_id = ? AND status IN ('OPEN', 'EXTENDED')
             """,
-            (completed_at, verdict.strip().upper(), round_id),
+            (completed_at, verdict.strip().upper(), case_id, round_id),
+        ).rowcount
+        self.db.commit()
+        return updated == 1
+
+    def fail_round(self, case_id, round_id, failed_at) -> bool:
+        """Mark one active case-scoped round failed without assigning a verdict."""
+        if (
+            not isinstance(case_id, str) or not case_id.strip()
+            or not isinstance(round_id, str) or not round_id.strip()
+            or not isinstance(failed_at, str) or not failed_at.strip()
+        ):
+            return False
+        updated = self.db.execute(
+            """
+            UPDATE round_transparency
+            SET status = 'FAILED', completed_at = ?, verdict = NULL
+            WHERE case_id = ? AND round_id = ? AND status IN ('OPEN', 'EXTENDED')
+            """,
+            (failed_at, case_id, round_id),
         ).rowcount
         self.db.commit()
         return updated == 1
@@ -477,10 +498,11 @@ class TaskQueue:
             for row in rows
         ]
 
-    def grant_extension(self, round_id, reason, days=14) -> bool:
-        """Grant the one permitted extension to an OPEN round; otherwise no-op."""
+    def grant_extension(self, case_id, round_id, reason, days=14) -> bool:
+        """Grant the one permitted extension to a case-scoped OPEN round."""
         if (
-            not isinstance(round_id, str) or not round_id.strip()
+            not isinstance(case_id, str) or not case_id.strip()
+            or not isinstance(round_id, str) or not round_id.strip()
             or not isinstance(reason, str) or not reason.strip()
             or not isinstance(days, int) or isinstance(days, bool) or days <= 0
         ):
@@ -491,9 +513,9 @@ class TaskQueue:
                 """
                 SELECT disclosure_deadline, extension_granted_at
                 FROM round_transparency
-                WHERE round_id = ? AND status = 'OPEN'
+                WHERE case_id = ? AND round_id = ? AND status = 'OPEN'
                 """,
-                (round_id,),
+                (case_id, round_id),
             ).fetchone()
             if row is None or row[1] is not None:
                 self.db.rollback()
@@ -514,10 +536,10 @@ class TaskQueue:
                 UPDATE round_transparency
                 SET disclosure_deadline = ?, status = 'EXTENDED',
                     extension_granted_at = ?, extension_reason = ?
-                WHERE round_id = ? AND status = 'OPEN'
+                WHERE case_id = ? AND round_id = ? AND status = 'OPEN'
                   AND extension_granted_at IS NULL
                 """,
-                (new_deadline, granted_at, reason.strip()[:1000], round_id),
+                (new_deadline, granted_at, reason.strip()[:1000], case_id, round_id),
             ).rowcount
             if updated != 1:
                 self.db.rollback()

@@ -326,16 +326,17 @@ def test_master_calls_new_complete_round(tmp_path, monkeypatch):
     calls = []
     original = queue.complete_round
 
-    def record_complete(round_id, completed_at, verdict):
-        calls.append((round_id, completed_at, verdict))
-        return original(round_id, completed_at, verdict)
+    def record_complete(case_id_arg, round_id, completed_at, verdict):
+        calls.append((case_id_arg, round_id, completed_at, verdict))
+        return original(case_id_arg, round_id, completed_at, verdict)
 
     monkeypatch.setattr(queue, "complete_round", record_complete)
     assert master.bootstrap() is False
     assert len(calls) == 1
-    assert calls[0][0] == "round-001"
-    assert datetime.fromisoformat(calls[0][1]).tzinfo is not None
-    assert calls[0][2] == "NOT_REPRODUCED"
+    assert calls[0][0] == case_id
+    assert calls[0][1] == "round-001"
+    assert datetime.fromisoformat(calls[0][2]).tzinfo is not None
+    assert calls[0][3] == "NOT_REPRODUCED"
     queue.db.close()
 
 
@@ -435,4 +436,86 @@ def test_terminal_branch_and_expired_round_create_separate_reviews(tmp_path, mon
         ("all_branches_terminal:roots=1", "OPEN"),
         ("deadline_exceeded:r1", "OPEN"),
     ]
+    queue.db.close()
+
+
+
+def test_failed_branch_marks_round_failed_and_creates_round_review(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue, make_case(rounds=(make_round(),)))
+    assert master.bootstrap() is True
+    root_id = queue.db.execute(
+        "SELECT id FROM queue WHERE parent_task_id IS NULL AND research_case_id = ? AND round_id = ?",
+        (case_id, "round-001"),
+    ).fetchone()[0]
+    queue.db.execute(
+        "UPDATE queue SET status = 'failed', result = ? WHERE id = ?",
+        ('{"error":"GATE BLOCKED"}', root_id),
+    )
+    queue.db.commit()
+
+    assert master.bootstrap() is False
+    row = queue.db.execute(
+        "SELECT status, verdict FROM round_transparency WHERE case_id = ? AND round_id = ?",
+        (case_id, "round-001"),
+    ).fetchone()
+    assert row == ("FAILED", None)
+    review = queue.db.execute(
+        "SELECT reason, status FROM pending_human_review WHERE case_id = ?",
+        (case_id,),
+    ).fetchall()
+    assert review == [("round_failed:round-001", "OPEN")]
+    queue.db.close()
+
+
+def test_completed_branch_marks_round_completed(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue, make_case(rounds=(make_round(),)))
+    assert master.bootstrap() is True
+    root_id = queue.db.execute(
+        "SELECT id FROM queue WHERE parent_task_id IS NULL AND research_case_id = ? AND round_id = ?",
+        (case_id, "round-001"),
+    ).fetchone()[0]
+    queue.db.execute(
+        "UPDATE queue SET status = 'completed', result = ? WHERE id = ?",
+        (json.dumps({"research_validation": {"verdict": "REPRODUCED"}}), root_id),
+    )
+    queue.db.commit()
+
+    assert master.bootstrap() is False
+    row = queue.db.execute(
+        "SELECT status, verdict FROM round_transparency WHERE case_id = ? AND round_id = ?",
+        (case_id, "round-001"),
+    ).fetchone()
+    assert row == ("COMPLETED", "REPRODUCED")
+    reviews = queue.db.execute(
+        "SELECT reason, status FROM pending_human_review WHERE case_id = ?",
+        (case_id,),
+    ).fetchall()
+    assert reviews == [("all_branches_terminal:roots=1", "OPEN")]
+    queue.db.close()
+
+
+def test_active_child_keeps_failed_root_round_open(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue, make_case(rounds=(make_round(),)))
+    assert master.bootstrap() is True
+    root_id = queue.db.execute(
+        "SELECT id FROM queue WHERE parent_task_id IS NULL AND research_case_id = ? AND round_id = ?",
+        (case_id, "round-001"),
+    ).fetchone()[0]
+    queue.db.execute("UPDATE queue SET status = 'failed' WHERE id = ?", (root_id,))
+    queue.db.commit()
+    queue.add(description="active child", role="crypto_analyst", parent_task_id=root_id)
+
+    assert master.bootstrap() is False
+    row = queue.db.execute(
+        "SELECT status, verdict FROM round_transparency WHERE case_id = ? AND round_id = ?",
+        (case_id, "round-001"),
+    ).fetchone()
+    assert row == ("OPEN", None)
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM pending_human_review WHERE case_id = ?",
+        (case_id,),
+    ).fetchone()[0] == 0
     queue.db.close()

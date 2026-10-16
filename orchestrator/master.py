@@ -3183,8 +3183,8 @@ class MasterOrchestrator:
                             if spec is None:
                                 continue
                             timeline_exists = self.queue.db.execute(
-                                "SELECT 1 FROM round_transparency WHERE round_id = ?",
-                                (round_id,),
+                                "SELECT 1 FROM round_transparency WHERE case_id = ? AND round_id = ?",
+                                (case_id, round_id),
                             ).fetchone()
                             if timeline_exists:
                                 continue
@@ -3228,7 +3228,10 @@ class MasterOrchestrator:
                             return True
 
                     active_branch = False
-                    for root_id, _role, root_status, _round_id, _created_at in roots:
+                    failed_round_ids = []
+                    failed_legacy_roots = []
+                    all_roots_completed = True
+                    for root_id, _role, root_status, round_id, _created_at in roots:
                         active_children_row = self.queue.db.execute(
                             """
                             SELECT COUNT(*) FROM queue
@@ -3239,19 +3242,44 @@ class MasterOrchestrator:
                         ).fetchone()
                         active_children = int(active_children_row[0] or 0)
                         if root_status not in {"completed", "failed"} or active_children > 0:
+                            # A branch with active work must keep its round OPEN/EXTENDED.
                             active_branch = True
-                            break
+                            all_roots_completed = False
+                            continue
+
+                        terminal_at = datetime.now(timezone.utc).isoformat()
+                        if root_status == "completed":
+                            if round_id:
+                                verdict = self._round_verdict(root_id)
+                                self.queue.complete_round(
+                                    case_id, round_id, terminal_at, verdict
+                                )
+                        else:
+                            all_roots_completed = False
+                            if round_id:
+                                self.queue.fail_round(case_id, round_id, terminal_at)
+                                failed_round_ids.append(round_id)
+                            else:
+                                failed_legacy_roots.append(root_id)
+
+                    for round_id in failed_round_ids:
+                        self.queue.create_human_review(
+                            case_id=case_id,
+                            reason=f"round_failed:{round_id}",
+                        )
+                    for root_id in failed_legacy_roots:
+                        self.queue.create_human_review(
+                            case_id=case_id,
+                            reason=f"branch_failed:{root_id}",
+                        )
 
                     if active_branch:
                         pipeline_has_active_branch = True
                         self._case_pipeline_idle_logged = False
                         continue
 
-                    for root_id, _role, _root_status, round_id, _created_at in roots:
-                        if round_id:
-                            completed_at = datetime.now(timezone.utc).isoformat()
-                            verdict = self._round_verdict(root_id)
-                            self.queue.complete_round(round_id, completed_at, verdict)
+                    if not all_roots_completed:
+                        continue
 
                     existed_before = self._human_review_exists(case_id)
                     review_id = self.queue.create_human_review(

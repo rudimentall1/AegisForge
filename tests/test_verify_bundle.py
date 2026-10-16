@@ -3,7 +3,14 @@ import json
 
 import pytest
 
-from shared.verify_bundle import (\n    MANIFEST_FILENAME,\n    MANIFEST_SCHEMA_VERSION,\n    MAX_ARTIFACTS,\n    MAX_ARTIFACT_BYTES,\n    MAX_MANIFEST_BYTES,\n    verify_bundle,\n)
+from shared.verify_bundle import (
+    MANIFEST_FILENAME,
+    MANIFEST_SCHEMA_VERSION,
+    MAX_ARTIFACTS,
+    MAX_ARTIFACT_BYTES,
+    MAX_MANIFEST_BYTES,
+    verify_bundle,
+)
 
 
 def write_bundle(root, *, content=b"evidence bytes"):

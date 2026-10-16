@@ -1849,9 +1849,32 @@ class AutonomousPlanner:
         try:
             verify_research_case_binding(binding)
             registered_case = self.queue.get_research_case(binding.get("case_id"))
-            return (
-                registered_case is not None
-                and research_case_binding(registered_case) == binding
+            if registered_case is None:
+                return False
+
+            # Case status is lifecycle metadata and may change after a result
+            # was produced. Bind the result to the registered investigation's
+            # immutable target, scope, hypothesis, and execution constraints,
+            # while verify_research_case_binding checks the historical snapshot.
+            payload = verify_research_case_binding(binding)
+            registered_binding = research_case_binding(registered_case)
+            registered_payload = verify_research_case_binding(registered_binding)
+            immutable_fields = (
+                "case_id",
+                "target_repository",
+                "target_commit",
+                "scope_url",
+                "scope_digest",
+                "scope_reviewed_on",
+                "hypothesis",
+                "attacker_capability",
+                "expected_invariant",
+                "falsification_criteria",
+                "execution_mode",
+            )
+            return all(
+                payload.get(field) == registered_payload.get(field)
+                for field in immutable_fields
             )
         except (TypeError, ValueError):
             return False

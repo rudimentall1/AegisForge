@@ -203,7 +203,7 @@ def _verify_git_target(root: Path, target: dict) -> tuple[str, dict[str, str]]:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ReproductionRunnerError("target_git_identity_check_failed") from exc
-    if revision.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}\\s*", revision.stdout or ""):
+    if revision.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}\s*", revision.stdout or ""):
         raise ReproductionRunnerError("target_git_revision_unavailable")
     if revision.stdout.strip() != target["commit_sha"]:
         raise ReproductionRunnerError("target_git_revision_mismatch")
@@ -248,7 +248,7 @@ def _copy_pinned_worktree(
     if len(tree.stdout) > MAX_GIT_TREE_OUTPUT_BYTES:
         raise ReproductionRunnerError("target_git_tree_output_limit_exceeded")
 
-    entries = [entry for entry in tree.stdout.split(b"\\x00") if entry]
+    entries = [entry for entry in tree.stdout.split(b"\x00") if entry]
     if not entries:
         raise ReproductionRunnerError("target_git_tree_empty")
     if len(entries) > MAX_WORKSPACE_FILES:
@@ -258,7 +258,7 @@ def _copy_pinned_worktree(
     copied_files = 0
     for entry in entries:
         try:
-            metadata, raw_path = entry.split(b"\\t", 1)
+            metadata, raw_path = entry.split(b"\t", 1)
             mode, object_type, object_id = metadata.split(b" ", 2)
             relative = os.fsdecode(raw_path)
         except (ValueError, UnicodeError) as exc:
@@ -267,7 +267,7 @@ def _copy_pinned_worktree(
         if (
             not relative
             or relative.startswith("/")
-            or "\\\\" in relative
+            or "\\" in relative
             or any(part in ("", ".", "..", ".git") for part in parts)
             or ":" in parts[0]
             or any(ord(char) < 32 for char in relative)
@@ -302,7 +302,7 @@ def _copy_pinned_worktree(
             total_bytes += file_size
             if file_size > MAX_WORKSPACE_BYTES or total_bytes > MAX_WORKSPACE_BYTES:
                 raise ReproductionRunnerError("workspace_size_limit_exceeded")
-            digest.update(f"blob {file_size}\\x00".encode("ascii"))
+            digest.update(f"blob {file_size}\x00".encode("ascii"))
             actual_size = 0
             with target_path.open("xb") as output_stream:
                 while True:

@@ -1,6 +1,6 @@
 import json
 
-from orchestrator.master import Master
+from orchestrator.master import AutonomousPlanner
 from shared.queue import TaskQueue
 from shared.research_case import ResearchCase, validate_worker_case_binding
 
@@ -25,7 +25,7 @@ def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_pat
 
     # Exercise the same specialized decision function used by the Master,
     # without starting the autonomous service or making network requests.
-    master = Master.__new__(Master)
+    master = AutonomousPlanner.__new__(AutonomousPlanner)
     master.information_gain = lambda result: 0.7
     master.compact_context = lambda value: json.dumps(value, sort_keys=True, default=str)
 

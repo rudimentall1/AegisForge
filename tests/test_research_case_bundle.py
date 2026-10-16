@@ -132,6 +132,37 @@ def test_case_bundle_accepts_historical_binding_after_case_status_changes(tmp_pa
     assert verify_research_case_bundle(bundle) == report
 
 
+def test_case_bundle_rejects_unknown_historical_status_even_with_recomputed_digest(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+
+    payload = asdict(case)
+    payload["execution_mode"] = case.execution_mode.value
+    payload["status"] = "unrecognized-status"
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    forged_binding = {
+        "schema_version": "aegisforge-research-case-binding-v1",
+        "case_id": case.case_id,
+        "case_digest": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "case": payload,
+    }
+    result = {
+        "stage": "validation",
+        "research_case_binding": forged_binding,
+        "research_validation": {"historical_reproduction_confirmed": False},
+    }
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE queue SET result = ? WHERE id = ?",
+            (encode(result), "task-001"),
+        )
+
+    with pytest.raises(ResearchCaseBundleError, match="task_result_case_binding_invalid"):
+        export_research_case_bundle(db_path, case.case_id, tmp_path / "invalid-status.zip")
+
+
 def test_case_bundle_export_fails_for_unknown_case(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     _database(db_path)

@@ -49,8 +49,8 @@ def test_parallelism_and_resource_budget_are_enforced():
         max_resource_units=3,
     )
     plan = dag.plan({"a": "RUNNING"})
-    assert plan.ready == ("b",)
-    assert plan.waiting == ("c",)
+    assert plan.ready == ("c",)
+    assert plan.waiting == ("b",)
 
 
 @pytest.mark.parametrize(

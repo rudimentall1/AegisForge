@@ -3,7 +3,7 @@
 Tier 1 checks the envelope and canonical identity without trusting the signer.
 Tier 2 verifies the Ed25519 signature against an explicitly trusted public key.
 Tier 3 also binds the attestation to an expected case digest and verifies artifact
-paths, sizes, and SHA-256 digests. No network access is performed.
+paths, sizes, and SHA-256 digests. Service requests are restricted to loopback HTTP.
 """
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from typing import Any
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from shared.attestation_signer_client import SignerClientError, request_attestation
 from shared.attestation import (
     ALLOWED_VERDICTS,
     SCHEMA_VERSION,
@@ -161,6 +162,48 @@ def _create_attestation(args) -> int:
         "output": str(args.output),
         "verdict": inputs["verdict"],
         "private_key_material_printed": False,
+    }, sort_keys=True))
+    return 0
+
+
+
+
+def _request_attestation(args) -> int:
+    inputs = _load_json(args.input)
+    if not isinstance(inputs, dict):
+        raise ValueError("attestation_input_must_be_object")
+    required = {
+        "case_ref", "finding_ref", "reproduction", "verdict", "verdict_rationale"
+    }
+    allowed = required | {"issued_at"}
+    if not required.issubset(inputs):
+        raise ValueError("attestation_input_missing_required_fields")
+    if set(inputs) - allowed:
+        raise ValueError("attestation_input_has_unexpected_fields")
+    trusted = _load_json(args.trusted_keys)
+    if not isinstance(trusted, dict) or not all(
+        isinstance(key_id, str) and isinstance(public_key, str)
+        for key_id, public_key in trusted.items()
+    ):
+        raise ValueError("trusted_keys_must_be_key_id_to_base64_public_key_object")
+    attestation = request_attestation(inputs)
+    verified = verify_attestation(attestation, trusted_keys=trusted)
+    if verified.status != "VALID":
+        print(json.dumps({
+            "status": verified.status,
+            "reason": verified.reason,
+            "attestation_id": verified.attestation_id,
+        }, sort_keys=True))
+        return 2 if verified.status == "UNTRUSTED" else 1
+    serialized = json.dumps(attestation, sort_keys=True, indent=2) + "\n"
+    _write_new_file(args.output, serialized.encode("utf-8"), 0o600)
+    print(json.dumps({
+        "status": "SIGNED_BY_SERVICE",
+        "attestation_id": attestation["attestation_id"],
+        "schema_version": SCHEMA_VERSION,
+        "output": str(args.output),
+        "verdict": attestation["verdict"],
+        "private_key_material_loaded_by_cli": False,
     }, sort_keys=True))
     return 0
 
@@ -330,7 +373,11 @@ def main(argv=None) -> int:
     keygen.add_argument("--private-key-file", required=True)
     keygen.add_argument("--public-key-file", required=True)
     keygen.add_argument("--key-id", required=True)
-    create = attest_sub.add_parser("create", help="sign an attestation from JSON input")
+    request = attest_sub.add_parser("request", help="request signing from the loopback signer; no private key file")
+    request.add_argument("--input", required=True)
+    request.add_argument("--trusted-keys", required=True)
+    request.add_argument("--output", required=True)
+    create = attest_sub.add_parser("create", help="offline administrative signing from a local private key")
     create.add_argument("--input", required=True)
     create.add_argument("--private-key-file", required=True)
     create.add_argument("--key-id", required=True)
@@ -349,11 +396,13 @@ def main(argv=None) -> int:
         if args.command == "attest":
             if args.attest_command == "keygen":
                 return _keygen(args)
+            if args.attest_command == "request":
+                return _request_attestation(args)
             return _create_attestation(args)
         if args.level in {"2", "3"} and not args.trusted_keys:
             raise ValueError("tier2_and_tier3_require_trusted_keys")
         return _verify(args)
-    except (OSError, ValueError, AttestationError, binascii.Error) as exc:
+    except (OSError, ValueError, AttestationError, SignerClientError, binascii.Error) as exc:
         print(json.dumps({
             "status": "ERROR",
             "error": str(exc)[:240],

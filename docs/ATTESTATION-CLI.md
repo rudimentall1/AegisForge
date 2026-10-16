@@ -1,13 +1,16 @@
 # AegisForge attestation CLI
 
-The CLI wraps the existing `shared.attestation` Ed25519 core. It is offline and
-does not decide whether a vulnerability is real. The allowed verdicts are
+The CLI wraps the existing `shared.attestation` Ed25519 core. Local key generation
+and verification are offline; signing through `attest create` or `attest request`
+uses only the loopback signer. The CLI does not decide whether a vulnerability is real.
+The allowed verdicts are
 `REPRODUCED`, `NOT_REPRODUCED`, `INCONCLUSIVE`, and `OUT_OF_SCOPE`; `CONFIRMED`
 is rejected.
 
 ## 1. Create a local signing key
 
 ```bash
+mkdir -p data
 python aegisforge.py attest keygen \
   --private-key-file ./data/attestation-ed25519.key \
   --public-key-file ./data/trusted-attestation-keys.json \
@@ -17,7 +20,7 @@ python aegisforge.py attest keygen \
 The private key is a raw 32-byte Ed25519 seed written with owner-only permissions
 on POSIX. Existing files are never overwritten. The private key is never printed.
 This path is for offline administrative use only; do not run it in workers. Use
-`attest request` for the master service path.
+`attest create` or its `attest request` alias for the master service path.
 
 
 ## 2. Normal master workflow: request signing from the service
@@ -26,7 +29,7 @@ For the operational path, the master process requests a signature from the
 loopback signer. It does not read a private key file:
 
 ```bash
-python aegisforge.py attest request \
+python aegisforge.py attest create \
   --input ./attestation-input.json \
   --trusted-keys ./data/trusted-attestation-keys.json \
   --output ./attestation.json
@@ -34,8 +37,8 @@ python aegisforge.py attest request \
 
 The command uses `AEGISFORGE_SIGNER_URL` and `AEGISFORGE_SIGNER_TOKEN`, validates
 the returned signature against the trusted-key file, and refuses to overwrite
-an existing output. Only the master process should receive the token. Worker
-service environments must not contain it.
+an existing output. The signer service and master client need the token in separate
+restricted environment files. Worker service environments must not contain it.
 
 ## 3. Offline administrative signing (not for workers)
 
@@ -45,7 +48,7 @@ reproduction-contract SHA-256, argv arrays, environment metadata, network-access
 flag, artifact path/hash/size entries, start/end timestamps, and exit code.
 
 ```bash
-python aegisforge.py attest create \
+python aegisforge.py attest create-local \
   --input ./attestation-input.json \
   --private-key-file ./data/attestation-ed25519.key \
   --key-id owner-local-v1 \

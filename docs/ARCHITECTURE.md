@@ -14,7 +14,7 @@ It is not intended to be:
 - A report generator that converts model output into a security claim.
 - A CI badge or attestation presented as proof that a finding is true.
 
-The first proving ground is authorized EVM security research, beginning with the SSV Network Bug Bounty. The long-term product may support broader smart-contract and cryptographic investigations only after the core evidence workflow is dependable.
+The first release target is the EVM Key Forensics workflow: pinned public source, structured hypothesis, bounded local or synthetic experiment, independent validation, and portable evidence export. Active SSV bounty hunting is paused until this product workflow is release-candidate ready. Broader smart-contract investigations should follow only after the forensic evidence loop is dependable.
 
 ## 2. System architecture at a glance
 

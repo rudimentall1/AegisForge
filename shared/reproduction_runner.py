@@ -238,7 +238,7 @@ def _copy_pinned_worktree(
 ) -> tuple[int, int]:
     try:
         tree = subprocess.run(
-            [git_path, "-C", str(root), "ls-tree", "-r", "-z", "--full-tree", "HEAD"],
+            [git_path, "-C", str(root), "ls-tree", "-r", "-z", "--full-tree", target["commit_sha"]],
             capture_output=True, text=False, timeout=30, check=False, env=git_env,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:

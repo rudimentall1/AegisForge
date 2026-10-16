@@ -880,7 +880,9 @@ def verify_case_artifact_manifest(root, manifest):
     for artifact in artifacts:
         try:
             path = _safe_artifact_file(root, artifact["path"])
-            actual_digest, actual_size = _file_sha256(path)
+            actual_digest, actual_size = _file_sha256(
+                path, max_bytes=artifact["size_bytes"]
+            )
         except (CaseArtifactManifestError, OSError, ValueError) as exc:
             return {"status": "FAIL", "errors": [f"artifact_unavailable:{artifact['path']}:{exc}"]}
         if actual_digest != artifact["sha256"]:

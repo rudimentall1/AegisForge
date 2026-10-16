@@ -1,5 +1,7 @@
 import sqlite3
 
+from scripts import migrate_round_transparency_composite_key as migration
+from shared import queue
 from scripts.migrate_round_transparency_composite_key import migrate, primary_key_columns
 
 
@@ -58,3 +60,8 @@ def test_migration_apply_preserves_rows_and_is_idempotent(tmp_path):
     second = migrate(path, apply=True)
     assert second["needs_migration"] is False
     assert second["applied"] is False
+
+
+def test_default_path_matches_queue_default():
+    assert migration.db_path == queue.DB_PATH
+    assert migration.DEFAULT_DB_PATH == queue.DB_PATH

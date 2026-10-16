@@ -409,11 +409,12 @@ class TaskQueue:
         self.db.commit()
 
     def complete_round(self, round_id, completed_at, verdict) -> bool:
-        """Complete an OPEN round once; agent claims cannot self-confirm findings."""
-        if not isinstance(round_id, str) or not round_id.strip():
-            raise ValueError("round_transparency_round_id_required")
-        if not isinstance(completed_at, str) or not completed_at.strip():
-            raise ValueError("round_transparency_completed_at_required")
+        """Complete an active round once; repeated or missing IDs are no-ops."""
+        if (
+            not isinstance(round_id, str) or not round_id.strip()
+            or not isinstance(completed_at, str) or not completed_at.strip()
+        ):
+            return False
         allowed_verdicts = {"REPRODUCED", "NOT_REPRODUCED", "INCONCLUSIVE"}
         if not isinstance(verdict, str) or verdict.strip().upper() not in allowed_verdicts:
             verdict = "INCONCLUSIVE"
@@ -421,7 +422,7 @@ class TaskQueue:
             """
             UPDATE round_transparency
             SET status = 'COMPLETED', completed_at = ?, verdict = ?
-            WHERE round_id = ? AND status = 'OPEN'
+            WHERE round_id = ? AND status IN ('OPEN', 'EXTENDED')
             """,
             (completed_at, verdict.strip().upper(), round_id),
         ).rowcount
@@ -477,23 +478,24 @@ class TaskQueue:
         ]
 
     def grant_extension(self, round_id, reason, days=14) -> bool:
-        """Extend an OPEN round after an authorized human review."""
-        if not isinstance(round_id, str) or not round_id.strip():
-            raise ValueError("round_transparency_round_id_required")
-        if not isinstance(reason, str) or not reason.strip():
-            raise ValueError("round_extension_reason_required")
-        if not isinstance(days, int) or isinstance(days, bool) or days <= 0:
-            raise ValueError("round_extension_days_invalid")
+        """Grant the one permitted extension to an OPEN round; otherwise no-op."""
+        if (
+            not isinstance(round_id, str) or not round_id.strip()
+            or not isinstance(reason, str) or not reason.strip()
+            or not isinstance(days, int) or isinstance(days, bool) or days <= 0
+        ):
+            return False
         self.db.execute("BEGIN IMMEDIATE")
         try:
             row = self.db.execute(
                 """
-                SELECT disclosure_deadline FROM round_transparency
+                SELECT disclosure_deadline, extension_granted_at
+                FROM round_transparency
                 WHERE round_id = ? AND status = 'OPEN'
                 """,
                 (round_id,),
             ).fetchone()
-            if row is None:
+            if row is None or row[1] is not None:
                 self.db.rollback()
                 return False
             try:
@@ -502,7 +504,7 @@ class TaskQueue:
                 )
             except (TypeError, ValueError):
                 self.db.rollback()
-                raise ValueError("round_transparency_deadline_invalid")
+                return False
             if current_deadline.tzinfo is None:
                 current_deadline = current_deadline.replace(tzinfo=timezone.utc)
             new_deadline = (current_deadline + timedelta(days=days)).isoformat()
@@ -513,6 +515,7 @@ class TaskQueue:
                 SET disclosure_deadline = ?, status = 'EXTENDED',
                     extension_granted_at = ?, extension_reason = ?
                 WHERE round_id = ? AND status = 'OPEN'
+                  AND extension_granted_at IS NULL
                 """,
                 (new_deadline, granted_at, reason.strip()[:1000], round_id),
             ).rowcount
@@ -523,16 +526,16 @@ class TaskQueue:
             return True
         except Exception:
             self.db.rollback()
-            raise
+            return False
 
     def expired_rounds(self, now) -> list[dict]:
-        """Return only OPEN rounds whose ISO-8601 deadline is strictly before now."""
+        """Return overdue OPEN or EXTENDED rounds using their current deadline."""
         if isinstance(now, datetime):
             now_text = now.isoformat()
         elif isinstance(now, str) and now.strip():
             now_text = now
         else:
-            raise ValueError("round_expired_now_invalid")
+            return []
         if now_text.endswith("Z"):
             now_text = now_text[:-1] + "+00:00"
         rows = self.db.execute(
@@ -540,7 +543,7 @@ class TaskQueue:
             SELECT round_id, case_id, technique, started_at, disclosure_deadline,
                    status, completed_at, verdict, extension_granted_at, extension_reason
             FROM round_transparency
-            WHERE status = 'OPEN' AND disclosure_deadline < ?
+            WHERE status IN ('OPEN', 'EXTENDED') AND disclosure_deadline < ?
             ORDER BY disclosure_deadline, round_id
             """,
             (now_text,),

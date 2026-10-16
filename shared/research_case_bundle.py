@@ -35,6 +35,27 @@ MAX_MEMBER_COUNT = 4
 MAX_TASKS = 10_000
 MAX_EVIDENCE_ROWS = 20_000
 
+# A result records the case snapshot that existed when its task ran. Lifecycle
+# status can advance later (ready -> running -> confirmed/inconclusive), so
+# provenance checks compare the immutable investigation contract, not status.
+_CASE_IMMUTABLE_FIELDS = (
+    "case_id",
+    "target_repository",
+    "target_commit",
+    "scope_url",
+    "scope_digest",
+    "scope_reviewed_on",
+    "hypothesis",
+    "attacker_capability",
+    "expected_invariant",
+    "falsification_criteria",
+    "execution_mode",
+)
+
+
+def _same_case_contract(left: dict, right: dict) -> bool:
+    return all(left.get(field) == right.get(field) for field in _CASE_IMMUTABLE_FIELDS)
+
 
 class ResearchCaseBundleError(ValueError):
     """Raised when a case bundle is malformed, unsafe, or inconsistent."""
@@ -441,7 +462,11 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
                 verify_research_case_binding(result["research_case_binding"])
             except ValueError as exc:
                 raise ResearchCaseBundleError("task_result_case_binding_invalid") from exc
-            if result["research_case_binding"] != binding:
+            result_binding = result["research_case_binding"]
+            if not _same_case_contract(
+                verify_research_case_binding(result_binding),
+                case_payload,
+            ):
                 raise ResearchCaseBundleError("task_result_case_binding_mismatch")
         elif task.get("status") == "completed":
             raise ResearchCaseBundleError("completed_task_missing_case_binding")

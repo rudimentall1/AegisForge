@@ -145,10 +145,47 @@ def verify_attestation(attestation, proof, registry):
     Ed25519PublicKey.from_public_bytes(b64(record["public_key"],"public_key")).verify(b64(attestation["signature"],"signature"), canonical(payload).encode())
     return True
 
+def verify_bundle_metadata(root, proof):
+    path=os.path.join(root,"bundle.json")
+    with open(path,encoding="utf-8") as f: metadata=json.load(f)
+    if not isinstance(metadata,dict) or metadata.get("schema_version") != "aegisforge-proof-bundle-v1":
+        raise ValueError("invalid_bundle_metadata_schema")
+    if metadata.get("proof_id") != proof.get("proof_id") or metadata.get("key_id") != proof.get("key_id"):
+        raise ValueError("bundle_proof_binding_mismatch")
+    files=metadata.get("files")
+    if not isinstance(files,list): raise ValueError("invalid_bundle_file_list")
+    indexed={}
+    for item in files:
+        if not isinstance(item,dict): raise ValueError("invalid_bundle_file_entry")
+        name=item.get("name")
+        if not isinstance(name,str) or not name or name in (".","..") or os.path.basename(name) != name:
+            raise ValueError("invalid_bundle_file_name")
+        if name == "bundle.json" or name in indexed: raise ValueError("duplicate_or_recursive_bundle_entry")
+        if not isinstance(item.get("sha256"),str) or len(item["sha256"]) != 64:
+            raise ValueError("invalid_bundle_file_digest")
+        if not isinstance(item.get("size"),int) or item["size"] < 0:
+            raise ValueError("invalid_bundle_file_size")
+        indexed[name]=item
+    required={"outcome-proof.json","evidence-manifest.json","public-key.txt","verify_bundle.py","README.md"}
+    if not required.issubset(indexed): raise ValueError("bundle_required_file_missing")
+    has_att="attestation.json" in indexed
+    has_reg="attestor-registry.json" in indexed
+    if has_att != has_reg: raise ValueError("attestation_registry_pair_mismatch")
+    if os.path.exists(os.path.join(root,"attestation.json")) != has_att or os.path.exists(os.path.join(root,"attestor-registry.json")) != has_reg:
+        raise ValueError("bundle_optional_file_mismatch")
+    for name,item in indexed.items():
+        file_path=os.path.join(root,name)
+        if not os.path.isfile(file_path): raise ValueError("bundle_file_missing:"+name)
+        with open(file_path,"rb") as f: data=f.read()
+        if len(data) != item["size"]: raise ValueError("bundle_file_size_mismatch:"+name)
+        if hashlib.sha256(data).hexdigest() != item["sha256"]: raise ValueError("bundle_file_hash_mismatch:"+name)
+    return True
+
 def main():
     root=os.path.dirname(os.path.abspath(__file__))
     with open(os.path.join(root,"outcome-proof.json"),encoding="utf-8") as f: p=json.load(f)
     try:
+        verify_bundle_metadata(root,p)
         result=verify(p)
     except Exception as exc:
         print(f"INVALID: {exc}"); return 1

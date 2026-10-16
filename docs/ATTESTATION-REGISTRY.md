@@ -59,7 +59,9 @@ python aegisforge.py registry verify \\
   --registry ./registry-000002.json \\
   --previous-registry ./registry-000001.json \\
   --checkpoint ./checkpoint-000002.json \\
-  --trusted-keys ./trusted-attestation-keys.json
+  --trusted-keys ./trusted-attestation-keys.json \\
+  --expected-checkpoint-id <pinned-checkpoint-id> \\
+  --expected-size 2
 ```
 
 ## Inclusion proofs
@@ -80,7 +82,9 @@ python aegisforge.py registry verify-proof \\
   --proof ./inclusion-proof.json \\
   --attestation ./attestation.json \\
   --trusted-keys ./trusted-attestation-keys.json \\
-  --checkpoint ./checkpoint-000002.json
+  --checkpoint ./checkpoint-000002.json \\
+  --expected-checkpoint-id <pinned-checkpoint-id> \\
+  --expected-size 2
 ```
 
 The proof check verifies the attestation signature and that the exact canonical
@@ -91,8 +95,8 @@ checkpoint.
 
 A valid signed checkpoint prevents an untrusted party from substituting a new
 root without the configured signing key. It does not prove that the checkpoint is
-the latest one: consumers must pin the expected checkpoint ID, size, or obtain a
-fresh checkpoint through a trusted channel to resist rollback.
+the latest one: consumers should pass `--expected-checkpoint-id` and `--expected-size`, or obtain a
+fresh checkpoint through a trusted channel, to resist rollback.
 
 The registry is not deployed or published by this code change. It is an offline
 builder and verifier for public snapshots. No live network, production database,

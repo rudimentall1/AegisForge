@@ -142,12 +142,21 @@ def _verify(args) -> int:
     if args.previous_registry:
         previous = _load_json(args.previous_registry)
         output["chain"] = verify_registry_chain(registry, previous)
+    if args.expected_checkpoint_id or args.expected_size is not None:
+        if not args.checkpoint:
+            raise ValueError("expected_checkpoint_options_require_checkpoint")
     if args.checkpoint:
         if not args.trusted_keys:
             raise ValueError("--checkpoint_requires_--trusted-keys")
         checkpoint = _load_json(args.checkpoint)
         trusted = _load_trusted_keys(args.trusted_keys)
         checked = verify_signed_checkpoint(checkpoint, trusted_keys=trusted, registry=registry)
+        if args.expected_checkpoint_id and checked["checkpoint_id"] != args.expected_checkpoint_id:
+            print(json.dumps({"status": "INVALID", "reason": "checkpoint_id_mismatch"}, sort_keys=True))
+            return 1
+        if args.expected_size is not None and checked["size"] != args.expected_size:
+            print(json.dumps({"status": "INVALID", "reason": "checkpoint_size_mismatch"}, sort_keys=True))
+            return 1
         output["checkpoint"] = {
             "valid": True,
             "checkpoint_id": checked["checkpoint_id"],
@@ -191,6 +200,12 @@ def _verify_proof(args) -> int:
         }, sort_keys=True))
         return 2 if signature_result.status == "UNTRUSTED" else 1
     checkpoint_result = verify_signed_checkpoint(checkpoint, trusted_keys=trusted)
+    if args.expected_checkpoint_id and checkpoint_result["checkpoint_id"] != args.expected_checkpoint_id:
+        print(json.dumps({"status": "INVALID", "reason": "checkpoint_id_mismatch"}, sort_keys=True))
+        return 1
+    if args.expected_size is not None and checkpoint_result["size"] != args.expected_size:
+        print(json.dumps({"status": "INVALID", "reason": "checkpoint_size_mismatch"}, sort_keys=True))
+        return 1
     summary = checkpoint["registry"]
     result = verify_inclusion_proof(
         proof,
@@ -231,6 +246,8 @@ def main(argv=None) -> int:
     verify.add_argument("--previous-registry")
     verify.add_argument("--checkpoint")
     verify.add_argument("--trusted-keys")
+    verify.add_argument("--expected-checkpoint-id")
+    verify.add_argument("--expected-size", type=int)
 
     proof = sub.add_parser("proof", help="create an inclusion proof for an attestation ID")
     proof.add_argument("--registry", required=True)
@@ -242,6 +259,8 @@ def main(argv=None) -> int:
     verify_proof.add_argument("--attestation", required=True)
     verify_proof.add_argument("--trusted-keys", required=True)
     verify_proof.add_argument("--checkpoint", required=True)
+    verify_proof.add_argument("--expected-checkpoint-id")
+    verify_proof.add_argument("--expected-size", type=int)
     args = parser.parse_args(argv)
 
     try:

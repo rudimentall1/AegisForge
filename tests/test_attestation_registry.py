@@ -202,9 +202,11 @@ def test_cli_add_checkpoint_verify_proof_and_verify_proof(tmp_path, capsys, monk
         assert checkpoint_result["status"] == "CHECKPOINT_SIGNED"
         assert checkpoint_result["root_trust"] == "SIGNED_CHECKPOINT"
 
+    checkpoint_doc = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     assert main([
         "verify", "--registry", str(registry_path),
         "--checkpoint", str(checkpoint_path), "--trusted-keys", str(trusted_path),
+        "--expected-checkpoint-id", checkpoint_doc["checkpoint_id"], "--expected-size", "1",
     ]) == 0
     verified_checkpoint = json.loads(capsys.readouterr().out.strip())
     assert verified_checkpoint["root_trust"] == "SIGNED_CHECKPOINT"
@@ -223,10 +225,20 @@ def test_cli_add_checkpoint_verify_proof_and_verify_proof(tmp_path, capsys, monk
         "verify-proof", "--proof", str(proof_path),
         "--attestation", str(attestation_path), "--trusted-keys", str(trusted_path),
         "--checkpoint", str(checkpoint_path),
+        "--expected-checkpoint-id", checkpoint_doc["checkpoint_id"], "--expected-size", "1",
     ]) == 0
     proof_result = json.loads(capsys.readouterr().out.strip())
     assert proof_result["status"] == "VALID"
     assert proof_result["root_trust"] == "SIGNED_CHECKPOINT"
+
+    assert main([
+        "verify-proof", "--proof", str(proof_path),
+        "--attestation", str(attestation_path), "--trusted-keys", str(trusted_path),
+        "--checkpoint", str(checkpoint_path), "--expected-checkpoint-id", "0" * 64,
+    ]) == 1
+    rollback_result = json.loads(capsys.readouterr().out.strip())
+    assert rollback_result["status"] == "INVALID"
+    assert rollback_result["reason"] == "checkpoint_id_mismatch"
 
 
 def test_cli_rejects_untrusted_attestation(tmp_path, capsys):

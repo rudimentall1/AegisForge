@@ -791,9 +791,9 @@ def write_case_artifact_manifest(root, *, case_id, hypothesis_id, artifact_paths
         prefix=".case-artifact-manifest-", suffix=".tmp", dir=str(root_path)
     )
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\\n") as stream:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
             json.dump(manifest, stream, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-            stream.write("\\n")
+            stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary_name, target)

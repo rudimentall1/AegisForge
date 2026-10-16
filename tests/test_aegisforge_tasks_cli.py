@@ -193,5 +193,6 @@ def test_case_rounds_public_lists_only_disclosure_metadata(tmp_path):
         "deadline": "2027-01-14T00:00:00+00:00",
         "status": "OPEN",
         "verdict": None,
+        "extension_granted_at": None,
     }
     assert "private round hypothesis" not in result.stdout

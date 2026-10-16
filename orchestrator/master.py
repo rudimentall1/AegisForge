@@ -3060,31 +3060,74 @@ class MasterOrchestrator:
         self.queue = TaskQueue()
         self.planner = AutonomousPlanner(self.queue)
 
+    def _human_review_exists(self, case_id: str) -> bool:
+        row = self.queue.db.execute(
+            "SELECT 1 FROM pending_human_review "
+            "WHERE case_id = ? AND status = 'OPEN' LIMIT 1",
+            (case_id,),
+        ).fetchone()
+        return row is not None
+
     def bootstrap(self):
-        # Once a Research Case is registered, AegisForge's default work is
-        # case-bound EVM forensics, not another generic opportunity-discovery
-        # cycle. Start a source-research root for the newest runnable case that
-        # does not already have one. Existing legacy queue history is preserved.
+        # Registered cases own the default work pipeline. Reconcile every root
+        # branch before creating a new root or requesting human review.
         case_rows = self.queue.db.execute(
             "SELECT case_id FROM research_cases ORDER BY registered_at DESC"
         ).fetchall()
         if case_rows:
             for (case_id,) in case_rows:
                 case = self.queue.get_research_case(case_id)
-                if case is None or case.status not in {CaseStatus.READY, CaseStatus.RUNNING}:
+                if case is None:
                     continue
-                existing_root = self.queue.db.execute(
+
+                roots = self.queue.db.execute(
                     """
-                    SELECT 1 FROM queue
-                    WHERE role = 'source_researcher'
-                      AND parent_task_id IS NULL
-                      AND research_case_id = ?
-                    LIMIT 1
+                    SELECT id, role, status FROM queue
+                    WHERE parent_task_id IS NULL AND research_case_id = ?
+                    ORDER BY created_at ASC, id ASC
                     """,
                     (case_id,),
-                ).fetchone()
-                if existing_root:
+                ).fetchall()
+
+                if roots:
+                    active_branch = False
+                    for root_id, _role, root_status in roots:
+                        active_children_row = self.queue.db.execute(
+                            """
+                            SELECT COUNT(*) FROM queue
+                            WHERE parent_task_id = ?
+                              AND status NOT IN ('completed', 'failed')
+                            """,
+                            (root_id,),
+                        ).fetchone()
+                        active_children = int(active_children_row[0] or 0)
+                        if root_status not in {"completed", "failed"} or active_children > 0:
+                            active_branch = True
+                            break
+
+                    if active_branch:
+                        continue
+
+                    existed_before = self._human_review_exists(case_id)
+                    review_id = self.queue.create_human_review(
+                        case_id=case_id,
+                        reason=f"all_branches_terminal:roots={len(roots)}",
+                    )
+                    if not existed_before:
+                        print(
+                            f"[MASTER] CASE_BRANCHES_TERMINAL case={case_id} "
+                            f"roots={len(roots)} review={review_id}",
+                            flush=True,
+                        )
                     continue
+
+                if case.status not in {CaseStatus.READY, CaseStatus.RUNNING}:
+                    self.queue.create_human_review(
+                        case_id=case_id,
+                        reason=f"case_terminal_no_root:{case.status.value}",
+                    )
+                    continue
+
                 description = (
                     f"Begin bounded EVM Key Forensics for registered case {case.case_id}. "
                     f"Target: {case.target_repository}@{case.target_commit}. "
@@ -3099,16 +3142,15 @@ class MasterOrchestrator:
                     research_case_id=case_id,
                 )
                 print(
-                    f"[MASTER] BOOTSTRAP_CASE role=source_researcher "
-                    f"case={case_id} id={task_id}",
+                    f"[MASTER] BOOTSTRAP_CASE case={case_id} id={task_id}",
                     flush=True,
                 )
                 return True
-            # Do not fall back to generic research once the case workflow is
-            # established. Register a new case to begin another bounded cycle.
+
+            print(f"[MASTER] CASE_PIPELINE_IDLE cases={len(case_rows)}", flush=True)
             return False
 
-        # Preserve the legacy idle guard only when no Research Case exists.
+        # Preserve the legacy path only when no Research Case is registered.
         if self.queue.has_planner_work():
             return False
 
@@ -3117,10 +3159,6 @@ class MasterOrchestrator:
         ).fetchone()
         cycle = int(row[0] or 0)
         goal = RESEARCH_GOALS[cycle % len(RESEARCH_GOALS)]
-        # Cross-cycle novelty: exclude a small bounded set of recently
-        # discovered repository identities so a fresh research branch does
-        # not repeatedly rediscover GitHub's same top results. Evidence is
-        # durable intelligence, while this exclusion list stays tiny.
         rows = self.queue.db.execute(
             "SELECT value FROM evidence_ledger "
             "WHERE kind = 'target' ORDER BY last_seen DESC LIMIT 35"
@@ -3144,14 +3182,10 @@ class MasterOrchestrator:
             description=description,
             role="researcher",
         )
-
         print(
-            f"[MASTER] BOOTSTRAP "
-            f"role=researcher "
-            f"id={task_id}",
+            f"[MASTER] BOOTSTRAP role=researcher id={task_id}",
             flush=True,
         )
-
         return True
 
     def show_state(self):

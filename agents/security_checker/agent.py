@@ -1,5 +1,6 @@
 from shared.task import Task
 from shared.github_client import GitHubClient
+from orchestrator.role_contracts import validate_role_input, validate_role_output
 
 
 class PipelineContractError(RuntimeError):
@@ -649,6 +650,7 @@ class SecurityChecker:
         task.status = "security_checking"
 
         try:
+            validate_role_input(self.name, task.result if task.result is not None else {})
             parent = task.result or {}
 
             technical_reviews = parent.get(
@@ -854,6 +856,7 @@ class SecurityChecker:
                 ),
             }
 
+            validate_role_output(self.name, task.result)
             task.status = "security_checked"
 
             print(

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import sqlite3
 import zipfile
@@ -162,3 +163,60 @@ def test_case_bundle_export_rejects_evidence_linked_to_unknown_task(tmp_path):
         match="evidence_observation_task_not_in_case_bundle",
     ):
         export_research_case_bundle(db_path, case.case_id, tmp_path / "orphaned.zip")
+
+
+def test_case_bundle_verifier_rejects_integrity_valid_orphaned_observation(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    bundle = tmp_path / "case.zip"
+    export_research_case_bundle(db_path, case.case_id, bundle)
+
+    files = {}
+    with zipfile.ZipFile(bundle, "r") as source:
+        for name in source.namelist():
+            files[name] = source.read(name)
+
+    evidence = json.loads(files["evidence.json"])
+    evidence["observations"][0]["task_id"] = "task-outside-case"
+    files["evidence.json"] = json.dumps(
+        evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+    manifest = json.loads(files["manifest.json"])
+    entries = [
+        {
+            "path": name,
+            "sha256": hashlib.sha256(files[name]).hexdigest(),
+            "size": len(files[name]),
+        }
+        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+    ]
+    core = {
+        "schema_version": manifest["schema_version"],
+        "case_id": manifest["case_id"],
+        "case_digest": manifest["case_digest"],
+        "entries": entries,
+    }
+    manifest = dict(core)
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(
+            core, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False, allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    files["manifest.json"] = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+    forged = tmp_path / "integrity-valid-orphaned.zip"
+    with zipfile.ZipFile(forged, "w", compression=zipfile.ZIP_DEFLATED) as target:
+        for name in sorted(files):
+            target.writestr(name, files[name])
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="evidence_observation_task_not_in_case_bundle",
+    ):
+        verify_research_case_bundle(forged)

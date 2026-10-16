@@ -3059,6 +3059,7 @@ class MasterOrchestrator:
     def __init__(self):
         self.queue = TaskQueue()
         self.planner = AutonomousPlanner(self.queue)
+        self._case_pipeline_idle_logged = False
 
     def _human_review_exists(self, case_id: str) -> bool:
         row = self.queue.db.execute(
@@ -3106,6 +3107,7 @@ class MasterOrchestrator:
                             break
 
                     if active_branch:
+                        self._case_pipeline_idle_logged = False
                         continue
 
                     existed_before = self._human_review_exists(case_id)
@@ -3141,13 +3143,16 @@ class MasterOrchestrator:
                     role="source_researcher",
                     research_case_id=case_id,
                 )
+                self._case_pipeline_idle_logged = False
                 print(
                     f"[MASTER] BOOTSTRAP_CASE case={case_id} id={task_id}",
                     flush=True,
                 )
                 return True
 
-            print(f"[MASTER] CASE_PIPELINE_IDLE cases={len(case_rows)}", flush=True)
+            if not self._case_pipeline_idle_logged:
+                print(f"[MASTER] CASE_PIPELINE_IDLE cases={len(case_rows)}", flush=True)
+                self._case_pipeline_idle_logged = True
             return False
 
         # Preserve the legacy path only when no Research Case is registered.
@@ -3228,7 +3233,13 @@ class MasterOrchestrator:
                         flush=True,
                     )
 
-                self.bootstrap()
+                bootstrapped = self.bootstrap()
+                if self._case_pipeline_idle_logged and not bootstrapped:
+                    # All registered case branches are terminal. Keep the
+                    # daemon alive for newly registered work, but avoid noisy
+                    # empty planner/state logs on every polling interval.
+                    time.sleep(15)
+                    continue
 
                 result = self.planner.plan()
 

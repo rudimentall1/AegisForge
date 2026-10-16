@@ -124,7 +124,9 @@ def _reject_unmanifested_entries(root: Path, artifacts: list[dict[str, Any]]) ->
         for directory in directories:
             candidate = base / directory
             relative = candidate.relative_to(root).as_posix()
-            if candidate.is_symlink() or not candidate.is_dir():
+            if candidate.is_symlink():
+                raise ValueError(f"bundle_directory_symlink_not_allowed:{relative}")
+            if not candidate.is_dir():
                 raise ValueError(f"bundle_directory_entry_unsafe:{relative}")
             if relative not in expected_dirs:
                 raise ValueError(f"unmanifested_bundle_directory:{relative}")
@@ -132,7 +134,9 @@ def _reject_unmanifested_entries(root: Path, artifacts: list[dict[str, Any]]) ->
         for filename in files:
             candidate = base / filename
             relative = candidate.relative_to(root).as_posix()
-            if candidate.is_symlink() or not candidate.is_file():
+            if candidate.is_symlink():
+                raise ValueError(f"bundle_file_symlink_not_allowed:{relative}")
+            if not candidate.is_file():
                 raise ValueError(f"bundle_file_entry_unsafe:{relative}")
             if relative not in expected_files:
                 raise ValueError(f"unmanifested_bundle_file:{relative}")

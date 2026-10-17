@@ -95,6 +95,38 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
         with patch("tools.evm_key_forensics.verify_complete_evidence.verify_artifact", return_value={"integrity_verified": True}):
             return verify_complete_archive(self.archive)
 
+    def test_unknown_claim_fields_in_combined_reports_fail_closed(self):
+        cases = (
+            (
+                self.metadata,
+                "complete-evidence/probe-evidence/probe-run-metadata.json",
+                "metadata_has_no_unknown_fields",
+                "agent_verified_historical_exploit",
+            ),
+            (
+                self.rebuild,
+                "complete-evidence/independent-rebuild-report.json",
+                "rebuild_has_no_unknown_fields",
+                "source_to_binary_provenance_established",
+            ),
+            (
+                self.index,
+                "complete-evidence/combined-evidence-index.json",
+                "index_has_no_unknown_fields",
+                "wallet_exposure_confirmed",
+            ),
+        )
+        for payload, path, check_name, unexpected_claim in cases:
+            with self.subTest(path=path):
+                payload[unexpected_claim] = True
+                self.members[path] = json.dumps(payload).encode()
+                self.write_archive()
+                result = self.verify_with_stubbed_probe_check()
+                self.assertFalse(result["integrity_verified"])
+                self.assertIn(check_name, result["failed_checks"])
+                payload.pop(unexpected_claim)
+                self.members[path] = json.dumps(payload).encode()
+
     def test_valid_combined_archive_passes_cross_link_checks(self):
         result = self.verify_with_stubbed_probe_check()
         self.assertTrue(result["integrity_verified"])

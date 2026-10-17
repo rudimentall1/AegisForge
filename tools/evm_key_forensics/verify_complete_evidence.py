@@ -53,6 +53,33 @@ EXPECTED_MEMBERS = {
     *(f"complete-evidence/probe-evidence/{name}" for name in PROBE_FILES),
 }
 
+# Schema-v1 report keys are explicit. Unknown claims must not be accepted just
+# because an archive is internally consistent and its hashes can be recomputed.
+_METADATA_FIELDS = frozenset({
+    "schema_version", "purpose", "git_commit", "github_sha", "github_ref",
+    "pull_request_head_sha", "github_run_id", "github_run_attempt", "runner_os",
+    "compiler_version", "build_flags", "source_sha256", "binary_sha256",
+    "repeat_binary_sha256", "repeat_build_matches", "repeat_build_scope",
+    "output_sha256", "source_evidence_report_sha256",
+    "independent_source_body_review_sha256", "historical_vulnerability_reproduced",
+    "entropy_proven",
+})
+_REBUILD_FIELDS = frozenset({
+    "schema_version", "check", "conclusion", "git_commit", "github_sha",
+    "github_ref", "github_run_id", "github_run_attempt", "runner_os",
+    "compiler_version", "build_flags", "reference_source_sha256",
+    "independent_checkout_source_sha256", "reference_binary_sha256",
+    "independent_rebuild_binary_sha256", "source_matches", "binary_matches",
+    "historical_profanity_executed", "historical_vulnerability_reproduced",
+})
+_INDEX_FIELDS = frozenset({
+    "schema_version", "conclusion", "run_id", "run_attempt", "workflow_sha",
+    "workflow_ref", "probe_source_sha256", "probe_binary_sha256",
+    "independent_rebuild_source_sha256", "independent_rebuild_binary_sha256",
+    "probe_and_rebuild_evidence_consistent", "historical_profanity_executed",
+    "historical_vulnerability_reproduced", "note",
+})
+
 
 def _reject_duplicate_keys(pairs):
     result = {}
@@ -315,6 +342,9 @@ def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
                 "github_ref": "workflow_ref",
             }
             checks = {
+                "metadata_has_no_unknown_fields": not (set(metadata) - _METADATA_FIELDS),
+                "rebuild_has_no_unknown_fields": not (set(rebuild) - _REBUILD_FIELDS),
+                "index_has_no_unknown_fields": not (set(index) - _INDEX_FIELDS),
                 "metadata_schema_supported": type(metadata.get("schema_version")) is int and metadata.get("schema_version") == 1,
                 "metadata_commit_sha_format": (
                     isinstance(metadata.get("git_commit"), str)

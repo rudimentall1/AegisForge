@@ -151,3 +151,70 @@ def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_pat
         task_id = child_id
     else:
         raise AssertionError("The bounded pipeline did not reach a terminal validation decision")
+
+
+
+def test_case_round_identity_survives_failed_child_retry_and_evidence(tmp_path):
+    case = ResearchCase(
+        case_id="pipeline-retry-case-001",
+        target_repository="example/protocol",
+        target_commit="a" * 40,
+        scope_url="https://example.com/security-scope",
+        scope_digest="b" * 64,
+        scope_reviewed_on="2026-10-16",
+        hypothesis="A bounded local test may violate an accounting invariant.",
+        attacker_capability="An unprivileged caller can invoke the local test harness.",
+        expected_invariant="Recorded and independently calculated balances match.",
+        falsification_criteria="The hypothesis is rejected if counter-tests preserve the invariant.",
+        execution_mode="local",
+        status="ready",
+    )
+    queue = TaskQueue(db_path=tmp_path / "retry-queue.db")
+    queue.register_research_case(case)
+    round_result = start_case_round(queue, case.case_id)
+    round_id = round_result["round_id"]
+    root_id = round_result["root_task_id"]
+
+    # Complete the parent so the child is eligible for a retry under the queue contract.
+    root = queue.claim("source-worker", role="source_researcher")
+    assert root is not None and root[0] == root_id
+    queue.finish(root_id, result={"research_case_binding": research_case_binding(case)})
+
+    child_id = queue.add(
+        "bounded crypto analysis",
+        role="crypto_analyst",
+        parent_task_id=root_id,
+    )
+    child = queue.claim("crypto-worker", role="crypto_analyst")
+    assert child is not None and child[0] == child_id
+    queue.fail(child_id, result={"failure_reason": "synthetic_retry_fixture"})
+
+    assert queue.requeue_failed(child_id) is True
+    assert queue.retry_count(child_id) == 1
+    retry = queue.claim("crypto-worker-retry", role="crypto_analyst")
+    assert retry is not None and retry[0] == child_id
+
+    task_row = queue.get(child_id)
+    assert task_row is not None
+    assert task_row[12] == case.case_id
+    assert queue.db.execute(
+        "SELECT round_id FROM queue WHERE id = ?", (child_id,)
+    ).fetchone() == (round_id,)
+    validate_worker_case_binding("crypto_analyst", queue.get_research_case(case.case_id), task_row[12])
+
+    final_result = {
+        "stage": "analysis_retry",
+        "research_case_binding": research_case_binding(case),
+        "historical_vulnerability_reproduced": False,
+    }
+    queue.finish(child_id, result=final_result)
+    assert queue.get_result(child_id) == final_result
+
+    ledger = EvidenceLedger(queue.db)
+    ledger.record_observation(child_id, "crypto_analyst", "retry_lineage_preserved")
+    observation = queue.db.execute(
+        "SELECT case_id, round_id, role FROM evidence_observations WHERE task_id = ?",
+        (child_id,),
+    ).fetchone()
+    assert observation == (case.case_id, round_id, "crypto_analyst")
+    queue.db.close()

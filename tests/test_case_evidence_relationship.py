@@ -269,3 +269,15 @@ def test_deeply_nested_source_report_fails_closed():
         CaseEvidenceRelationshipError, match="source_report_nesting_limit_exceeded"
     ):
         validate_case_evidence_relationship(case, rel, raw)
+
+
+
+def test_source_report_over_size_limit_fails_before_json_parsing():
+    case = case_record()
+    raw = b" " * (2 * 1024 * 1024 + 1)
+    rel, _ = relation(case, report_record())
+    rel["source_report_sha256"] = hashlib.sha256(raw).hexdigest()
+    with pytest.raises(
+        CaseEvidenceRelationshipError, match="source_report_size_limit_exceeded"
+    ):
+        validate_case_evidence_relationship(case, rel, raw)

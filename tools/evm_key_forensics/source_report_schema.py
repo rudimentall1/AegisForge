@@ -58,9 +58,15 @@ def validate_source_report_schema(report: object) -> bool:
             or not _is_sha256(revision.get("source_sha256"))
             or not _is_sha256(revision.get("function_body_sha256"))):
             return False
-    for key in ("same_source_sha256", "same_create_seed_function_body_sha256", "same_git_blob_sha1"):
-        if type(comparison.get(key)) is not bool:
-            return False
+    expected_comparisons = {
+        "same_source_sha256": comparison["pre_disclosure"]["source_sha256"] == comparison["post_disclosure_archive"]["source_sha256"],
+        "same_create_seed_function_body_sha256": comparison["pre_disclosure"]["function_body_sha256"] == comparison["post_disclosure_archive"]["function_body_sha256"],
+        "same_git_blob_sha1": comparison["pre_disclosure"]["git_blob_sha1"] == comparison["post_disclosure_archive"]["git_blob_sha1"],
+    }
+    if any(type(comparison.get(key)) is not bool or comparison[key] is not value for key, value in expected_comparisons.items()):
+        return False
+    if report.get("interpretation") != ("The report reconciles source-pattern checker outputs for two pinned source revisions. A matching pattern is source-inspection evidence only; it does not establish runtime entropy, exploitability, key predictability, wallet exposure, or historical vulnerability reproduction."):
+        return False
     limitations = report.get("limitations")
     if not isinstance(limitations, dict) or set(limitations) != LIMITATION_FIELDS:
         return False

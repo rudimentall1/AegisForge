@@ -944,3 +944,51 @@ def test_case_bundle_verifier_rejects_rehashed_target_commit_mismatch(tmp_path):
         match="task_result_case_binding_mismatch",
     ):
         verify_research_case_bundle(forged)
+
+
+def test_case_bundle_verifier_rejects_forged_case_source_commit_against_task_binding(tmp_path):
+    """A rehashed case record cannot rewrite the source revision used by its task."""
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "original.zip"
+    forged = tmp_path / "forged-case-source-commit.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    with zipfile.ZipFile(original, "r") as archive:
+        files = {name: archive.read(name) for name in archive.namelist()}
+    case_payload = json.loads(files["case.json"])
+    binding = case_payload["research_case_binding"]
+    changed_case = dict(binding["case"])
+    changed_case["target_commit"] = "d" * 40
+    canonical = json.dumps(
+        changed_case,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    binding["case"] = changed_case
+    binding["case_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    files["case.json"] = json.dumps(
+        case_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+
+    manifest = json.loads(files["manifest.json"])
+    # Update the manifest's case digest too, so the verifier reaches semantic
+    # case/task comparison instead of rejecting a stale manifest reference.
+    manifest["case_digest"] = binding["case_digest"]
+    manifest["entries"] = [
+        {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
+        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+    ]
+    _refresh_manifest(files, manifest)
+    with zipfile.ZipFile(forged, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(files):
+            archive.writestr(name, files[name])
+
+    # All unsigned bundle hashes and case-digest references are consistent.
+    # The completed task still records the original immutable case contract.
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_result_case_binding_mismatch",
+    ):
+        verify_research_case_bundle(forged)

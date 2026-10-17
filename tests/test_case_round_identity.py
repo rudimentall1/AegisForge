@@ -26,7 +26,7 @@ def test_accepts_separate_plan_and_runtime_identities():
     _validate()
     assert SPEC != RUNTIME
 
-@pytest.mark.parametrize(("mutate", "error"), [({"round_spec_id": None}, "planned_round_missing_spec_binding"), ({"round_spec_id": "undeclared"}, "round_spec_not_declared_in_case"), ({"round_id": ""}, "round_round_id_invalid"), ({"round_number": True}, "round_number_invalid"), ({"status": "CONFIRMED"}, "round_status_invalid")])
+@pytest.mark.parametrize(("mutate", "error"), [({"round_spec_id": None}, "planned_round_missing_spec_binding"), ({"round_spec_id": "undeclared"}, "round_spec_not_declared_in_case"), ({"round_id": ""}, "round_round_id_invalid"), ({"round_number": True}, "round_number_invalid"), ({"status": "CONFIRMED"}, "round_status_invalid"), ({"status": []}, "round_status_invalid")])
 def test_round_registry_rejects_invalid_or_ambiguous_identity(mutate, error):
     with pytest.raises(CaseRoundIdentityError, match=error):
         _validate(rounds=[_round(**mutate)])
@@ -46,6 +46,11 @@ def test_evidence_cannot_be_swapped_between_runtime_rounds():
 def test_evidence_cannot_be_swapped_between_planned_specs():
     with pytest.raises(CaseRoundIdentityError, match="evidence_round_spec_identity_mismatch"):
         _validate(evidence=[_evidence(round_spec_id="another-spec")])
+
+def test_evidence_rejects_non_string_task_identity():
+    with pytest.raises(CaseRoundIdentityError, match="evidence_task_identity_invalid"):
+        _validate(evidence=[_evidence(task_id=[])])
+
 
 def test_round_registry_requires_root_task_to_match_record():
     with pytest.raises(CaseRoundIdentityError, match="round_root_task_missing"):

@@ -422,6 +422,7 @@ jobs:
           root = Path("complete-evidence")
           metadata = json.loads((root / "probe-evidence/probe-run-metadata.json").read_text(encoding="utf-8"))
           rebuild = json.loads((root / "independent-rebuild-report.json").read_text(encoding="utf-8"))
+          source_report = json.loads((root / "probe-evidence/source-evidence-report.json").read_text(encoding="utf-8"))
           assert metadata.get("github_run_id") == rebuild.get("github_run_id"), "probe and rebuild run IDs differ"
           assert metadata.get("github_run_attempt") == rebuild.get("github_run_attempt"), "probe and rebuild attempts differ"
           assert metadata.get("github_sha") == rebuild.get("github_sha"), "probe and rebuild workflow SHAs differ"
@@ -443,6 +444,10 @@ jobs:
               "independent_rebuild_source_sha256": rebuild["independent_checkout_source_sha256"],
               "independent_rebuild_binary_sha256": rebuild["independent_rebuild_binary_sha256"],
               "source_evidence_report_sha256": metadata["source_evidence_report_sha256"],
+              "source_report_id": source_report["report_id"],
+              "source_report_experiment_id": source_report["experiment_id"],
+              "source_report_pre_disclosure_commit": source_report["source_comparison"]["pre_disclosure"]["commit"],
+              "source_report_post_disclosure_commit": source_report["source_comparison"]["post_disclosure_archive"]["commit"],
               "probe_and_rebuild_evidence_consistent": True,
               "historical_profanity_executed": False,
               "historical_vulnerability_reproduced": False,
@@ -497,7 +502,12 @@ jobs:
           assert index.get("conclusion") == "PASS" and index.get("probe_and_rebuild_evidence_consistent") is True
           assert metadata.get("source_sha256") == rebuild.get("independent_checkout_source_sha256")
           assert metadata.get("binary_sha256") == rebuild.get("independent_rebuild_binary_sha256")
+          source_report = json.loads(Path("complete-evidence/probe-evidence/source-evidence-report.json").read_text(encoding="utf-8"))
           assert index.get("source_evidence_report_sha256") == metadata.get("source_evidence_report_sha256")
+          assert index.get("source_report_id") == source_report.get("report_id")
+          assert index.get("source_report_experiment_id") == source_report.get("experiment_id")
+          assert index.get("source_report_pre_disclosure_commit") == source_report.get("source_comparison", {}).get("pre_disclosure", {}).get("commit")
+          assert index.get("source_report_post_disclosure_commit") == source_report.get("source_comparison", {}).get("post_disclosure_archive", {}).get("commit")
           matched = False
           for item in report:
               result = item.get("verificationResult", {})

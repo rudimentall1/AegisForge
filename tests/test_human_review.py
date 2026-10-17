@@ -72,7 +72,7 @@ def test_resolve_human_review_rejects_empty_resolution(queue):
 
 
 def test_active_descendant_detection_walks_entire_branch(queue):
-    root = queue.add("root", role="source_researcher")
+    root = queue.add("root", role="researcher")
     child = queue.add("child", role="analyst", parent_task_id=root)
     grandchild = queue.add("grandchild", role="analyst", parent_task_id=child)
 

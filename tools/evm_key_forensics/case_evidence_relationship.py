@@ -75,17 +75,34 @@ def _repository_identity(value: object) -> str:
     value = value.strip()
     parsed = urlparse(value)
     if parsed.scheme or parsed.netloc:
-        if parsed.scheme not in ("https", "http") or parsed.netloc.lower() not in {
-            "github.com", "www.github.com"
-        }:
+        if (
+            parsed.scheme not in ("https", "http")
+            or parsed.netloc.lower() not in {"github.com", "www.github.com"}
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+        ):
             raise CaseEvidenceRelationshipError("source_repository_not_supported_canonical_url")
         path = parsed.path.strip("/")
     else:
+        # Short owner/repository notation is accepted for case records, but
+        # URL delimiters and percent-encoded path components are never aliases.
+        if any(char in value for char in "?#%"):
+            raise CaseEvidenceRelationshipError("source_repository_invalid")
         path = value.strip("/")
     if path.endswith(".git"):
         path = path[:-4]
     parts = path.split("/")
-    if len(parts) != 2 or any(not part or part in {".", ".."} for part in parts):
+    component_re = re.compile(r"^[A-Za-z0-9_.-]+$")
+    if (
+        len(parts) != 2
+        or any(
+            not part
+            or part in {".", ".."}
+            or not component_re.fullmatch(part)
+            for part in parts
+        )
+    ):
         raise CaseEvidenceRelationshipError("source_repository_invalid")
     return "/".join(part.lower() for part in parts)
 
@@ -184,9 +201,9 @@ def validate_case_evidence_relationship(
         if _repository_identity(case.get("target_repository")) != _repository_identity(report["source_repository"]):
             raise CaseEvidenceRelationshipError("target_repository_mismatch")
         target_commit = case.get("target_commit")
-        if not isinstance(target_commit, str) or not COMMIT_RE.fullmatch(target_commit.lower()):
+        if not isinstance(target_commit, str) or not COMMIT_RE.fullmatch(target_commit):
             raise CaseEvidenceRelationshipError("target_commit_invalid")
-        if source_commit != report["source_commit"] or source_commit != target_commit.lower():
+        if source_commit != report["source_commit"] or source_commit != target_commit:
             raise CaseEvidenceRelationshipError("target_commit_mismatch")
     else:
         if source_commit not in _declared_report_commits(report):

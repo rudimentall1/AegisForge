@@ -49,6 +49,7 @@ _CASE_IMMUTABLE_FIELDS = (
     "attacker_capability",
     "expected_invariant",
     "falsification_criteria",
+    "rounds",
     "execution_mode",
 )
 

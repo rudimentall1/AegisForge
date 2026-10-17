@@ -2,6 +2,7 @@ import pytest
 
 import shared.queue as queue_module
 from shared.queue import TaskQueue
+from orchestrator.master import MasterOrchestrator
 
 
 @pytest.fixture
@@ -68,3 +69,35 @@ def test_resolve_human_review_rejects_empty_resolution(queue):
     review_id = queue.create_human_review("case-a", "all branches terminal")
     with pytest.raises(ValueError, match="human_review_resolution_required"):
         queue.resolve_human_review(review_id, " ")
+
+
+def test_active_descendant_detection_walks_entire_branch(queue):
+    root = queue.add("root", role="source_researcher")
+    child = queue.add("child", role="analyst", parent_task_id=root)
+    grandchild = queue.add("grandchild", role="analyst", parent_task_id=child)
+
+    queue.db.execute("UPDATE queue SET status = 'completed' WHERE id IN (?, ?)", (root, child))
+    queue.db.execute("UPDATE queue SET status = 'running' WHERE id = ?", (grandchild,))
+    queue.db.commit()
+
+    master = MasterOrchestrator.__new__(MasterOrchestrator)
+    master.queue = queue
+
+    assert master._has_active_descendants(root) is True
+
+
+def test_active_descendant_detection_returns_false_when_all_descendants_terminal(queue):
+    root = queue.add("root", role="researcher")
+    child = queue.add("child", role="analyst", parent_task_id=root)
+    grandchild = queue.add("grandchild", role="analyst", parent_task_id=child)
+
+    queue.db.execute(
+        "UPDATE queue SET status = 'completed' WHERE id IN (?, ?, ?)",
+        (root, child, grandchild),
+    )
+    queue.db.commit()
+
+    master = MasterOrchestrator.__new__(MasterOrchestrator)
+    master.queue = queue
+
+    assert master._has_active_descendants(root) is False

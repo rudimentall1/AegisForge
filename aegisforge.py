@@ -47,6 +47,9 @@ def task_main(argv):
     case_new_round.add_argument("--case-id", required=True, help="existing immutable Research Case ID")
     case_new_round.add_argument("--confirm-new-round", action="store_true", help="explicitly authorize exactly one new bounded round")
     case_new_round.add_argument("--db", help=argparse.SUPPRESS)
+    case_diagnose = case_sub.add_parser("diagnose", help="show read-only lifecycle state for a registered case")
+    case_diagnose.add_argument("--case-id", required=True, help="existing Research Case ID")
+    case_diagnose.add_argument("--db", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.command == "case" and args.case_command == "new-round" and not args.confirm_new_round:
         parser.error("starting a case round requires --confirm-new-round")
@@ -83,6 +86,15 @@ def task_main(argv):
                 print(json.dumps({"case_id": args.case_id, "rounds": rows, "count": len(rows)},
                                  indent=2, ensure_ascii=False, default=str))
                 return 0
+            if args.case_command == "diagnose":
+                from shared.case_rounds import CaseRoundError, diagnose_case_state
+                try:
+                    result = diagnose_case_state(queue, args.case_id)
+                except (CaseRoundError, ValueError, TypeError) as exc:
+                    print(json.dumps({"status": "rejected", "reason": str(exc)}, sort_keys=True, ensure_ascii=False))
+                    return 2
+                print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
+                return 0 if result.get("state") != "blocked" else 2
             if args.case_command == "new-round":
                 from shared.case_rounds import CaseRoundError, start_case_round
                 try:

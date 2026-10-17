@@ -96,7 +96,10 @@ def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_pat
         assert row is not None
         assert row[7] == role
         assert row[12] == case.case_id
-        assert row[13] == round_id
+        stored_round = queue.db.execute(
+            "SELECT round_id FROM queue WHERE id = ?", (task_id,)
+        ).fetchone()
+        assert stored_round == (round_id,)
         validate_worker_case_binding(role, queue.get_research_case(case.case_id), row[12])
 
         # Mirror the worker's result-boundary contract: every successful stage
@@ -139,7 +142,10 @@ def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_pat
         child = queue.get(child_id)
         assert child is not None
         assert child[12] == case.case_id
-        assert child[13] == round_id
+        child_round = queue.db.execute(
+            "SELECT round_id FROM queue WHERE id = ?", (child_id,)
+        ).fetchone()
+        assert child_round == (round_id,)
         # A real worker loads this stored parent result before invoking its agent.
         assert queue.get_result(task_id) == result
         task_id = child_id

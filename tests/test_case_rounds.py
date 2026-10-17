@@ -61,6 +61,43 @@ def test_start_case_round_creates_one_case_bound_root_and_ledger_row(queue):
     )
 
 
+def test_child_task_inherits_structured_round_identity(queue):
+    case = make_case()
+    queue.register_research_case(case)
+    result = start_case_round(queue, case.case_id)
+
+    child_id = queue.add(
+        "child research task",
+        role="analyst",
+        parent_task_id=result["root_task_id"],
+    )
+
+    child = queue.db.execute(
+        "SELECT research_case_id, round_id FROM queue WHERE id = ?",
+        (child_id,),
+    ).fetchone()
+    assert child == (case.case_id, result["round_id"])
+
+
+def test_child_task_cannot_override_parent_round_identity(queue):
+    case = make_case()
+    queue.register_research_case(case)
+    result = start_case_round(queue, case.case_id)
+
+    with pytest.raises(ValueError, match="round_parent_mismatch"):
+        queue.add(
+            "child with conflicting round",
+            role="analyst",
+            parent_task_id=result["root_task_id"],
+            round_id="different-round",
+        )
+
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM queue WHERE parent_task_id = ?",
+        (result["root_task_id"],),
+    ).fetchone()[0] == 0
+
+
 def test_start_case_round_rejects_when_any_case_task_is_active(queue):
     case = make_case()
     queue.register_research_case(case)

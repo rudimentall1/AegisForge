@@ -52,7 +52,7 @@ class VerificationResult:
     status: str
     reason: str
     attestation_id: str | None
-    checks: dict[str, bool]
+    checks: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -259,7 +259,7 @@ def sign_attestation(
     return Attestation(payload=payload)
 
 
-def _result(status: str, reason: str, attestation_id: Any, checks: dict[str, bool]):
+def _result(status: str, reason: str, attestation_id: Any, checks: dict[str, Any]):
     return VerificationResult(
         status=status,
         reason=reason,
@@ -346,8 +346,12 @@ def verify_attestation(
         "public_key_matches": False,
         "signature_valid": False,
         "verdict_allowed": False,
-        "artifacts_path_safe": True,
-        "artifacts_valid": True,
+        # None means the claim was not checked; False means a check failed.
+        # Keep the verification level explicit so signature validity cannot be
+        # mistaken for artifact integrity.
+        "artifacts_path_safe": None,
+        "artifacts_valid": None,
+        "artifact_verification": "NOT_CHECKED",
         "case_digest_matches": True,
     }
     if not isinstance(payload, dict):
@@ -408,7 +412,20 @@ def verify_attestation(
             checks["case_digest_matches"] = False
             return _result("INVALID", "case_digest_mismatch", attestation_id, checks)
 
-    if artifact_root is not None:
+    reproduction = payload.get("reproduction")
+    if not isinstance(reproduction, dict) or not isinstance(reproduction.get("artifacts"), list):
+        return _result("INVALID", "invalid_reproduction_artifacts", attestation_id, checks)
+
+    artifacts = reproduction["artifacts"]
+    if artifact_root is None:
+        if artifacts:
+            # Do not return VALID when signed metadata claims files whose bytes,
+            # paths, and sizes were never checked by this verifier invocation.
+            return _result("INCOMPLETE", "artifact_root_required", attestation_id, checks)
+        checks["artifacts_path_safe"] = True
+        checks["artifacts_valid"] = True
+        checks["artifact_verification"] = "NOT_REQUIRED"
+    else:
         try:
             artifact_status, artifact_reason, paths_ok, artifacts_ok = _verify_artifacts(
                 payload, artifact_root
@@ -416,9 +433,11 @@ def verify_attestation(
         except AttestationError as exc:
             checks["artifacts_path_safe"] = False
             checks["artifacts_valid"] = False
+            checks["artifact_verification"] = "FAILED"
             return _result("INVALID", str(exc), attestation_id, checks)
         checks["artifacts_path_safe"] = paths_ok
         checks["artifacts_valid"] = artifacts_ok
+        checks["artifact_verification"] = "VERIFIED" if artifact_status == "VALID" else "FAILED"
         if artifact_status != "VALID":
             return _result(artifact_status, artifact_reason, attestation_id, checks)
 

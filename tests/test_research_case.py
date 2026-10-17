@@ -324,3 +324,33 @@ def test_round_spec_deadline_survives_case_json_round_trip():
     assert restored.rounds[0].disclosure_deadline_days == 45
     assert restored.rounds[0].priority == 4
     queue.db.close()
+
+
+@pytest.mark.parametrize("role", ["source_researcher", "crypto_analyst", "lab_runner"])
+def test_queue_rejects_forensic_role_without_case_before_enqueue(tmp_path, role):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    with pytest.raises(ValueError, match=f"research_case_id_required_for_role:{role}"):
+        queue.add("unbound forensic task", role=role)
+    count = queue.db.execute(
+        "SELECT COUNT(*) FROM queue WHERE role = ?", (role,)
+    ).fetchone()[0]
+    assert count == 0
+    queue.db.close()
+
+
+def test_queue_rejects_forensic_task_with_unknown_case_before_enqueue(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    with pytest.raises(ValueError, match="research_case_not_registered"):
+        queue.add("unknown case task", role="crypto_analyst", research_case_id="missing-case")
+    assert queue.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 0
+    queue.db.close()
+
+
+def test_queue_rejects_forensic_task_for_non_ready_case_before_enqueue(tmp_path):
+    queue = TaskQueue(db_path=tmp_path / "queue.sqlite")
+    case = valid_case(status=CaseStatus.DRAFT)
+    queue.register_research_case(case)
+    with pytest.raises(ValueError, match="does not permit execution"):
+        queue.add("draft case task", role="crypto_analyst", research_case_id=case.case_id)
+    assert queue.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 0
+    queue.db.close()

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from shared.result_codec import encode, decode
-from shared.research_case import CaseStatus, ExecutionMode, ResearchCase, validate_task_binding
+from shared.research_case import CASE_REQUIRED_ROLES, CaseStatus, ExecutionMode, ResearchCase, validate_task_binding
 from dataclasses import asdict
 from pathlib import Path
 
@@ -697,6 +697,11 @@ class TaskQueue:
                     round_id is not None or parent_round_id is not None
                 ):
                     raise ValueError("research_case_round_parent_mismatch")
+
+        # Reject unbound forensic work at enqueue time instead of allowing a
+        # task that can only fail later when a worker eventually picks it up.
+        if role in CASE_REQUIRED_ROLES and not research_case_id:
+            raise ValueError(f"research_case_id_required_for_role:{role}")
 
         if research_case_id is not None:
             case_payload = self.get_research_case(research_case_id)

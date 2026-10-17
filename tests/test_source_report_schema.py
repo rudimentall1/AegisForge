@@ -10,7 +10,7 @@ def valid_report():
         "overall_conclusion": "INCONCLUSIVE",
         "source_comparison": {
             "pre_disclosure": {"commit": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6", "git_blob_sha1": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25", "source_sha256": "a"*64, "function_body_sha256": "b"*64, "checker_conclusion": "SOURCE_PATTERN_MATCHED", "validated": True},
-            "post_disclosure_archive": {"commit": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e", "git_blob_sha1": "884ced30ed6e55794ea5bda0451b52e81ddec1dd", "source_sha256": "c"*64, "function_body_sha256": "d"*64, "checker_conclusion": "SOURCE_PATTERN_MATCHED", "validated": True},
+            "post_disclosure_archive": {"commit": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e", "git_blob_sha1": "884ced30ed6e55794ea5bda0451b52e81ddec1dd", "source_sha256": "c"*64, "function_body_sha256": "b"*64, "checker_conclusion": "SOURCE_PATTERN_MATCHED", "validated": True},
             "same_source_sha256": False, "same_create_seed_function_body_sha256": True, "same_git_blob_sha1": False,
         },
         "validation_errors": [],

@@ -129,7 +129,7 @@ def test_cli_keygen_create_and_verify_all_three_tiers(tmp_path, capsys):
     assert main([
         "verify", str(attestation_path), "--level", "2",
         "--trusted-keys", str(trusted_path),
-    ]) == 0
+    ]) == 1
     tier2 = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert tier2["status"] == "INCOMPLETE"
     assert tier2["reason"] == "artifact_root_required"

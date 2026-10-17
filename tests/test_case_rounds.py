@@ -144,3 +144,77 @@ def test_child_task_rejects_explicit_different_round_identity(queue):
         (root["root_task_id"],),
     ).fetchone()[0] == 0
 
+def test_diagnose_case_state_reports_idle_until_operator_starts_round(queue):
+    from shared.case_rounds import diagnose_case_state
+
+    case = make_case()
+    queue.register_research_case(case)
+
+    result = diagnose_case_state(queue, case.case_id)
+
+    assert result["state"] == "idle_awaiting_input"
+    assert result["reason"] == "explicit_operator_action_required"
+    assert result["counts"]["pending"] == 0
+
+
+def test_diagnose_case_state_reports_active_and_then_idle(queue):
+    from shared.case_rounds import diagnose_case_state
+
+    case = make_case()
+    queue.register_research_case(case)
+    round_result = start_case_round(queue, case.case_id)
+
+    assert diagnose_case_state(queue, case.case_id)["state"] == "active"
+
+    queue.db.execute(
+        "UPDATE queue SET status='completed', finished_at='2026-10-16T00:00:00+00:00' WHERE id=?",
+        (round_result["root_task_id"],),
+    )
+    queue.db.commit()
+
+    result = diagnose_case_state(queue, case.case_id)
+    assert result["state"] == "idle_awaiting_input"
+    assert result["counts"]["completed"] == 1
+
+
+def test_diagnose_case_state_prioritizes_open_human_review_over_failed_work(queue):
+    from shared.case_rounds import diagnose_case_state
+
+    case = make_case()
+    queue.register_research_case(case)
+    task_id = queue.add("failed test task", "analyst", research_case_id=case.case_id)
+    queue.db.execute(
+        "UPDATE queue SET status='failed', finished_at='2026-10-16T00:00:00+00:00' WHERE id=?",
+        (task_id,),
+    )
+    queue.db.execute(
+        "INSERT INTO pending_human_review (id, case_id, task_id, reason, status, created_at) "
+        "VALUES ('review-1', ?, ?, 'manual decision required', 'OPEN', '2026-10-16T00:00:00+00:00')",
+        (case.case_id, task_id),
+    )
+    queue.db.commit()
+
+    result = diagnose_case_state(queue, case.case_id)
+    assert result["state"] == "blocked"
+    assert result["reason"] == "human_review_required"
+    assert result["open_reviews"] == 1
+
+
+def test_diagnose_case_state_reports_terminal_case(queue):
+    from shared.case_rounds import diagnose_case_state
+
+    case = make_case(status=CaseStatus.INCONCLUSIVE)
+    queue.register_research_case(case)
+
+    result = diagnose_case_state(queue, case.case_id)
+    assert result["state"] == "terminal"
+    assert result["reason"] == "research_case_terminal:inconclusive"
+
+
+def test_diagnose_case_state_reports_missing_case_as_blocked(queue):
+    from shared.case_rounds import diagnose_case_state
+
+    result = diagnose_case_state(queue, "missing-case")
+    assert result["state"] == "blocked"
+    assert result["reason"] == "research_case_not_registered"
+

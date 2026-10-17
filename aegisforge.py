@@ -43,7 +43,13 @@ def task_main(argv):
     case_rounds.add_argument("--public", action="store_true", help="return public-safe round metadata only")
     case_rounds.add_argument("case_id")
     case_rounds.add_argument("--db", help=argparse.SUPPRESS)
+    case_new_round = case_sub.add_parser("new-round", help="explicitly start one bounded round for a registered case")
+    case_new_round.add_argument("--case-id", required=True, help="existing immutable Research Case ID")
+    case_new_round.add_argument("--confirm-new-round", action="store_true", help="explicitly authorize exactly one new bounded round")
+    case_new_round.add_argument("--db", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.command == "case" and args.case_command == "new-round" and not args.confirm_new_round:
+        parser.error("starting a case round requires --confirm-new-round")
     queue = TaskQueue(db_path=args.db)
     try:
         if args.command == "submit":
@@ -76,6 +82,16 @@ def task_main(argv):
                 rows = queue.list_round_transparency(args.case_id, public_only=args.public)
                 print(json.dumps({"case_id": args.case_id, "rounds": rows, "count": len(rows)},
                                  indent=2, ensure_ascii=False, default=str))
+                return 0
+            if args.case_command == "new-round":
+                from shared.case_rounds import CaseRoundError, start_case_round
+                try:
+                    result = start_case_round(queue, args.case_id)
+                except (CaseRoundError, ValueError, TypeError) as exc:
+                    print(json.dumps({"status": "rejected", "reason": str(exc)},
+                                     sort_keys=True, ensure_ascii=False))
+                    return 2
+                print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
                 return 0
             if args.case_command == "register":
                 from pathlib import Path

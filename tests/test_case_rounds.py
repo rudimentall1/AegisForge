@@ -211,3 +211,52 @@ def test_diagnose_case_state_reports_missing_case_as_blocked(queue):
     assert result["state"] == "blocked"
     assert result["reason"] == "research_case_not_registered"
 
+
+
+
+def test_case_round_cli_requires_explicit_confirmation(queue, monkeypatch, capsys):
+    from shared.case_rounds import main as case_round_main
+
+    case = make_case(case_id="case-round-cli-confirmation")
+    queue.register_research_case(case)
+
+    with pytest.raises(SystemExit) as exc:
+        case_round_main(["--case-id", case.case_id])
+    assert exc.value.code == 2
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM queue WHERE research_case_id = ?",
+        (case.case_id,),
+    ).fetchone()[0] == 0
+
+
+def test_case_round_cli_creates_exactly_one_confirmed_round(queue, monkeypatch, capsys):
+    from shared.case_rounds import main as case_round_main
+
+    case = make_case(case_id="case-round-cli-confirmed")
+    queue.register_research_case(case)
+
+    assert case_round_main([
+        "--case-id", case.case_id, "--confirm-new-round",
+    ]) == 0
+    result = __import__("json").loads(capsys.readouterr().out)
+    assert result["status"] == "queued"
+    assert result["case_id"] == case.case_id
+    assert result["round_number"] == 1
+
+    rows = queue.db.execute(
+        "SELECT id, round_id FROM queue WHERE research_case_id = ?",
+        (case.case_id,),
+    ).fetchall()
+    assert rows == [(result["root_task_id"], result["round_id"])]
+
+    # A second CLI invocation must fail closed while that round is active.
+    assert case_round_main([
+        "--case-id", case.case_id, "--confirm-new-round",
+    ]) == 2
+    second = __import__("json").loads(capsys.readouterr().out)
+    assert second["status"] == "rejected"
+    assert second["reason"].startswith("case_round_already_active:")
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM queue WHERE research_case_id = ?",
+        (case.case_id,),
+    ).fetchone()[0] == 1

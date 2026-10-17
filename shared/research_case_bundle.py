@@ -612,7 +612,7 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         task["id"]: task.get("round_id") for task in tasks_file["tasks"]
     }
     task_roles = {task["id"]: task.get("role") for task in tasks_file["tasks"]}
-    declared_round_ids = {round.round_id for round in case.rounds}
+    declared_round_ids = {round.round_id for round in validated_case.rounds}
     if declared_round_ids:
         for task in tasks_file["tasks"]:
             round_id = task.get("round_id")

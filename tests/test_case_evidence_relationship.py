@@ -56,7 +56,10 @@ def relation(case, report, relationship_type=EXACT_TARGET_REVISION, **updates):
         "report_id": report["report_id"],
         "experiment_id": report["experiment_id"],
         "source_repository": report.get("source_repository", report.get("upstream_repository")),
-        "source_commit": report.get("source_commit", report.get("source_comparison", {}).get("pre_disclosure", {}).get("commit")),
+        "source_commit": report.get(
+            "source_commit",
+            report.get("source_comparison", {}).get("pre_disclosure", {}).get("commit"),
+        ),
         "source_report_sha256": hashlib.sha256(raw).hexdigest(),
     }
     value.update(updates)
@@ -83,7 +86,7 @@ def test_lifecycle_status_does_not_change_immutable_case_digest():
     ("mutation", "error"),
     [
         ({"case_id": "case-synthetic-other"}, "case_id_mismatch"),
-        ({"relationship_type": "CONTEXTUAL_BENCHMARK"}, "contextual_commit_not_declared_by_report"),
+        ({"relationship_type": "UNKNOWN"}, "relationship_type_invalid"),
         ({"source_report_sha256": "0" * 64}, "source_report_digest_mismatch"),
         ({"source_commit": "b" * 40}, "target_commit_mismatch"),
         ({"case_contract_sha256": "d" * 64}, "case_contract_digest_mismatch"),
@@ -113,7 +116,10 @@ def test_contextual_benchmark_accepts_declared_revision_but_not_as_target_eviden
     result = validate_case_evidence_relationship(case, rel, raw)
     assert result["relationship_type"] == CONTEXTUAL_BENCHMARK
     rel["relationship_type"] = EXACT_TARGET_REVISION
-    with pytest.raises(CaseEvidenceRelationshipError, match="exact_target_report_requires_explicit_source_identity"):
+    with pytest.raises(
+        CaseEvidenceRelationshipError,
+        match="exact_target_report_requires_explicit_source_identity",
+    ):
         validate_case_evidence_relationship(case, rel, raw)
 
 
@@ -128,7 +134,12 @@ def test_report_identity_mismatch_is_rejected_even_if_report_digest_is_recompute
 
 def test_duplicate_report_json_keys_are_rejected():
     case = case_record()
-    raw = b'{"report_id":"one","report_id":"two","experiment_id":"e","source_repository":"https://github.com/acme/example","source_commit":"' + TARGET_COMMIT.encode() + b'"}'
+    raw = (
+        b'{"report_id":"one","report_id":"two","experiment_id":"e",'
+        b'"source_repository":"https://github.com/acme/example","source_commit":"'
+        + TARGET_COMMIT.encode()
+        + b'"}'
+    )
     rel, _ = relation(case, report_record())
     rel["source_report_sha256"] = hashlib.sha256(raw).hexdigest()
     with pytest.raises(CaseEvidenceRelationshipError, match="source_report_duplicate_json_key"):

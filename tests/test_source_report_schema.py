@@ -1,5 +1,3 @@
-import copy
-
 from tools.evm_key_forensics.source_report_schema import validate_source_report_schema
 
 def valid_report():
@@ -16,7 +14,7 @@ def valid_report():
             "same_source_sha256": False, "same_create_seed_function_body_sha256": True, "same_git_blob_sha1": False,
         },
         "validation_errors": [],
-        "interpretation": "Pinned source inspection only; runtime behavior and wallet exposure are not established.",
+        "interpretation": "The report reconciles source-pattern checker outputs for two pinned source revisions. A matching pattern is source-inspection evidence only; it does not establish runtime entropy, exploitability, key predictability, wallet exposure, or historical vulnerability reproduction.",
         "limitations": {"historical_code_executed": False, "wallet_material_used": False, "historical_vulnerability_reproduced": False, "source_to_binary_provenance": "NOT_ESTABLISHED", "source_review_runner_attestation": "NOT_IMPLEMENTED", "evidence_package_github_attestation": "CHECKED_BY_SEPARATE_WORKFLOW_STEP; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS", "independent_review": "PENDING"},
     }
 
@@ -34,6 +32,16 @@ def test_rejects_unknown_nested_claim():
 def test_rejects_promoted_conclusion():
     report = valid_report(); report["overall_conclusion"] = "CONFIRMED"
     assert not validate_source_report_schema(report)
+
+def test_rejects_inconsistent_comparison_flag():
+    report = valid_report(); report["source_comparison"]["same_source_sha256"] = True
+    assert not validate_source_report_schema(report)
+
+
+def test_rejects_modified_interpretation_claim():
+    report = valid_report(); report["interpretation"] = "Wallet exposure confirmed."
+    assert not validate_source_report_schema(report)
+
 
 def test_rejects_unpinned_revision():
     report = valid_report(); report["source_comparison"]["pre_disclosure"]["commit"] = "f"*40

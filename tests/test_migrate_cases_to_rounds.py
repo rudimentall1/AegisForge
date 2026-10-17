@@ -130,7 +130,7 @@ def test_single_root_case_untouched(tmp_path):
     assert read_decisions(db) == {"root-a": None}
 
 
-def test_completed_child_takes_precedence_over_existing_dedup_marker(tmp_path):
+def test_completed_descendant_clears_stale_dedup_marker(tmp_path):
     db = tmp_path / "queue.db"
     make_db(db, [
         {"id": "root-a", "case": "case-a", "created": "2026-01-01T00:00:00Z"},
@@ -145,7 +145,7 @@ def test_completed_child_takes_precedence_over_existing_dedup_marker(tmp_path):
 
     assert [row["root_id"] for row in summary["kept"]] == ["root-a", "root-b"]
     assert summary["deduped"] == []
-    assert read_decisions(db) == {"root-a": None, "root-b": "DEDUPED_ROOT"}
+    assert read_decisions(db) == {"root-a": None, "root-b": None}
 
 
 def test_apply_keeps_root_with_completed_grandchild(tmp_path):
@@ -158,6 +158,43 @@ def test_apply_keeps_root_with_completed_grandchild(tmp_path):
                 "id": "child-b", "created": "2026-01-03T00:00:00Z", "status": "failed",
                 "children": [{
                     "id": "grandchild-b", "created": "2026-01-04T00:00:00Z", "status": "completed",
+                }],
+            }],
+        },
+    ])
+
+    summary = MIGRATION.migrate(db, apply=True)
+
+    assert [row["root_id"] for row in summary["kept"]] == ["root-a", "root-b"]
+    assert summary["deduped"] == []
+    assert read_decisions(db) == {"root-a": None, "root-b": None}
+
+
+def test_apply_preserves_pending_duplicate_root(tmp_path):
+    db = tmp_path / "queue.db"
+    make_db(db, [
+        {"id": "root-a", "case": "case-a", "created": "2026-01-01T00:00:00Z"},
+        {"id": "root-b", "case": "case-a", "created": "2026-01-02T00:00:00Z", "status": "pending"},
+    ])
+
+    summary = MIGRATION.migrate(db, apply=True)
+
+    assert [row["root_id"] for row in summary["kept"]] == ["root-a", "root-b"]
+    assert summary["deduped"] == []
+    assert read_decisions(db) == {"root-a": None, "root-b": None}
+
+
+def test_apply_preserves_root_with_active_grandchild_and_clears_stale_marker(tmp_path):
+    db = tmp_path / "queue.db"
+    make_db(db, [
+        {"id": "root-a", "case": "case-a", "created": "2026-01-01T00:00:00Z"},
+        {
+            "id": "root-b", "case": "case-a", "created": "2026-01-02T00:00:00Z",
+            "decision": "DEDUPED_ROOT",
+            "children": [{
+                "id": "child-b", "created": "2026-01-03T00:00:00Z", "status": "failed",
+                "children": [{
+                    "id": "grandchild-b", "created": "2026-01-04T00:00:00Z", "status": "running",
                 }],
             }],
         },

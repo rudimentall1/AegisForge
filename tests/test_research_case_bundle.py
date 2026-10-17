@@ -853,3 +853,26 @@ def test_case_bundle_verifier_keeps_schema_v1_compatibility(tmp_path):
     report = verify_research_case_bundle(legacy)
     assert report["valid"] is True
     assert report["schema_version"] == "aegisforge-research-case-bundle-v1"
+
+
+def test_case_bundle_verifier_documents_unsigned_manifest_rewrite_boundary(tmp_path):
+    """A recomputed unsigned manifest is not an authenticity guarantee."""
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "original.zip"
+    rewritten = tmp_path / "rewritten.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    # This helper changes a member and recomputes its entry hash, Merkle root,
+    # and bundle digest. Since the bundle has no trusted signature/anchor, the
+    # verifier can establish internal consistency, not historical authenticity.
+    _rewrite_bundle_json_member(
+        original,
+        rewritten,
+        "tasks.json",
+        lambda payload: payload["tasks"][0].update(description="Rewritten by an editor"),
+    )
+
+    report = verify_research_case_bundle(rewritten)
+    assert report["valid"] is True
+    assert report["schema_version"] == "aegisforge-research-case-bundle-v2"

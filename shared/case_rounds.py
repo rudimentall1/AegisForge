@@ -49,6 +49,32 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
                 f"case_round_already_active:task={active[0]}:role={active[1]}:status={active[2]}"
             )
 
+        open_review = db.execute(
+            """
+            SELECT id FROM pending_human_review
+            WHERE case_id = ? AND status = 'OPEN'
+            ORDER BY created_at LIMIT 1
+            """,
+            (case_id,),
+        ).fetchone()
+        if open_review:
+            raise CaseRoundError(
+                f"case_round_blocked_human_review:review={open_review[0]}"
+            )
+
+        failed_task = db.execute(
+            """
+            SELECT id, role FROM queue
+            WHERE research_case_id = ? AND status = 'failed'
+            ORDER BY finished_at, created_at LIMIT 1
+            """,
+            (case_id,),
+        ).fetchone()
+        if failed_task:
+            raise CaseRoundError(
+                f"case_round_blocked_failed_tasks:task={failed_task[0]}:role={failed_task[1]}"
+            )
+
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS research_case_rounds (

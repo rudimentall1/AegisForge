@@ -45,6 +45,13 @@ def test_start_case_round_creates_one_case_bound_root_and_ledger_row(queue):
     assert task[8] is None
     assert task[12] == case.case_id
     assert result["round_id"] in task[1]
+    # Round identity must be queryable from structured queue metadata, not only
+    # recoverable by parsing the free-form task description or joining the ledger.
+    root_round_id = queue.db.execute(
+        "SELECT round_id FROM queue WHERE id = ?",
+        (result["root_task_id"],),
+    ).fetchone()[0]
+    assert root_round_id == result["round_id"]
     row = queue.db.execute(
         "SELECT round_id, case_id, round_number, root_task_id "
         "FROM research_case_rounds"

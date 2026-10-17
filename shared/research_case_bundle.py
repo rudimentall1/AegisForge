@@ -228,7 +228,7 @@ def export_research_case_bundle(
             column for column in (
                 "id", "description", "status", "worker", "created_at", "started_at",
                 "finished_at", "role", "parent_task_id", "result", "retry_count",
-                "research_case_id", "planner_decision",
+                "research_case_id", "planner_decision", "round_id",
             )
             if column in queue_columns
         ]
@@ -242,6 +242,7 @@ def export_research_case_bundle(
         tasks = []
         for row in rows:
             item = dict(row)
+            item.setdefault("round_id", None)
             raw_result = item.pop("result", None)
             try:
                 item["result"] = decode(raw_result)
@@ -274,6 +275,7 @@ def export_research_case_bundle(
                 row["name"] for row in connection.execute("PRAGMA table_info(evidence_observations)")
             }
             if {"atom_id", "task_id", "role", "observed_at", "case_id"}.issubset(evidence_columns):
+                round_select = "o.round_id" if "round_id" in evidence_columns else "NULL AS round_id"
                 if "evidence_ledger" in tables:
                     orphaned_observation = connection.execute(
                         """
@@ -290,9 +292,9 @@ def export_research_case_bundle(
                             "evidence_observation_ledger_entry_missing"
                         )
                     evidence_rows = connection.execute(
-                        """
+                        f"""
                         SELECT o.atom_id, o.task_id, o.role, o.observed_at, o.case_id,
-                               l.kind, l.value
+                               {round_select}, l.kind, l.value
                         FROM evidence_observations o
                         LEFT JOIN evidence_ledger l ON l.atom_id = o.atom_id
                         WHERE o.case_id = ?
@@ -302,9 +304,10 @@ def export_research_case_bundle(
                         (case_id, MAX_EVIDENCE_ROWS + 1),
                     ).fetchall()
                 else:
+                    round_select = "round_id" if "round_id" in evidence_columns else "NULL AS round_id"
                     evidence_rows = connection.execute(
-                        """
-                        SELECT atom_id, task_id, role, observed_at, case_id
+                        f"""
+                        SELECT atom_id, task_id, role, observed_at, case_id, {round_select}
                         FROM evidence_observations
                         WHERE case_id = ?
                         ORDER BY observed_at, task_id, atom_id
@@ -316,9 +319,18 @@ def export_research_case_bundle(
                     raise ResearchCaseBundleError("case_evidence_count_exceeds_limit")
                 evidence = [dict(row) for row in evidence_rows]
         task_ids_for_case = _validate_task_parent_graph(tasks)
+        task_round_ids = {task["id"]: task.get("round_id") for task in tasks}
         for observation in evidence:
-            if observation.get("task_id") not in task_ids_for_case:
+            task_id = observation.get("task_id")
+            if task_id not in task_ids_for_case:
                 raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
+            round_id = observation.get("round_id")
+            if round_id is not None and (
+                not isinstance(round_id, str)
+                or not round_id.strip()
+                or round_id != task_round_ids.get(task_id)
+            ):
+                raise ResearchCaseBundleError("evidence_observation_round_identity_mismatch")
     except sqlite3.Error as exc:
         raise ResearchCaseBundleError("database_query_failed") from exc
     finally:
@@ -516,6 +528,11 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         if not isinstance(task_id, str) or not task_id or task_id in task_ids:
             raise ResearchCaseBundleError("task_identity_invalid")
         task_ids.add(task_id)
+        round_id = task.get("round_id")
+        if round_id is not None and (
+            not isinstance(round_id, str) or not round_id.strip()
+        ):
+            raise ResearchCaseBundleError("task_round_identity_invalid")
         result = task.get("result")
         if isinstance(result, dict) and result.get("research_case_binding") is not None:
             try:
@@ -545,11 +562,22 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         raise ResearchCaseBundleError("evidence_file_schema_invalid")
     if len(evidence_file["observations"]) > MAX_EVIDENCE_ROWS:
         raise ResearchCaseBundleError("case_evidence_count_exceeds_limit")
+    task_round_ids = {
+        task["id"]: task.get("round_id") for task in tasks_file["tasks"]
+    }
     for observation in evidence_file["observations"]:
         if not isinstance(observation, dict) or observation.get("case_id") != case_id:
             raise ResearchCaseBundleError("evidence_case_identity_mismatch")
-        if observation.get("task_id") not in task_ids:
+        task_id = observation.get("task_id")
+        if task_id not in task_ids:
             raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
+        round_id = observation.get("round_id")
+        if round_id is not None and (
+            not isinstance(round_id, str)
+            or not round_id.strip()
+            or round_id != task_round_ids.get(task_id)
+        ):
+            raise ResearchCaseBundleError("evidence_observation_round_identity_mismatch")
 
     statuses = {}
     for task in tasks_file["tasks"]:

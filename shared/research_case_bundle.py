@@ -330,10 +330,14 @@ def export_research_case_bundle(
             if task_id not in task_ids_for_case:
                 raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
             round_id = observation.get("round_id")
-            if round_id is not None and (
-                not isinstance(round_id, str)
-                or not round_id.strip()
-                or round_id != task_round_ids.get(task_id)
+            task_round_id = task_round_ids.get(task_id)
+            # Round identity is a binding, not optional decoration: evidence
+            # must not silently lose the round assigned to its task.
+            if (
+                round_id != task_round_id
+                or (round_id is not None and (
+                    not isinstance(round_id, str) or not round_id.strip()
+                ))
             ):
                 raise ResearchCaseBundleError("evidence_observation_round_identity_mismatch")
     except sqlite3.Error as exc:
@@ -577,10 +581,12 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         if task_id not in task_ids:
             raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
         round_id = observation.get("round_id")
-        if round_id is not None and (
-            not isinstance(round_id, str)
-            or not round_id.strip()
-            or round_id != task_round_ids.get(task_id)
+        task_round_id = task_round_ids.get(task_id)
+        if (
+            round_id != task_round_id
+            or (round_id is not None and (
+                not isinstance(round_id, str) or not round_id.strip()
+            ))
         ):
             raise ResearchCaseBundleError("evidence_observation_round_identity_mismatch")
 

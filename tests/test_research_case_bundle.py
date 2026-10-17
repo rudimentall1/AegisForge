@@ -213,6 +213,47 @@ def test_case_bundle_rejects_round_not_declared_by_case(tmp_path):
         export_research_case_bundle(db_path, case.case_id, tmp_path / "undeclared-round.zip")
 
 
+def test_case_bundle_rejects_missing_task_round_when_case_declares_rounds(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    planned_case = replace(
+        case,
+        rounds=(
+            RoundSpec(
+                round_id="declared-round",
+                technique="source_pattern",
+                hypothesis="Check the pinned source for a specific pattern.",
+                expected_evidence_atoms=("source-pattern-present",),
+                falsification_criteria="Pinned source lacks the pattern.",
+                priority=1,
+                disclosure_deadline_days=30,
+            ),
+        ),
+    )
+    payload = asdict(planned_case)
+    payload["execution_mode"] = planned_case.execution_mode.value
+    payload["status"] = planned_case.status.value
+    result = {
+        "stage": "validation",
+        "research_case_binding": research_case_binding(planned_case),
+        "research_validation": {"historical_reproduction_confirmed": False},
+    }
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE research_cases SET payload = ? WHERE case_id = ?",
+            (json.dumps(payload, sort_keys=True, separators=(",", ":")), case.case_id),
+        )
+        db.execute(
+            "UPDATE queue SET result = ? WHERE id = ?",
+            (encode(result), "task-001"),
+        )
+
+    with pytest.raises(ResearchCaseBundleError, match="task_round_identity_required"):
+        export_research_case_bundle(
+            db_path, case.case_id, tmp_path / "missing-round.zip"
+        )
+
+
 def test_case_bundle_verifier_rejects_forged_evidence_role_even_with_rebuilt_manifest(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)

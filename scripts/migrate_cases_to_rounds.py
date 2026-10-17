@@ -71,25 +71,31 @@ def migrate(db_path: Path, apply: bool) -> dict:
 
             for root in roots[1:]:
                 root_id = root["id"]
-                child_row = connection.execute(
+                descendant_row = connection.execute(
                     """
-                    SELECT COUNT(*) FROM queue
-                    WHERE parent_task_id = ? AND status = 'completed'
+                    WITH RECURSIVE descendants(id, status) AS (
+                        SELECT id, status FROM queue WHERE parent_task_id = ?
+                        UNION
+                        SELECT child.id, child.status
+                        FROM queue AS child
+                        JOIN descendants AS parent ON child.parent_task_id = parent.id
+                    )
+                    SELECT COUNT(*) FROM descendants WHERE status = 'completed'
                     """,
                     (root_id,),
                 ).fetchone()
-                completed_children = int(child_row[0] or 0)
+                completed_descendants = int(descendant_row[0] or 0)
 
-                if completed_children > 0:
+                if completed_descendants > 0:
                     summary["kept"].append({
                         "root_id": root_id,
                         "case_id": case_id,
-                        "reason": "has_completed_children",
-                        "count": completed_children,
+                        "reason": "has_completed_descendants",
+                        "count": completed_descendants,
                     })
                     print(
                         f"KEEP root={root_id} case={case_id} "
-                        f"reason=has_completed_children count={completed_children}",
+                        f"reason=has_completed_descendants count={completed_descendants}",
                         file=sys.stderr,
                     )
                     continue

@@ -917,3 +917,30 @@ def test_case_bundle_verifier_rejects_rehashed_manifest_case_identity_mismatch(t
     # from the case identity contract, not a stale hash.
     with pytest.raises(ResearchCaseBundleError, match="bundle_case_identity_mismatch"):
         verify_research_case_bundle(forged)
+
+
+
+def test_case_bundle_verifier_rejects_rehashed_target_commit_mismatch(tmp_path):
+    """Recomputed unsigned hashes must not hide a task bound to another source commit."""
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "original.zip"
+    forged = tmp_path / "rehashed-target-commit.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    changed_case = replace(case, target_commit="c" * 40)
+
+    def alter_task_binding(payload):
+        payload["tasks"][0]["result"]["research_case_binding"] = research_case_binding(
+            changed_case
+        )
+
+    _rewrite_bundle_json_member(original, forged, "tasks.json", alter_task_binding)
+
+    # The manifest, entry hashes, Merkle root and bundle digest are internally
+    # consistent. The verifier must reject the semantic source-commit mismatch.
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_result_case_binding_mismatch",
+    ):
+        verify_research_case_bundle(forged)

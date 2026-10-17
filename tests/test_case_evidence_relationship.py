@@ -152,3 +152,30 @@ def test_unknown_relationship_fields_are_rejected():
     rel["attestation"] = "trusted"
     with pytest.raises(CaseEvidenceRelationshipError, match="relationship_schema_mismatch"):
         validate_case_evidence_relationship(case, rel, raw)
+
+
+
+@pytest.mark.parametrize(
+    "repository",
+    [
+        "https://github.com/acme/example?redirect=other",
+        "https://github.com/acme/example#fragment",
+        "acme/example%2Fother",
+        "acme/../example",
+    ],
+)
+def test_repository_identity_rejects_ambiguous_aliases(repository):
+    case = case_record()
+    report = report_record(source_repository=repository)
+    rel, raw = relation(case, report)
+    with pytest.raises(CaseEvidenceRelationshipError):
+        validate_case_evidence_relationship(case, rel, raw)
+
+
+def test_exact_target_rejects_noncanonical_uppercase_case_commit():
+    case = case_record()
+    case["target_commit"] = TARGET_COMMIT.upper()
+    report = report_record()
+    rel, raw = relation(case, report)
+    with pytest.raises(CaseEvidenceRelationshipError, match="target_commit_invalid"):
+        validate_case_evidence_relationship(case, rel, raw)

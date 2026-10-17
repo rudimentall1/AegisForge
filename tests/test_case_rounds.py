@@ -107,3 +107,40 @@ def test_start_case_round_rejects_unregistered_or_terminal_case(queue):
         start_case_round(queue, case.case_id)
 
     assert queue.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 0
+
+
+def test_child_task_inherits_parent_round_identity(queue):
+    case = make_case()
+    queue.register_research_case(case)
+    root = start_case_round(queue, case.case_id)
+    child_id = queue.add(
+        "child task in the same round",
+        role="crypto_analyst",
+        parent_task_id=root["root_task_id"],
+    )
+
+    row = queue.db.execute(
+        "SELECT research_case_id, round_id FROM queue WHERE id = ?",
+        (child_id,),
+    ).fetchone()
+    assert row == (case.case_id, root["round_id"])
+
+
+def test_child_task_rejects_explicit_different_round_identity(queue):
+    case = make_case()
+    queue.register_research_case(case)
+    root = start_case_round(queue, case.case_id)
+
+    with pytest.raises(ValueError, match="research_case_round_parent_mismatch"):
+        queue.add(
+            "child task attempting to cross rounds",
+            role="crypto_analyst",
+            parent_task_id=root["root_task_id"],
+            round_id="different-round-id",
+        )
+
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM queue WHERE parent_task_id = ?",
+        (root["root_task_id"],),
+    ).fetchone()[0] == 0
+

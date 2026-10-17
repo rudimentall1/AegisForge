@@ -202,6 +202,8 @@ def validate_dossier(data: object) -> list[str]:
         "source_review", "historical_code_executed", "wallet_material_used",
         "historical_vulnerability_reproduced", "independent_review", "overall_conclusion",
     }, "experiment_state", errors)
+    if state.get("source_review") != "COMPLETE":
+        errors.append("source_review_status_mismatch")
     required_false = (
         "historical_code_executed",
         "wallet_material_used",

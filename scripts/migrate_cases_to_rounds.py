@@ -48,7 +48,7 @@ def migrate(db_path: Path, apply: bool) -> dict:
             case_id = case_row["research_case_id"]
             roots = connection.execute(
                 """
-                SELECT id, created_at, planner_decision
+                SELECT id, created_at, planner_decision, status
                 FROM queue
                 WHERE parent_task_id IS NULL AND research_case_id = ?
                 ORDER BY created_at ASC, id ASC
@@ -68,6 +68,11 @@ def migrate(db_path: Path, apply: bool) -> dict:
                 f"KEEP root={first['id']} case={case_id} reason=first_root",
                 file=sys.stderr,
             )
+            if apply and first["planner_decision"] == "DEDUPED_ROOT":
+                connection.execute(
+                    "UPDATE queue SET planner_decision = NULL WHERE id = ? AND planner_decision = 'DEDUPED_ROOT'",
+                    (first["id"],),
+                )
 
             for root in roots[1:]:
                 root_id = root["id"]
@@ -80,11 +85,34 @@ def migrate(db_path: Path, apply: bool) -> dict:
                         FROM queue AS child
                         JOIN descendants AS parent ON child.parent_task_id = parent.id
                     )
-                    SELECT COUNT(*) FROM descendants WHERE status = 'completed'
+                    SELECT
+                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END),
+                        SUM(CASE WHEN status IN ('pending', 'running') THEN 1 ELSE 0 END)
+                    FROM descendants
                     """,
                     (root_id,),
                 ).fetchone()
                 completed_descendants = int(descendant_row[0] or 0)
+                active_descendants = int(descendant_row[1] or 0)
+
+                if root["status"] in {"pending", "running"} or active_descendants > 0:
+                    summary["kept"].append({
+                        "root_id": root_id,
+                        "case_id": case_id,
+                        "reason": "active_root_or_descendants",
+                        "count": active_descendants + int(root["status"] in {"pending", "running"}),
+                    })
+                    print(
+                        f"KEEP root={root_id} case={case_id} "
+                        f"reason=active_root_or_descendants active_descendants={active_descendants}",
+                        file=sys.stderr,
+                    )
+                    if apply and root["planner_decision"] == "DEDUPED_ROOT":
+                        connection.execute(
+                            "UPDATE queue SET planner_decision = NULL WHERE id = ? AND planner_decision = 'DEDUPED_ROOT'",
+                            (root_id,),
+                        )
+                    continue
 
                 if completed_descendants > 0:
                     summary["kept"].append({
@@ -98,6 +126,11 @@ def migrate(db_path: Path, apply: bool) -> dict:
                         f"reason=has_completed_descendants count={completed_descendants}",
                         file=sys.stderr,
                     )
+                    if apply and root["planner_decision"] == "DEDUPED_ROOT":
+                        connection.execute(
+                            "UPDATE queue SET planner_decision = NULL WHERE id = ? AND planner_decision = 'DEDUPED_ROOT'",
+                            (root_id,),
+                        )
                     continue
 
                 if root["planner_decision"] == "DEDUPED_ROOT":

@@ -470,16 +470,6 @@ def test_case_bundle_verifier_rejects_parent_missing_from_bundle_even_with_rebui
         for name in sorted(("case.json", "tasks.json", "evidence.json"))
     ]
     _refresh_manifest(files, manifest)
-    manifest["bundle_sha256"] = hashlib.sha256(
-        json.dumps(
-            core, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
-    files["manifest.json"] = json.dumps(
-        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
 
     forged_bundle = tmp_path / "rebuilt-manifest.zip"
     with zipfile.ZipFile(forged_bundle, "w", compression=zipfile.ZIP_DEFLATED) as target:
@@ -519,16 +509,6 @@ def test_case_bundle_verifier_rejects_parent_cycle_even_with_rebuilt_manifest(tm
         for name in sorted(("case.json", "tasks.json", "evidence.json"))
     ]
     _refresh_manifest(files, manifest)
-    manifest["bundle_sha256"] = hashlib.sha256(
-        json.dumps(
-            core, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
-    files["manifest.json"] = json.dumps(
-        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
 
     forged_bundle = tmp_path / "rebuilt-manifest.zip"
     with zipfile.ZipFile(forged_bundle, "w", compression=zipfile.ZIP_DEFLATED) as target:
@@ -568,16 +548,6 @@ def test_case_bundle_verifier_rejects_non_string_parent_even_with_rebuilt_manife
         for name in sorted(("case.json", "tasks.json", "evidence.json"))
     ]
     _refresh_manifest(files, manifest)
-    manifest["bundle_sha256"] = hashlib.sha256(
-        json.dumps(
-            core, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
-    files["manifest.json"] = json.dumps(
-        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
 
     forged_bundle = tmp_path / "rebuilt-manifest.zip"
     with zipfile.ZipFile(forged_bundle, "w", compression=zipfile.ZIP_DEFLATED) as target:
@@ -745,12 +715,6 @@ def test_case_bundle_verifier_rejects_integrity_valid_missing_evidence_round_ide
         for name in sorted(("case.json", "tasks.json", "evidence.json"))
     ]
     _refresh_manifest(files, manifest)
-    manifest["bundle_sha256"] = hashlib.sha256(
-        json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
-    ).hexdigest()
-    files["manifest.json"] = json.dumps(
-        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    ).encode("utf-8")
     forged = tmp_path / "integrity-valid-missing-round.zip"
     with zipfile.ZipFile(forged, "w", compression=zipfile.ZIP_DEFLATED) as target:
         for name in sorted(files):

@@ -255,7 +255,7 @@ def test_case_round_cli_creates_exactly_one_confirmed_round(queue, monkeypatch, 
     assert case_round_main([
         "--case-id", case.case_id, "--confirm-new-round",
     ]) == 2
-    second = json.loads(capsys.readouterr().out
+    second = json.loads(capsys.readouterr().out)
     assert second["status"] == "rejected"
     assert second["reason"].startswith("case_round_already_active:")
     assert queue.db.execute(

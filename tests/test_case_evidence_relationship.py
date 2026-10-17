@@ -259,3 +259,13 @@ def test_invalid_utf8_source_report_is_rejected():
     with pytest.raises(CaseEvidenceRelationshipError, match="source_report_invalid_json"):
         validate_case_evidence_relationship(case, rel, raw)
 
+
+def test_deeply_nested_source_report_fails_closed():
+    case = case_record()
+    raw = b"[" * 3000 + b"0" + b"]" * 3000
+    rel, _ = relation(case, report_record())
+    rel["source_report_sha256"] = hashlib.sha256(raw).hexdigest()
+    with pytest.raises(
+        CaseEvidenceRelationshipError, match="source_report_nesting_limit_exceeded"
+    ):
+        validate_case_evidence_relationship(case, rel, raw)

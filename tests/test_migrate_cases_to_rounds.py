@@ -34,14 +34,17 @@ def make_db(path, roots):
                 row.get("decision"),
             ),
         )
-        for child in row.get("children", []):
+        pending = [(row["id"], child) for child in row.get("children", [])]
+        while pending:
+            parent_id, child = pending.pop(0)
             connection.execute(
                 """
                 INSERT INTO queue (id, parent_task_id, research_case_id, created_at, status, planner_decision)
                 VALUES (?, ?, ?, ?, ?, NULL)
                 """,
-                (child["id"], row["id"], row["case"], child["created"], child["status"],),
+                (child["id"], parent_id, row["case"], child["created"], child["status"]),
             )
+            pending.extend((child["id"], grandchild) for grandchild in child.get("children", []))
     connection.commit()
     connection.close()
 
@@ -143,3 +146,25 @@ def test_completed_child_takes_precedence_over_existing_dedup_marker(tmp_path):
     assert [row["root_id"] for row in summary["kept"]] == ["root-a", "root-b"]
     assert summary["deduped"] == []
     assert read_decisions(db) == {"root-a": None, "root-b": "DEDUPED_ROOT"}
+
+
+def test_apply_keeps_root_with_completed_grandchild(tmp_path):
+    db = tmp_path / "queue.db"
+    make_db(db, [
+        {"id": "root-a", "case": "case-a", "created": "2026-01-01T00:00:00Z"},
+        {
+            "id": "root-b", "case": "case-a", "created": "2026-01-02T00:00:00Z",
+            "children": [{
+                "id": "child-b", "created": "2026-01-03T00:00:00Z", "status": "failed",
+                "children": [{
+                    "id": "grandchild-b", "created": "2026-01-04T00:00:00Z", "status": "completed",
+                }],
+            }],
+        },
+    ])
+
+    summary = MIGRATION.migrate(db, apply=True)
+
+    assert [row["root_id"] for row in summary["kept"]] == ["root-a", "root-b"]
+    assert summary["deduped"] == []
+    assert read_decisions(db) == {"root-a": None, "root-b": None}

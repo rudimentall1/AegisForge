@@ -132,6 +132,36 @@ def test_case_bundle_verifier_rejects_unknown_evidence_fields_even_when_manifest
         verify_research_case_bundle(forged)
 
 
+def test_case_bundle_rejects_evidence_role_mismatch(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE evidence_observations SET role = ? WHERE task_id = ?",
+            ("source_researcher", "task-001"),
+        )
+
+    with pytest.raises(ResearchCaseBundleError, match="evidence_observation_role_mismatch"):
+        export_research_case_bundle(db_path, case.case_id, tmp_path / "role-mismatch.zip")
+
+
+def test_case_bundle_rejects_round_not_declared_by_case(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE queue SET round_id = ? WHERE id = ?",
+            ("invented-round", "task-001"),
+        )
+        db.execute(
+            "UPDATE evidence_observations SET round_id = ? WHERE task_id = ?",
+            ("invented-round", "task-001"),
+        )
+
+    with pytest.raises(ResearchCaseBundleError, match="task_round_not_declared_in_case"):
+        export_research_case_bundle(db_path, case.case_id, tmp_path / "undeclared-round.zip")
+
+
 def test_case_bundle_export_is_portable_and_deterministic(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)

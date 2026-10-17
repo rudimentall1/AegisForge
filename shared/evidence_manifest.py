@@ -57,6 +57,8 @@ def verify_manifest(manifest):
     if "agent_id" in manifest and (not isinstance(manifest["agent_id"], str) or not manifest["agent_id"]):
         raise EvidenceManifestError("invalid_manifest_agent_id")
     expected = merkle_root(entries)
+    if len({(entry["id"], entry["type"]) for entry in entries}) != len(entries):
+        raise EvidenceManifestError("duplicate_manifest_entry")
     if manifest.get("merkle_root") != expected:
         raise EvidenceManifestError("manifest_root_mismatch")
     return {"valid": True, "merkle_root": expected, "entry_count": len(entries)}

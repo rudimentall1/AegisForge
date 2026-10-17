@@ -68,12 +68,24 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
             "probe_binary_sha256": self.binary_hash,
             "independent_rebuild_binary_sha256": self.binary_hash,
             "source_evidence_report_sha256": "e" * 64,
+            "source_report_id": "evm-key-forensics-profanity-source-comparison-v1",
+            "source_report_experiment_id": "evm-forensics-historical-source-pattern-v1",
+            "source_report_pre_disclosure_commit": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+            "source_report_post_disclosure_commit": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
         }
         self.members = {
             name: b"synthetic fixture"
             for name in EXPECTED_MEMBERS
         }
         self.members["complete-evidence/probe-evidence/probe-run-metadata.json"] = json.dumps(self.metadata).encode()
+        self.members["complete-evidence/probe-evidence/source-evidence-report.json"] = json.dumps({
+            "report_id": "evm-key-forensics-profanity-source-comparison-v1",
+            "experiment_id": "evm-forensics-historical-source-pattern-v1",
+            "source_comparison": {
+                "pre_disclosure": {"commit": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6"},
+                "post_disclosure_archive": {"commit": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e"},
+            },
+        }).encode()
         self.members["complete-evidence/independent-rebuild-report.json"] = json.dumps(self.rebuild).encode()
         self.members["complete-evidence/combined-evidence-index.json"] = json.dumps(self.index).encode()
         self.write_archive()
@@ -665,3 +677,21 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CompleteEvidenceSourceReportLinkageTests(CompleteEvidenceVerifierTests):
+    def test_rejects_index_source_report_commit_mismatch(self):
+        self.index["source_report_pre_disclosure_commit"] = "f" * 40
+        self.members["complete-evidence/combined-evidence-index.json"] = json.dumps(self.index).encode()
+        self.write_archive()
+        result = self.verify_with_stubbed_probe_check()
+        self.assertFalse(result["integrity_verified"])
+        self.assertIn("index_source_report_pre_commit_matches_report", result["failed_checks"])
+
+    def test_rejects_index_source_report_identity_mismatch(self):
+        self.index["source_report_id"] = "unrelated-report"
+        self.members["complete-evidence/combined-evidence-index.json"] = json.dumps(self.index).encode()
+        self.write_archive()
+        result = self.verify_with_stubbed_probe_check()
+        self.assertFalse(result["integrity_verified"])
+        self.assertIn("index_source_report_id_matches_report", result["failed_checks"])

@@ -133,6 +133,60 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
         raise
 
 
+
+def diagnose_case_state(queue: TaskQueue, case_id: str) -> dict:
+    """Return a read-only, actionable lifecycle snapshot for one Research Case."""
+    if not isinstance(case_id, str) or not case_id.strip():
+        raise CaseRoundError("case_id_required")
+
+    case = queue.get_research_case(case_id)
+    if case is None:
+        return {
+            "case_id": case_id,
+            "state": "blocked",
+            "reason": "research_case_not_registered",
+            "counts": {"pending": 0, "running": 0, "completed": 0, "failed": 0},
+            "open_reviews": 0,
+        }
+
+    rows = queue.db.execute(
+        "SELECT status, COUNT(*) FROM queue WHERE research_case_id = ? GROUP BY status",
+        (case_id,),
+    ).fetchall()
+    counts = {str(status): int(count) for status, count in rows}
+    for status in ("pending", "running", "completed", "failed"):
+        counts.setdefault(status, 0)
+
+    open_reviews = int(queue.db.execute(
+        "SELECT COUNT(*) FROM pending_human_review WHERE case_id = ? AND status = 'OPEN'",
+        (case_id,),
+    ).fetchone()[0])
+
+    if counts["pending"] or counts["running"]:
+        state, reason = "active", "case_has_active_tasks"
+    elif open_reviews:
+        state, reason = "blocked", "human_review_required"
+    elif case.status in {
+        CaseStatus.CONFIRMED,
+        CaseStatus.REJECTED,
+        CaseStatus.INCONCLUSIVE,
+        CaseStatus.OUT_OF_SCOPE,
+    }:
+        state, reason = "terminal", f"research_case_terminal:{case.status.value}"
+    elif counts["failed"]:
+        state, reason = "blocked", "failed_tasks_require_operator_review"
+    else:
+        state, reason = "idle_awaiting_input", "explicit_operator_action_required"
+
+    return {
+        "case_id": case_id,
+        "case_status": case.status.value,
+        "state": state,
+        "reason": reason,
+        "counts": counts,
+        "open_reviews": open_reviews,
+    }
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case-id", required=True, help="Existing immutable Research Case ID")

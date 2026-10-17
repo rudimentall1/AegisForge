@@ -310,3 +310,52 @@ def test_start_case_round_fails_closed_on_open_human_review(queue):
         (case.case_id,),
     ).fetchone()[0] == 0
     assert diagnose_case_state(queue, case.case_id)["reason"] == "human_review_required"
+
+
+@pytest.mark.parametrize(
+    ("lifecycle", "expected_state", "expected_exit"),
+    [
+        ("idle", "idle_awaiting_input", 0),
+        ("active", "active", 0),
+        ("failed", "blocked", 2),
+        ("terminal", "terminal", 0),
+    ],
+)
+def test_case_diagnose_cli_exit_contract(
+    queue, capsys, lifecycle, expected_state, expected_exit
+):
+    """The supported CLI exposes machine-readable lifecycle state and exit codes."""
+    from aegisforge import task_main
+
+    case_status = (
+        CaseStatus.INCONCLUSIVE if lifecycle == "terminal" else CaseStatus.READY
+    )
+    case = make_case(
+        case_id=f"case-cli-diagnose-{lifecycle}",
+        status=case_status,
+    )
+    queue.register_research_case(case)
+    if lifecycle == "active":
+        start_case_round(queue, case.case_id)
+    elif lifecycle == "failed":
+        task_id = queue.add(
+            "failed synthetic task",
+            "source_researcher",
+            research_case_id=case.case_id,
+        )
+        queue.db.execute(
+            "UPDATE queue SET status='failed', finished_at='2026-10-16T00:00:00+00:00' WHERE id=?",
+            (task_id,),
+        )
+        queue.db.commit()
+
+    db_path = queue.db.execute("PRAGMA database_list").fetchone()[2]
+    exit_code = task_main([
+        "case", "diagnose", "--case-id", case.case_id, "--db", db_path,
+    ])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == expected_exit
+    assert payload["state"] == expected_state
+    if lifecycle == "failed":
+        assert payload["reason"] == "failed_tasks_require_operator_review"

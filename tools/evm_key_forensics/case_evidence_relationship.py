@@ -149,7 +149,8 @@ def validate_case_evidence_relationship(
     version = relationship.get("schema_version")
     if type(version) is not int or version != SCHEMA_VERSION:
         raise CaseEvidenceRelationshipError("relationship_schema_version_unsupported")
-    if relationship.get("relationship_type") not in RELATIONSHIP_TYPES:
+    relationship_type = relationship.get("relationship_type")
+    if not isinstance(relationship_type, str) or relationship_type not in RELATIONSHIP_TYPES:
         raise CaseEvidenceRelationshipError("relationship_type_invalid")
     if not isinstance(source_report_bytes, bytes) or not source_report_bytes:
         raise CaseEvidenceRelationshipError("source_report_bytes_required")

@@ -163,6 +163,8 @@ def validate_case_evidence_relationship(
         )
     except CaseEvidenceRelationshipError:
         raise
+    except RecursionError as exc:
+        raise CaseEvidenceRelationshipError("source_report_nesting_limit_exceeded") from exc
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise CaseEvidenceRelationshipError("source_report_invalid_json") from exc
     if not isinstance(report, dict):

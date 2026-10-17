@@ -348,10 +348,25 @@ def export_research_case_bundle(
                 evidence = [dict(row) for row in evidence_rows]
         task_ids_for_case = _validate_task_parent_graph(tasks)
         task_round_ids = {task["id"]: task.get("round_id") for task in tasks}
+        task_roles = {task["id"]: task.get("role") for task in tasks}
+        declared_round_ids = {round.round_id for round in case.rounds}
+        # Legacy/minimal cases may intentionally omit a round plan. Enforce
+        # membership only when the case declares one; otherwise preserve
+        # task/evidence round equality without inventing a plan.
+        if declared_round_ids:
+            for task in tasks:
+                round_id = task.get("round_id")
+                if round_id is not None and round_id not in declared_round_ids:
+                    raise ResearchCaseBundleError("task_round_not_declared_in_case")
         for observation in evidence:
             task_id = observation.get("task_id")
             if task_id not in task_ids_for_case:
                 raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
+            # An observation must retain the role assigned to its originating
+            # task. Otherwise the exported bundle could misattribute evidence.
+            task_role = task_roles.get(task_id)
+            if task_role is not None and observation.get("role") != task_role:
+                raise ResearchCaseBundleError("evidence_observation_role_mismatch")
             round_id = observation.get("round_id")
             task_round_id = task_round_ids.get(task_id)
             # Round identity is a binding, not optional decoration: evidence
@@ -604,6 +619,13 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     task_round_ids = {
         task["id"]: task.get("round_id") for task in tasks_file["tasks"]
     }
+    task_roles = {task["id"]: task.get("role") for task in tasks_file["tasks"]}
+    declared_round_ids = {round.round_id for round in validated_case.rounds}
+    if declared_round_ids:
+        for task in tasks_file["tasks"]:
+            round_id = task.get("round_id")
+            if round_id is not None and round_id not in declared_round_ids:
+                raise ResearchCaseBundleError("task_round_not_declared_in_case")
     for observation in evidence_file["observations"]:
         if not isinstance(observation, dict):
             raise ResearchCaseBundleError("evidence_record_must_be_object")
@@ -617,6 +639,9 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         task_id = observation.get("task_id")
         if task_id not in task_ids:
             raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
+        task_role = task_roles.get(task_id)
+        if task_role is not None and observation.get("role") != task_role:
+            raise ResearchCaseBundleError("evidence_observation_role_mismatch")
         round_id = observation.get("round_id")
         task_round_id = task_round_ids.get(task_id)
         if (

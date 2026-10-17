@@ -78,6 +78,8 @@ _INDEX_FIELDS = frozenset({
     "independent_rebuild_source_sha256", "independent_rebuild_binary_sha256",
     "probe_and_rebuild_evidence_consistent", "historical_profanity_executed",
     "historical_vulnerability_reproduced", "note", "source_evidence_report_sha256",
+    "source_report_id", "source_report_experiment_id",
+    "source_report_pre_disclosure_commit", "source_report_post_disclosure_commit",
 })
 
 
@@ -334,6 +336,7 @@ def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
             metadata = _strict_json_bytes((probe_dir / "probe-run-metadata.json").read_bytes())
             rebuild = _strict_json_bytes((root / "independent-rebuild-report.json").read_bytes())
             index = _strict_json_bytes((root / "combined-evidence-index.json").read_bytes())
+            source_report = _strict_json_bytes((probe_dir / "source-evidence-report.json").read_bytes())
 
             identity_fields = {
                 "github_run_id": "run_id",
@@ -369,6 +372,10 @@ def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
                 "index_schema_supported": type(index.get("schema_version")) is int and index.get("schema_version") == 1,
                 "index_conclusion_pass": index.get("conclusion") == "PASS",
                 "index_marks_cross_linkage": index.get("probe_and_rebuild_evidence_consistent") is True,
+                "index_source_report_id_matches_report": index.get("source_report_id") == source_report.get("report_id") == "evm-key-forensics-profanity-source-comparison-v1",
+                "index_source_report_experiment_matches_report": index.get("source_report_experiment_id") == source_report.get("experiment_id") == "evm-forensics-historical-source-pattern-v1",
+                "index_source_report_pre_commit_matches_report": index.get("source_report_pre_disclosure_commit") == source_report.get("source_comparison", {}).get("pre_disclosure", {}).get("commit") == "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+                "index_source_report_post_commit_matches_report": index.get("source_report_post_disclosure_commit") == source_report.get("source_comparison", {}).get("post_disclosure_archive", {}).get("commit") == "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
                 "index_source_evidence_report_hash_matches_metadata": (
                     isinstance(metadata.get("source_evidence_report_sha256"), str)
                     and len(metadata["source_evidence_report_sha256"]) == 64

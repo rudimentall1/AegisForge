@@ -189,7 +189,10 @@ def _request_attestation(args) -> int:
         raise ValueError("trusted_keys_must_be_key_id_to_base64_public_key_object")
     attestation = request_attestation(inputs)
     verified = verify_attestation(attestation, trusted_keys=trusted)
-    if verified.status != "VALID":
+    # This command validates the signer's response, not the artifact files.
+    # A non-empty artifact list without a local root is intentionally INCOMPLETE;
+    # it must not block receipt of a valid signature or be presented as verified.
+    if verified.status not in {"VALID", "INCOMPLETE"}:
         print(json.dumps({
             "status": verified.status,
             "reason": verified.reason,
@@ -205,6 +208,8 @@ def _request_attestation(args) -> int:
         "output": str(args.output),
         "verdict": attestation["verdict"],
         "private_key_material_loaded_by_cli": False,
+        "verification_status": verified.status,
+        "artifact_verification": verified.checks.get("artifact_verification"),
     }, sort_keys=True))
     return 0
 

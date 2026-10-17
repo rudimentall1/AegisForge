@@ -139,6 +139,18 @@ def validate_dossier(data: object) -> list[str]:
     if not isinstance(contract, dict):
         errors.append("verification_contract_must_be_object")
         contract = {}
+    if contract.get("checker") != "tools/evm_key_forensics/check_historical_source_pattern.py":
+        errors.append("verification_checker_path_mismatch")
+    expected_checker_behavior = [
+        "Reads a locally supplied source file with a fixed size bound",
+        "Checks the exact expected Git blob SHA-1 for the selected pinned revision",
+        "Emits SHA-256 for the exact bytes inspected",
+        "Rejects missing, ambiguous, malformed, or mismatched source as INCONCLUSIVE",
+    ]
+    if contract.get("checker_behavior") != expected_checker_behavior:
+        errors.append("verification_checker_behavior_mismatch")
+    if contract.get("independent_retrieval_recommended") is not True:
+        errors.append("independent_source_retrieval_must_be_recommended")
     if contract.get("source_to_binary_provenance") != "NOT_ESTABLISHED":
         errors.append("source_to_binary_provenance_must_not_be_overstated")
     if contract.get("source_review_runner_attestation") != "NOT_IMPLEMENTED":

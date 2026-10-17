@@ -42,7 +42,12 @@ DOSSIER = {
     ],
     "verification_contract": {
         "checker": "tools/evm_key_forensics/check_historical_source_pattern.py",
-        "checker_behavior": ["bounded reads", "pinned blob", "sha256"],
+        "checker_behavior": [
+            "Reads a locally supplied source file with a fixed size bound",
+            "Checks the exact expected Git blob SHA-1 for the selected pinned revision",
+            "Emits SHA-256 for the exact bytes inspected",
+            "Rejects missing, ambiguous, malformed, or mismatched source as INCONCLUSIVE",
+        ],
         "independent_retrieval_recommended": True,
         "source_to_binary_provenance": "NOT_ESTABLISHED",
         "source_review_runner_attestation": "NOT_IMPLEMENTED",
@@ -107,6 +112,18 @@ class SourceDossierValidatorTests(unittest.TestCase):
         errors = validate_dossier(data)
         self.assertIn("unsafe_or_unsubstantiated_state:historical_vulnerability_reproduced", errors)
         self.assertIn("overall_conclusion_must_remain_inconclusive", errors)
+
+    def test_verification_contract_cannot_weaken_checker_guarantees(self):
+        mutations = [
+            ("checker", "tools/other_checker.py", "verification_checker_path_mismatch"),
+            ("checker_behavior", [], "verification_checker_behavior_mismatch"),
+            ("independent_retrieval_recommended", False, "independent_source_retrieval_must_be_recommended"),
+        ]
+        for field, value, expected_error in mutations:
+            with self.subTest(field=field):
+                data = copy.deepcopy(DOSSIER)
+                data["verification_contract"][field] = value
+                self.assertIn(expected_error, validate_dossier(data))
 
     def test_attestation_or_binary_provenance_cannot_be_claimed(self):
         data = copy.deepcopy(DOSSIER)

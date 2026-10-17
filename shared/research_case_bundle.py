@@ -81,6 +81,7 @@ def _validate_task_parent_graph(tasks: list[dict]) -> set[str]:
     """Require every parent link to stay in the bundle and the graph to be acyclic."""
     task_ids = set()
     parents = {}
+    task_records = {}
     for task in tasks:
         if not isinstance(task, dict):
             raise ResearchCaseBundleError("task_identity_invalid")
@@ -92,10 +93,17 @@ def _validate_task_parent_graph(tasks: list[dict]) -> set[str]:
             raise ResearchCaseBundleError("task_parent_identity_invalid")
         task_ids.add(task_id)
         parents[task_id] = parent_id
+        task_records[task_id] = task
 
-    for parent_id in parents.values():
+    for task_id, parent_id in parents.items():
         if parent_id is not None and parent_id not in task_ids:
             raise ResearchCaseBundleError("task_parent_not_in_case_bundle")
+        if parent_id is not None:
+            # Child work must remain in the same bounded round as its parent.
+            # The manifest can be recomputed, so this semantic relationship must
+            # be checked independently of file hashes.
+            if task_records[task_id].get("round_id") != task_records[parent_id].get("round_id"):
+                raise ResearchCaseBundleError("task_parent_round_identity_mismatch")
 
     # Iterative path walking avoids recursion limits on long or adversarial chains.
     finished = set()

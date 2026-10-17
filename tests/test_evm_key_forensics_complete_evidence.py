@@ -36,6 +36,7 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
             "github_run_attempt": self.attempt,
             "source_sha256": self.source_hash,
             "binary_sha256": self.binary_hash,
+            "source_evidence_report_sha256": "e" * 64,
             "historical_vulnerability_reproduced": False,
         }
         self.rebuild = {
@@ -66,6 +67,7 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
             "independent_rebuild_source_sha256": self.source_hash,
             "probe_binary_sha256": self.binary_hash,
             "independent_rebuild_binary_sha256": self.binary_hash,
+            "source_evidence_report_sha256": "e" * 64,
         }
         self.members = {
             name: b"synthetic fixture"
@@ -133,6 +135,14 @@ class CompleteEvidenceVerifierTests(unittest.TestCase):
         self.assertEqual(result["authenticity"], "UNTRUSTED_UNSIGNED")
         self.assertEqual(result["github_attestation"], "NOT_CHECKED_OFFLINE")
         self.assertTrue(all(result["checks"].values()))
+
+    def test_source_evidence_report_hash_mismatch_fails_closed(self):
+        self.index["source_evidence_report_sha256"] = "f" * 64
+        self.members["complete-evidence/combined-evidence-index.json"] = json.dumps(self.index).encode()
+        self.write_archive()
+        result = self.verify_with_stubbed_probe_check()
+        self.assertFalse(result["integrity_verified"])
+        self.assertIn("index_source_evidence_report_hash_matches_metadata", result["failed_checks"])
 
     def test_mismatched_rebuild_hash_fails_closed(self):
         self.rebuild["independent_rebuild_binary_sha256"] = "d" * 64

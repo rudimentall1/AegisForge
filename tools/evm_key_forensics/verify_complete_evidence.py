@@ -77,7 +77,7 @@ _INDEX_FIELDS = frozenset({
     "workflow_ref", "probe_source_sha256", "probe_binary_sha256",
     "independent_rebuild_source_sha256", "independent_rebuild_binary_sha256",
     "probe_and_rebuild_evidence_consistent", "historical_profanity_executed",
-    "historical_vulnerability_reproduced", "note",
+    "historical_vulnerability_reproduced", "note", "source_evidence_report_sha256",
 })
 
 
@@ -369,6 +369,12 @@ def _verify_complete_archive_snapshot(archive_path: Path) -> dict:
                 "index_schema_supported": type(index.get("schema_version")) is int and index.get("schema_version") == 1,
                 "index_conclusion_pass": index.get("conclusion") == "PASS",
                 "index_marks_cross_linkage": index.get("probe_and_rebuild_evidence_consistent") is True,
+                "index_source_evidence_report_hash_matches_metadata": (
+                    isinstance(metadata.get("source_evidence_report_sha256"), str)
+                    and len(metadata["source_evidence_report_sha256"]) == 64
+                    and all(char in "0123456789abcdef" for char in metadata["source_evidence_report_sha256"])
+                    and index.get("source_evidence_report_sha256") == metadata["source_evidence_report_sha256"]
+                ),
                 "index_disclaims_historical_execution": index.get("historical_profanity_executed") is False,
                 "index_disclaims_historical_reproduction": index.get("historical_vulnerability_reproduced") is False,
                 "rebuild_report_identity": rebuild.get("check") == "independent_clean_runner_rebuild",

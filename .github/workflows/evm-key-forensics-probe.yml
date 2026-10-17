@@ -442,6 +442,7 @@ jobs:
               "probe_binary_sha256": metadata["binary_sha256"],
               "independent_rebuild_source_sha256": rebuild["independent_checkout_source_sha256"],
               "independent_rebuild_binary_sha256": rebuild["independent_rebuild_binary_sha256"],
+              "source_evidence_report_sha256": metadata["source_evidence_report_sha256"],
               "probe_and_rebuild_evidence_consistent": True,
               "historical_profanity_executed": False,
               "historical_vulnerability_reproduced": False,
@@ -496,6 +497,7 @@ jobs:
           assert index.get("conclusion") == "PASS" and index.get("probe_and_rebuild_evidence_consistent") is True
           assert metadata.get("source_sha256") == rebuild.get("independent_checkout_source_sha256")
           assert metadata.get("binary_sha256") == rebuild.get("independent_rebuild_binary_sha256")
+          assert index.get("source_evidence_report_sha256") == metadata.get("source_evidence_report_sha256")
           matched = False
           for item in report:
               result = item.get("verificationResult", {})

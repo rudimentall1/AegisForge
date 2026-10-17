@@ -32,7 +32,20 @@ DOSSIER = {
                 "git_blob_sha1": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
             },
         ],
-        "supporting_references": [],
+        "supporting_references": [
+            {
+                "type": "issue",
+                "label": "Original report: Private key safety",
+                "url": "https://github.com/johguse/profanity/issues/61",
+                "evidentiary_role": "Historical report and hypothesis; not an independent reproduction",
+            },
+            {
+                "type": "security_disclosure",
+                "label": "1inch security write-up",
+                "url": "https://blog.1inch.io/a-vulnerability-disclosed-in-profanity-an-ethereum-vanity-address-tool-68ed7455fc8c",
+                "evidentiary_role": "External disclosure context; does not establish this repository's own reproduction",
+            },
+        ],
     },
     "claim_register": [
         {"id": "SRC-001", "claim": "The reviewed function initializes mt19937_64 from one random_device result and derives four distribution outputs from that engine.", "evidence_level": "E0_SOURCE_INSPECTION",
@@ -104,6 +117,17 @@ class SourceDossierValidatorTests(unittest.TestCase):
         errors = validate_dossier(data)
         self.assertIn("pinned_commit_mismatch:pre-disclosure", errors)
         self.assertIn("pinned_blob_mismatch:post-disclosure-archive", errors)
+
+    def test_supporting_references_cannot_be_removed_or_rewritten(self):
+        mutations = [
+            ([], "removed"),
+            ([{"type": "issue", "label": "trust me", "url": "https://example.com", "evidentiary_role": "proof"}], "rewritten"),
+        ]
+        for references, label in mutations:
+            with self.subTest(label=label):
+                data = copy.deepcopy(DOSSIER)
+                data["reviewed_upstream"]["supporting_references"] = references
+                self.assertIn("supporting_references_mismatch", validate_dossier(data))
 
     def test_claim_promotion_is_rejected(self):
         data = copy.deepcopy(DOSSIER)

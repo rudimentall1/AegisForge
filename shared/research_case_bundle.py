@@ -25,7 +25,8 @@ from shared.research_case import (
 )
 from shared.result_codec import decode
 
-SCHEMA_VERSION = "aegisforge-research-case-bundle-v1"
+SCHEMA_VERSION = "aegisforge-research-case-bundle-v2"
+LEGACY_SCHEMA_VERSION = "aegisforge-research-case-bundle-v1"
 MEMBERS = ("case.json", "tasks.json", "evidence.json")
 ALL_MEMBERS = frozenset((*MEMBERS, "manifest.json"))
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
@@ -160,6 +161,35 @@ def _strict_json(raw: bytes, *, label: str) -> object:
 
 def _sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def _merkle_root(entries: list[dict]) -> str:
+    """Return a deterministic, domain-separated Merkle root for manifest entries.
+
+    Entries must already be in canonical path order. Odd levels duplicate the
+    final node; an empty tree has a defined domain-separated root.
+    """
+    if not entries:
+        return _sha256(b"aegisforge:research-case-bundle:merkle-empty:v1\0")
+    level = [
+        hashlib.sha256(
+            b"aegisforge:research-case-bundle:merkle-leaf:v1\0"
+            + _canonical_json(entry)
+        ).digest()
+        for entry in entries
+    ]
+    while len(level) > 1:
+        if len(level) % 2:
+            level.append(level[-1])
+        level = [
+            hashlib.sha256(
+                b"aegisforge:research-case-bundle:merkle-node:v1\0"
+                + level[index]
+                + level[index + 1]
+            ).digest()
+            for index in range(0, len(level), 2)
+        ]
+    return level[0].hex()
 
 
 def _readonly_connect(db_path: Path):
@@ -406,6 +436,7 @@ def export_research_case_bundle(
         "case_id": case_id,
         "case_digest": binding["case_digest"],
         "entries": entries,
+        "merkle_root": _merkle_root(entries),
     }
     manifest = dict(manifest_core)
     manifest["bundle_sha256"] = _sha256(_canonical_json(manifest_core))
@@ -499,12 +530,21 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         raise ResearchCaseBundleError("bundle_read_failed") from exc
 
     manifest = _strict_json(files["manifest.json"], label="manifest")
-    if not isinstance(manifest, dict) or set(manifest) != {
-        "schema_version", "case_id", "case_digest", "entries", "bundle_sha256"
-    }:
+    if not isinstance(manifest, dict):
         raise ResearchCaseBundleError("manifest_fields_invalid")
-    if manifest.get("schema_version") != SCHEMA_VERSION:
+    bundle_schema_version = manifest.get("schema_version")
+    if bundle_schema_version == LEGACY_SCHEMA_VERSION:
+        expected_manifest_fields = {
+            "schema_version", "case_id", "case_digest", "entries", "bundle_sha256"
+        }
+    elif bundle_schema_version == SCHEMA_VERSION:
+        expected_manifest_fields = {
+            "schema_version", "case_id", "case_digest", "entries", "merkle_root", "bundle_sha256"
+        }
+    else:
         raise ResearchCaseBundleError("unsupported_bundle_schema")
+    if set(manifest) != expected_manifest_fields:
+        raise ResearchCaseBundleError("manifest_fields_invalid")
     entries = manifest.get("entries")
     if not isinstance(entries, list) or len(entries) != len(MEMBERS):
         raise ResearchCaseBundleError("manifest_entries_invalid")
@@ -535,6 +575,17 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         raise ResearchCaseBundleError("manifest_member_set_invalid")
 
     manifest_core = {key: manifest[key] for key in ("schema_version", "case_id", "case_digest", "entries")}
+    if bundle_schema_version == SCHEMA_VERSION:
+        merkle_root = manifest.get("merkle_root")
+        if (
+            not isinstance(merkle_root, str)
+            or len(merkle_root) != 64
+            or any(char not in "0123456789abcdef" for char in merkle_root)
+        ):
+            raise ResearchCaseBundleError("manifest_merkle_root_invalid")
+        if merkle_root != _merkle_root(entries):
+            raise ResearchCaseBundleError("bundle_merkle_root_mismatch")
+        manifest_core["merkle_root"] = merkle_root
     if manifest["bundle_sha256"] != _sha256(_canonical_json(manifest_core)):
         raise ResearchCaseBundleError("bundle_manifest_digest_mismatch")
 
@@ -560,7 +611,7 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     tasks_file = _strict_json(files["tasks.json"], label="tasks")
     if (
         not isinstance(tasks_file, dict)
-        or tasks_file.get("schema_version") != SCHEMA_VERSION
+        or tasks_file.get("schema_version") != bundle_schema_version
         or tasks_file.get("case_id") != case_id
         or not isinstance(tasks_file.get("tasks"), list)
     ):
@@ -609,7 +660,7 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     evidence_file = _strict_json(files["evidence.json"], label="evidence")
     if (
         not isinstance(evidence_file, dict)
-        or evidence_file.get("schema_version") != SCHEMA_VERSION
+        or evidence_file.get("schema_version") != bundle_schema_version
         or evidence_file.get("case_id") != case_id
         or not isinstance(evidence_file.get("observations"), list)
     ):
@@ -658,7 +709,7 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         statuses[status] = statuses.get(status, 0) + 1
     return {
         "valid": True,
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": bundle_schema_version,
         "case_id": case_id,
         "case_digest": binding["case_digest"],
         "task_count": len(tasks_file["tasks"]),

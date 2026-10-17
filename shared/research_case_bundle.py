@@ -243,6 +243,10 @@ def export_research_case_bundle(
         for row in rows:
             item = dict(row)
             item.setdefault("round_id", None)
+            if item["round_id"] is not None and (
+                not isinstance(item["round_id"], str) or not item["round_id"].strip()
+            ):
+                raise ResearchCaseBundleError("task_round_identity_invalid")
             raw_result = item.pop("result", None)
             try:
                 item["result"] = decode(raw_result)

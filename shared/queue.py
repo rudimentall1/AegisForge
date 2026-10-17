@@ -673,10 +673,11 @@ class TaskQueue:
         # child to a different case (or to detach a case-bound parent).
         if parent_task_id:
             parent_row = self.db.execute(
-                "SELECT research_case_id FROM queue WHERE id = ?",
+                "SELECT research_case_id, round_id FROM queue WHERE id = ?",
                 (parent_task_id,),
             ).fetchone()
             parent_case_id = parent_row[0] if parent_row is not None else None
+            parent_round_id = parent_row[1] if parent_row is not None else None
             if research_case_id is None and parent_case_id:
                 research_case_id = parent_case_id
             elif research_case_id != parent_case_id and (
@@ -685,6 +686,17 @@ class TaskQueue:
                 if parent_row is None:
                     raise ValueError("research_case_parent_task_not_found")
                 raise ValueError("research_case_parent_mismatch")
+
+            # Round identity is inherited from a known parent. Preserve the
+            # legacy orphan-task repair path when the parent row is missing;
+            # case-bound children still fail closed above.
+            if parent_row is not None:
+                if round_id is None and parent_round_id:
+                    round_id = parent_round_id
+                elif round_id != parent_round_id and (
+                    round_id is not None or parent_round_id is not None
+                ):
+                    raise ValueError("research_case_round_parent_mismatch")
 
         if research_case_id is not None:
             case_payload = self.get_research_case(research_case_id)

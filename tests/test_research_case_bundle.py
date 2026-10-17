@@ -148,10 +148,37 @@ def test_case_bundle_rejects_evidence_role_mismatch(tmp_path):
 def test_case_bundle_rejects_round_not_declared_by_case(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)
+    planned_case = replace(
+        case,
+        rounds=(
+            RoundSpec(
+                round_id="declared-round",
+                technique="source_pattern",
+                hypothesis="Check the pinned source for a specific pattern.",
+                expected_evidence_atoms=("source-pattern-present",),
+                falsification_criteria="Pinned source lacks the pattern.",
+                priority=1,
+                disclosure_deadline_days=30,
+            ),
+        ),
+    )
+    payload = asdict(planned_case)
+    payload["execution_mode"] = planned_case.execution_mode.value
+    payload["status"] = planned_case.status.value
+    binding = research_case_binding(planned_case)
+    result = {
+        "stage": "validation",
+        "research_case_binding": binding,
+        "research_validation": {"historical_reproduction_confirmed": False},
+    }
     with sqlite3.connect(db_path) as db:
         db.execute(
-            "UPDATE queue SET round_id = ? WHERE id = ?",
-            ("invented-round", "task-001"),
+            "UPDATE research_cases SET payload = ? WHERE case_id = ?",
+            (json.dumps(payload, sort_keys=True, separators=(",", ":")), case.case_id),
+        )
+        db.execute(
+            "UPDATE queue SET result = ?, round_id = ? WHERE id = ?",
+            (encode(result), "invented-round", "task-001"),
         )
         db.execute(
             "UPDATE evidence_observations SET round_id = ? WHERE task_id = ?",

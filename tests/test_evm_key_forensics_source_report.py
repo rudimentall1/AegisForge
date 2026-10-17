@@ -22,6 +22,11 @@ PRE = {
     "historical_code_executed": False,
     "wallet_material_used": False,
     "historical_vulnerability_reproduced": False,
+    "interpretation": (
+        "A source-pattern match only supports the reviewed source-semantics "
+        "statement; it does not establish source provenance, runtime behavior, "
+        "entropy, exploitability, or wallet compromise."
+    ),
 }
 POST = {
     **PRE,
@@ -71,6 +76,28 @@ def test_revision_roles_cannot_be_swapped():
     data["source_revision_role"] = "post-disclosure"
     report = build_report(data, copy.deepcopy(POST))
     assert "pre-disclosure:source_revision_role_mismatch" in report["validation_errors"]
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        (lambda data: data.update({"unreviewed_claim": "CONFIRMED"}), "pre-disclosure:unexpected_result_fields:unreviewed_claim"),
+        (lambda data: data.pop("interpretation"), "pre-disclosure:missing_result_fields:interpretation"),
+        (lambda data: data.update({"interpretation": "This proves vulnerable wallets"}), "pre-disclosure:checker_interpretation_mismatch"),
+    ],
+)
+def test_checker_result_contract_rejects_unknown_missing_or_rewritten_fields(mutation, error):
+    data = copy.deepcopy(PRE)
+    mutation(data)
+    report = build_report(data, copy.deepcopy(POST))
+    assert error in report["validation_errors"]
+    assert report["overall_conclusion"] == "INCONCLUSIVE"
+
+
+@pytest.mark.parametrize("bad_input", [None, [], "not-an-object", 7])
+def test_build_report_handles_non_object_results_without_crashing(bad_input):
+    report = build_report(bad_input, copy.deepcopy(POST))
+    assert "pre-disclosure:result_must_be_object" in report["validation_errors"]
+    assert report["overall_conclusion"] == "INCONCLUSIVE"
 
 
 def test_cli_rejects_duplicate_json_keys(tmp_path, capsys):

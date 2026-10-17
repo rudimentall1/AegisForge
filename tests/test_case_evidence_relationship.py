@@ -231,3 +231,31 @@ def test_non_finite_json_constants_are_rejected_even_with_matching_digest():
     with pytest.raises(CaseEvidenceRelationshipError, match="source_report_non_finite_number"):
         validate_case_evidence_relationship(case, rel, raw)
 
+@pytest.mark.parametrize("raw", [b"[]", b"null", b'"text"', b""])
+def test_non_object_or_empty_source_report_fails_closed(raw):
+    case = case_record()
+    rel, _ = relation(case, report_record())
+    rel["source_report_sha256"] = hashlib.sha256(raw).hexdigest()
+    with pytest.raises(CaseEvidenceRelationshipError):
+        validate_case_evidence_relationship(case, rel, raw)
+
+
+@pytest.mark.parametrize("version", [True, 0, 2, "1"])
+def test_relationship_schema_version_requires_exact_integer_one(version):
+    case = case_record()
+    rel, raw = relation(case, report_record())
+    rel["schema_version"] = version
+    with pytest.raises(
+        CaseEvidenceRelationshipError, match="relationship_schema_version_unsupported"
+    ):
+        validate_case_evidence_relationship(case, rel, raw)
+
+
+def test_invalid_utf8_source_report_is_rejected():
+    case = case_record()
+    raw = b'{"report_id":"\xff"}'
+    rel, _ = relation(case, report_record())
+    rel["source_report_sha256"] = hashlib.sha256(raw).hexdigest()
+    with pytest.raises(CaseEvidenceRelationshipError, match="source_report_invalid_json"):
+        validate_case_evidence_relationship(case, rel, raw)
+

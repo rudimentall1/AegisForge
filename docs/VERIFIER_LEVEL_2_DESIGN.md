@@ -12,6 +12,19 @@ The verifier must consume a detached attestation bundle plus an independently co
 
 This is a proposal for review, not a statement that the current verifier supports these checks.
 
+## Existing implementation inventory (reviewed 2026-10-17)
+
+The repository already has a narrower, EVM Key Forensics-specific implementation:
+
+- `.github/workflows/evm-key-forensics-probe.yml` mints an attestation only for a manual run on `refs/heads/main`, after the probe and independent clean-runner rebuild jobs succeed. The attestation-writing job has `id-token: write` and `attestations: write`; the pull-request job does not.
+- `tools/evm_key_forensics/verify_attestation.py` invokes `gh attestation verify` with a pinned repository and signer-workflow path, then checks subject SHA-256, workflow repository/name/path/ref/trigger/SHA, and run ID/attempt against independently supplied expectations.
+- `tests/test_evm_key_forensics_verify_attestation.py` exercises identity and digest mismatches, malformed reports, missing CLI, bounded timeouts, and archive safety.
+- `shared/verify_bundle.py` does not call that verifier. It correctly leaves generic Level 2 `INCONCLUSIVE` even if an unsigned `workflow-attestation.json` file is present.
+
+This is useful prior art, not yet the generic Level 2 contract. The existing wrapper is archive/workflow-specific, relies on the installed GitHub CLI and its verification environment, and expects caller-supplied run metadata. Do not describe it as a portable offline verifier or reuse it for arbitrary bundles without redesigning its policy interface. The next implementation should either adapt the established wrapper behind an explicit, externally supplied policy or extract a tested shared interface without weakening its hard-coded trust constraints.
+
+The first integration target is a sanitized fixture/report from a successful `workflow_dispatch` run on `main`. A pull-request run cannot provide the required attestation by design. Keep Level 2 `INCONCLUSIVE` in the generic verifier until the integration is covered by adversarial tests and the generic report preserves the exact verified identity and subject digest.
+
 ## Claims level 2 may make
 
 A successful check may say that an accepted identity issued an attestation binding a specific artifact digest to a specific GitHub Actions workflow/run, under the configured trust policy.

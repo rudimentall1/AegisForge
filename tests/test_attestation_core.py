@@ -123,6 +123,7 @@ def test_artifact_digest_and_size_are_verified(tmp_path: Path):
     )
     assert result.status == "VALID"
     assert result.checks["artifacts_valid"] is True
+    assert result.checks["artifact_verification"] == "VERIFIED"
 
 
 def test_artifact_traversal_fails_closed(tmp_path: Path):
@@ -183,3 +184,39 @@ def test_tampered_artifact_content_is_rejected(tmp_path: Path):
     assert result.status == "TAMPERED"
     assert result.reason == "artifact_mismatch"
     assert result.checks["artifacts_valid"] is False
+
+
+
+def test_nonempty_artifacts_without_root_are_not_reported_valid():
+    artifact = b"evidence without a local verification root"
+    entry = {
+        "path": "evidence.txt",
+        "sha256": hashlib.sha256(artifact).hexdigest(),
+        "size_bytes": len(artifact),
+    }
+    payload, key = _signed(artifacts=[entry])
+
+    result = verify_attestation(
+        payload,
+        trusted_keys={"test-key": key.public_key()},
+    )
+
+    assert result.status == "INCOMPLETE"
+    assert result.reason == "artifact_root_required"
+    assert result.checks["artifacts_path_safe"] is None
+    assert result.checks["artifacts_valid"] is None
+    assert result.checks["artifact_verification"] == "NOT_CHECKED"
+
+
+def test_empty_artifact_list_does_not_require_artifact_root():
+    payload, key = _signed(artifacts=[])
+
+    result = verify_attestation(
+        payload,
+        trusted_keys={"test-key": key.public_key()},
+    )
+
+    assert result.status == "VALID"
+    assert result.checks["artifacts_path_safe"] is True
+    assert result.checks["artifacts_valid"] is True
+    assert result.checks["artifact_verification"] == "NOT_REQUIRED"

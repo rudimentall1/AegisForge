@@ -88,6 +88,74 @@ def _database(path):
     return case
 
 
+def _rewrite_bundle_json_member(bundle, output, member_name, mutate):
+    """Rebuild an unsigned manifest after a deliberate fixture mutation."""
+    with zipfile.ZipFile(bundle, "r") as archive:
+        files = {name: archive.read(name) for name in archive.namelist()}
+    payload = json.loads(files[member_name])
+    mutate(payload)
+    files[member_name] = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    manifest = json.loads(files["manifest.json"])
+    manifest["entries"] = [
+        {
+            "path": name,
+            "sha256": hashlib.sha256(files[name]).hexdigest(),
+            "size": len(files[name]),
+        }
+        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+    ]
+    core = {
+        key: manifest[key]
+        for key in ("schema_version", "case_id", "case_digest", "entries")
+    }
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(
+            core, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False, allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    files["manifest.json"] = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(files):
+            archive.writestr(name, files[name])
+
+
+def test_case_bundle_verifier_rejects_unknown_task_fields_even_when_manifest_is_rebuilt(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "case.zip"
+    forged = tmp_path / "forged-task.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    def mutate(payload):
+        payload["tasks"][0]["agent_claimed_authority"] = "verified"
+
+    _rewrite_bundle_json_member(original, forged, "tasks.json", mutate)
+    with pytest.raises(ResearchCaseBundleError, match="task_record_unexpected_fields"):
+        verify_research_case_bundle(forged)
+
+
+def test_case_bundle_verifier_rejects_unknown_evidence_fields_even_when_manifest_is_rebuilt(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "case.zip"
+    forged = tmp_path / "forged-evidence.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    def mutate(payload):
+        payload["observations"][0]["review_status"] = "independently_confirmed"
+
+    _rewrite_bundle_json_member(original, forged, "evidence.json", mutate)
+    with pytest.raises(ResearchCaseBundleError, match="evidence_record_unexpected_fields"):
+        verify_research_case_bundle(forged)
+
+
 def test_case_bundle_export_is_portable_and_deterministic(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)

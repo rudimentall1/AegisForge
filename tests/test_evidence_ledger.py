@@ -175,3 +175,22 @@ def test_record_capability_claim_returns_real_ledger_id():
     assert quality["kind"] == "capability_evidence"
     assert quality["state"] == "UNCONFIRMED"
     assert __import__("json").loads(quality["value"])["claim_type"] == "tests_passed"
+
+
+def test_record_observation_preserves_case_and_round_identity():
+    db = sqlite3.connect(":memory:")
+    db.execute(
+        "CREATE TABLE queue (id TEXT PRIMARY KEY, research_case_id TEXT, round_id TEXT)"
+    )
+    db.execute(
+        "INSERT INTO queue (id, research_case_id, round_id) VALUES (?, ?, ?)",
+        ("task-round-1", "case-1", "round-1"),
+    )
+    ledger = EvidenceLedger(db)
+
+    ledger.record_observation("task-round-1", "validator", "source:pinned")
+
+    assert db.execute(
+        "SELECT case_id, round_id FROM evidence_observations WHERE task_id = ?",
+        ("task-round-1",),
+    ).fetchone() == ("case-1", "round-1")

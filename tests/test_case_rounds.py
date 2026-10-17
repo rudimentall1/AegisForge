@@ -262,3 +262,45 @@ def test_case_round_cli_creates_exactly_one_confirmed_round(queue, monkeypatch, 
         "SELECT COUNT(*) FROM queue WHERE research_case_id = ?",
         (case.case_id,),
     ).fetchone()[0] == 1
+
+
+
+def test_start_case_round_fails_closed_on_unresolved_failed_task(queue):
+    case = make_case(case_id="case-round-failed-task-block")
+    queue.register_research_case(case)
+    task_id = queue.add("failed research task", "source_researcher", research_case_id=case.case_id)
+    queue.db.execute(
+        "UPDATE queue SET status='failed', finished_at='2026-10-16T00:00:00+00:00' WHERE id=?",
+        (task_id,),
+    )
+    queue.db.commit()
+
+    with pytest.raises(CaseRoundError, match="case_round_blocked_failed_tasks"):
+        start_case_round(queue, case.case_id)
+
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM queue WHERE research_case_id = ? AND role = 'source_researcher' AND parent_task_id IS NULL",
+        (case.case_id,),
+    ).fetchone()[0] == 1
+    assert diagnose_case_state(queue, case.case_id)["reason"] == "failed_tasks_require_operator_review"
+
+
+def test_start_case_round_fails_closed_on_open_human_review(queue):
+    case = make_case(case_id="case-round-human-review-block")
+    queue.register_research_case(case)
+    task_id = queue.add("review required task", "analyst", research_case_id=case.case_id)
+    queue.db.execute(
+        "INSERT INTO pending_human_review (id, case_id, task_id, reason, status, created_at) "
+        "VALUES ('review-block-1', ?, ?, 'operator review required', 'OPEN', '2026-10-16T00:00:00+00:00')",
+        (case.case_id, task_id),
+    )
+    queue.db.commit()
+
+    with pytest.raises(CaseRoundError, match="case_round_blocked_human_review"):
+        start_case_round(queue, case.case_id)
+
+    assert queue.db.execute(
+        "SELECT COUNT(*) FROM queue WHERE research_case_id = ? AND role = 'source_researcher' AND parent_task_id IS NULL",
+        (case.case_id,),
+    ).fetchone()[0] == 0
+    assert diagnose_case_state(queue, case.case_id)["reason"] == "human_review_required"

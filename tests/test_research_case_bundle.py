@@ -480,7 +480,7 @@ def test_case_bundle_export_rejects_multi_task_parent_cycle(tmp_path):
             ("task-002", "task-001"),
         )
         db.execute(
-            "INSERT INTO queue VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO queue VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "task-002", "Child task in a cyclic chain", "queued", None,
                 "2026-10-16T00:02:00+00:00", None, None, "validator",

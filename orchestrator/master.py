@@ -3160,6 +3160,25 @@ class MasterOrchestrator:
         ).fetchone()
         return row is not None
 
+    def _has_active_descendants(self, root_id: str) -> bool:
+        """Return whether any descendant at any depth is still non-terminal."""
+        row = self.queue.db.execute(
+            """
+            WITH RECURSIVE descendants(id, status) AS (
+                SELECT id, status FROM queue WHERE parent_task_id = ?
+                UNION
+                SELECT child.id, child.status
+                FROM queue AS child
+                JOIN descendants AS parent ON child.parent_task_id = parent.id
+            )
+            SELECT 1 FROM descendants
+            WHERE status NOT IN ('completed', 'failed')
+            LIMIT 1
+            """,
+            (root_id,),
+        ).fetchone()
+        return row is not None
+
     def bootstrap(self):
         # Registered cases own the default work pipeline. Reconcile every root
         # branch before creating a new root or requesting human review.
@@ -3247,16 +3266,8 @@ class MasterOrchestrator:
                     failed_legacy_roots = []
                     all_roots_completed = True
                     for root_id, _role, root_status, round_id, _created_at in roots:
-                        active_children_row = self.queue.db.execute(
-                            """
-                            SELECT COUNT(*) FROM queue
-                            WHERE parent_task_id = ?
-                              AND status NOT IN ('completed', 'failed')
-                            """,
-                            (root_id,),
-                        ).fetchone()
-                        active_children = int(active_children_row[0] or 0)
-                        if root_status not in {"completed", "failed"} or active_children > 0:
+                        active_descendants = self._has_active_descendants(root_id)
+                        if root_status not in {"completed", "failed"} or active_descendants:
                             # A branch with active work must keep its round OPEN/EXTENDED.
                             active_branch = True
                             all_roots_completed = False

@@ -173,7 +173,10 @@ def verify_artifact(root: Path) -> dict:
     if not isinstance(input_hashes, dict):
         input_hashes = {}
 
+    from tools.evm_key_forensics.source_report_schema import validate_source_report_schema
+
     checks = {
+        "source_report_schema_supported": validate_source_report_schema(source_report),
         "schema_version_supported": type(metadata.get("schema_version")) is int and metadata.get("schema_version") == 1,
         "output_schema_supported": type(output.get("schema_version")) is int and output.get("schema_version") == 1,
         "probe_identity_matches": output.get("probe") == "std_random_device_environment_diagnostic",

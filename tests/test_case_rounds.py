@@ -318,7 +318,7 @@ def test_start_case_round_fails_closed_on_open_human_review(queue):
         ("idle", "idle_awaiting_input", 0),
         ("active", "active", 0),
         ("failed", "blocked", 2),
-        ("terminal", "terminal", 2),
+        ("terminal", "terminal", 0),
     ],
 )
 def test_case_diagnose_cli_exit_contract(

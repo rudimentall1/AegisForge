@@ -145,6 +145,17 @@ class SourceDossierValidatorTests(unittest.TestCase):
                     any(error.startswith(f"unexpected_nested_fields:{context}:") for error in validate_dossier(data))
                 )
 
+    def test_source_review_status_is_required_and_fixed(self):
+        mutations = [
+            ("removed", lambda state: state.pop("source_review")),
+            ("rewritten", lambda state: state.update({"source_review": "VERIFIED"})),
+        ]
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                data = copy.deepcopy(DOSSIER)
+                mutate(data["experiment_state"])
+                self.assertIn("source_review_status_mismatch", validate_dossier(data))
+
     def test_claim_promotion_is_rejected(self):
         data = copy.deepcopy(DOSSIER)
         data["experiment_state"]["historical_vulnerability_reproduced"] = True

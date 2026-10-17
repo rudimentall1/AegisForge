@@ -75,7 +75,7 @@ def validate_source_report_schema(report: object) -> bool:
     if (limitations.get("source_to_binary_provenance") != "NOT_ESTABLISHED"
         or limitations.get("source_review_runner_attestation") != "NOT_IMPLEMENTED"
         or limitations.get("independent_review") != "PENDING"
-        or not isinstance(limitations.get("evidence_package_github_attestation"), str)):
+        or limitations.get("evidence_package_github_attestation") != "CHECKED_BY_SEPARATE_WORKFLOW_STEP; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS"):
         return False
     if "reproducibility" in report:
         reproducibility = report["reproducibility"]

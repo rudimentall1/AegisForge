@@ -189,6 +189,22 @@ def test_case_bundle_rejects_round_not_declared_by_case(tmp_path):
         export_research_case_bundle(db_path, case.case_id, tmp_path / "undeclared-round.zip")
 
 
+def test_case_bundle_verifier_rejects_forged_evidence_role_even_with_rebuilt_manifest(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "case.zip"
+    forged = tmp_path / "forged-role.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+    _rewrite_bundle_json_member(
+        original,
+        forged,
+        "evidence.json",
+        lambda p: p["observations"][0].update({"role": "source_researcher"}),
+    )
+    with pytest.raises(ResearchCaseBundleError, match="evidence_observation_role_mismatch"):
+        verify_research_case_bundle(forged)
+
+
 def test_case_bundle_export_is_portable_and_deterministic(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)

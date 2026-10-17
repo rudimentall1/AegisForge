@@ -712,6 +712,7 @@ def test_case_bundle_verifier_rejects_rehashed_cross_round_child(tmp_path):
     case = _database(db_path)
     with sqlite3.connect(db_path) as db:
         db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-001", "task-001"))
+        db.execute("UPDATE evidence_observations SET round_id = ? WHERE atom_id = ?", ("round-001", "atom-001"))
         db.execute(
             """INSERT INTO queue
                (id, description, status, created_at, role, parent_task_id,

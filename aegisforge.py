@@ -48,6 +48,8 @@ def task_main(argv):
     case_new_round.add_argument("--confirm-new-round", action="store_true", help="explicitly authorize exactly one new bounded round")
     case_new_round.add_argument("--db", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.command == "case" and args.case_command == "new-round" and not args.confirm_new_round:
+        parser.error("starting a case round requires --confirm-new-round")
     queue = TaskQueue(db_path=args.db)
     try:
         if args.command == "submit":
@@ -82,8 +84,6 @@ def task_main(argv):
                                  indent=2, ensure_ascii=False, default=str))
                 return 0
             if args.case_command == "new-round":
-                if not args.confirm_new_round:
-                    parser.error("starting a case round requires --confirm-new-round")
                 from shared.case_rounds import CaseRoundError, start_case_round
                 try:
                     result = start_case_round(queue, args.case_id)

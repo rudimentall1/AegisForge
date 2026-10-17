@@ -685,3 +685,53 @@ def test_case_bundle_verifier_rejects_integrity_valid_missing_evidence_round_ide
         match="evidence_observation_round_identity_mismatch",
     ):
         verify_research_case_bundle(forged)
+
+
+def test_case_bundle_export_rejects_child_task_from_different_round(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-001", "task-001"))
+        db.execute(
+            """INSERT INTO queue
+               (id, description, status, created_at, role, parent_task_id,
+                result, retry_count, research_case_id, round_id)
+               VALUES (?, ?, 'pending', ?, 'crypto_analyst', ?, NULL, 0, ?, ?)""",
+            ("task-002", "child task", "2026-10-16T00:02:00+00:00", "task-001", case.case_id, "round-002"),
+        )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_parent_round_identity_mismatch",
+    ):
+        export_research_case_bundle(db_path, case.case_id, tmp_path / "cross-round.zip")
+
+
+def test_case_bundle_verifier_rejects_rehashed_cross_round_child(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-001", "task-001"))
+        db.execute("UPDATE evidence_observations SET round_id = ? WHERE atom_id = ?", ("round-001", "atom-001"))
+        db.execute(
+            """INSERT INTO queue
+               (id, description, status, created_at, role, parent_task_id,
+                result, retry_count, research_case_id, round_id)
+               VALUES (?, ?, 'pending', ?, 'crypto_analyst', ?, NULL, 0, ?, ?)""",
+            ("task-002", "child task", "2026-10-16T00:02:00+00:00", "task-001", case.case_id, "round-001"),
+        )
+    original = tmp_path / "valid.zip"
+    forged = tmp_path / "cross-round.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+    _rewrite_bundle_json_member(
+        original,
+        forged,
+        "tasks.json",
+        lambda payload: payload["tasks"][1].update({"round_id": "round-002"}),
+    )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_parent_round_identity_mismatch",
+    ):
+        verify_research_case_bundle(forged)

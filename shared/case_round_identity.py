@@ -36,7 +36,8 @@ def validate_round_record(record: object, *, case_id: str, declared_spec_ids: se
     number = record.get("round_number")
     if type(number) is not int or number < 1:
         raise CaseRoundIdentityError("round_number_invalid")
-    if record.get("status") not in ROUND_STATUSES:
+    status = record.get("status")
+    if not isinstance(status, str) or status not in ROUND_STATUSES:
         raise CaseRoundIdentityError("round_status_invalid")
     spec_id = record.get("round_spec_id")
     if spec_id is not None:
@@ -115,7 +116,10 @@ def validate_case_round_relationships(*, case_id: str, declared_spec_ids: set[st
             raise CaseRoundIdentityError("evidence_record_must_be_object")
         if item.get("case_id") != case_id:
             raise CaseRoundIdentityError("evidence_case_identity_mismatch")
-        task = task_by_id.get(item.get("task_id"))
+        evidence_task_id = item.get("task_id")
+        if not isinstance(evidence_task_id, str) or not evidence_task_id:
+            raise CaseRoundIdentityError("evidence_task_identity_invalid")
+        task = task_by_id.get(evidence_task_id)
         if task is None:
             raise CaseRoundIdentityError("evidence_task_not_in_case")
         if item.get("round_id") != task.get("round_id"):

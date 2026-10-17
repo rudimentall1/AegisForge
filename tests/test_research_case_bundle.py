@@ -52,13 +52,13 @@ def _database(path):
                 id TEXT PRIMARY KEY, description TEXT NOT NULL, status TEXT NOT NULL,
                 worker TEXT, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT,
                 role TEXT, parent_task_id TEXT, result BLOB, retry_count INTEGER,
-                research_case_id TEXT, planner_decision TEXT
+                research_case_id TEXT, planner_decision TEXT, round_id TEXT
             )"""
         )
         db.execute(
             """CREATE TABLE evidence_observations (
                 atom_id TEXT NOT NULL, task_id TEXT NOT NULL, role TEXT,
-                observed_at TEXT NOT NULL, case_id TEXT
+                observed_at TEXT NOT NULL, case_id TEXT, round_id TEXT
             )"""
         )
         db.execute(
@@ -69,12 +69,12 @@ def _database(path):
             (case.case_id, json.dumps(payload, sort_keys=True, separators=(",", ":")), "2026-10-16T00:00:00+00:00"),
         )
         db.execute(
-            "INSERT INTO queue VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO queue VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "task-001", "Validate the pinned source", "completed", "validator-1",
                 "2026-10-16T00:01:00+00:00", "2026-10-16T00:01:01+00:00",
                 "2026-10-16T00:01:02+00:00", "validator", None,
-                encode(result), 0, case.case_id, "COMPLETE",
+                encode(result), 0, case.case_id, "COMPLETE", None,
             ),
         )
         db.execute(
@@ -82,8 +82,8 @@ def _database(path):
             ("atom-001", "finding", "synthetic counter-test recorded"),
         )
         db.execute(
-            "INSERT INTO evidence_observations VALUES (?, ?, ?, ?, ?)",
-            ("atom-001", "task-001", "validator", "2026-10-16T00:01:02+00:00", case.case_id),
+            "INSERT INTO evidence_observations VALUES (?, ?, ?, ?, ?, ?)",
+            ("atom-001", "task-001", "validator", "2026-10-16T00:01:02+00:00", case.case_id, None),
         )
     return case
 
@@ -484,7 +484,7 @@ def test_case_bundle_export_rejects_multi_task_parent_cycle(tmp_path):
             (
                 "task-002", "Child task in a cyclic chain", "queued", None,
                 "2026-10-16T00:02:00+00:00", None, None, "validator",
-                "task-001", None, 0, case.case_id, "CONTINUE",
+                "task-001", None, 0, case.case_id, "CONTINUE", None,
             ),
         )
 
@@ -511,3 +511,42 @@ def test_case_bundle_export_rejects_observation_without_ledger_record(tmp_path):
             db_path, case.case_id, tmp_path / "orphaned-ledger-entry.zip"
         )
 
+
+
+def test_case_bundle_preserves_round_identity_in_tasks_and_evidence(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-1", "task-001"))
+        db.execute(
+            "UPDATE evidence_observations SET round_id = ? WHERE task_id = ?",
+            ("round-1", "task-001"),
+        )
+
+    bundle = tmp_path / "round-bound.zip"
+    report = export_research_case_bundle(db_path, case.case_id, bundle)
+    with zipfile.ZipFile(bundle, "r") as archive:
+        tasks = json.loads(archive.read("tasks.json"))["tasks"]
+        observations = json.loads(archive.read("evidence.json"))["observations"]
+
+    assert report["valid"] is True
+    assert tasks[0]["round_id"] == "round-1"
+    assert observations[0]["round_id"] == "round-1"
+    assert verify_research_case_bundle(bundle) == report
+
+
+def test_case_bundle_export_rejects_conflicting_evidence_round_identity(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-1", "task-001"))
+        db.execute(
+            "UPDATE evidence_observations SET round_id = ? WHERE task_id = ?",
+            ("round-2", "task-001"),
+        )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="evidence_observation_round_identity_mismatch",
+    ):
+        export_research_case_bundle(db_path, case.case_id, tmp_path / "conflicting-round.zip")

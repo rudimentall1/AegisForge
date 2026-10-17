@@ -2,6 +2,8 @@ import json
 
 from orchestrator.master import AutonomousPlanner
 from shared.queue import TaskQueue
+from shared.case_rounds import start_case_round
+from shared.evidence_ledger import EvidenceLedger
 from shared.research_case import (
     ResearchCase,
     research_case_binding,
@@ -81,11 +83,10 @@ def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_pat
         ),
     ]
 
-    task_id = queue.add(
-        description="Start the bounded forensic pipeline",
-        role="source_researcher",
-        research_case_id=case.case_id,
-    )
+    round_result = start_case_round(queue, case.case_id)
+    round_id = round_result["round_id"]
+    task_id = round_result["root_task_id"]
+    ledger = EvidenceLedger(queue.db)
 
     for role, result, expected_next_role in stages:
         claimed = queue.claim(f"test-worker-{role}", role=role)
@@ -95,6 +96,10 @@ def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_pat
         assert row is not None
         assert row[7] == role
         assert row[12] == case.case_id
+        stored_round = queue.db.execute(
+            "SELECT round_id FROM queue WHERE id = ?", (task_id,)
+        ).fetchone()
+        assert stored_round == (round_id,)
         validate_worker_case_binding(role, queue.get_research_case(case.case_id), row[12])
 
         # Mirror the worker's result-boundary contract: every successful stage
@@ -109,6 +114,16 @@ def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_pat
         )
         assert verified_case["target_commit"] == case.target_commit
         assert stored_result["research_case_binding"]["case_id"] == row[12]
+        ledger.record_observation(
+            task_id,
+            role,
+            f"pipeline_stage:{role}",
+        )
+        observation = queue.db.execute(
+            "SELECT case_id, round_id FROM evidence_observations WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        assert observation == (case.case_id, round_id)
 
         decision = master._choose_next_raw(
             {"id": task_id, "role": role, "result": stored_result}
@@ -127,6 +142,10 @@ def test_case_identity_follows_source_analysis_lab_and_validation_stages(tmp_pat
         child = queue.get(child_id)
         assert child is not None
         assert child[12] == case.case_id
+        child_round = queue.db.execute(
+            "SELECT round_id FROM queue WHERE id = ?", (child_id,)
+        ).fetchone()
+        assert child_round == (round_id,)
         # A real worker loads this stored parent result before invoking its agent.
         assert queue.get_result(task_id) == result
         task_id = child_id

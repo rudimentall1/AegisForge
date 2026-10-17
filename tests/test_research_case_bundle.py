@@ -88,6 +88,33 @@ def _database(path):
     return case
 
 
+def _merkle_root(entries):
+    if not entries:
+        return hashlib.sha256(b"aegisforge:research-case-bundle:merkle-empty:v1\0").hexdigest()
+    level = [hashlib.sha256(
+        b"aegisforge:research-case-bundle:merkle-leaf:v1\0"
+        + json.dumps(entry, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    ).digest() for entry in entries]
+    while len(level) > 1:
+        if len(level) % 2:
+            level.append(level[-1])
+        level = [hashlib.sha256(
+            b"aegisforge:research-case-bundle:merkle-node:v1\0" + level[i] + level[i + 1]
+        ).digest() for i in range(0, len(level), 2)]
+    return level[0].hex()
+
+
+def _refresh_manifest(files, manifest):
+    manifest["merkle_root"] = _merkle_root(manifest["entries"])
+    core = {key: manifest[key] for key in ("schema_version", "case_id", "case_digest", "entries", "merkle_root")}
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    files["manifest.json"] = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+
+
 def _rewrite_bundle_json_member(bundle, output, member_name, mutate):
     """Rebuild an unsigned manifest after a deliberate fixture mutation."""
     with zipfile.ZipFile(bundle, "r") as archive:
@@ -100,11 +127,7 @@ def _rewrite_bundle_json_member(bundle, output, member_name, mutate):
         {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
         for name in sorted(("case.json", "tasks.json", "evidence.json"))
     ]
-    core = {key: manifest[key] for key in ("schema_version", "case_id", "case_digest", "entries")}
-    manifest["bundle_sha256"] = hashlib.sha256(
-        json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
-    ).hexdigest()
-    files["manifest.json"] = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    _refresh_manifest(files, manifest)
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name in sorted(files):
             archive.writestr(name, files[name])
@@ -384,19 +407,8 @@ def test_case_bundle_verifier_rejects_integrity_valid_orphaned_observation(tmp_p
         }
         for name in sorted(("case.json", "tasks.json", "evidence.json"))
     ]
-    core = {
-        "schema_version": manifest["schema_version"],
-        "case_id": manifest["case_id"],
-        "case_digest": manifest["case_digest"],
-        "entries": entries,
-    }
-    manifest = dict(core)
-    manifest["bundle_sha256"] = hashlib.sha256(
-        json.dumps(
-            core, sort_keys=True, separators=(",", ":"),
-            ensure_ascii=False, allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
+    manifest["entries"] = entries
+    _refresh_manifest(files, manifest)
     files["manifest.json"] = json.dumps(
         manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
         allow_nan=False,
@@ -457,20 +469,7 @@ def test_case_bundle_verifier_rejects_parent_missing_from_bundle_even_with_rebui
         }
         for name in sorted(("case.json", "tasks.json", "evidence.json"))
     ]
-    core = {
-        key: manifest[key]
-        for key in ("schema_version", "case_id", "case_digest", "entries")
-    }
-    manifest["bundle_sha256"] = hashlib.sha256(
-        json.dumps(
-            core, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
-    files["manifest.json"] = json.dumps(
-        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
+    _refresh_manifest(files, manifest)
 
     forged_bundle = tmp_path / "rebuilt-manifest.zip"
     with zipfile.ZipFile(forged_bundle, "w", compression=zipfile.ZIP_DEFLATED) as target:
@@ -509,20 +508,7 @@ def test_case_bundle_verifier_rejects_parent_cycle_even_with_rebuilt_manifest(tm
         }
         for name in sorted(("case.json", "tasks.json", "evidence.json"))
     ]
-    core = {
-        key: manifest[key]
-        for key in ("schema_version", "case_id", "case_digest", "entries")
-    }
-    manifest["bundle_sha256"] = hashlib.sha256(
-        json.dumps(
-            core, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
-    files["manifest.json"] = json.dumps(
-        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
+    _refresh_manifest(files, manifest)
 
     forged_bundle = tmp_path / "rebuilt-manifest.zip"
     with zipfile.ZipFile(forged_bundle, "w", compression=zipfile.ZIP_DEFLATED) as target:
@@ -561,20 +547,7 @@ def test_case_bundle_verifier_rejects_non_string_parent_even_with_rebuilt_manife
         }
         for name in sorted(("case.json", "tasks.json", "evidence.json"))
     ]
-    core = {
-        key: manifest[key]
-        for key in ("schema_version", "case_id", "case_digest", "entries")
-    }
-    manifest["bundle_sha256"] = hashlib.sha256(
-        json.dumps(
-            core, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
-    files["manifest.json"] = json.dumps(
-        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
+    _refresh_manifest(files, manifest)
 
     forged_bundle = tmp_path / "rebuilt-manifest.zip"
     with zipfile.ZipFile(forged_bundle, "w", compression=zipfile.ZIP_DEFLATED) as target:
@@ -741,13 +714,7 @@ def test_case_bundle_verifier_rejects_integrity_valid_missing_evidence_round_ide
         {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
         for name in sorted(("case.json", "tasks.json", "evidence.json"))
     ]
-    core = {key: manifest[key] for key in ("schema_version", "case_id", "case_digest", "entries")}
-    manifest["bundle_sha256"] = hashlib.sha256(
-        json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
-    ).hexdigest()
-    files["manifest.json"] = json.dumps(
-        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    ).encode("utf-8")
+    _refresh_manifest(files, manifest)
     forged = tmp_path / "integrity-valid-missing-round.zip"
     with zipfile.ZipFile(forged, "w", compression=zipfile.ZIP_DEFLATED) as target:
         for name in sorted(files):
@@ -808,3 +775,104 @@ def test_case_bundle_verifier_rejects_rehashed_cross_round_child(tmp_path):
         match="task_parent_round_identity_mismatch",
     ):
         verify_research_case_bundle(forged)
+
+
+def test_case_bundle_verifier_rejects_stale_merkle_root_after_entry_hashes_are_rebuilt(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "original.zip"
+    forged = tmp_path / "stale-merkle-root.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+    with zipfile.ZipFile(original, "r") as archive:
+        files = {name: archive.read(name) for name in archive.namelist()}
+
+    tasks = json.loads(files["tasks.json"])
+    tasks["tasks"][0]["description"] = "Altered after export"
+    files["tasks.json"] = json.dumps(
+        tasks, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+    manifest = json.loads(files["manifest.json"])
+    original_root = manifest["merkle_root"]
+    manifest["entries"] = [
+        {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
+        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+    ]
+    # Rebuild the ordinary manifest digest but deliberately retain the old root.
+    core = {
+        key: manifest[key]
+        for key in ("schema_version", "case_id", "case_digest", "entries", "merkle_root")
+    }
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    assert manifest["merkle_root"] == original_root
+    files["manifest.json"] = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+    with zipfile.ZipFile(forged, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(files):
+            archive.writestr(name, files[name])
+
+    with pytest.raises(ResearchCaseBundleError, match="bundle_merkle_root_mismatch"):
+        verify_research_case_bundle(forged)
+
+
+def test_case_bundle_verifier_keeps_schema_v1_compatibility(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "v2.zip"
+    legacy = tmp_path / "v1.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+    with zipfile.ZipFile(original, "r") as archive:
+        files = {name: archive.read(name) for name in archive.namelist()}
+
+    for name in ("tasks.json", "evidence.json"):
+        payload = json.loads(files[name])
+        payload["schema_version"] = "aegisforge-research-case-bundle-v1"
+        files[name] = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        ).encode("utf-8")
+    manifest = json.loads(files["manifest.json"])
+    manifest["schema_version"] = "aegisforge-research-case-bundle-v1"
+    manifest.pop("merkle_root")
+    manifest["entries"] = [
+        {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
+        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+    ]
+    core = {key: manifest[key] for key in ("schema_version", "case_id", "case_digest", "entries")}
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    files["manifest.json"] = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+    with zipfile.ZipFile(legacy, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(files):
+            archive.writestr(name, files[name])
+
+    report = verify_research_case_bundle(legacy)
+    assert report["valid"] is True
+    assert report["schema_version"] == "aegisforge-research-case-bundle-v1"
+
+
+def test_case_bundle_verifier_documents_unsigned_manifest_rewrite_boundary(tmp_path):
+    """A recomputed unsigned manifest is not an authenticity guarantee."""
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "original.zip"
+    rewritten = tmp_path / "rewritten.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    # This helper changes a member and recomputes its entry hash, Merkle root,
+    # and bundle digest. Since the bundle has no trusted signature/anchor, the
+    # verifier can establish internal consistency, not historical authenticity.
+    _rewrite_bundle_json_member(
+        original,
+        rewritten,
+        "tasks.json",
+        lambda payload: payload["tasks"][0].update(description="Rewritten by an editor"),
+    )
+
+    report = verify_research_case_bundle(rewritten)
+    assert report["valid"] is True
+    assert report["schema_version"] == "aegisforge-research-case-bundle-v2"

@@ -50,3 +50,9 @@ def test_rejects_unpinned_revision():
 def test_rejects_unsigned_hashes_claimed_as_authenticity():
     report = valid_report(); report["reproducibility"] = {"input_checker_result_sha256": {"pre_disclosure": "a"*64, "post_disclosure": "b"*64}, "checker_script_sha256": "c"*64, "report_builder_sha256": "d"*64, "hashes_are_authenticity_proof": True}
     assert not validate_source_report_schema(report)
+
+
+def test_rejects_promoted_attestation_claim():
+    report = valid_report()
+    report["limitations"]["evidence_package_github_attestation"] = "AUTHENTICATED_SOURCE_CLAIMS"
+    assert not validate_source_report_schema(report)

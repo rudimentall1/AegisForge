@@ -668,23 +668,34 @@ class TaskQueue:
     ):
         task_id = str(uuid.uuid4())
 
-        # Case provenance must remain consistent across the task graph.
-        # Inherit a parent's case by default and reject attempts to attach a
-        # child to a different case (or to detach a case-bound parent).
+        # Case and round provenance must remain consistent across the task graph.
+        # Inherit both identities from the parent and reject attempts to attach
+        # a child to a different case or round.
         if parent_task_id:
             parent_row = self.db.execute(
-                "SELECT research_case_id FROM queue WHERE id = ?",
+                "SELECT research_case_id, round_id FROM queue WHERE id = ?",
                 (parent_task_id,),
             ).fetchone()
-            parent_case_id = parent_row[0] if parent_row is not None else None
-            if research_case_id is None and parent_case_id:
-                research_case_id = parent_case_id
-            elif research_case_id != parent_case_id and (
-                research_case_id is not None or parent_case_id is not None
-            ):
-                if parent_row is None:
+            if parent_row is None:
+                if research_case_id is not None:
                     raise ValueError("research_case_parent_task_not_found")
-                raise ValueError("research_case_parent_mismatch")
+                if round_id is not None:
+                    raise ValueError("round_parent_task_not_found")
+            else:
+                parent_case_id, parent_round_id = parent_row
+                if research_case_id is None and parent_case_id:
+                    research_case_id = parent_case_id
+                elif research_case_id != parent_case_id and (
+                    research_case_id is not None or parent_case_id is not None
+                ):
+                    raise ValueError("research_case_parent_mismatch")
+
+                if round_id is None and parent_round_id is not None:
+                    round_id = parent_round_id
+                elif round_id != parent_round_id and (
+                    round_id is not None or parent_round_id is not None
+                ):
+                    raise ValueError("round_parent_mismatch")
 
         if research_case_id is not None:
             case_payload = self.get_research_case(research_case_id)

@@ -20,6 +20,21 @@ PINNED = {
 }
 MAX_DOSSIER_BYTES = 2 * 1024 * 1024
 
+EXPECTED_SUPPORTING_REFERENCES = [
+    {
+        "type": "issue",
+        "label": "Original report: Private key safety",
+        "url": "https://github.com/johguse/profanity/issues/61",
+        "evidentiary_role": "Historical report and hypothesis; not an independent reproduction",
+    },
+    {
+        "type": "security_disclosure",
+        "label": "1inch security write-up",
+        "url": "https://blog.1inch.io/a-vulnerability-disclosed-in-profanity-an-ethereum-vanity-address-tool-68ed7455fc8c",
+        "evidentiary_role": "External disclosure context; does not establish this repository's own reproduction",
+    },
+]
+
 REQUIRED_TOP_LEVEL = {
     "schema_version", "dossier_id", "status", "artifact_context",
     "reviewed_upstream", "claim_register", "verification_contract",
@@ -63,6 +78,8 @@ def validate_dossier(data: object) -> list[str]:
         upstream = {}
     if upstream.get("repository") != "https://github.com/johguse/profanity":
         errors.append("unexpected_upstream_repository")
+    if upstream.get("supporting_references") != EXPECTED_SUPPORTING_REFERENCES:
+        errors.append("supporting_references_mismatch")
     files = upstream.get("files")
     if not isinstance(files, list) or len(files) != len(PINNED):
         errors.append("pinned_source_file_count_mismatch")

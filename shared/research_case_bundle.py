@@ -35,6 +35,21 @@ MAX_MEMBER_COUNT = 4
 MAX_TASKS = 10_000
 MAX_EVIDENCE_ROWS = 20_000
 
+# Schema-v1 records allow a small compatibility set for queue columns that
+# were added over time. Unknown fields are rejected so an internally rehashed
+# bundle cannot smuggle unreviewed metadata into a supposedly verified record.
+_TASK_REQUIRED_FIELDS = frozenset({
+    "id", "description", "status", "created_at", "result", "research_case_id",
+})
+_TASK_OPTIONAL_FIELDS = frozenset({
+    "worker", "started_at", "finished_at", "role", "parent_task_id",
+    "retry_count", "planner_decision", "round_id",
+})
+_EVIDENCE_REQUIRED_FIELDS = frozenset({
+    "atom_id", "task_id", "role", "observed_at", "case_id",
+})
+_EVIDENCE_OPTIONAL_FIELDS = frozenset({"round_id", "kind", "value"})
+
 # A result records the case snapshot that existed when its task ran. Lifecycle
 # status can advance later (ready -> running -> confirmed/inconclusive), so
 # provenance checks compare the immutable investigation contract, not status.
@@ -330,10 +345,14 @@ def export_research_case_bundle(
             if task_id not in task_ids_for_case:
                 raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
             round_id = observation.get("round_id")
-            if round_id is not None and (
-                not isinstance(round_id, str)
-                or not round_id.strip()
-                or round_id != task_round_ids.get(task_id)
+            task_round_id = task_round_ids.get(task_id)
+            # Round identity is a binding, not optional decoration: evidence
+            # must not silently lose the round assigned to its task.
+            if (
+                round_id != task_round_id
+                or (round_id is not None and (
+                    not isinstance(round_id, str) or not round_id.strip()
+                ))
             ):
                 raise ResearchCaseBundleError("evidence_observation_round_identity_mismatch")
     except sqlite3.Error as exc:
@@ -527,7 +546,14 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         raise ResearchCaseBundleError("case_task_count_exceeds_limit")
     task_ids = set()
     for task in tasks_file["tasks"]:
-        if not isinstance(task, dict) or task.get("research_case_id") != case_id:
+        if not isinstance(task, dict):
+            raise ResearchCaseBundleError("task_record_must_be_object")
+        task_fields = set(task)
+        if not _TASK_REQUIRED_FIELDS.issubset(task_fields):
+            raise ResearchCaseBundleError("task_record_required_fields_missing")
+        if task_fields - _TASK_REQUIRED_FIELDS - _TASK_OPTIONAL_FIELDS:
+            raise ResearchCaseBundleError("task_record_unexpected_fields")
+        if task.get("research_case_id") != case_id:
             raise ResearchCaseBundleError("task_case_identity_mismatch")
         task_id = task.get("id")
         if not isinstance(task_id, str) or not task_id or task_id in task_ids:
@@ -571,16 +597,25 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         task["id"]: task.get("round_id") for task in tasks_file["tasks"]
     }
     for observation in evidence_file["observations"]:
-        if not isinstance(observation, dict) or observation.get("case_id") != case_id:
+        if not isinstance(observation, dict):
+            raise ResearchCaseBundleError("evidence_record_must_be_object")
+        evidence_fields = set(observation)
+        if not _EVIDENCE_REQUIRED_FIELDS.issubset(evidence_fields):
+            raise ResearchCaseBundleError("evidence_record_required_fields_missing")
+        if evidence_fields - _EVIDENCE_REQUIRED_FIELDS - _EVIDENCE_OPTIONAL_FIELDS:
+            raise ResearchCaseBundleError("evidence_record_unexpected_fields")
+        if observation.get("case_id") != case_id:
             raise ResearchCaseBundleError("evidence_case_identity_mismatch")
         task_id = observation.get("task_id")
         if task_id not in task_ids:
             raise ResearchCaseBundleError("evidence_observation_task_not_in_case_bundle")
         round_id = observation.get("round_id")
-        if round_id is not None and (
-            not isinstance(round_id, str)
-            or not round_id.strip()
-            or round_id != task_round_ids.get(task_id)
+        task_round_id = task_round_ids.get(task_id)
+        if (
+            round_id != task_round_id
+            or (round_id is not None and (
+                not isinstance(round_id, str) or not round_id.strip()
+            ))
         ):
             raise ResearchCaseBundleError("evidence_observation_round_identity_mismatch")
 

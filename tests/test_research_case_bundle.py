@@ -88,6 +88,50 @@ def _database(path):
     return case
 
 
+def _rewrite_bundle_json_member(bundle, output, member_name, mutate):
+    """Rebuild an unsigned manifest after a deliberate fixture mutation."""
+    with zipfile.ZipFile(bundle, "r") as archive:
+        files = {name: archive.read(name) for name in archive.namelist()}
+    payload = json.loads(files[member_name])
+    mutate(payload)
+    files[member_name] = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    manifest = json.loads(files["manifest.json"])
+    manifest["entries"] = [
+        {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
+        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+    ]
+    core = {key: manifest[key] for key in ("schema_version", "case_id", "case_digest", "entries")}
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    files["manifest.json"] = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(files):
+            archive.writestr(name, files[name])
+
+
+def test_case_bundle_verifier_rejects_unknown_task_fields_even_when_manifest_is_rebuilt(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "case.zip"
+    forged = tmp_path / "forged-task.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+    _rewrite_bundle_json_member(original, forged, "tasks.json", lambda p: p["tasks"][0].update({"agent_claimed_authority": "verified"}))
+    with pytest.raises(ResearchCaseBundleError, match="task_record_unexpected_fields"):
+        verify_research_case_bundle(forged)
+
+
+def test_case_bundle_verifier_rejects_unknown_evidence_fields_even_when_manifest_is_rebuilt(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "case.zip"
+    forged = tmp_path / "forged-evidence.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+    _rewrite_bundle_json_member(original, forged, "evidence.json", lambda p: p["observations"][0].update({"review_status": "independently_confirmed"}))
+    with pytest.raises(ResearchCaseBundleError, match="evidence_record_unexpected_fields"):
+        verify_research_case_bundle(forged)
+
+
 def test_case_bundle_export_is_portable_and_deterministic(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)
@@ -587,3 +631,57 @@ def test_case_bundle_rejects_changed_round_plan_in_historical_binding(tmp_path):
         export_research_case_bundle(
             db_path, case.case_id, tmp_path / "altered-round-plan.zip"
         )
+
+
+def test_case_bundle_export_rejects_evidence_missing_task_round_identity(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-001", "task-001"))
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="evidence_observation_round_identity_mismatch",
+    ):
+        export_research_case_bundle(db_path, case.case_id, tmp_path / "missing-round.zip")
+
+
+def test_case_bundle_verifier_rejects_integrity_valid_missing_evidence_round_identity(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-001", "task-001"))
+        db.execute("UPDATE evidence_observations SET round_id = ? WHERE atom_id = ?", ("round-001", "atom-001"))
+    bundle = tmp_path / "case.zip"
+    export_research_case_bundle(db_path, case.case_id, bundle)
+
+    files = {}
+    with zipfile.ZipFile(bundle, "r") as source:
+        files = {name: source.read(name) for name in source.namelist()}
+    evidence = json.loads(files["evidence.json"])
+    evidence["observations"][0]["round_id"] = None
+    files["evidence.json"] = json.dumps(
+        evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+    manifest = json.loads(files["manifest.json"])
+    manifest["entries"] = [
+        {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
+        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+    ]
+    core = {key: manifest[key] for key in ("schema_version", "case_id", "case_digest", "entries")}
+    manifest["bundle_sha256"] = hashlib.sha256(
+        json.dumps(core, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    files["manifest.json"] = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+    forged = tmp_path / "integrity-valid-missing-round.zip"
+    with zipfile.ZipFile(forged, "w", compression=zipfile.ZIP_DEFLATED) as target:
+        for name in sorted(files):
+            target.writestr(name, files[name])
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="evidence_observation_round_identity_mismatch",
+    ):
+        verify_research_case_bundle(forged)

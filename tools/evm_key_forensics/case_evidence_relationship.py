@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from urllib.parse import urlparse
 
 SCHEMA_VERSION = 1
+MAX_SOURCE_REPORT_BYTES = 2 * 1024 * 1024
 EXACT_TARGET_REVISION = "EXACT_TARGET_REVISION"
 CONTEXTUAL_BENCHMARK = "CONTEXTUAL_BENCHMARK"
 RELATIONSHIP_TYPES = frozenset({EXACT_TARGET_REVISION, CONTEXTUAL_BENCHMARK})
@@ -152,6 +153,8 @@ def validate_case_evidence_relationship(
         raise CaseEvidenceRelationshipError("relationship_type_invalid")
     if not isinstance(source_report_bytes, bytes) or not source_report_bytes:
         raise CaseEvidenceRelationshipError("source_report_bytes_required")
+    if len(source_report_bytes) > MAX_SOURCE_REPORT_BYTES:
+        raise CaseEvidenceRelationshipError("source_report_size_limit_exceeded")
 
     try:
         report = json.loads(

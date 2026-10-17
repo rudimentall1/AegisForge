@@ -6,7 +6,7 @@ from dataclasses import asdict, replace
 
 import pytest
 
-from shared.research_case import ResearchCase, research_case_binding
+from shared.research_case import ResearchCase, RoundSpec, research_case_binding
 from shared.research_case_bundle import (
     ResearchCaseBundleError,
     export_research_case_bundle,
@@ -550,3 +550,40 @@ def test_case_bundle_export_rejects_conflicting_evidence_round_identity(tmp_path
         match="evidence_observation_round_identity_mismatch",
     ):
         export_research_case_bundle(db_path, case.case_id, tmp_path / "conflicting-round.zip")
+
+
+def test_case_bundle_rejects_changed_round_plan_in_historical_binding(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    changed_round_plan = replace(
+        case,
+        rounds=(
+            RoundSpec(
+                round_id="round-plan-altered",
+                technique="source_pattern",
+                hypothesis="A changed round hypothesis",
+                expected_evidence_atoms=("source-pattern-present",),
+                falsification_criteria="Pinned source lacks the pattern",
+                priority=1,
+                disclosure_deadline_days=30,
+            ),
+        ),
+    )
+    result = {
+        "stage": "validation",
+        "research_case_binding": research_case_binding(changed_round_plan),
+        "research_validation": {"historical_reproduction_confirmed": False},
+    }
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE queue SET result = ? WHERE id = ?",
+            (encode(result), "task-001"),
+        )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_result_case_binding_mismatch",
+    ):
+        export_research_case_bundle(
+            db_path, case.case_id, tmp_path / "altered-round-plan.zip"
+        )

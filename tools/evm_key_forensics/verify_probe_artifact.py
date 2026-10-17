@@ -173,7 +173,10 @@ def verify_artifact(root: Path) -> dict:
     if not isinstance(input_hashes, dict):
         input_hashes = {}
 
-    from tools.evm_key_forensics.source_report_schema import validate_source_report_schema
+    try:
+        from .source_report_schema import validate_source_report_schema
+    except ImportError:
+        from source_report_schema import validate_source_report_schema
 
     checks = {
         "source_report_schema_supported": validate_source_report_schema(source_report),

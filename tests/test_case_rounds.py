@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 import shared.queue as queue_module
@@ -238,7 +240,7 @@ def test_case_round_cli_creates_exactly_one_confirmed_round(queue, monkeypatch, 
     assert case_round_main([
         "--case-id", case.case_id, "--confirm-new-round",
     ]) == 0
-    result = __import__("json").loads(capsys.readouterr().out)
+    result = json.loads(capsys.readouterr().out)
     assert result["status"] == "queued"
     assert result["case_id"] == case.case_id
     assert result["round_number"] == 1

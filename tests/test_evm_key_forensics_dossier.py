@@ -129,6 +129,33 @@ class SourceDossierValidatorTests(unittest.TestCase):
                 data["reviewed_upstream"]["supporting_references"] = references
                 self.assertIn("supporting_references_mismatch", validate_dossier(data))
 
+    def test_unknown_nested_fields_are_rejected(self):
+        mutations = [
+            ("reviewed_upstream", lambda data: data["reviewed_upstream"].update({"trusted": True}), "reviewed_upstream"),
+            ("source_entry", lambda data: data["reviewed_upstream"]["files"][0].update({"binary_match": True}), "reviewed_upstream.files"),
+            ("claim", lambda data: data["claim_register"][0].update({"confidence": 1.0}), "claim_register"),
+            ("verification_contract", lambda data: data["verification_contract"].update({"source_verified": True}), "verification_contract"),
+            ("experiment_state", lambda data: data["experiment_state"].update({"verdict": "CONFIRMED"}), "experiment_state"),
+        ]
+        for label, mutate, context in mutations:
+            with self.subTest(label=label):
+                data = copy.deepcopy(DOSSIER)
+                mutate(data)
+                self.assertTrue(
+                    any(error.startswith(f"unexpected_nested_fields:{context}:") for error in validate_dossier(data))
+                )
+
+    def test_source_review_status_is_required_and_fixed(self):
+        mutations = [
+            ("removed", lambda state: state.pop("source_review")),
+            ("rewritten", lambda state: state.update({"source_review": "VERIFIED"})),
+        ]
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                data = copy.deepcopy(DOSSIER)
+                mutate(data["experiment_state"])
+                self.assertIn("source_review_status_mismatch", validate_dossier(data))
+
     def test_claim_promotion_is_rejected(self):
         data = copy.deepcopy(DOSSIER)
         data["experiment_state"]["historical_vulnerability_reproduced"] = True

@@ -51,6 +51,13 @@ def _pairs_no_duplicates(pairs):
     return result
 
 
+def _check_exact_keys(value: object, expected: set[str], label: str, errors: list[str]) -> None:
+    if isinstance(value, dict):
+        extra = sorted(value.keys() - expected)
+        if extra:
+            errors.append(f"unexpected_nested_fields:{label}:" + ",".join(extra))
+
+
 def validate_dossier(data: object) -> list[str]:
     errors: list[str] = []
     if not isinstance(data, dict):
@@ -76,6 +83,7 @@ def validate_dossier(data: object) -> list[str]:
     if not isinstance(upstream, dict):
         errors.append("reviewed_upstream_must_be_object")
         upstream = {}
+    _check_exact_keys(upstream, {"repository", "files", "supporting_references"}, "reviewed_upstream", errors)
     if upstream.get("repository") != "https://github.com/johguse/profanity":
         errors.append("unexpected_upstream_repository")
     if upstream.get("supporting_references") != EXPECTED_SUPPORTING_REFERENCES:
@@ -89,6 +97,7 @@ def validate_dossier(data: object) -> list[str]:
         if not isinstance(item, dict):
             errors.append("source_entry_must_be_object")
             continue
+        _check_exact_keys(item, {"role", "commit", "path", "url", "git_blob_sha1"}, "reviewed_upstream.files", errors)
         role = item.get("role")
         if not isinstance(role, str) or role not in PINNED:
             errors.append("unknown_source_role")
@@ -137,6 +146,7 @@ def validate_dossier(data: object) -> list[str]:
         if not isinstance(claim, dict):
             errors.append("claim_entry_must_be_object")
             continue
+        _check_exact_keys(claim, {"id", "claim", "evidence_level", "status", "does_not_establish"}, "claim_register", errors)
         claim_id = claim.get("id")
         if not isinstance(claim_id, str) or claim_id not in expected_claims:
             errors.append("claim_content_unrecognized")
@@ -156,6 +166,11 @@ def validate_dossier(data: object) -> list[str]:
     if not isinstance(contract, dict):
         errors.append("verification_contract_must_be_object")
         contract = {}
+    _check_exact_keys(contract, {
+        "checker", "checker_behavior", "independent_retrieval_recommended",
+        "source_to_binary_provenance", "source_review_runner_attestation",
+        "evidence_package_github_attestation", "signed_dossier",
+    }, "verification_contract", errors)
     if contract.get("checker") != "tools/evm_key_forensics/check_historical_source_pattern.py":
         errors.append("verification_checker_path_mismatch")
     expected_checker_behavior = [
@@ -183,6 +198,12 @@ def validate_dossier(data: object) -> list[str]:
     if not isinstance(state, dict):
         errors.append("experiment_state_must_be_object")
         state = {}
+    _check_exact_keys(state, {
+        "source_review", "historical_code_executed", "wallet_material_used",
+        "historical_vulnerability_reproduced", "independent_review", "overall_conclusion",
+    }, "experiment_state", errors)
+    if state.get("source_review") != "COMPLETE":
+        errors.append("source_review_status_mismatch")
     required_false = (
         "historical_code_executed",
         "wallet_material_used",

@@ -342,10 +342,14 @@ def export_research_case_bundle(
         task_round_ids = {task["id"]: task.get("round_id") for task in tasks}
         task_roles = {task["id"]: task.get("role") for task in tasks}
         declared_round_ids = {round.round_id for round in case.rounds}
-        for task in tasks:
-            round_id = task.get("round_id")
-            if round_id is not None and round_id not in declared_round_ids:
-                raise ResearchCaseBundleError("task_round_not_declared_in_case")
+        # Legacy/minimal cases may intentionally omit a round plan. Enforce
+        # membership only when the case declares one; otherwise preserve
+        # task/evidence round equality without inventing a plan.
+        if declared_round_ids:
+            for task in tasks:
+                round_id = task.get("round_id")
+                if round_id is not None and round_id not in declared_round_ids:
+                    raise ResearchCaseBundleError("task_round_not_declared_in_case")
         for observation in evidence:
             task_id = observation.get("task_id")
             if task_id not in task_ids_for_case:

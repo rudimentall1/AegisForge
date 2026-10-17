@@ -1,6 +1,6 @@
 import pytest
 
-from shared.evidence_manifest import EvidenceManifestError, build_manifest, digest, verify_manifest
+from shared.evidence_manifest import EvidenceManifestError, build_manifest, digest, merkle_root, verify_manifest
 
 
 def test_manifest_merkle_root_verifies():
@@ -83,3 +83,19 @@ def test_source_record_rejects_boolean_line_numbers():
     record["start_line"] = True
     with pytest.raises(EvidenceManifestError, match="source_line_range_invalid"):
         validate_source_record(record)
+
+
+def test_verify_manifest_rejects_duplicate_entry_identity_even_with_valid_root():
+    entries = [
+        {"id": "same", "type": "claim", "digest": digest({"value": 1})},
+        {"id": "same", "type": "claim", "digest": digest({"value": 2})},
+    ]
+    manifest = {
+        "schema_version": "evidence-manifest-v1",
+        "entry_count": len(entries),
+        "entries": entries,
+        "merkle_root": merkle_root(entries),
+    }
+
+    with pytest.raises(EvidenceManifestError, match="duplicate_manifest_entry"):
+        verify_manifest(manifest)

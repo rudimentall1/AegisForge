@@ -281,3 +281,12 @@ def test_source_report_over_size_limit_fails_before_json_parsing():
         CaseEvidenceRelationshipError, match="source_report_size_limit_exceeded"
     ):
         validate_case_evidence_relationship(case, rel, raw)
+
+
+@pytest.mark.parametrize("relationship_type", [["EXACT_TARGET_REVISION"], {"type": "EXACT_TARGET_REVISION"}, None])
+def test_relationship_type_must_be_a_string(relationship_type):
+    case = case_record()
+    rel, raw = relation(case, report_record())
+    rel["relationship_type"] = relationship_type
+    with pytest.raises(CaseEvidenceRelationshipError, match="relationship_type_invalid"):
+        validate_case_evidence_relationship(case, rel, raw)

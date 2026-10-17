@@ -23,6 +23,17 @@ REPOSITORY = "https://github.com/johguse/profanity"
 EXPERIMENT_ID = "evm-forensics-historical-source-pattern-v1"
 MAX_INPUT_BYTES = 2 * 1024 * 1024
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+EXPECTED_RESULT_FIELDS = {
+    "schema_version", "experiment_id", "upstream_repository", "source_revision_role",
+    "expected_upstream_commit", "source_sha256", "git_blob_sha1", "function_body_sha256",
+    "pinned_source_blob_matches", "conclusion", "errors", "historical_code_executed",
+    "wallet_material_used", "historical_vulnerability_reproduced", "interpretation",
+}
+EXPECTED_INTERPRETATION = (
+    "A source-pattern match only supports the reviewed source-semantics "
+    "statement; it does not establish source provenance, runtime behavior, "
+    "entropy, exploitability, or wallet compromise."
+)
 
 
 def _no_duplicate_keys(pairs):
@@ -45,8 +56,16 @@ def _load_result(path: Path) -> dict:
     return data
 
 
-def _validate_result(data: dict, role: str) -> list[str]:
+def _validate_result(data: object, role: str) -> list[str]:
     errors = []
+    if not isinstance(data, dict):
+        return [f"{role}:result_must_be_object"]
+    missing = sorted(EXPECTED_RESULT_FIELDS - data.keys())
+    extra = sorted(data.keys() - EXPECTED_RESULT_FIELDS)
+    if missing:
+        errors.append(f"{role}:missing_result_fields:" + ",".join(missing))
+    if extra:
+        errors.append(f"{role}:unexpected_result_fields:" + ",".join(extra))
     pin = EXPECTED[role]
     if data.get("schema_version") != 1 or isinstance(data.get("schema_version"), bool):
         errors.append(f"{role}:unsupported_schema_version")
@@ -66,6 +85,8 @@ def _validate_result(data: dict, role: str) -> list[str]:
         errors.append(f"{role}:invalid_function_body_sha256")
     if data.get("conclusion") != "SOURCE_PATTERN_MATCHED":
         errors.append(f"{role}:source_pattern_not_matched")
+    if data.get("interpretation") != EXPECTED_INTERPRETATION:
+        errors.append(f"{role}:checker_interpretation_mismatch")
     if data.get("errors") != []:
         errors.append(f"{role}:checker_reported_errors")
     for field in ("historical_code_executed", "wallet_material_used", "historical_vulnerability_reproduced"):
@@ -76,6 +97,8 @@ def _validate_result(data: dict, role: str) -> list[str]:
 
 def build_report(pre: dict, post: dict, reproducibility: dict | None = None) -> dict:
     errors = _validate_result(pre, "pre-disclosure") + _validate_result(post, "post-disclosure")
+    pre = pre if isinstance(pre, dict) else {}
+    post = post if isinstance(post, dict) else {}
     report = {
         "schema_version": 1,
         "report_id": "evm-key-forensics-profanity-source-comparison-v1",

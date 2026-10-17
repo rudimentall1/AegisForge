@@ -72,10 +72,27 @@ def test_comment_cannot_fake_missing_distribution_call():
     assert "expected_one_distribution_assignment_for_word_3" in result["errors"]
 
 
-def test_comment_cannot_supply_function_marker():
+def test_comment_signature_does_not_hide_real_definition():
     mutated = "// cl_ulong4 Dispatcher::Device::createSeed() { }\n" + SOURCE
     result = inspect_source(mutated)
     assert result["conclusion"] == "SOURCE_PATTERN_MATCHED"
+
+
+def test_comment_only_signature_cannot_create_function_definition():
+    source = """
+// cl_ulong4 Dispatcher::Device::createSeed() {
+    std::random_device rd;
+    std::mt19937_64 eng(rd());
+    r.s[0] = distr(eng);
+    r.s[1] = distr(eng);
+    r.s[2] = distr(eng);
+    r.s[3] = distr(eng);
+// }
+"""
+    result = inspect_source(source)
+    assert result["conclusion"] == "INCONCLUSIVE"
+    assert "createSeed_function_missing" in result["errors"]
+    assert result["historical_vulnerability_reproduced"] is False
 
 
 def test_missing_debug_branch_fails_closed():

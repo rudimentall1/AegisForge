@@ -944,3 +944,36 @@ def test_case_bundle_verifier_rejects_rehashed_target_commit_mismatch(tmp_path):
         match="task_result_case_binding_mismatch",
     ):
         verify_research_case_bundle(forged)
+
+
+def test_case_bundle_verifier_rejects_forged_case_source_commit_against_task_binding(tmp_path):
+    """A rehashed case record cannot rewrite the source revision used by its task."""
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "original.zip"
+    forged = tmp_path / "forged-case-source-commit.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    def alter_case_binding(payload):
+        binding = payload["research_case_binding"]
+        changed_case = dict(binding["case"])
+        changed_case["target_commit"] = "d" * 40
+        canonical = json.dumps(
+            changed_case,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        binding["case"] = changed_case
+        binding["case_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    _rewrite_bundle_json_member(original, forged, "case.json", alter_case_binding)
+
+    # All unsigned bundle hashes are recomputed. The completed task still
+    # records the original immutable case contract, so semantic verification
+    # must reject the source-revision substitution.
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_result_case_binding_mismatch",
+    ):
+        verify_research_case_bundle(forged)

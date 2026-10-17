@@ -11,6 +11,7 @@ from shared.research_case_bundle import (
     ResearchCaseBundleError,
     export_research_case_bundle,
     verify_research_case_bundle,
+    main as research_case_bundle_main,
 )
 from shared.result_codec import encode
 
@@ -876,3 +877,43 @@ def test_case_bundle_verifier_documents_unsigned_manifest_rewrite_boundary(tmp_p
     report = verify_research_case_bundle(rewritten)
     assert report["valid"] is True
     assert report["schema_version"] == "aegisforge-research-case-bundle-v2"
+
+
+
+def test_case_bundle_cli_verifies_offline_after_database_is_removed(tmp_path, capsys):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    bundle = tmp_path / "portable-case.zip"
+    export_research_case_bundle(db_path, case.case_id, bundle)
+
+    # The verification command must depend only on the portable ZIP, not on the
+    # source database or the environment that created it.
+    db_path.unlink()
+    assert research_case_bundle_main(["verify", str(bundle)]) == 0
+    report = json.loads(capsys.readouterr().out)
+
+    assert report["valid"] is True
+    assert report["case_id"] == case.case_id
+    assert report["authenticity"] == "UNSIGNED_INTEGRITY_ONLY"
+
+
+def test_case_bundle_verifier_rejects_rehashed_manifest_case_identity_mismatch(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "original.zip"
+    forged = tmp_path / "forged-manifest-case-id.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    with zipfile.ZipFile(original, "r") as archive:
+        files = {name: archive.read(name) for name in archive.namelist()}
+    manifest = json.loads(files["manifest.json"])
+    manifest["case_id"] = "different-case-id"
+    _refresh_manifest(files, manifest)
+    with zipfile.ZipFile(forged, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(files):
+            archive.writestr(name, files[name])
+
+    # All unsigned digests are valid after the mutation; rejection must come
+    # from the case identity contract, not a stale hash.
+    with pytest.raises(ResearchCaseBundleError, match="bundle_case_identity_mismatch"):
+        verify_research_case_bundle(forged)

@@ -180,21 +180,21 @@ def test_exact_target_rejects_noncanonical_uppercase_case_commit():
     with pytest.raises(CaseEvidenceRelationshipError, match="target_commit_invalid"):
         validate_case_evidence_relationship(case, rel, raw)
 
-@pytest.mark.parametrize(
-    ("case_updates", "report_updates", "error"),
-    [
-        ({"target_repository": "https://github.com/acme/other"}, {}, "target_repository_mismatch"),
-        ({}, {"experiment_id": "different-experiment"}, "experiment_id_mismatch"),
-    ],
-)
-def test_exact_target_rejects_repository_and_experiment_identity_mismatch(
-    case_updates, report_updates, error
-):
+def test_exact_target_rejects_repository_identity_mismatch():
     case = case_record()
-    case.update(case_updates)
-    report = report_record(**report_updates)
+    case["target_repository"] = "https://github.com/acme/other"
+    report = report_record()
     rel, raw = relation(case, report)
-    with pytest.raises(CaseEvidenceRelationshipError, match=error):
+    with pytest.raises(CaseEvidenceRelationshipError, match="target_repository_mismatch"):
+        validate_case_evidence_relationship(case, rel, raw)
+
+
+def test_relationship_rejects_experiment_identity_mismatch():
+    case = case_record()
+    report = report_record()
+    rel, raw = relation(case, report)
+    rel["experiment_id"] = "different-experiment"
+    with pytest.raises(CaseEvidenceRelationshipError, match="experiment_id_mismatch"):
         validate_case_evidence_relationship(case, rel, raw)
 
 

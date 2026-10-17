@@ -289,6 +289,12 @@ def test_start_case_round_fails_closed_on_open_human_review(queue):
     case = make_case(case_id="case-round-human-review-block")
     queue.register_research_case(case)
     task_id = queue.add("review required task", "analyst", research_case_id=case.case_id)
+    # Keep the review open while removing the active-task blocker, so this test
+    # exercises the human-review guard specifically.
+    queue.db.execute(
+        "UPDATE queue SET status='completed', finished_at='2026-10-16T00:00:00+00:00' WHERE id=?",
+        (task_id,),
+    )
     queue.db.execute(
         "INSERT INTO pending_human_review (id, case_id, task_id, reason, status, created_at) "
         "VALUES ('review-block-1', ?, ?, 'operator review required', 'OPEN', '2026-10-16T00:00:00+00:00')",

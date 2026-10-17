@@ -179,3 +179,55 @@ def test_exact_target_rejects_noncanonical_uppercase_case_commit():
     rel, raw = relation(case, report)
     with pytest.raises(CaseEvidenceRelationshipError, match="target_commit_invalid"):
         validate_case_evidence_relationship(case, rel, raw)
+
+@pytest.mark.parametrize(
+    ("case_updates", "report_updates", "error"),
+    [
+        ({"target_repository": "https://github.com/acme/other"}, {}, "target_repository_mismatch"),
+        ({}, {"experiment_id": "different-experiment"}, "experiment_id_mismatch"),
+    ],
+)
+def test_exact_target_rejects_repository_and_experiment_identity_mismatch(
+    case_updates, report_updates, error
+):
+    case = case_record()
+    case.update(case_updates)
+    report = report_record(**report_updates)
+    rel, raw = relation(case, report)
+    with pytest.raises(CaseEvidenceRelationshipError, match=error):
+        validate_case_evidence_relationship(case, rel, raw)
+
+
+def test_contextual_benchmark_rejects_commit_not_declared_by_report():
+    case = case_record()
+    report = {
+        "schema_version": 1,
+        "report_id": "historical-comparison-v1",
+        "experiment_id": "historical-experiment-v1",
+        "upstream_repository": "https://github.com/johguse/profanity",
+        "source_comparison": {
+            "pre_disclosure": {"commit": BENCHMARK_COMMIT},
+            "post_disclosure_archive": {"commit": "e" * 40},
+        },
+    }
+    rel, raw = relation(case, report, CONTEXTUAL_BENCHMARK, source_commit="f" * 40)
+    with pytest.raises(
+        CaseEvidenceRelationshipError, match="contextual_commit_not_declared_by_report"
+    ):
+        validate_case_evidence_relationship(case, rel, raw)
+
+
+def test_non_finite_json_constants_are_rejected_even_with_matching_digest():
+    case = case_record()
+    raw = (
+        b'{"report_id":"synthetic-source-report-v1",'
+        b'"experiment_id":"synthetic-experiment-v1",'
+        b'"source_repository":"https://github.com/acme/example",'
+        b'"source_commit":"' + TARGET_COMMIT.encode() + b'",'
+        b'"unexpected":NaN}'
+    )
+    rel, _ = relation(case, report_record())
+    rel["source_report_sha256"] = hashlib.sha256(raw).hexdigest()
+    with pytest.raises(CaseEvidenceRelationshipError, match="source_report_non_finite_number"):
+        validate_case_evidence_relationship(case, rel, raw)
+

@@ -1,6 +1,6 @@
 # EVM Key Forensics — Release-Candidate Gap Matrix
 
-**Baseline:** `main` at `4ca18f2557595d18e2b9561f0b37b988e7184ed4` (2026-10-17).  
+**Baseline:** `main` at `547a8fcfd1c8d4bd5ffb12f101f5e738e52d2921` (2026-10-17).  
 **Status:** engineering checklist, not a release approval. No row below should be treated as complete merely because a related unit test passes.
 
 The source of truth for release criteria remains [PRODUCT-READINESS.md](../../../PRODUCT-READINESS.md). This matrix maps those criteria to concrete code and the next acceptance evidence so work can be closed end to end rather than through disconnected hardening changes.
@@ -9,14 +9,14 @@ The source of truth for release criteria remains [PRODUCT-READINESS.md](../../..
 
 | Gate | Existing implementation/evidence | Remaining acceptance work | Status |
 |---|---|---|---|
-| Immutable research case | `shared/research_case.py`, `shared/queue.py`; case contract includes pinned commit, scope digest, hypothesis, invariant and falsification criteria | Demonstrate the supported CLI path from case registration to a single bounded round, with IDs preserved without manual copying | Partial |
-| Case/round lineage | `shared/case_rounds.py`; case bundle now checks task/evidence case, role and round consistency | Propagate round identity into every child task and execution/evidence path; verify this against current `main` after stale PR conflicts are resolved | Partial |
-| Operator-controlled lifecycle | Explicit round-start API exists; proposed CLI and read-only diagnostic changes remain in open PRs | Reconcile open PRs with current `main`, then test idle, active, blocked, terminal and failed states through the actual CLI | Partial |
+| Immutable research case | `shared/research_case.py`, `shared/queue.py`; case contract includes pinned commit, scope digest, hypothesis, invariant and falsification criteria | Acceptance-test the full supported CLI path, including case registration and failure on missing/mismatched binding | Partial |
+| Case/round lineage | `shared/case_rounds.py`; `aegisforge tasks case new-round` requires explicit confirmation; read-only `diagnose` is available; portable bundle checks task/evidence case, role and round consistency | Enforce round inheritance and reject conflicting round overrides for every child task, then test execution/evidence propagation | Partial |
+| Operator-controlled lifecycle | Explicit `new-round --confirm-new-round` CLI and read-only case diagnostics are on `main`; round creation is guarded against duplicate active rounds | Add end-to-end CLI acceptance coverage for idle, active, blocked, terminal, failed, and duplicate-active states | Partial |
 | Pinned source evidence | `tools/evm_key_forensics/build_source_evidence_report.py` pins the two historical upstream revisions and expected Git object identities | Verify that the source report identity is bound to the same case and carried into the exported case/evidence package, not just a separate workflow artifact | Partial |
 | Isolated experiment | `tools/evm_key_forensics/profanity_seed_environment_probe.cpp` is a bounded synthetic environment diagnostic | Keep its output explicitly synthetic; define and test the acceptance contract for any future historical-runtime reproduction separately | Partial |
 | Independent complete-evidence verification | `tools/evm_key_forensics/verify_complete_evidence.py` checks archive safety, exact schemas, hashes and cross-artifact links | Add adversarial cross-artifact tests for mismatched case ID, round ID, source commit and report-to-index identity wherever those fields are present | Partial |
-| Portable case bundle | `shared/research_case_bundle.py` exports deterministic ZIP evidence and verifies it without SQLite | Prove clean-checkout CLI use and document exact output/exit-code examples; ensure the same source revision and scope identity are carried into the bundle schema | Partial |
-| Tamper rejection | Tests cover archive path safety, hash integrity, unknown fields, orphaned observations, task-parent graphs, role and round lineage | Maintain mutation tests that recompute unsigned manifests so rejection depends on semantic validation, not merely a stale digest | Partial |
+| Portable case bundle | `shared/research_case_bundle.py` exports deterministic ZIP evidence and verifies it without SQLite; v2 adds a deterministic Merkle root while preserving v1 verification; report explicitly says `UNSIGNED_INTEGRITY_ONLY` | Prove clean-checkout CLI use and document exact output/exit-code examples; carry source revision/report identity into the package where the schema supports it | Partial |
+| Tamper rejection | Tests cover archive path safety, hash integrity, unknown fields, orphaned observations, task-parent graphs, role/round lineage, and a mutation that recomputes entry hashes, Merkle root, and bundle digest | Add semantic cross-artifact identity tests; the Merkle root is not an authenticity anchor because the bundle is unsigned and all digests can be recomputed by an editor | Partial |
 | Honest conclusions | Probe/source-report verifiers explicitly avoid claiming historical exploit reproduction, entropy proof or wallet exposure | End-to-end test that synthetic output cannot upgrade the case verdict; keep `INCONCLUSIVE` until historical runtime evidence actually meets the declared criteria | Partial |
 | Clean-machine reproduction | README documents probe, combined evidence, lab artifact and research-case verification commands | Validate the full supported path from a clean checkout and a separate machine with no SQLite database or hidden workflow artifacts | Not yet demonstrated |
 | Release-candidate gate | `docs/PRODUCT-READINESS.md` defines blockers and exit rule | Link passing exact-commit CI, sample bundle, expected verifier output and independent reviewer evidence before marking any blocker complete | Open |
@@ -37,7 +37,7 @@ Run only after the implementation gaps above are closed. Use public/pinned sourc
 
 ## Merge hygiene
 
-Open PRs related to case-round propagation, explicit round creation and lifecycle diagnostics were found to be based on older `main` commits. PR #138 encountered merge conflicts when a merge was attempted. Do not bypass those conflicts or merge stale snapshots blindly. Rebase/reapply the minimal intended changes on current `main`, then require CI on the resulting exact head before merging.
+The explicit round-creation CLI and read-only lifecycle diagnostics are already on `main`; open PRs #153 and #156 are stale duplicates and must not be merged as-is. PR #138 still contains the child-task round-inheritance change and must be reapplied/reviewed against current `main`, then tested on its exact head before merging. PR #166's Merkle structure is merged, but it is deliberately treated as deterministic structure only, not as a trusted signature or authenticity anchor.
 
 ## Non-negotiable release boundary
 

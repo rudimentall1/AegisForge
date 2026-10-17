@@ -89,20 +89,27 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
             f"{case.target_repository}@{case.target_commit}. Approved scope: "
             f"{case.scope_url} (SHA-256 {case.scope_digest}). Hypothesis: "
             f"{case.hypothesis}. Re-evaluate prior evidence and identify a "
-            "materially distinct falsifiable next step. Preserve evidence continuity; "
+            f"materially distinct falsifiable next step. Preserve evidence continuity; "
             "do not repeat completed work without a documented reason. Use immutable "
             "public sources and local/synthetic experiments only. Do not execute "
             "live-network actions, handle wallet/key material, or mark a finding CONFIRMED."
         )
-        # Insert directly so the root and round ledger commit in the same transaction.
+        # Keep the root's round identity in the queue row as well as the ledger.
+        # The task and ledger row are committed atomically below.
         db.execute(
             """
             INSERT INTO queue
                 (id, description, status, created_at, role, parent_task_id,
-                 research_case_id)
-            VALUES (?, ?, 'pending', ?, 'source_researcher', NULL, ?)
+                 research_case_id, round_id)
+            VALUES (?, ?, 'pending', ?, 'source_researcher', NULL, ?, ?)
             """,
-            (root_task_id, queue._bounded_description(description), now, case_id),
+            (
+                root_task_id,
+                queue._bounded_description(description),
+                now,
+                case_id,
+                round_id,
+            ),
         )
         db.execute(
             """

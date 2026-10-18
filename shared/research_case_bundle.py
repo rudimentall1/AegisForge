@@ -388,11 +388,8 @@ def export_research_case_bundle(
         # Legacy/minimal cases may intentionally omit a round plan. Enforce
         # membership only when the case declares one; otherwise preserve
         # task/evidence round equality without inventing a plan.
-        if declared_round_ids:
-            for task in tasks:
-                round_id = task.get("round_id")
-                if round_id is not None and round_id not in declared_round_ids:
-                    raise ResearchCaseBundleError("task_round_not_declared_in_case")
+        # Runtime round_id is a generated execution identifier, not a planned
+        # RoundSpec ID. Validate planned membership through round_spec_id below.
         for task in tasks:
             round_spec_id = task.get("round_spec_id")
             if round_spec_id is not None and round_spec_id not in declared_round_spec_ids:
@@ -695,11 +692,8 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     }
     task_roles = {task["id"]: task.get("role") for task in tasks_file["tasks"]}
     declared_round_ids = {round.round_id for round in validated_case.rounds}
-    if declared_round_ids:
-        for task in tasks_file["tasks"]:
-            round_id = task.get("round_id")
-            if round_id is not None and round_id not in declared_round_ids:
-                raise ResearchCaseBundleError("task_round_not_declared_in_case")
+    # Runtime round_id is intentionally independent from the planned RoundSpec
+    # ID. Only round_spec_id is checked against the case's declared plan.
     for task in tasks_file["tasks"]:
         round_spec_id = task.get("round_spec_id")
         if round_spec_id is not None and round_spec_id not in declared_round_ids:

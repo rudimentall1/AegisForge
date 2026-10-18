@@ -975,6 +975,39 @@ def test_case_bundle_verifier_keeps_schema_v1_compatibility(tmp_path):
     assert report["schema_version"] == "aegisforge-research-case-bundle-v1"
 
 
+def test_case_bundle_verifier_keeps_schema_v2_compatibility(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "v3.zip"
+    legacy = tmp_path / "v2.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+    with zipfile.ZipFile(original, "r") as archive:
+        files = {name: archive.read(name) for name in archive.namelist()}
+    files.pop("rounds.json", None)
+    for name in ("tasks.json", "evidence.json"):
+        payload = json.loads(files[name])
+        payload["schema_version"] = "aegisforge-research-case-bundle-v2"
+        collection = "tasks" if name == "tasks.json" else "observations"
+        for record in payload[collection]:
+            record.pop("round_spec_id", None)
+        files[name] = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        ).encode("utf-8")
+    manifest = json.loads(files["manifest.json"])
+    manifest["schema_version"] = "aegisforge-research-case-bundle-v2"
+    manifest["entries"] = [
+        {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
+        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+    ]
+    _refresh_manifest(files, manifest)
+    with zipfile.ZipFile(legacy, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(files):
+            archive.writestr(name, files[name])
+    report = verify_research_case_bundle(legacy)
+    assert report["valid"] is True
+    assert report["schema_version"] == "aegisforge-research-case-bundle-v2"
+
+
 def test_case_bundle_verifier_documents_unsigned_manifest_rewrite_boundary(tmp_path):
     """A recomputed unsigned manifest is not an authenticity guarantee."""
     db_path = tmp_path / "agent_farm.db"

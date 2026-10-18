@@ -472,6 +472,17 @@ def export_research_case_bundle(
             round_spec_id = task.get("round_spec_id")
             if round_spec_id is not None and round_spec_id not in declared_round_spec_ids:
                 raise ResearchCaseBundleError("task_round_spec_not_declared_in_case")
+        _validate_round_registry(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "case_id": case_id,
+                "registry_available": round_registry_available,
+                "rounds": round_records,
+            },
+            case_id,
+            case,
+            tasks,
+        )
         for observation in evidence:
             task_id = observation.get("task_id")
             if task_id not in task_ids_for_case:

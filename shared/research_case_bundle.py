@@ -403,6 +403,8 @@ def export_research_case_bundle(
                 not isinstance(item["round_id"], str) or not item["round_id"].strip()
             ):
                 raise ResearchCaseBundleError("task_round_identity_invalid")
+            if item["round_spec_id"] is not None and item["round_id"] is None:
+                raise ResearchCaseBundleError("task_round_spec_requires_runtime_round")
             raw_result = item.pop("result", None)
             try:
                 item["result"] = decode(raw_result)
@@ -796,6 +798,8 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
             not isinstance(round_spec_id, str) or not round_spec_id.strip()
         ):
             raise ResearchCaseBundleError("task_round_spec_identity_invalid")
+        if round_spec_id is not None and round_id is None:
+            raise ResearchCaseBundleError("task_round_spec_requires_runtime_round")
         result = task.get("result")
         if isinstance(result, dict) and result.get("research_case_binding") is not None:
             try:

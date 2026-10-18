@@ -168,12 +168,12 @@ def _database_with_round_registry(path):
             (json.dumps(payload, sort_keys=True, separators=(",", ":")), case.case_id),
         )
         db.execute(
-            "UPDATE queue SET result = ?, round_id = ?, round_spec_id = ? WHERE id = ?",
-            (encode(result), runtime_round_id, "source-pattern-v1", "task-001"),
+            "UPDATE queue SET result = ?, round_id = ?, round_spec_id = ?, role = ? WHERE id = ?",
+            (encode(result), runtime_round_id, "source-pattern-v1", "source_researcher", "task-001"),
         )
         db.execute(
-            "UPDATE evidence_observations SET round_id = ?, round_spec_id = ? WHERE task_id = ?",
-            (runtime_round_id, "source-pattern-v1", "task-001"),
+            "UPDATE evidence_observations SET round_id = ?, round_spec_id = ?, role = ? WHERE task_id = ?",
+            (runtime_round_id, "source-pattern-v1", "source_researcher", "task-001"),
         )
         db.execute(
             """CREATE TABLE research_case_rounds (

@@ -463,6 +463,34 @@ def test_case_bundle_verifier_rejects_forged_evidence_role_even_with_rebuilt_man
         verify_research_case_bundle(forged)
 
 
+def test_case_bundle_verifier_rejects_planned_identity_without_runtime_round(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    original = tmp_path / "case-with-rounds.zip"
+    forged = tmp_path / "planned-without-runtime-round.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    def add_unbound_planned_task(payload):
+        payload["tasks"].append({
+            "id": "task-unbound-planned",
+            "description": "Synthetic task with a plan but no execution round",
+            "status": "pending",
+            "created_at": "2026-10-16T00:02:00+00:00",
+            "result": None,
+            "research_case_id": case.case_id,
+            "role": "crypto_analyst",
+            "parent_task_id": None,
+            "round_id": None,
+            "round_spec_id": "source-pattern-v1",
+        })
+
+    _rewrite_bundle_json_member(original, forged, "tasks.json", add_unbound_planned_task)
+    with pytest.raises(
+        ResearchCaseBundleError, match="task_round_spec_requires_runtime_round"
+    ):
+        verify_research_case_bundle(forged)
+
+
 def test_case_bundle_export_is_portable_and_deterministic(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)

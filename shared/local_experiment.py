@@ -18,6 +18,7 @@ _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
 _MAX_TOTAL_BYTES = 20 * 1024 * 1024
 _MAX_ARG_COUNT = 128
+_MAX_TOOLCHAIN_ITEMS = 64
 _MAX_TEXT_BYTES = 16 * 1024
 
 
@@ -63,7 +64,9 @@ def build_experiment_record(
         ("task_id", task_id),
     ):
         _require_text(value, field)
-    if not isinstance(target_repository, str) or not _REPOSITORY_RE.fullmatch(target_repository):
+    if (not isinstance(target_repository, str)
+            or len(target_repository.encode("utf-8")) > _MAX_TEXT_BYTES
+            or not _REPOSITORY_RE.fullmatch(target_repository)):
         raise ExperimentRecordError("target_repository_must_be_owner_repo")
     if not isinstance(target_commit, str) or not _COMMIT_RE.fullmatch(target_commit):
         raise ExperimentRecordError("target_commit_must_be_full_git_sha")
@@ -71,7 +74,8 @@ def build_experiment_record(
         raise ExperimentRecordError("argv_invalid")
     if any(not isinstance(arg, str) or len(arg.encode("utf-8")) > _MAX_TEXT_BYTES for arg in argv):
         raise ExperimentRecordError("argv_item_invalid")
-    if not isinstance(toolchain, Mapping) or not toolchain:
+    if (not isinstance(toolchain, Mapping) or not toolchain
+            or len(toolchain) > _MAX_TOOLCHAIN_ITEMS):
         raise ExperimentRecordError("toolchain_required")
     normalized_toolchain = {}
     for key, value in toolchain.items():
@@ -141,7 +145,9 @@ def verify_experiment_record(
                 or len(value.encode("utf-8")) > _MAX_TEXT_BYTES):
             return {"status": "FAIL", "errors": [f"{field}_invalid"]}
     target_repository = record.get("target_repository")
-    if not isinstance(target_repository, str) or not _REPOSITORY_RE.fullmatch(target_repository):
+    if (not isinstance(target_repository, str)
+            or len(target_repository.encode("utf-8")) > _MAX_TEXT_BYTES
+            or not _REPOSITORY_RE.fullmatch(target_repository)):
         return {"status": "FAIL", "errors": ["target_repository_invalid"]}
     target_commit = record.get("target_commit")
     if not isinstance(target_commit, str) or not _COMMIT_RE.fullmatch(target_commit):
@@ -153,6 +159,7 @@ def verify_experiment_record(
                    for item in argv)):
         return {"status": "FAIL", "errors": ["argv_invalid"]}
     if (not isinstance(toolchain, dict) or not toolchain
+            or len(toolchain) > _MAX_TOOLCHAIN_ITEMS
             or any(not isinstance(k, str) or not k.strip()
                    or len(k.encode("utf-8")) > _MAX_TEXT_BYTES
                    or not isinstance(v, str) or not v.strip()

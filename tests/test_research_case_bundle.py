@@ -249,6 +249,21 @@ def test_case_bundle_export_rejects_child_task_with_different_planned_round(tmp_
         )
 
 
+def test_case_bundle_export_rejects_runtime_ids_without_round_registry(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("DROP TABLE research_case_rounds")
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="round_registry_unavailable_with_runtime_ids",
+    ):
+        export_research_case_bundle(
+            db_path, case.case_id, tmp_path / "unlinked-runtime-round.zip"
+        )
+
+
 def test_case_bundle_verifier_rejects_duplicate_runtime_round_numbers(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case, _ = _database_with_round_registry(db_path)
@@ -283,6 +298,24 @@ def test_case_bundle_verifier_rejects_duplicate_runtime_round_numbers(tmp_path):
     )
     with pytest.raises(
         ResearchCaseBundleError, match="round_registry_number_duplicate"
+    ):
+        verify_research_case_bundle(forged)
+
+
+def test_case_bundle_verifier_rejects_runtime_ids_when_registry_unavailable(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    original = tmp_path / "case-with-rounds.zip"
+    forged = tmp_path / "unavailable-registry-runtime-ids.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    def hide_registry(payload):
+        payload.update({"registry_available": False, "rounds": []})
+
+    _rewrite_bundle_json_member(original, forged, "rounds.json", hide_registry)
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="round_registry_unavailable_with_runtime_ids",
     ):
         verify_research_case_bundle(forged)
 

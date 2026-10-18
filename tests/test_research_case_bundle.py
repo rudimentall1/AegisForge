@@ -992,3 +992,42 @@ def test_case_bundle_verifier_rejects_forged_case_source_commit_against_task_bin
         match="task_result_case_binding_mismatch",
     ):
         verify_research_case_bundle(forged)
+
+
+
+def test_case_bundle_export_rejects_undeclared_planned_round_identity(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("ALTER TABLE queue ADD COLUMN round_spec_id TEXT")
+        db.execute(
+            "UPDATE queue SET round_spec_id = ? WHERE id = ?",
+            ("undeclared-round", "task-001"),
+        )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_round_spec_not_declared_in_case",
+    ):
+        export_research_case_bundle(
+            db_path, case.case_id, tmp_path / "undeclared-round.zip"
+        )
+
+
+def test_case_bundle_export_rejects_evidence_planned_round_mismatch(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("ALTER TABLE evidence_observations ADD COLUMN round_spec_id TEXT")
+        db.execute(
+            "UPDATE evidence_observations SET round_spec_id = ? WHERE atom_id = ?",
+            ("unbound-round", "atom-001"),
+        )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="evidence_observation_round_spec_identity_mismatch",
+    ):
+        export_research_case_bundle(
+            db_path, case.case_id, tmp_path / "mismatched-round.zip"
+        )

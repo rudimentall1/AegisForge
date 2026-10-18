@@ -1031,3 +1031,24 @@ def test_case_bundle_export_rejects_evidence_planned_round_mismatch(tmp_path):
         export_research_case_bundle(
             db_path, case.case_id, tmp_path / "mismatched-round.zip"
         )
+
+
+def test_case_bundle_verifier_rejects_undeclared_planned_round_identity(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case = _database(db_path)
+    original = tmp_path / "case.zip"
+    forged = tmp_path / "forged-round-spec.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+    _rewrite_bundle_json_member(
+        original,
+        forged,
+        "tasks.json",
+        lambda payload: payload["tasks"][0].update(
+            {"round_spec_id": "undeclared-round"}
+        ),
+    )
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_round_spec_not_declared_in_case",
+    ):
+        verify_research_case_bundle(forged)

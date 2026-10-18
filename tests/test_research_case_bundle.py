@@ -249,6 +249,26 @@ def test_case_bundle_export_rejects_child_task_with_different_planned_round(tmp_
         )
 
 
+def test_case_bundle_verifier_rejects_records_when_round_registry_marked_unavailable(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    original = tmp_path / "case-with-rounds.zip"
+    forged = tmp_path / "unavailable-registry-with-records.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+    _rewrite_bundle_json_member(
+        original,
+        forged,
+        "rounds.json",
+        lambda payload: payload.update({"registry_available": False}),
+    )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="round_registry_unavailable_but_records_present",
+    ):
+        verify_research_case_bundle(forged)
+
+
 def test_case_bundle_verifier_rejects_forged_round_root_even_with_rebuilt_manifest(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case, _ = _database_with_round_registry(db_path)

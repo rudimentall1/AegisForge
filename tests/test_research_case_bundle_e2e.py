@@ -145,6 +145,9 @@ def test_planned_round_identity_survives_queue_evidence_export_and_offline_verif
         assert rounds["registry_available"] is True
         assert rounds["rounds"][0]["round_id"] == runtime_round_id
         assert rounds["rounds"][0]["round_spec_id"] == planned_round_id
+        assert rounds["rounds"][0]["status"] == "COMPLETED"
+        assert rounds["rounds"][0]["started_at"] is not None
+        assert rounds["rounds"][0]["finished_at"] is not None
         assert result["research_validation"]["conclusion"] == "INCONCLUSIVE"
     finally:
         queue.db.close()

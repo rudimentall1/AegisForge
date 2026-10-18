@@ -393,6 +393,10 @@ def export_research_case_bundle(
                 round_id = task.get("round_id")
                 if round_id is not None and round_id not in declared_round_ids:
                     raise ResearchCaseBundleError("task_round_not_declared_in_case")
+        for task in tasks:
+            round_spec_id = task.get("round_spec_id")
+            if round_spec_id is not None and round_spec_id not in declared_round_spec_ids:
+                raise ResearchCaseBundleError("task_round_spec_not_declared_in_case")
         for observation in evidence:
             task_id = observation.get("task_id")
             if task_id not in task_ids_for_case:
@@ -696,12 +700,10 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
             round_id = task.get("round_id")
             if round_id is not None and round_id not in declared_round_ids:
                 raise ResearchCaseBundleError("task_round_not_declared_in_case")
-            round_spec_id = task.get("round_spec_id")
-            if round_spec_id is not None and round_spec_id not in declared_round_ids:
-                raise ResearchCaseBundleError("task_round_spec_not_declared_in_case")
-            round_spec_id = task.get("round_spec_id")
-            if round_spec_id is not None and round_spec_id not in declared_round_spec_ids:
-                raise ResearchCaseBundleError("task_round_spec_not_declared_in_case")
+    for task in tasks_file["tasks"]:
+        round_spec_id = task.get("round_spec_id")
+        if round_spec_id is not None and round_spec_id not in declared_round_ids:
+            raise ResearchCaseBundleError("task_round_spec_not_declared_in_case")
     for observation in evidence_file["observations"]:
         if not isinstance(observation, dict):
             raise ResearchCaseBundleError("evidence_record_must_be_object")

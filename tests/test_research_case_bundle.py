@@ -1324,3 +1324,28 @@ def test_case_bundle_verifier_rejects_undeclared_planned_round_identity(tmp_path
         match="task_round_spec_not_declared_in_case",
     ):
         verify_research_case_bundle(forged)
+
+
+def test_case_bundle_verifier_rejects_rehashed_evidence_planned_round_mismatch(tmp_path):
+    """Evidence cannot be reassigned to another planned round by rebuilding unsigned hashes."""
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    original = tmp_path / "case.zip"
+    forged = tmp_path / "forged-evidence-round-spec.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    _rewrite_bundle_json_member(
+        original,
+        forged,
+        "evidence.json",
+        lambda payload: payload["observations"][0].update(
+            {"round_spec_id": "different-planned-round"}
+        ),
+    )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="evidence_observation_round_spec_identity_mismatch",
+    ):
+        verify_research_case_bundle(forged)
+

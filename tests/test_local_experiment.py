@@ -143,3 +143,24 @@ def test_verifier_rejects_oversized_identity_metadata():
     report = verify_experiment_record(forged, artifacts)
 
     assert report == {"status": "FAIL", "errors": ["case_id_invalid"]}
+
+
+
+def test_verifier_rejects_excessive_toolchain_item_count():
+    record, artifacts = _record()
+    forged = copy.deepcopy(record)
+    forged["toolchain"] = {f"tool-{index}": "1" for index in range(65)}
+
+    report = verify_experiment_record(forged, artifacts)
+
+    assert report == {"status": "FAIL", "errors": ["toolchain_invalid"]}
+
+
+def test_verifier_rejects_oversized_repository_identity():
+    record, artifacts = _record()
+    forged = copy.deepcopy(record)
+    forged["target_repository"] = "a" * (16 * 1024 + 1) + "/repo"
+
+    report = verify_experiment_record(forged, artifacts)
+
+    assert report == {"status": "FAIL", "errors": ["target_repository_invalid"]}

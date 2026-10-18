@@ -25,14 +25,17 @@ from shared.research_case import (
 )
 from shared.result_codec import decode
 
-SCHEMA_VERSION = "aegisforge-research-case-bundle-v2"
+SCHEMA_VERSION = "aegisforge-research-case-bundle-v3"
+PREVIOUS_SCHEMA_VERSION = "aegisforge-research-case-bundle-v2"
 LEGACY_SCHEMA_VERSION = "aegisforge-research-case-bundle-v1"
 MEMBERS = ("case.json", "tasks.json", "evidence.json")
-ALL_MEMBERS = frozenset((*MEMBERS, "manifest.json"))
+V3_MEMBERS = (*MEMBERS, "rounds.json")
+ALL_MEMBERS = frozenset((*V3_MEMBERS, "manifest.json"))
+LEGACY_MEMBERS = frozenset((*MEMBERS, "manifest.json"))
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 MAX_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
 MAX_MEMBER_BYTES = 24 * 1024 * 1024
-MAX_MEMBER_COUNT = 4
+MAX_MEMBER_COUNT = 5
 MAX_TASKS = 10_000
 MAX_EVIDENCE_ROWS = 20_000
 
@@ -228,7 +231,7 @@ def _case_from_payload(payload: object) -> ResearchCase:
 
 
 def _zip_bytes(files: dict[str, bytes]) -> bytes:
-    if set(files) != ALL_MEMBERS:
+    if set(files) not in (ALL_MEMBERS, LEGACY_MEMBERS):
         raise ResearchCaseBundleError("bundle_member_set_invalid")
     import io
 
@@ -328,6 +331,24 @@ def export_research_case_bundle(
                 raise ResearchCaseBundleError("completed_task_missing_case_binding")
             tasks.append(item)
 
+        round_registry_available = "research_case_rounds" in tables
+        round_records = []
+        if round_registry_available:
+            round_columns = {row["name"] for row in connection.execute("PRAGMA table_info(research_case_rounds)")}
+            required_round_columns = {"round_id", "case_id", "round_number", "root_task_id", "created_at"}
+            if not required_round_columns.issubset(round_columns):
+                raise ResearchCaseBundleError("round_registry_schema_invalid")
+            round_select = [column for column in (
+                "round_id", "case_id", "round_number", "root_task_id", "created_at",
+                "round_spec_id", "status", "started_at", "finished_at"
+            ) if column in round_columns]
+            round_records = [dict(row) for row in connection.execute(
+                "SELECT " + ", ".join(f'"{column}"' for column in round_select)
+                + " FROM research_case_rounds WHERE case_id = ? ORDER BY round_number, round_id",
+                (case_id,),
+            ).fetchall()]
+            if len(round_records) > MAX_TASKS:
+                raise ResearchCaseBundleError("case_round_count_exceeds_limit")
         evidence = []
         if "evidence_observations" in tables:
             evidence_columns = {
@@ -437,6 +458,12 @@ def export_research_case_bundle(
             "case_id": case_id,
             "observations": evidence,
         },
+        "rounds.json": {
+            "schema_version": SCHEMA_VERSION,
+            "case_id": case_id,
+            "registry_available": round_registry_available,
+            "rounds": round_records,
+        },
     }
     files = {name: _canonical_json(value) for name, value in payloads.items()}
     entries = [
@@ -489,10 +516,11 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     try:
         with zipfile.ZipFile(path, "r") as archive:
             infos = archive.infolist()
-            if len(infos) != MAX_MEMBER_COUNT:
+            if len(infos) not in (len(LEGACY_MEMBERS), len(ALL_MEMBERS)):
                 raise ResearchCaseBundleError("bundle_member_count_invalid")
             names = [item.filename for item in infos]
-            if len(set(names)) != len(names) or set(names) != ALL_MEMBERS:
+            actual_members = set(names)
+            if len(set(names)) != len(names) or actual_members not in (LEGACY_MEMBERS, ALL_MEMBERS):
                 raise ResearchCaseBundleError("bundle_member_set_invalid")
             total_size = 0
             actual_total_size = 0
@@ -549,7 +577,7 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         expected_manifest_fields = {
             "schema_version", "case_id", "case_digest", "entries", "bundle_sha256"
         }
-    elif bundle_schema_version == SCHEMA_VERSION:
+    elif bundle_schema_version in (PREVIOUS_SCHEMA_VERSION, SCHEMA_VERSION):
         expected_manifest_fields = {
             "schema_version", "case_id", "case_digest", "entries", "merkle_root", "bundle_sha256"
         }
@@ -558,9 +586,10 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     if set(manifest) != expected_manifest_fields:
         raise ResearchCaseBundleError("manifest_fields_invalid")
     entries = manifest.get("entries")
-    if not isinstance(entries, list) or len(entries) != len(MEMBERS):
+    expected_bundle_members = set(V3_MEMBERS if bundle_schema_version == SCHEMA_VERSION else MEMBERS)
+    if not isinstance(entries, list) or len(entries) != len(expected_bundle_members):
         raise ResearchCaseBundleError("manifest_entries_invalid")
-    expected_paths = set(MEMBERS)
+    expected_paths = expected_bundle_members
     entry_paths = [entry.get("path") if isinstance(entry, dict) else None for entry in entries]
     if entry_paths != sorted(entry_paths):
         raise ResearchCaseBundleError("manifest_entries_not_sorted")
@@ -587,7 +616,7 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         raise ResearchCaseBundleError("manifest_member_set_invalid")
 
     manifest_core = {key: manifest[key] for key in ("schema_version", "case_id", "case_digest", "entries")}
-    if bundle_schema_version == SCHEMA_VERSION:
+    if bundle_schema_version in (PREVIOUS_SCHEMA_VERSION, SCHEMA_VERSION):
         merkle_root = manifest.get("merkle_root")
         if (
             not isinstance(merkle_root, str)

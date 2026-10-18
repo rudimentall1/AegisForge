@@ -12,6 +12,7 @@ def _record(exit_code=0):
         case_id="case-synthetic-1",
         round_id="round-runtime-1",
         task_id="task-control-1",
+        target_repository="example/protocol",
         target_commit="a" * 40,
         argv=["pytest", "-q", "tests/test_control.py"],
         toolchain={"python": "3.12.1", "pytest": "8.3.4"},
@@ -32,6 +33,7 @@ def test_local_experiment_record_verifies_raw_artifacts_and_identity():
     assert report["case_id"] == "case-synthetic-1"
     assert report["round_id"] == "round-runtime-1"
     assert report["task_id"] == "task-control-1"
+    assert report["target_repository"] == "example/protocol"
     assert report["checked_artifacts"] == 3
 
 
@@ -87,6 +89,7 @@ def test_invalid_revision_is_rejected_before_record_creation():
             case_id="case-1",
             round_id="round-1",
             task_id="task-1",
+            target_repository="example/protocol",
             target_commit="main",
             argv=["pytest"],
             toolchain={"python": "3.12"},

@@ -38,13 +38,13 @@ def test_local_experiment_record_verifies_raw_artifacts_and_identity():
 def test_raw_output_tampering_fails_closed():
     record, artifacts = _record()
     changed = dict(artifacts)
-    changed["stdout.bin"] = b"control: forged\n"
+    changed["stdout.bin"] = b"control: invariant-PRESERVED\n"
 
     report = verify_experiment_record(record, changed)
 
     assert report == {
         "status": "FAIL",
-        "errors": ["artifact_size_mismatch:stdout.bin"],
+        "errors": ["artifact_digest_mismatch:stdout.bin"],
     }
 
 

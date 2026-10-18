@@ -308,6 +308,12 @@ def _validate_round_registry(
                     f"round_registry_{timestamp_field}_invalid"
                 )
         spec_id = record.get("round_spec_id")
+        if case.rounds and spec_id is None:
+            # A runtime round in a planned case must retain the declared plan
+            # identity. Otherwise a self-consistent, rehashed bundle could
+            # erase the link between execution and the hypothesis it was meant
+            # to test.
+            raise ResearchCaseBundleError("round_registry_spec_required")
         if spec_id is not None and (
             not isinstance(spec_id, str) or not spec_id.strip() or spec_id not in declared_specs
         ):

@@ -1378,3 +1378,38 @@ def test_case_bundle_verifier_rejects_invalid_round_lifecycle_fields(
     with pytest.raises(ResearchCaseBundleError, match=error):
         verify_research_case_bundle(forged)
 
+def test_case_bundle_verifier_rejects_missing_planned_identity_in_runtime_registry(tmp_path):
+    """Rehashing a bundle must not erase the planned hypothesis/run linkage."""
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    original = tmp_path / "case.zip"
+    tasks_forged = tmp_path / "tasks-without-spec.zip"
+    evidence_forged = tmp_path / "evidence-without-spec.zip"
+    forged = tmp_path / "round-registry-without-spec.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    _rewrite_bundle_json_member(
+        original,
+        tasks_forged,
+        "tasks.json",
+        lambda payload: payload["tasks"][0].update({"round_spec_id": None}),
+    )
+    _rewrite_bundle_json_member(
+        tasks_forged,
+        evidence_forged,
+        "evidence.json",
+        lambda payload: payload["observations"][0].update({"round_spec_id": None}),
+    )
+    _rewrite_bundle_json_member(
+        evidence_forged,
+        forged,
+        "rounds.json",
+        lambda payload: payload["rounds"][0].pop("round_spec_id", None),
+    )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="round_registry_spec_required",
+    ):
+        verify_research_case_bundle(forged)
+

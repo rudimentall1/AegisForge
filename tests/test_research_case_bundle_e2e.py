@@ -62,6 +62,20 @@ def test_planned_round_identity_survives_queue_evidence_export_and_offline_verif
         claimed_root = queue.claim("synthetic-e2e-runner", role="source_researcher")
         assert claimed_root is not None
         assert claimed_root[0] == root_id
+        # The root schedules its child while running; the queue must keep
+        # the child pending until its parent reaches a terminal state.
+        child_id = queue.add(
+            "Synthetic local validation task",
+            role="crypto_analyst",
+            parent_task_id=root_id,
+        )
+        child = queue.db.execute(
+            "SELECT research_case_id, round_id, round_spec_id, status FROM queue WHERE id = ?",
+            (child_id,),
+        ).fetchone()
+        assert child == (case.case_id, runtime_round_id, planned_round_id, "pending")
+        assert queue.claim("synthetic-e2e-runner", role="crypto_analyst") is None
+
         root_result = {
             "stage": "source_research",
             "research_case_binding": research_case_binding(case),
@@ -72,17 +86,6 @@ def test_planned_round_identity_survives_queue_evidence_export_and_offline_verif
             },
         }
         queue.finish(root_id, root_result)
-
-        child_id = queue.add(
-            "Synthetic local validation task",
-            role="crypto_analyst",
-            parent_task_id=root_id,
-        )
-        child = queue.db.execute(
-            "SELECT research_case_id, round_id, round_spec_id FROM queue WHERE id = ?",
-            (child_id,),
-        ).fetchone()
-        assert child == (case.case_id, runtime_round_id, planned_round_id)
 
         claimed_child = queue.claim("synthetic-e2e-runner", role="crypto_analyst")
         assert claimed_child is not None

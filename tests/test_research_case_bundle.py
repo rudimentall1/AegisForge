@@ -947,6 +947,9 @@ def test_case_bundle_verifier_keeps_schema_v1_compatibility(tmp_path):
     for name in ("tasks.json", "evidence.json"):
         payload = json.loads(files[name])
         payload["schema_version"] = "aegisforge-research-case-bundle-v1"
+        collection = "tasks" if name == "tasks.json" else "observations"
+        for record in payload[collection]:
+            record.pop("round_spec_id", None)
         files[name] = json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
         ).encode("utf-8")

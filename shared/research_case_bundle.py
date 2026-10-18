@@ -294,6 +294,8 @@ def _validate_round_registry(
             raise ResearchCaseBundleError("round_registry_root_task_missing")
         if root.get("parent_task_id") is not None:
             raise ResearchCaseBundleError("round_registry_root_task_has_parent")
+        if root.get("role") != "source_researcher":
+            raise ResearchCaseBundleError("round_registry_root_task_role_invalid")
         if root.get("round_id") != round_id or root.get("round_spec_id") != spec_id:
             raise ResearchCaseBundleError("round_registry_root_identity_mismatch")
         for task in tasks:

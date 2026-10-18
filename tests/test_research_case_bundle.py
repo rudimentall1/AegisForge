@@ -206,6 +206,43 @@ def test_case_bundle_exports_and_verifies_runtime_round_registry(tmp_path):
     assert report["valid"] is True
 
 
+def test_case_bundle_verifier_rejects_runtime_identity_collapsed_into_planned_identity(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    original = tmp_path / "case-with-rounds.zip"
+    forged = tmp_path / "collapsed-round-identities.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    def collapse_round_identities(payload):
+        planned_id = "source-pattern-v1"
+        payload["rounds"][0]["round_id"] = planned_id
+
+    _rewrite_bundle_json_member(original, forged, "rounds.json", collapse_round_identities)
+    # Keep the archive internally linked and recompute all hashes: the verifier
+    # must reject the semantic identity collapse, not merely a stale manifest.
+    def align_task_ids(payload):
+        for task in payload["tasks"]:
+            if task.get("round_spec_id") == "source-pattern-v1":
+                task["round_id"] = "source-pattern-v1"
+
+    aligned_tasks = tmp_path / "collapsed-round-identities-tasks.zip"
+    _rewrite_bundle_json_member(forged, aligned_tasks, "tasks.json", align_task_ids)
+
+    def align_evidence_ids(payload):
+        for observation in payload["observations"]:
+            if observation.get("round_spec_id") == "source-pattern-v1":
+                observation["round_id"] = "source-pattern-v1"
+
+    _rewrite_bundle_json_member(
+        aligned_tasks, forged, "evidence.json", align_evidence_ids
+    )
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="round_registry_runtime_matches_spec_identity",
+    ):
+        verify_research_case_bundle(forged)
+
+
 def test_case_bundle_export_rejects_runtime_round_missing_from_registry(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case, _ = _database_with_round_registry(db_path)

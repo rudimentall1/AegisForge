@@ -2392,6 +2392,10 @@ class TaskQueue:
             ).rowcount
 
             if updated == 1:
+                # Recovery is a queue lifecycle transition too. Recompute the
+                # aggregate round state before committing so the registry does
+                # not remain RUNNING after its only worker has been requeued.
+                self._sync_research_case_round_lifecycle(task_id)
                 recovered.append(task_id)
 
         if recovered:

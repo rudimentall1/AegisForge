@@ -266,6 +266,7 @@ def _validate_round_registry(
         raise ResearchCaseBundleError("round_registry_unavailable_but_records_present")
     task_by_id = {task["id"]: task for task in tasks}
     seen_ids = set()
+    seen_numbers = set()
     seen_roots = set()
     declared_specs = {item.round_id for item in case.rounds}
     for record in rounds:
@@ -284,6 +285,8 @@ def _validate_round_registry(
             raise ResearchCaseBundleError("round_registry_case_identity_mismatch")
         if type(round_number) is not int or round_number < 1:
             raise ResearchCaseBundleError("round_registry_number_invalid")
+        if round_number in seen_numbers:
+            raise ResearchCaseBundleError("round_registry_number_duplicate")
         if not isinstance(root_task_id, str) or not root_task_id.strip() or root_task_id in seen_roots:
             raise ResearchCaseBundleError("round_registry_root_task_invalid")
         if not isinstance(record.get("created_at"), str) or not record["created_at"].strip():
@@ -306,6 +309,7 @@ def _validate_round_registry(
             if task.get("round_id") == round_id and task.get("round_spec_id") != spec_id:
                 raise ResearchCaseBundleError("round_registry_task_identity_mismatch")
         seen_ids.add(round_id)
+        seen_numbers.add(round_number)
         seen_roots.add(root_task_id)
     if payload["registry_available"]:
         for task in tasks:

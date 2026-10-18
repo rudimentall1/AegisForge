@@ -318,6 +318,11 @@ def _validate_round_registry(
             not isinstance(spec_id, str) or not spec_id.strip() or spec_id not in declared_specs
         ):
             raise ResearchCaseBundleError("round_registry_spec_not_declared_in_case")
+        if spec_id is not None and round_id == spec_id:
+            # Planned identity names the hypothesis; runtime identity names one
+            # concrete execution. Accepting the same value for both would make
+            # a rehashed bundle collapse those distinct provenance dimensions.
+            raise ResearchCaseBundleError("round_registry_runtime_matches_spec_identity")
         root = task_by_id.get(root_task_id)
         if root is None:
             raise ResearchCaseBundleError("round_registry_root_task_missing")

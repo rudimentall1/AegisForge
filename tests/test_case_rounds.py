@@ -125,6 +125,30 @@ def test_round_lifecycle_records_failed_execution(queue):
     assert started_at is not None
     assert finished_at is not None
 
+    # Requeue is a real lifecycle transition: the registry must not remain
+    # terminal while the failed task is eligible for another attempt.
+    assert queue.requeue_failed(root_id) is True
+    status, started_at, finished_at = queue.db.execute(
+        "SELECT status, started_at, finished_at FROM research_case_rounds "
+        "WHERE case_id = ? AND round_id = ?",
+        (case.case_id, started["round_id"]),
+    ).fetchone()
+    assert status == "QUEUED"
+    assert started_at is not None
+    assert finished_at is None
+
+    retried = queue.claim("lifecycle-test-retry", role="source_researcher")
+    assert retried is not None
+    assert retried[0] == root_id
+    status, started_at, finished_at = queue.db.execute(
+        "SELECT status, started_at, finished_at FROM research_case_rounds "
+        "WHERE case_id = ? AND round_id = ?",
+        (case.case_id, started["round_id"]),
+    ).fetchone()
+    assert status == "RUNNING"
+    assert started_at is not None
+    assert finished_at is None
+
 
 def test_start_case_round_rejects_when_any_case_task_is_active(queue):
     case = make_case()

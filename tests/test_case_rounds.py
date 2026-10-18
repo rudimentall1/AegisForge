@@ -63,6 +63,69 @@ def test_start_case_round_creates_one_case_bound_root_and_ledger_row(queue):
     )
 
 
+def test_round_lifecycle_tracks_root_and_child_queue_transitions(queue):
+    case = make_case()
+    queue.register_research_case(case)
+    started = start_case_round(queue, case.case_id)
+    round_id = started["round_id"]
+    root_id = started["root_task_id"]
+
+    def round_state():
+        return queue.db.execute(
+            "SELECT status, started_at, finished_at FROM research_case_rounds "
+            "WHERE case_id = ? AND round_id = ?",
+            (case.case_id, round_id),
+        ).fetchone()
+
+    assert round_state() == ("QUEUED", None, None)
+
+    claimed_root = queue.claim("lifecycle-test-root", role="source_researcher")
+    assert claimed_root[0] == root_id
+    running = round_state()
+    assert running[0] == "RUNNING"
+    assert running[1] is not None
+    assert running[2] is None
+
+    child_id = queue.add(
+        "lifecycle child task",
+        role="crypto_analyst",
+        parent_task_id=root_id,
+    )
+    queue.finish(root_id, {"stage": "root complete"})
+    waiting_for_child = round_state()
+    assert waiting_for_child[0] == "RUNNING"
+    assert waiting_for_child[1] is not None
+    assert waiting_for_child[2] is None
+
+    claimed_child = queue.claim("lifecycle-test-child", role="crypto_analyst")
+    assert claimed_child[0] == child_id
+    queue.finish(child_id, {"stage": "child complete"})
+    completed = round_state()
+    assert completed[0] == "COMPLETED"
+    assert completed[1] is not None
+    assert completed[2] is not None
+
+
+def test_round_lifecycle_records_failed_execution(queue):
+    case = make_case()
+    queue.register_research_case(case)
+    started = start_case_round(queue, case.case_id)
+    root_id = started["root_task_id"]
+
+    claimed = queue.claim("lifecycle-test-failure", role="source_researcher")
+    assert claimed[0] == root_id
+    queue.fail(root_id, {"reason": "synthetic failure"})
+
+    status, started_at, finished_at = queue.db.execute(
+        "SELECT status, started_at, finished_at FROM research_case_rounds "
+        "WHERE case_id = ? AND round_id = ?",
+        (case.case_id, started["round_id"]),
+    ).fetchone()
+    assert status == "FAILED"
+    assert started_at is not None
+    assert finished_at is not None
+
+
 def test_start_case_round_rejects_when_any_case_task_is_active(queue):
     case = make_case()
     queue.register_research_case(case)

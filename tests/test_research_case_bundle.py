@@ -225,6 +225,30 @@ def test_case_bundle_export_rejects_runtime_round_missing_from_registry(tmp_path
         export_research_case_bundle(db_path, case.case_id, tmp_path / "orphan-round.zip")
 
 
+def test_case_bundle_export_rejects_child_task_with_different_planned_round(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, runtime_round_id = _database_with_round_registry(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            """INSERT INTO queue
+               (id, description, status, created_at, role, parent_task_id,
+                result, retry_count, research_case_id, planner_decision,
+                round_id, round_spec_id)
+               VALUES (?, ?, 'pending', ?, 'validator', ?, NULL, 0, ?, NULL, ?, ?)""",
+            ("child-task-wrong-spec", "Synthetic child with mismatched planned round",
+             "2026-10-16T00:02:00+00:00", "task-001", case.case_id,
+             runtime_round_id, "different-planned-spec"),
+        )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="task_parent_round_spec_identity_mismatch",
+    ):
+        export_research_case_bundle(
+            db_path, case.case_id, tmp_path / "mismatched-child-spec.zip"
+        )
+
+
 def test_case_bundle_verifier_rejects_forged_round_root_even_with_rebuilt_manifest(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case, _ = _database_with_round_registry(db_path)

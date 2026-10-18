@@ -81,6 +81,23 @@ class EvidenceLedger:
             CREATE INDEX IF NOT EXISTS idx_evidence_contradictions_last_seen
             ON evidence_contradictions(last_seen)
         """)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS local_experiment_records (
+                record_digest TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                round_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                input_bytes BLOB NOT NULL,
+                stdout_bytes BLOB NOT NULL,
+                stderr_bytes BLOB NOT NULL
+            )
+        """)
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_local_experiment_case_round
+            ON local_experiment_records(case_id, round_id, created_at)
+        """)
         self.db.commit()
 
     @staticmethod
@@ -300,6 +317,64 @@ class EvidenceLedger:
             "verifier": payload.get("verifier"),
             "source": role,
             "ledger_result": result,
+        }
+
+    def record_local_experiment(self, record, artifacts, observed_at=None, commit=True):
+        """Persist a bounded local-experiment record after checking task identity.
+
+        The record and raw artifacts are stored separately from normalized
+        intelligence atoms. This method never executes the argv metadata.
+        """
+        from shared.local_experiment import verify_experiment_record
+
+        report = verify_experiment_record(record, artifacts)
+        if report.get("status") != "PASS":
+            raise ValueError("local_experiment_record_invalid")
+        task_id = record["task_id"]
+        queue_columns = {
+            row[1] for row in self.db.execute("PRAGMA table_info(queue)")
+        }
+        required = {"id", "research_case_id", "round_id"}
+        if not required.issubset(queue_columns):
+            raise ValueError("local_experiment_queue_binding_schema_missing")
+        row = self.db.execute(
+            "SELECT research_case_id, round_id FROM queue WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("local_experiment_task_not_found")
+        if row[0] != record["case_id"] or row[1] != record["round_id"]:
+            raise ValueError("local_experiment_task_identity_mismatch")
+
+        canonical = json.dumps(
+            record, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            allow_nan=False,
+        )
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        now = observed_at or datetime.now(timezone.utc).isoformat()
+        try:
+            self.db.execute(
+                """INSERT INTO local_experiment_records
+                   (record_digest, case_id, round_id, task_id, created_at,
+                    record_json, input_bytes, stdout_bytes, stderr_bytes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    digest, record["case_id"], record["round_id"], task_id, now,
+                    canonical, artifacts["input.bin"], artifacts["stdout.bin"],
+                    artifacts["stderr.bin"],
+                ),
+            )
+        except Exception as exc:
+            raise ValueError("local_experiment_record_persistence_failed") from exc
+        if commit:
+            self.db.commit()
+        return {
+            "record_digest": digest,
+            "case_id": record["case_id"],
+            "round_id": record["round_id"],
+            "task_id": task_id,
+            "experiment_status": report["experiment_status"],
+            "stored_artifacts": report["checked_artifacts"],
         }
 
     def record_observation(self, task_id, role, atom, observed_at=None, commit=True):

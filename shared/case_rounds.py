@@ -21,7 +21,7 @@ class CaseRoundError(ValueError):
     """A case round cannot safely be started."""
 
 
-def start_case_round(queue: TaskQueue, case_id: str) -> dict:
+def start_case_round(queue: TaskQueue, case_id: str, round_spec_id: str | None = None) -> dict:
     """Atomically enqueue one deliberate new round for a registered case."""
     if not isinstance(case_id, str) or not case_id.strip():
         raise CaseRoundError("case_id_required")
@@ -35,6 +35,17 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
         if case.status not in {CaseStatus.READY, CaseStatus.RUNNING}:
             raise CaseRoundError(f"research_case_not_runnable:{case.status.value}")
         validate_task_binding(case, case_id)
+
+        declared_specs = {item.round_id for item in case.rounds}
+        if declared_specs and round_spec_id is None:
+            raise CaseRoundError("planned_case_requires_round_spec_id")
+        if round_spec_id is not None:
+            if not isinstance(round_spec_id, str) or not round_spec_id.strip():
+                raise CaseRoundError("round_spec_id_invalid")
+            if round_spec_id not in declared_specs:
+                raise CaseRoundError("round_spec_id_not_declared_in_case")
+        elif declared_specs:
+            raise CaseRoundError("round_spec_id_required_for_planned_case")
 
         active = db.execute(
             """
@@ -83,6 +94,10 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
                 round_number INTEGER NOT NULL,
                 root_task_id TEXT NOT NULL UNIQUE,
                 created_at TEXT NOT NULL,
+                round_spec_id TEXT,
+                status TEXT NOT NULL DEFAULT 'QUEUED',
+                started_at TEXT,
+                finished_at TEXT,
                 UNIQUE(case_id, round_number)
             )
             """
@@ -126,8 +141,8 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
             """
             INSERT INTO queue
                 (id, description, status, created_at, role, parent_task_id,
-                 research_case_id, round_id)
-            VALUES (?, ?, 'pending', ?, 'source_researcher', NULL, ?, ?)
+                 research_case_id, round_id, round_spec_id)
+            VALUES (?, ?, 'pending', ?, 'source_researcher', NULL, ?, ?, ?)
             """,
             (
                 root_task_id,
@@ -135,15 +150,26 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
                 now,
                 case_id,
                 round_id,
+                round_spec_id,
             ),
         )
+        round_columns = {row[1] for row in db.execute("PRAGMA table_info(research_case_rounds)")}
+        if "round_spec_id" not in round_columns:
+            db.execute("ALTER TABLE research_case_rounds ADD COLUMN round_spec_id TEXT")
+        if "status" not in round_columns:
+            db.execute("ALTER TABLE research_case_rounds ADD COLUMN status TEXT NOT NULL DEFAULT 'QUEUED'")
+        if "started_at" not in round_columns:
+            db.execute("ALTER TABLE research_case_rounds ADD COLUMN started_at TEXT")
+        if "finished_at" not in round_columns:
+            db.execute("ALTER TABLE research_case_rounds ADD COLUMN finished_at TEXT")
         db.execute(
             """
             INSERT INTO research_case_rounds
-                (round_id, case_id, round_number, root_task_id, created_at)
-            VALUES (?, ?, ?, ?, ?)
+                (round_id, case_id, round_number, root_task_id, created_at,
+                 round_spec_id, status, started_at, finished_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', NULL, NULL)
             """,
-            (round_id, case_id, round_number, root_task_id, now),
+            (round_id, case_id, round_number, root_task_id, now, round_spec_id),
         )
         db.commit()
         return {
@@ -151,6 +177,7 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
             "case_id": case_id,
             "round_number": round_number,
             "round_id": round_id,
+            "round_spec_id": round_spec_id,
             "root_task_id": root_task_id,
             "created_at": now,
         }

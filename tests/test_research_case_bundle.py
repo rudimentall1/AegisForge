@@ -249,6 +249,44 @@ def test_case_bundle_export_rejects_child_task_with_different_planned_round(tmp_
         )
 
 
+def test_case_bundle_verifier_rejects_duplicate_runtime_round_numbers(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    original = tmp_path / "case-with-rounds.zip"
+    with_duplicate_task = tmp_path / "duplicate-round-task.zip"
+    forged = tmp_path / "duplicate-round-number.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    def add_second_root(payload):
+        root = dict(payload["tasks"][0])
+        root.update({
+            "id": "task-002",
+            "description": "Synthetic second round root",
+            "status": "pending",
+            "parent_task_id": None,
+            "round_id": "c6b6dca7-b87f-45a0-81d7-52dfc5e9b69f",
+        })
+        payload["tasks"].append(root)
+
+    _rewrite_bundle_json_member(original, with_duplicate_task, "tasks.json", add_second_root)
+
+    def add_duplicate_number(payload):
+        second = dict(payload["rounds"][0])
+        second.update({
+            "round_id": "c6b6dca7-b87f-45a0-81d7-52dfc5e9b69f",
+            "root_task_id": "task-002",
+        })
+        payload["rounds"].append(second)
+
+    _rewrite_bundle_json_member(
+        with_duplicate_task, forged, "rounds.json", add_duplicate_number
+    )
+    with pytest.raises(
+        ResearchCaseBundleError, match="round_registry_number_duplicate"
+    ):
+        verify_research_case_bundle(forged)
+
+
 def test_case_bundle_verifier_rejects_records_when_round_registry_marked_unavailable(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case, _ = _database_with_round_registry(db_path)

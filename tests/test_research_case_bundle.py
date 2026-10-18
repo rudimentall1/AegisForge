@@ -463,6 +463,18 @@ def test_case_bundle_verifier_rejects_forged_evidence_role_even_with_rebuilt_man
         verify_research_case_bundle(forged)
 
 
+def test_case_bundle_export_rejects_planned_identity_without_runtime_round(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE queue SET round_id = NULL WHERE id = ?", ("task-001",))
+
+    with pytest.raises(
+        ResearchCaseBundleError, match="task_round_spec_requires_runtime_round"
+    ):
+        export_research_case_bundle(db_path, case.case_id, tmp_path / "invalid.zip")
+
+
 def test_case_bundle_verifier_rejects_planned_identity_without_runtime_round(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case, _ = _database_with_round_registry(db_path)

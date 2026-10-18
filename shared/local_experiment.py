@@ -136,7 +136,9 @@ def verify_experiment_record(
     if record.get("schema_version") != SCHEMA_VERSION:
         return {"status": "FAIL", "errors": ["schema_version_unsupported"]}
     for field in ("case_id", "round_id", "task_id"):
-        if not isinstance(record.get(field), str) or not record[field].strip():
+        value = record.get(field)
+        if (not isinstance(value, str) or not value.strip()
+                or len(value.encode("utf-8")) > _MAX_TEXT_BYTES):
             return {"status": "FAIL", "errors": [f"{field}_invalid"]}
     target_repository = record.get("target_repository")
     if not isinstance(target_repository, str) or not _REPOSITORY_RE.fullmatch(target_repository):
@@ -146,11 +148,16 @@ def verify_experiment_record(
         return {"status": "FAIL", "errors": ["target_commit_invalid"]}
     argv = record.get("argv")
     toolchain = record.get("toolchain")
-    if (not isinstance(argv, list) or not argv
-            or any(not isinstance(item, str) for item in argv)):
+    if (not isinstance(argv, list) or not argv or len(argv) > _MAX_ARG_COUNT
+            or any(not isinstance(item, str) or len(item.encode("utf-8")) > _MAX_TEXT_BYTES
+                   for item in argv)):
         return {"status": "FAIL", "errors": ["argv_invalid"]}
     if (not isinstance(toolchain, dict) or not toolchain
-            or any(not isinstance(k, str) or not isinstance(v, str) for k, v in toolchain.items())):
+            or any(not isinstance(k, str) or not k.strip()
+                   or len(k.encode("utf-8")) > _MAX_TEXT_BYTES
+                   or not isinstance(v, str) or not v.strip()
+                   or len(v.encode("utf-8")) > _MAX_TEXT_BYTES
+                   for k, v in toolchain.items())):
         return {"status": "FAIL", "errors": ["toolchain_invalid"]}
     exit_code = record.get("exit_code")
     expected = record.get("expected_exit_code")

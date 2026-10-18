@@ -10,7 +10,7 @@ from shared.research_case_bundle import (
     export_research_case_bundle,
     verify_research_case_bundle,
 )
-from shared.result_codec import encode
+from shared.result_codec import decode, encode
 
 
 def _planned_case():
@@ -115,6 +115,10 @@ def test_planned_round_identity_survives_queue_evidence_export_and_offline_verif
         assert root["round_spec_id"] == planned_round_id
         assert child["round_id"] == runtime_round_id
         assert child["round_spec_id"] == planned_round_id
+        archived_result = decode(child["result"])
+        assert archived_result["research_validation"]["conclusion"] == "INCONCLUSIVE"
+        assert archived_result["research_validation"]["synthetic_fixture"] is True
+        assert archived_result["research_validation"]["historical_reproduction_confirmed"] is False
         assert evidence[0]["task_id"] == child_id
         assert evidence[0]["round_id"] == runtime_round_id
         assert evidence[0]["round_spec_id"] == planned_round_id

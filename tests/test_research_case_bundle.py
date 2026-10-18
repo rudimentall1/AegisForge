@@ -964,6 +964,8 @@ def test_case_bundle_verifier_keeps_schema_v1_compatibility(tmp_path):
     files["manifest.json"] = json.dumps(
         manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     ).encode("utf-8")
+    # Schema v1 contains only the original three payloads plus manifest.
+    files.pop("rounds.json", None)
     with zipfile.ZipFile(legacy, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name in sorted(files):
             archive.writestr(name, files[name])
@@ -993,7 +995,7 @@ def test_case_bundle_verifier_documents_unsigned_manifest_rewrite_boundary(tmp_p
 
     report = verify_research_case_bundle(rewritten)
     assert report["valid"] is True
-    assert report["schema_version"] == "aegisforge-research-case-bundle-v2"
+    assert report["schema_version"] == "aegisforge-research-case-bundle-v3"
 
 
 

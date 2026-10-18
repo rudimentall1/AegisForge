@@ -237,7 +237,7 @@ def test_case_bundle_export_rejects_child_task_with_different_planned_round(tmp_
                VALUES (?, ?, 'pending', ?, 'validator', ?, NULL, 0, ?, NULL, ?, ?)""",
             ("child-task-wrong-spec", "Synthetic child with mismatched planned round",
              "2026-10-16T00:02:00+00:00", "task-001", case.case_id,
-             runtime_round_id, "different-planned-spec"),
+             runtime_round_id, None),
         )
 
     with pytest.raises(

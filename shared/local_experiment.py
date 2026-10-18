@@ -14,6 +14,7 @@ SCHEMA_VERSION = "aegisforge-local-experiment-v1"
 _ARTIFACT_NAMES = ("input.bin", "stdout.bin", "stderr.bin")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
 _MAX_TOTAL_BYTES = 20 * 1024 * 1024
 _MAX_ARG_COUNT = 128
@@ -41,6 +42,7 @@ def build_experiment_record(
     case_id: str,
     round_id: str,
     task_id: str,
+    target_repository: str,
     target_commit: str,
     argv: list[str],
     toolchain: Mapping[str, str],
@@ -61,6 +63,8 @@ def build_experiment_record(
         ("task_id", task_id),
     ):
         _require_text(value, field)
+    if not isinstance(target_repository, str) or not _REPOSITORY_RE.fullmatch(target_repository):
+        raise ExperimentRecordError("target_repository_must_be_owner_repo")
     if not isinstance(target_commit, str) or not _COMMIT_RE.fullmatch(target_commit):
         raise ExperimentRecordError("target_commit_must_be_full_git_sha")
     if not isinstance(argv, list) or not argv or len(argv) > _MAX_ARG_COUNT:
@@ -105,6 +109,7 @@ def build_experiment_record(
         "case_id": case_id,
         "round_id": round_id,
         "task_id": task_id,
+        "target_repository": target_repository,
         "target_commit": target_commit,
         "argv": list(argv),
         "toolchain": dict(sorted(normalized_toolchain.items())),
@@ -123,7 +128,7 @@ def verify_experiment_record(
     if not isinstance(record, dict):
         return {"status": "FAIL", "errors": ["record_must_be_object"]}
     required = {
-        "schema_version", "case_id", "round_id", "task_id", "target_commit",
+        "schema_version", "case_id", "round_id", "task_id", "target_repository", "target_commit",
         "argv", "toolchain", "exit_code", "expected_exit_code", "status", "artifacts",
     }
     if set(record) != required:
@@ -133,6 +138,9 @@ def verify_experiment_record(
     for field in ("case_id", "round_id", "task_id"):
         if not isinstance(record.get(field), str) or not record[field].strip():
             return {"status": "FAIL", "errors": [f"{field}_invalid"]}
+    target_repository = record.get("target_repository")
+    if not isinstance(target_repository, str) or not _REPOSITORY_RE.fullmatch(target_repository):
+        return {"status": "FAIL", "errors": ["target_repository_invalid"]}
     target_commit = record.get("target_commit")
     if not isinstance(target_commit, str) or not _COMMIT_RE.fullmatch(target_commit):
         return {"status": "FAIL", "errors": ["target_commit_invalid"]}
@@ -187,6 +195,7 @@ def verify_experiment_record(
         "case_id": record["case_id"],
         "round_id": record["round_id"],
         "task_id": record["task_id"],
+        "target_repository": target_repository,
         "target_commit": target_commit,
         "checked_artifacts": len(_ARTIFACT_NAMES),
         "errors": [],

@@ -108,6 +108,8 @@ def _validate_task_parent_graph(tasks: list[dict]) -> set[str]:
             # be checked independently of file hashes.
             if task_records[task_id].get("round_id") != task_records[parent_id].get("round_id"):
                 raise ResearchCaseBundleError("task_parent_round_identity_mismatch")
+            if task_records[task_id].get("round_spec_id") != task_records[parent_id].get("round_spec_id"):
+                raise ResearchCaseBundleError("task_parent_round_spec_identity_mismatch")
 
     # Iterative path walking avoids recursion limits on long or adversarial chains.
     finished = set()

@@ -246,6 +246,63 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
     return output.getvalue()
 
 
+def _validate_round_registry(
+    payload: object, case_id: str, case: ResearchCase, tasks: list[dict]
+) -> None:
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version", "case_id", "registry_available", "rounds"
+    }:
+        raise ResearchCaseBundleError("round_registry_file_schema_invalid")
+    if payload.get("schema_version") != SCHEMA_VERSION or payload.get("case_id") != case_id:
+        raise ResearchCaseBundleError("round_registry_case_identity_mismatch")
+    if type(payload.get("registry_available")) is not bool or not isinstance(payload.get("rounds"), list):
+        raise ResearchCaseBundleError("round_registry_file_schema_invalid")
+    rounds = payload["rounds"]
+    if len(rounds) > MAX_TASKS:
+        raise ResearchCaseBundleError("case_round_count_exceeds_limit")
+    task_by_id = {task["id"]: task for task in tasks}
+    seen_ids = set()
+    seen_roots = set()
+    declared_specs = {item.round_id for item in case.rounds}
+    for record in rounds:
+        if not isinstance(record, dict):
+            raise ResearchCaseBundleError("round_registry_record_invalid")
+        required = {"round_id", "case_id", "round_number", "root_task_id", "created_at"}
+        optional = {"round_spec_id", "status", "started_at", "finished_at"}
+        if not required.issubset(record) or set(record) - required - optional:
+            raise ResearchCaseBundleError("round_registry_record_fields_invalid")
+        round_id = record.get("round_id")
+        root_task_id = record.get("root_task_id")
+        round_number = record.get("round_number")
+        if not isinstance(round_id, str) or not round_id.strip() or round_id in seen_ids:
+            raise ResearchCaseBundleError("round_registry_identity_invalid")
+        if record.get("case_id") != case_id:
+            raise ResearchCaseBundleError("round_registry_case_identity_mismatch")
+        if type(round_number) is not int or round_number < 1:
+            raise ResearchCaseBundleError("round_registry_number_invalid")
+        if not isinstance(root_task_id, str) or not root_task_id.strip() or root_task_id in seen_roots:
+            raise ResearchCaseBundleError("round_registry_root_task_invalid")
+        if not isinstance(record.get("created_at"), str) or not record["created_at"].strip():
+            raise ResearchCaseBundleError("round_registry_created_at_invalid")
+        spec_id = record.get("round_spec_id")
+        if spec_id is not None and (
+            not isinstance(spec_id, str) or not spec_id.strip() or spec_id not in declared_specs
+        ):
+            raise ResearchCaseBundleError("round_registry_spec_not_declared_in_case")
+        root = task_by_id.get(root_task_id)
+        if root is None:
+            raise ResearchCaseBundleError("round_registry_root_task_missing")
+        if root.get("parent_task_id") is not None:
+            raise ResearchCaseBundleError("round_registry_root_task_has_parent")
+        if root.get("round_id") != round_id or root.get("round_spec_id") != spec_id:
+            raise ResearchCaseBundleError("round_registry_root_identity_mismatch")
+        for task in tasks:
+            if task.get("round_id") == round_id and task.get("round_spec_id") != spec_id:
+                raise ResearchCaseBundleError("round_registry_task_identity_mismatch")
+        seen_ids.add(round_id)
+        seen_roots.add(root_task_id)
+
+
 def export_research_case_bundle(
     db_path: str | Path,
     case_id: str,
@@ -642,6 +699,9 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     except ValueError as exc:
         raise ResearchCaseBundleError("case_binding_invalid") from exc
     case_id = binding["case_id"]
+    expected_archive_members = ALL_MEMBERS if bundle_schema_version == SCHEMA_VERSION else LEGACY_MEMBERS
+    if set(files) != expected_archive_members:
+        raise ResearchCaseBundleError("bundle_schema_member_set_mismatch")
     if (
         manifest["case_id"] != case_id
         or manifest["case_digest"] != binding["case_digest"]
@@ -702,6 +762,10 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
             raise ResearchCaseBundleError("completed_task_missing_case_binding")
 
     _validate_task_parent_graph(tasks_file["tasks"])
+
+    if bundle_schema_version == SCHEMA_VERSION:
+        rounds_file = _strict_json(files["rounds.json"], label="rounds")
+        _validate_round_registry(rounds_file, case_id, validated_case, tasks_file["tasks"])
 
     evidence_file = _strict_json(files["evidence.json"], label="evidence")
     if (

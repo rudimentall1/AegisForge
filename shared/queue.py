@@ -2494,6 +2494,10 @@ class TaskQueue:
             self.db.rollback()
             return False
 
+        # A retry changes the round's aggregate lifecycle too. Keep this in
+        # the same transaction as the queue transition so exports cannot see
+        # a requeued task alongside a stale terminal round status.
+        self._sync_research_case_round_lifecycle(task_id)
         self.db.commit()
 
         return True

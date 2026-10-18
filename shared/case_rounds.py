@@ -135,6 +135,9 @@ def start_case_round(queue: TaskQueue, case_id: str, round_spec_id: str | None =
             "public sources and local/synthetic experiments only. Do not execute "
             "live-network actions, handle wallet/key material, or mark a finding CONFIRMED."
         )
+        queue_columns = {row[1] for row in db.execute("PRAGMA table_info(queue)")}
+        if "round_spec_id" not in queue_columns:
+            db.execute("ALTER TABLE queue ADD COLUMN round_spec_id TEXT")
         # Keep the root's round identity in the queue row as well as the ledger.
         # The task and ledger row are committed atomically below.
         db.execute(
@@ -244,6 +247,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case-id", required=True, help="Existing immutable Research Case ID")
     parser.add_argument(
+        "--round-spec-id",
+        help="Declared planned-step identity for cases with bounded RoundSpecs",
+    )
+    parser.add_argument(
         "--confirm-new-round",
         action="store_true",
         help="Explicitly authorize creation of exactly one bounded research root",
@@ -254,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
 
     queue = TaskQueue()
     try:
-        result = start_case_round(queue, args.case_id)
+        result = start_case_round(queue, args.case_id, args.round_spec_id)
     except (CaseRoundError, ValueError, TypeError) as exc:
         print(json.dumps({"status": "rejected", "reason": str(exc)}, sort_keys=True))
         return 2

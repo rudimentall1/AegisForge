@@ -135,6 +135,93 @@ def _rewrite_bundle_json_member(bundle, output, member_name, mutate):
             archive.writestr(name, files[name])
 
 
+def _database_with_round_registry(path):
+    case = _database(path)
+    planned_case = replace(
+        case,
+        rounds=(
+            RoundSpec(
+                round_id="source-pattern-v1",
+                technique="source_pattern",
+                hypothesis="Check a pinned source pattern.",
+                expected_evidence_atoms=("source-pattern-present",),
+                falsification_criteria="Pinned source lacks the pattern.",
+                priority=1,
+                disclosure_deadline_days=30,
+            ),
+        ),
+    )
+    payload = asdict(planned_case)
+    payload["execution_mode"] = planned_case.execution_mode.value
+    payload["status"] = planned_case.status.value
+    runtime_round_id = "a4eaf8b6-1f77-4c61-8b28-bb8d7bbf4a00"
+    result = {
+        "stage": "validation",
+        "research_case_binding": research_case_binding(planned_case),
+        "research_validation": {"historical_reproduction_confirmed": False},
+    }
+    with sqlite3.connect(path) as db:
+        db.execute("ALTER TABLE queue ADD COLUMN round_spec_id TEXT")
+        db.execute("ALTER TABLE evidence_observations ADD COLUMN round_spec_id TEXT")
+        db.execute(
+            "UPDATE research_cases SET payload = ? WHERE case_id = ?",
+            (json.dumps(payload, sort_keys=True, separators=(",", ":")), case.case_id),
+        )
+        db.execute(
+            "UPDATE queue SET result = ?, round_id = ?, round_spec_id = ? WHERE id = ?",
+            (encode(result), runtime_round_id, "source-pattern-v1", "task-001"),
+        )
+        db.execute(
+            "UPDATE evidence_observations SET round_id = ?, round_spec_id = ? WHERE task_id = ?",
+            (runtime_round_id, "source-pattern-v1", "task-001"),
+        )
+        db.execute(
+            """CREATE TABLE research_case_rounds (
+                round_id TEXT PRIMARY KEY, case_id TEXT NOT NULL,
+                round_number INTEGER NOT NULL, root_task_id TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL, round_spec_id TEXT, status TEXT NOT NULL,
+                started_at TEXT, finished_at TEXT, UNIQUE(case_id, round_number)
+            )"""
+        )
+        db.execute(
+            "INSERT INTO research_case_rounds VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (runtime_round_id, case.case_id, 1, "task-001",
+             "2026-10-16T00:01:00+00:00", "source-pattern-v1", "COMPLETED",
+             "2026-10-16T00:01:01+00:00", "2026-10-16T00:01:02+00:00"),
+        )
+    return case, runtime_round_id
+
+
+def test_case_bundle_exports_and_verifies_runtime_round_registry(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, runtime_round_id = _database_with_round_registry(db_path)
+    bundle = tmp_path / "case-with-rounds.zip"
+    export_research_case_bundle(db_path, case.case_id, bundle)
+    with zipfile.ZipFile(bundle, "r") as archive:
+        rounds = json.loads(archive.read("rounds.json"))
+    assert rounds["registry_available"] is True
+    assert rounds["rounds"][0]["round_id"] == runtime_round_id
+    assert rounds["rounds"][0]["round_spec_id"] == "source-pattern-v1"
+    report = verify_research_case_bundle(bundle)
+    assert report["valid"] is True
+
+
+def test_case_bundle_verifier_rejects_forged_round_root_even_with_rebuilt_manifest(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    original = tmp_path / "case-with-rounds.zip"
+    forged = tmp_path / "forged-round-registry.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+    _rewrite_bundle_json_member(
+        original,
+        forged,
+        "rounds.json",
+        lambda payload: payload["rounds"][0].update({"root_task_id": "missing-root-task"}),
+    )
+    with pytest.raises(ResearchCaseBundleError, match="round_registry_root_task_missing"):
+        verify_research_case_bundle(forged)
+
+
 def test_case_bundle_verifier_rejects_unknown_task_fields_even_when_manifest_is_rebuilt(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)

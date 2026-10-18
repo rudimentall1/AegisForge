@@ -102,3 +102,44 @@ def test_invalid_revision_is_rejected_before_record_creation():
         assert str(exc) == "target_commit_must_be_full_git_sha"
     else:
         raise AssertionError("mutable target revision must be rejected")
+
+
+
+def test_verifier_rejects_excessive_argv_count():
+    record, artifacts = _record()
+    forged = copy.deepcopy(record)
+    forged["argv"] = ["x"] * 129
+
+    report = verify_experiment_record(forged, artifacts)
+
+    assert report == {"status": "FAIL", "errors": ["argv_invalid"]}
+
+
+def test_verifier_rejects_oversized_argv_item():
+    record, artifacts = _record()
+    forged = copy.deepcopy(record)
+    forged["argv"] = ["x" * (16 * 1024 + 1)]
+
+    report = verify_experiment_record(forged, artifacts)
+
+    assert report == {"status": "FAIL", "errors": ["argv_invalid"]}
+
+
+def test_verifier_rejects_oversized_toolchain_metadata():
+    record, artifacts = _record()
+    forged = copy.deepcopy(record)
+    forged["toolchain"]["python"] = "v" * (16 * 1024 + 1)
+
+    report = verify_experiment_record(forged, artifacts)
+
+    assert report == {"status": "FAIL", "errors": ["toolchain_invalid"]}
+
+
+def test_verifier_rejects_oversized_identity_metadata():
+    record, artifacts = _record()
+    forged = copy.deepcopy(record)
+    forged["case_id"] = "c" * (16 * 1024 + 1)
+
+    report = verify_experiment_record(forged, artifacts)
+
+    assert report == {"status": "FAIL", "errors": ["case_id_invalid"]}

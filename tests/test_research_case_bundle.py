@@ -212,12 +212,14 @@ def test_case_bundle_export_rejects_runtime_round_missing_from_registry(tmp_path
     orphan_runtime_id = "b5fbcf26-234f-4c20-8e58-4dce06e7d5bb"
     with sqlite3.connect(db_path) as db:
         db.execute(
-            "UPDATE queue SET round_id = ? WHERE id = ?",
-            (orphan_runtime_id, "task-001"),
-        )
-        db.execute(
-            "UPDATE evidence_observations SET round_id = ? WHERE task_id = ?",
-            (orphan_runtime_id, "task-001"),
+            """INSERT INTO queue
+               (id, description, status, created_at, role, parent_task_id,
+                result, retry_count, research_case_id, planner_decision,
+                round_id, round_spec_id)
+               VALUES (?, ?, 'pending', ?, 'validator', ?, NULL, 0, ?, NULL, ?, ?)""",
+            ("child-task-orphan-round", "Synthetic child with unregistered round",
+             "2026-10-16T00:02:00+00:00", "task-001", case.case_id,
+             orphan_runtime_id, "source-pattern-v1"),
         )
     with pytest.raises(ResearchCaseBundleError, match="task_runtime_round_missing_from_registry"):
         export_research_case_bundle(db_path, case.case_id, tmp_path / "orphan-round.zip")

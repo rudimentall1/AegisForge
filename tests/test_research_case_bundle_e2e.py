@@ -10,7 +10,7 @@ from shared.research_case_bundle import (
     export_research_case_bundle,
     verify_research_case_bundle,
 )
-from shared.result_codec import decode, encode
+from shared.result_codec import decode
 
 
 def _planned_case():
@@ -56,6 +56,23 @@ def test_planned_round_identity_survives_queue_evidence_export_and_offline_verif
 
         assert runtime_round_id != planned_round_id
 
+        # Drive the queue through its real claim/finish lifecycle instead of
+        # directly editing task status in SQL; completed tasks must carry the
+        # same immutable case binding that the exporter later validates.
+        claimed_root = queue.claim("synthetic-e2e-runner", role="source_researcher")
+        assert claimed_root is not None
+        assert claimed_root[0] == root_id
+        root_result = {
+            "stage": "source_research",
+            "research_case_binding": research_case_binding(case),
+            "research_validation": {
+                "historical_reproduction_confirmed": False,
+                "conclusion": "INCONCLUSIVE",
+                "synthetic_fixture": True,
+            },
+        }
+        queue.finish(root_id, root_result)
+
         child_id = queue.add(
             "Synthetic local validation task",
             role="crypto_analyst",
@@ -66,6 +83,10 @@ def test_planned_round_identity_survives_queue_evidence_export_and_offline_verif
             (child_id,),
         ).fetchone()
         assert child == (case.case_id, runtime_round_id, planned_round_id)
+
+        claimed_child = queue.claim("synthetic-e2e-runner", role="crypto_analyst")
+        assert claimed_child is not None
+        assert claimed_child[0] == child_id
 
         ledger = EvidenceLedger(queue.db)
         ledger.record_observation(
@@ -88,11 +109,7 @@ def test_planned_round_identity_survives_queue_evidence_export_and_offline_verif
                 "synthetic_fixture": True,
             },
         }
-        queue.db.execute(
-            "UPDATE queue SET status = 'completed', result = ? WHERE id = ?",
-            (encode(result), child_id),
-        )
-        queue.db.commit()
+        queue.finish(child_id, result)
 
         export_report = export_research_case_bundle(
             db_path, case.case_id, bundle_path

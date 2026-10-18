@@ -1349,3 +1349,32 @@ def test_case_bundle_verifier_rejects_rehashed_evidence_planned_round_mismatch(t
     ):
         verify_research_case_bundle(forged)
 
+
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("status", {"claimed": "completed"}, "round_registry_status_invalid"),
+        ("started_at", 123, "round_registry_started_at_invalid"),
+        ("finished_at", [], "round_registry_finished_at_invalid"),
+    ],
+)
+def test_case_bundle_verifier_rejects_invalid_round_lifecycle_fields(
+    tmp_path, field, value, error
+):
+    """Lifecycle metadata is untrusted input even when archive hashes are rebuilt."""
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    original = tmp_path / "case.zip"
+    forged = tmp_path / f"forged-round-{field}.zip"
+    export_research_case_bundle(db_path, case.case_id, original)
+
+    _rewrite_bundle_json_member(
+        original,
+        forged,
+        "rounds.json",
+        lambda payload: payload["rounds"][0].update({field: value}),
+    )
+
+    with pytest.raises(ResearchCaseBundleError, match=error):
+        verify_research_case_bundle(forged)
+

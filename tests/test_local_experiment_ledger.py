@@ -108,3 +108,29 @@ def test_local_experiment_rejects_target_revision_mismatch():
         assert db.execute("SELECT COUNT(*) FROM local_experiment_records").fetchone()[0] == 0
     finally:
         db.close()
+
+
+
+def test_local_experiment_storage_has_a_hard_byte_budget():
+    db, ledger, record, artifacts = _fixture()
+    try:
+        ledger.MAX_LOCAL_EXPERIMENT_STORAGE_BYTES = 1
+        with pytest.raises(ValueError, match="local_experiment_storage_limit_exceeded"):
+            ledger.record_local_experiment(record, artifacts)
+        assert db.execute("SELECT COUNT(*) FROM local_experiment_records").fetchone()[0] == 0
+    finally:
+        db.close()
+
+
+def test_local_experiment_storage_has_a_record_count_budget():
+    db, ledger, record, artifacts = _fixture()
+    try:
+        ledger.record_local_experiment(record, artifacts)
+        ledger.MAX_LOCAL_EXPERIMENT_RECORDS = 1
+        changed = dict(record)
+        changed["task_id"] = "task-1"
+        changed["argv"] = ["pytest", "-q", "--second"]
+        with pytest.raises(ValueError, match="local_experiment_record_count_limit_exceeded"):
+            ledger.record_local_experiment(changed, artifacts)
+    finally:
+        db.close()

@@ -29,6 +29,7 @@ def planned_case():
             hypothesis="Synthetic planned hypothesis",
             expected_evidence_atoms=("source:synthetic",),
             falsification_criteria="Reject if control changes",
+            disclosure_deadline_days=30,
         ),),
     )
 

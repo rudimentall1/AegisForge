@@ -295,6 +295,18 @@ def _validate_round_registry(
             raise ResearchCaseBundleError("round_registry_root_task_invalid")
         if not isinstance(record.get("created_at"), str) or not record["created_at"].strip():
             raise ResearchCaseBundleError("round_registry_created_at_invalid")
+        if "status" in record and (
+            not isinstance(record["status"], str) or not record["status"].strip()
+        ):
+            raise ResearchCaseBundleError("round_registry_status_invalid")
+        for timestamp_field in ("started_at", "finished_at"):
+            timestamp_value = record.get(timestamp_field)
+            if timestamp_value is not None and (
+                not isinstance(timestamp_value, str) or not timestamp_value.strip()
+            ):
+                raise ResearchCaseBundleError(
+                    f"round_registry_{timestamp_field}_invalid"
+                )
         spec_id = record.get("round_spec_id")
         if spec_id is not None and (
             not isinstance(spec_id, str) or not spec_id.strip() or spec_id not in declared_specs

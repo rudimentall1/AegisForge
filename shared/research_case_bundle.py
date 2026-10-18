@@ -44,12 +44,12 @@ _TASK_REQUIRED_FIELDS = frozenset({
 })
 _TASK_OPTIONAL_FIELDS = frozenset({
     "worker", "started_at", "finished_at", "role", "parent_task_id",
-    "retry_count", "planner_decision", "round_id",
+    "retry_count", "planner_decision", "round_id", "round_spec_id",
 })
 _EVIDENCE_REQUIRED_FIELDS = frozenset({
     "atom_id", "task_id", "role", "observed_at", "case_id",
 })
-_EVIDENCE_OPTIONAL_FIELDS = frozenset({"round_id", "kind", "value"})
+_EVIDENCE_OPTIONAL_FIELDS = frozenset({"round_id", "round_spec_id", "kind", "value"})
 
 # A result records the case snapshot that existed when its task ran. Lifecycle
 # status can advance later (ready -> running -> confirmed/inconclusive), so
@@ -282,7 +282,7 @@ def export_research_case_bundle(
             column for column in (
                 "id", "description", "status", "worker", "created_at", "started_at",
                 "finished_at", "role", "parent_task_id", "result", "retry_count",
-                "research_case_id", "planner_decision", "round_id",
+                "research_case_id", "planner_decision", "round_id", "round_spec_id",
             )
             if column in queue_columns
         ]
@@ -297,6 +297,7 @@ def export_research_case_bundle(
         for row in rows:
             item = dict(row)
             item.setdefault("round_id", None)
+            item.setdefault("round_spec_id", None)
             if item["round_id"] is not None and (
                 not isinstance(item["round_id"], str) or not item["round_id"].strip()
             ):
@@ -334,6 +335,7 @@ def export_research_case_bundle(
             }
             if {"atom_id", "task_id", "role", "observed_at", "case_id"}.issubset(evidence_columns):
                 round_select = "o.round_id" if "round_id" in evidence_columns else "NULL AS round_id"
+                spec_select = "o.round_spec_id" if "round_spec_id" in evidence_columns else "NULL AS round_spec_id"
                 if "evidence_ledger" in tables:
                     orphaned_observation = connection.execute(
                         """
@@ -352,7 +354,7 @@ def export_research_case_bundle(
                     evidence_rows = connection.execute(
                         f"""
                         SELECT o.atom_id, o.task_id, o.role, o.observed_at, o.case_id,
-                               {round_select}, l.kind, l.value
+                               {round_select}, {spec_select}, l.kind, l.value
                         FROM evidence_observations o
                         LEFT JOIN evidence_ledger l ON l.atom_id = o.atom_id
                         WHERE o.case_id = ?
@@ -363,9 +365,10 @@ def export_research_case_bundle(
                     ).fetchall()
                 else:
                     round_select = "round_id" if "round_id" in evidence_columns else "NULL AS round_id"
+                    spec_select = "round_spec_id" if "round_spec_id" in evidence_columns else "NULL AS round_spec_id"
                     evidence_rows = connection.execute(
                         f"""
-                        SELECT atom_id, task_id, role, observed_at, case_id, {round_select}
+                        SELECT atom_id, task_id, role, observed_at, case_id, {round_select}, {spec_select}
                         FROM evidence_observations
                         WHERE case_id = ?
                         ORDER BY observed_at, task_id, atom_id
@@ -378,8 +381,10 @@ def export_research_case_bundle(
                 evidence = [dict(row) for row in evidence_rows]
         task_ids_for_case = _validate_task_parent_graph(tasks)
         task_round_ids = {task["id"]: task.get("round_id") for task in tasks}
+        task_round_spec_ids = {task["id"]: task.get("round_spec_id") for task in tasks}
         task_roles = {task["id"]: task.get("role") for task in tasks}
         declared_round_ids = {round.round_id for round in case.rounds}
+        declared_round_spec_ids = declared_round_ids
         # Legacy/minimal cases may intentionally omit a round plan. Enforce
         # membership only when the case declares one; otherwise preserve
         # task/evidence round equality without inventing a plan.
@@ -399,6 +404,8 @@ def export_research_case_bundle(
                 raise ResearchCaseBundleError("evidence_observation_role_mismatch")
             round_id = observation.get("round_id")
             task_round_id = task_round_ids.get(task_id)
+            round_spec_id = observation.get("round_spec_id")
+            task_round_spec_id = task_round_spec_ids.get(task_id)
             # Round identity is a binding, not optional decoration: evidence
             # must not silently lose the round assigned to its task.
             if (
@@ -408,6 +415,10 @@ def export_research_case_bundle(
                 ))
             ):
                 raise ResearchCaseBundleError("evidence_observation_round_identity_mismatch")
+            if round_spec_id != task_round_spec_id:
+                raise ResearchCaseBundleError("evidence_observation_round_spec_identity_mismatch")
+            if round_spec_id is not None and round_spec_id not in declared_round_spec_ids:
+                raise ResearchCaseBundleError("evidence_observation_round_spec_not_declared_in_case")
     except sqlite3.Error as exc:
         raise ResearchCaseBundleError("database_query_failed") from exc
     finally:
@@ -638,6 +649,11 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
             not isinstance(round_id, str) or not round_id.strip()
         ):
             raise ResearchCaseBundleError("task_round_identity_invalid")
+        round_spec_id = task.get("round_spec_id")
+        if round_spec_id is not None and (
+            not isinstance(round_spec_id, str) or not round_spec_id.strip()
+        ):
+            raise ResearchCaseBundleError("task_round_spec_identity_invalid")
         result = task.get("result")
         if isinstance(result, dict) and result.get("research_case_binding") is not None:
             try:
@@ -670,6 +686,9 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
     task_round_ids = {
         task["id"]: task.get("round_id") for task in tasks_file["tasks"]
     }
+    task_round_spec_ids = {
+        task["id"]: task.get("round_spec_id") for task in tasks_file["tasks"]
+    }
     task_roles = {task["id"]: task.get("role") for task in tasks_file["tasks"]}
     declared_round_ids = {round.round_id for round in validated_case.rounds}
     if declared_round_ids:
@@ -677,6 +696,12 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
             round_id = task.get("round_id")
             if round_id is not None and round_id not in declared_round_ids:
                 raise ResearchCaseBundleError("task_round_not_declared_in_case")
+            round_spec_id = task.get("round_spec_id")
+            if round_spec_id is not None and round_spec_id not in declared_round_ids:
+                raise ResearchCaseBundleError("task_round_spec_not_declared_in_case")
+            round_spec_id = task.get("round_spec_id")
+            if round_spec_id is not None and round_spec_id not in declared_round_spec_ids:
+                raise ResearchCaseBundleError("task_round_spec_not_declared_in_case")
     for observation in evidence_file["observations"]:
         if not isinstance(observation, dict):
             raise ResearchCaseBundleError("evidence_record_must_be_object")
@@ -695,6 +720,8 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
             raise ResearchCaseBundleError("evidence_observation_role_mismatch")
         round_id = observation.get("round_id")
         task_round_id = task_round_ids.get(task_id)
+        round_spec_id = observation.get("round_spec_id")
+        task_round_spec_id = task_round_spec_ids.get(task_id)
         if (
             round_id != task_round_id
             or (round_id is not None and (
@@ -702,6 +729,10 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
             ))
         ):
             raise ResearchCaseBundleError("evidence_observation_round_identity_mismatch")
+        if round_spec_id != task_round_spec_id:
+            raise ResearchCaseBundleError("evidence_observation_round_spec_identity_mismatch")
+        if round_spec_id is not None and round_spec_id not in declared_round_ids:
+            raise ResearchCaseBundleError("evidence_observation_round_spec_not_declared_in_case")
 
     statuses = {}
     for task in tasks_file["tasks"]:

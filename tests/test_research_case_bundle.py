@@ -126,7 +126,8 @@ def _rewrite_bundle_json_member(bundle, output, member_name, mutate):
     manifest = json.loads(files["manifest.json"])
     manifest["entries"] = [
         {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
-        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+        for name in sorted(files)
+        if name != "manifest.json"
     ]
     _refresh_manifest(files, manifest)
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:

@@ -206,6 +206,23 @@ def test_case_bundle_exports_and_verifies_runtime_round_registry(tmp_path):
     assert report["valid"] is True
 
 
+def test_case_bundle_export_rejects_runtime_round_missing_from_registry(tmp_path):
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    orphan_runtime_id = "b5fbcf26-234f-4c20-8e58-4dce06e7d5bb"
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE queue SET round_id = ? WHERE id = ?",
+            (orphan_runtime_id, "task-001"),
+        )
+        db.execute(
+            "UPDATE evidence_observations SET round_id = ? WHERE task_id = ?",
+            (orphan_runtime_id, "task-001"),
+        )
+    with pytest.raises(ResearchCaseBundleError, match="task_runtime_round_missing_from_registry"):
+        export_research_case_bundle(db_path, case.case_id, tmp_path / "orphan-round.zip")
+
+
 def test_case_bundle_verifier_rejects_forged_round_root_even_with_rebuilt_manifest(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case, _ = _database_with_round_registry(db_path)

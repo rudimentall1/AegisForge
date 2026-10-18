@@ -346,6 +346,31 @@ class EvidenceLedger:
         if row[0] != record["case_id"] or row[1] != record["round_id"]:
             raise ValueError("local_experiment_task_identity_mismatch")
 
+        case_tables = {
+            item[0] for item in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if "research_cases" not in case_tables:
+            raise ValueError("local_experiment_registered_case_required")
+        case_row = self.db.execute(
+            "SELECT payload FROM research_cases WHERE case_id = ?",
+            (record["case_id"],),
+        ).fetchone()
+        if case_row is None:
+            raise ValueError("local_experiment_registered_case_required")
+        try:
+            case_payload = json.loads(case_row[0])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("local_experiment_registered_case_invalid") from exc
+        if (
+            not isinstance(case_payload, dict)
+            or case_payload.get("target_repository") != record["target_repository"]
+            or str(case_payload.get("target_commit", "")).lower()
+               != record["target_commit"]
+        ):
+            raise ValueError("local_experiment_target_identity_mismatch")
+
         canonical = json.dumps(
             record, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
             allow_nan=False,

@@ -264,6 +264,10 @@ def _validate_round_registry(
         raise ResearchCaseBundleError("case_round_count_exceeds_limit")
     if not payload["registry_available"] and rounds:
         raise ResearchCaseBundleError("round_registry_unavailable_but_records_present")
+    if not payload["registry_available"] and any(
+        task.get("round_id") is not None for task in tasks
+    ):
+        raise ResearchCaseBundleError("round_registry_unavailable_with_runtime_ids")
     task_by_id = {task["id"]: task for task in tasks}
     seen_ids = set()
     seen_numbers = set()

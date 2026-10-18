@@ -301,6 +301,15 @@ def _validate_round_registry(
                 raise ResearchCaseBundleError("round_registry_task_identity_mismatch")
         seen_ids.add(round_id)
         seen_roots.add(root_task_id)
+    if payload["registry_available"]:
+        for task in tasks:
+            runtime_id = task.get("round_id")
+            if runtime_id is not None and runtime_id not in seen_ids:
+                raise ResearchCaseBundleError("task_runtime_round_missing_from_registry")
+        for task in tasks:
+            if task.get("parent_task_id") is None and task.get("round_id") in seen_ids:
+                if task["id"] not in seen_roots:
+                    raise ResearchCaseBundleError("round_registry_root_task_unregistered")
 
 
 def export_research_case_bundle(

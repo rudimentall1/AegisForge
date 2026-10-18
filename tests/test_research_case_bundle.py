@@ -169,7 +169,7 @@ def test_case_bundle_rejects_evidence_role_mismatch(tmp_path):
         export_research_case_bundle(db_path, case.case_id, tmp_path / "role-mismatch.zip")
 
 
-def test_case_bundle_rejects_round_not_declared_by_case(tmp_path):
+def test_case_bundle_accepts_runtime_round_id_distinct_from_declared_spec(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)
     planned_case = replace(
@@ -195,22 +195,34 @@ def test_case_bundle_rejects_round_not_declared_by_case(tmp_path):
         "research_case_binding": binding,
         "research_validation": {"historical_reproduction_confirmed": False},
     }
+    runtime_round_id = "a4eaf8b6-1f77-4c61-8b28-bb8d7bbf4a00"
     with sqlite3.connect(db_path) as db:
+        db.execute("ALTER TABLE queue ADD COLUMN round_spec_id TEXT")
+        db.execute("ALTER TABLE evidence_observations ADD COLUMN round_spec_id TEXT")
         db.execute(
             "UPDATE research_cases SET payload = ? WHERE case_id = ?",
             (json.dumps(payload, sort_keys=True, separators=(",", ":")), case.case_id),
         )
         db.execute(
-            "UPDATE queue SET result = ?, round_id = ? WHERE id = ?",
-            (encode(result), "invented-round", "task-001"),
+            "UPDATE queue SET result = ?, round_id = ?, round_spec_id = ? WHERE id = ?",
+            (encode(result), runtime_round_id, "declared-round", "task-001"),
         )
         db.execute(
-            "UPDATE evidence_observations SET round_id = ? WHERE task_id = ?",
-            ("invented-round", "task-001"),
+            "UPDATE evidence_observations SET round_id = ?, round_spec_id = ? WHERE task_id = ?",
+            (runtime_round_id, "declared-round", "task-001"),
         )
 
-    with pytest.raises(ResearchCaseBundleError, match="task_round_not_declared_in_case"):
-        export_research_case_bundle(db_path, case.case_id, tmp_path / "undeclared-round.zip")
+    bundle = tmp_path / "runtime-round.zip"
+    report = export_research_case_bundle(db_path, case.case_id, bundle)
+    assert report["valid"] is True
+    with zipfile.ZipFile(bundle, "r") as archive:
+        tasks = json.loads(archive.read("tasks.json"))["tasks"]
+        observations = json.loads(archive.read("evidence.json"))["observations"]
+    assert tasks[0]["round_id"] == runtime_round_id
+    assert tasks[0]["round_spec_id"] == "declared-round"
+    assert observations[0]["round_id"] == runtime_round_id
+    assert observations[0]["round_spec_id"] == "declared-round"
+    assert verify_research_case_bundle(bundle)["valid"] is True
 
 
 def test_case_bundle_verifier_rejects_forged_evidence_role_even_with_rebuilt_manifest(tmp_path):

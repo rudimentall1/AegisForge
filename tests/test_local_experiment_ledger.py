@@ -20,6 +20,17 @@ def _fixture():
         "INSERT INTO queue VALUES (?, ?, ?, ?)",
         ("task-1", "case-1", "runtime-round-1", "completed"),
     )
+    db.execute(
+        "CREATE TABLE research_cases (case_id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+    )
+    db.execute(
+        "INSERT INTO research_cases VALUES (?, ?)",
+        (
+            "case-1",
+            '{"case_id":"case-1","target_repository":"example/protocol",'
+            '"target_commit":"' + "a" * 40 + '"}',
+        ),
+    )
     ledger = EvidenceLedger(db)
     record, artifacts = build_experiment_record(
         case_id="case-1",
@@ -82,5 +93,18 @@ def test_local_experiment_rejects_missing_task():
         forged["task_id"] = "missing-task"
         with pytest.raises(ValueError, match="local_experiment_task_not_found"):
             ledger.record_local_experiment(forged, artifacts)
+    finally:
+        db.close()
+
+
+
+def test_local_experiment_rejects_target_revision_mismatch():
+    db, ledger, record, artifacts = _fixture()
+    try:
+        forged = dict(record)
+        forged["target_commit"] = "b" * 40
+        with pytest.raises(ValueError, match="local_experiment_target_identity_mismatch"):
+            ledger.record_local_experiment(forged, artifacts)
+        assert db.execute("SELECT COUNT(*) FROM local_experiment_records").fetchone()[0] == 0
     finally:
         db.close()

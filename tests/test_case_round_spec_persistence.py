@@ -70,3 +70,42 @@ def test_planned_case_persists_separate_runtime_and_spec_ids(queue):
     assert result["round_spec_id"] == "source-pattern-v1"
     assert root == (result["round_id"], "source-pattern-v1")
     assert registry == (result["round_id"], "source-pattern-v1", "QUEUED", None, None)
+
+
+def test_child_task_and_evidence_keep_both_round_identities(queue):
+    from shared.evidence_ledger import EvidenceLedger
+
+    case = planned_case()
+    queue.register_research_case(case)
+    result = start_case_round(queue, case.case_id, "source-pattern-v1")
+    child_id = queue.add(
+        "Synthetic child task",
+        role="source_researcher",
+        parent_task_id=result["root_task_id"],
+    )
+    child = queue.db.execute(
+        "SELECT research_case_id, round_id, round_spec_id FROM queue WHERE id = ?",
+        (child_id,),
+    ).fetchone()
+    assert child == (
+        case.case_id,
+        result["round_id"],
+        "source-pattern-v1",
+    )
+
+    ledger = EvidenceLedger(queue.db)
+    ledger.record_observation(
+        child_id,
+        "source_researcher",
+        "source:synthetic-round-bound",
+    )
+    observation = queue.db.execute(
+        "SELECT case_id, round_id, round_spec_id FROM evidence_observations "
+        "WHERE task_id = ?",
+        (child_id,),
+    ).fetchone()
+    assert observation == (
+        case.case_id,
+        result["round_id"],
+        "source-pattern-v1",
+    )

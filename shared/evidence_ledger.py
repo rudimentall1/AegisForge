@@ -10,6 +10,8 @@ class EvidenceLedger:
 
     MAX_ATOM_VALUE_BYTES = 8192
     MAX_OBSERVATIONS = 5000
+    MAX_LOCAL_EXPERIMENT_RECORDS = 10_000
+    MAX_LOCAL_EXPERIMENT_STORAGE_BYTES = 512 * 1024 * 1024
 
     def __init__(self, db):
         self.db = db
@@ -375,6 +377,18 @@ class EvidenceLedger:
         )
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         now = observed_at or datetime.now(timezone.utc).isoformat()
+        usage = self.db.execute(
+            """SELECT COUNT(*),
+                      COALESCE(SUM(length(input_bytes) + length(stdout_bytes) + length(stderr_bytes)), 0)
+               FROM local_experiment_records"""
+        ).fetchone()
+        incoming_size = sum(len(artifacts[name]) for name in (
+            "input.bin", "stdout.bin", "stderr.bin"
+        ))
+        if usage[0] >= self.MAX_LOCAL_EXPERIMENT_RECORDS:
+            raise ValueError("local_experiment_record_count_limit_exceeded")
+        if usage[1] + incoming_size > self.MAX_LOCAL_EXPERIMENT_STORAGE_BYTES:
+            raise ValueError("local_experiment_storage_limit_exceeded")
         try:
             self.db.execute(
                 """INSERT INTO local_experiment_records

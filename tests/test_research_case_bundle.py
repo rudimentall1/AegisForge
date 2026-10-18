@@ -1412,4 +1412,29 @@ def test_case_bundle_verifier_rejects_missing_planned_identity_in_runtime_regist
         match="round_registry_spec_required",
     ):
         verify_research_case_bundle(forged)
+def test_case_bundle_export_rejects_runtime_round_without_planned_identity(tmp_path):
+    """The exporter must enforce the same plan-to-run invariant as the offline verifier."""
+    db_path = tmp_path / "agent_farm.db"
+    case, _ = _database_with_round_registry(db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "UPDATE queue SET round_spec_id = NULL WHERE id = ?",
+            ("task-001",),
+        )
+        db.execute(
+            "UPDATE evidence_observations SET round_spec_id = NULL WHERE task_id = ?",
+            ("task-001",),
+        )
+        db.execute(
+            "UPDATE research_case_rounds SET round_spec_id = NULL WHERE case_id = ?",
+            (case.case_id,),
+        )
+
+    with pytest.raises(
+        ResearchCaseBundleError,
+        match="round_registry_spec_required",
+    ):
+        export_research_case_bundle(
+            db_path, case.case_id, tmp_path / "missing-planned-round.zip"
+        )
 

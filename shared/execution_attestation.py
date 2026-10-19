@@ -187,3 +187,52 @@ def verify_execution_attestation(
             "Trust-store management, key rotation, revocation, freshness policy, and replay prevention remain caller responsibilities.",
         ],
     }
+
+
+def verify_bundle_execution_attestation(
+    bundle_bytes: bytes,
+    attestation: object,
+    *,
+    trusted_public_key_bytes: bytes,
+    expected_signer_id: str,
+) -> dict:
+    """Verify bundle integrity first, then verify a detached attestation for its record."""
+    from io import BytesIO
+    import zipfile
+
+    from shared.local_experiment_bundle import verify_local_experiment_bundle
+
+    bundle_report = verify_local_experiment_bundle(bundle_bytes)
+    if bundle_report.get("status") != "PASS":
+        return {
+            "status": "FAIL",
+            "bundle_integrity_verified": False,
+            "attestation_verified": False,
+            "execution_truth_established": False,
+            "errors": ["experiment_bundle_integrity_not_verified"],
+            "bundle_report": bundle_report,
+        }
+    try:
+        with zipfile.ZipFile(BytesIO(bundle_bytes), "r") as archive:
+            manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+        record = manifest["record"]
+    except (OSError, KeyError, UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile):
+        return {
+            "status": "FAIL",
+            "bundle_integrity_verified": False,
+            "attestation_verified": False,
+            "execution_truth_established": False,
+            "errors": ["experiment_bundle_record_unreadable"],
+        }
+    attestation_report = verify_execution_attestation(
+        attestation,
+        trusted_public_key_bytes=trusted_public_key_bytes,
+        expected_signer_id=expected_signer_id,
+        expected_record=record,
+    )
+    return {
+        **attestation_report,
+        "bundle_integrity_verified": True,
+        "bundle_sha256": hashlib.sha256(bundle_bytes).hexdigest(),
+        "bundle_report": bundle_report,
+    }

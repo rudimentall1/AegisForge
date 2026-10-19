@@ -106,3 +106,54 @@ def verify_execution_attestation_with_replay_protection(
             "errors": [*report.get("errors", []), "attestation_replay_detected"],
         }
     return {**report, "replay_protection_verified": True}
+
+
+def verify_bundle_execution_attestation_with_replay_protection(
+    bundle_bytes: bytes,
+    attestation: object,
+    *,
+    trusted_public_key_bytes: bytes,
+    expected_signer_id: str,
+    replay_registry: object,
+    **verification_options: object,
+) -> dict:
+    """Verify bundle integrity and record-bound attestation before consuming nonce."""
+    from shared.execution_attestation import verify_bundle_execution_attestation
+
+    report = verify_bundle_execution_attestation(
+        bundle_bytes,
+        attestation,
+        trusted_public_key_bytes=trusted_public_key_bytes,
+        expected_signer_id=expected_signer_id,
+        **verification_options,
+    )
+    if report.get("status") != "PASS":
+        report["replay_protection_verified"] = False
+        return report
+
+    claims = attestation["claims"]
+    consume = getattr(replay_registry, "consume", None)
+    if not callable(consume):
+        return {
+            **report,
+            "status": "FAIL",
+            "replay_protection_verified": False,
+            "errors": [*report.get("errors", []), "attestation_replay_registry_invalid"],
+        }
+    try:
+        consumed = consume(claims["signer_id"], claims["nonce"])
+    except Exception:
+        return {
+            **report,
+            "status": "FAIL",
+            "replay_protection_verified": False,
+            "errors": [*report.get("errors", []), "attestation_replay_registry_unavailable"],
+        }
+    if consumed is not True:
+        return {
+            **report,
+            "status": "FAIL",
+            "replay_protection_verified": False,
+            "errors": [*report.get("errors", []), "attestation_replay_detected"],
+        }
+    return {**report, "replay_protection_verified": True}

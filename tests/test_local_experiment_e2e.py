@@ -62,9 +62,11 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         )
         claimed = queue.claim("e2e-worker-1", role="lab_runner")
         assert claimed is not None
-        assert claimed["id"] == task_id
-        assert claimed["research_case_id"] == case.case_id
-        assert claimed["round_id"] == round_spec.round_id
+        assert claimed[0] == task_id
+        assert claimed[12] == case.case_id
+        assert queue.db.execute(
+            "SELECT round_id FROM queue WHERE id = ?", (task_id,)
+        ).fetchone()[0] == round_spec.round_id
 
         control_output = b"SYNTHETIC_FIXTURE control=PASS invariant_preserved=true\n"
         queue.finish(task_id, result={
@@ -110,7 +112,7 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         )
         counter_claim = queue.claim("e2e-worker-2", role="lab_runner")
         assert counter_claim is not None
-        assert counter_claim["id"] == counter_task_id
+        assert counter_claim[0] == counter_task_id
         counter_output = (
             b"SYNTHETIC_FIXTURE counter_test=PASS "
             b"seeded_violation_detected=true\n"

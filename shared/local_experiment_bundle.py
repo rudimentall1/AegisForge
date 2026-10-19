@@ -11,6 +11,7 @@ import hashlib
 import json
 import stat
 import zipfile
+import zlib
 
 from shared.local_experiment import verify_experiment_record
 
@@ -214,5 +215,5 @@ def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:
                 "vulnerability_confirmed": False,
                 "errors": [],
             }
-    except (OSError, EOFError, UnicodeDecodeError, json.JSONDecodeError, ValueError, zipfile.BadZipFile, RuntimeError):
+    except (OSError, EOFError, UnicodeDecodeError, json.JSONDecodeError, ValueError, zipfile.BadZipFile, RuntimeError, zlib.error):
         return {"status": "FAIL", "errors": ["bundle_malformed_or_unreadable"]}

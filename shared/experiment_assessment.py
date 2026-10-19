@@ -5,6 +5,11 @@ A successful control/counter-test pair never automatically confirms a finding.
 """
 from __future__ import annotations
 
+from hashlib import sha256
+from io import BytesIO
+import json
+import zipfile
+
 from shared.local_experiment_bundle import verify_local_experiment_bundle
 
 ASSESSMENT_SCHEMA_VERSION = "aegisforge-experiment-assessment-v1"
@@ -18,6 +23,7 @@ def assess_local_experiment_pair(
     expected_round_id: str,
     expected_target_repository: str,
     expected_target_commit: str,
+    semantic_criteria: dict | None = None,
     synthetic_fixture: bool = False,
 ) -> dict:
     """Assess two independently verifiable bundles without confirming a finding."""
@@ -33,6 +39,7 @@ def assess_local_experiment_pair(
         "target_repository": expected_target_repository,
         "target_commit": expected_target_commit,
         "synthetic_fixture": bool(synthetic_fixture),
+        "semantic_criteria_sha256": None,
         "missing_evidence": missing,
         "vulnerability_confirmed": False,
         "vulnerability_status": "INCONCLUSIVE",
@@ -134,6 +141,135 @@ def assess_local_experiment_pair(
             "bundle_reports": reports,
         }
 
+    if semantic_criteria is None:
+        return {
+            **base,
+            "status": "INCONCLUSIVE",
+            "checks": {
+                "control_bundle_integrity": True,
+                "countertest_bundle_integrity": True,
+                "identity_match": True,
+                "semantic_criteria_present": False,
+            },
+            "errors": ["semantic_criteria_missing"],
+            "bundle_reports": reports,
+            "limitations": [
+                "Exit codes and artifact hashes do not establish that output satisfies the Research Case invariant or falsification criteria."
+            ],
+        }
+
+    required_criteria_keys = {
+        "case_id", "round_id", "target_repository", "target_commit",
+        "invariant", "falsification_criteria", "control", "countertest",
+    }
+    if not isinstance(semantic_criteria, dict) or set(semantic_criteria) != required_criteria_keys:
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {"semantic_criteria_valid": False},
+            "errors": ["semantic_criteria_schema_invalid"],
+            "bundle_reports": reports,
+        }
+    if any(semantic_criteria.get(field) != value for field, value in expected.items()):
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {"semantic_criteria_valid": True, "semantic_criteria_identity_match": False},
+            "errors": ["semantic_criteria_identity_mismatch"],
+            "bundle_reports": reports,
+        }
+    if any(not isinstance(semantic_criteria.get(field), str) or not semantic_criteria[field].strip()
+           for field in ("invariant", "falsification_criteria")):
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {"semantic_criteria_valid": False},
+            "errors": ["semantic_criteria_contract_text_missing"],
+            "bundle_reports": reports,
+        }
+
+    def _validate_role_criteria(value):
+        if not isinstance(value, dict) or set(value) != {"must_contain", "must_not_contain"}:
+            return None
+        must_contain = value.get("must_contain")
+        must_not_contain = value.get("must_not_contain")
+        if (not isinstance(must_contain, list) or not must_contain
+                or not isinstance(must_not_contain, list)
+                or any(not isinstance(token, str) or not token or len(token.encode("utf-8")) > 256
+                       for token in must_contain + must_not_contain)
+                or len(must_contain) > 32 or len(must_not_contain) > 32):
+            return None
+        return value
+
+    control_criteria = _validate_role_criteria(semantic_criteria["control"])
+    counter_criteria = _validate_role_criteria(semantic_criteria["countertest"])
+    if control_criteria is None or counter_criteria is None:
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {"semantic_criteria_valid": False},
+            "errors": ["semantic_role_criteria_invalid"],
+            "bundle_reports": reports,
+        }
+
+    canonical_criteria = json.dumps(
+        semantic_criteria, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+    criteria_digest = sha256(canonical_criteria).hexdigest()
+    base["semantic_criteria_sha256"] = criteria_digest
+
+    def _stdout(bundle_bytes):
+        with zipfile.ZipFile(BytesIO(bundle_bytes), "r") as archive:
+            return archive.read("stdout.bin")
+
+    try:
+        control_stdout = _stdout(control_bundle)
+        counter_stdout = _stdout(countertest_bundle)
+    except (OSError, KeyError, zipfile.BadZipFile, RuntimeError):
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {"semantic_outputs_readable": False},
+            "errors": ["semantic_outputs_unreadable"],
+            "bundle_reports": reports,
+        }
+
+    def _matches(output, role_criteria):
+        return (
+            all(token.encode("utf-8") in output for token in role_criteria["must_contain"])
+            and all(token.encode("utf-8") not in output for token in role_criteria["must_not_contain"])
+        )
+
+    control_semantics_match = _matches(control_stdout, control_criteria)
+    counter_semantics_match = _matches(counter_stdout, counter_criteria)
+    checks_semantic = {
+        "semantic_criteria_present": True,
+        "semantic_criteria_identity_match": True,
+        "control_output_matches_invariant": control_semantics_match,
+        "countertest_output_matches_falsification_criteria": counter_semantics_match,
+    }
+    if not control_semantics_match or not counter_semantics_match:
+        errors = []
+        if not control_semantics_match:
+            errors.append("control_semantic_criteria_not_met")
+        if not counter_semantics_match:
+            errors.append("countertest_semantic_criteria_not_met")
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {
+                "control_bundle_integrity": True,
+                "countertest_bundle_integrity": True,
+                "identity_match": True,
+                **checks_semantic,
+            },
+            "errors": errors,
+            "bundle_reports": reports,
+            "limitations": [
+                "Semantic matching evaluates explicit byte-string criteria only; it is not a general proof of program correctness or vulnerability."
+            ],
+        }
+
     experiment_statuses = {
         control.get("experiment_status"),
         countertest.get("experiment_status"),
@@ -146,6 +282,7 @@ def assess_local_experiment_pair(
         "countertest_ran": countertest.get("experiment_status") != "NOT_RUN",
         "control_exit_expectation_met": control.get("experiment_status") == "PASS",
         "countertest_exit_expectation_met": countertest.get("experiment_status") == "PASS",
+        **checks_semantic,
     }
     if "FAIL" in experiment_statuses:
         status = "FAIL"
@@ -169,6 +306,7 @@ def assess_local_experiment_pair(
         "limitations": [
             "Bundle integrity does not authenticate the runner or execution environment.",
             "A passing experiment pair does not prove a vulnerability exists.",
+            "Semantic matching evaluates declared byte-string criteria, not arbitrary program behavior.",
             "Vulnerability confirmation requires independent analysis and target-specific proof.",
         ],
     }

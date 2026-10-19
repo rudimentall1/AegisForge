@@ -202,3 +202,19 @@ def test_attestation_rejects_invalid_timestamp():
     report = verify_execution_attestation(attestation, trusted_public_key_bytes=PUBLIC_BYTES, expected_signer_id="ci-runner-key-1", expected_record=RECORD)
     assert report["status"] == "FAIL"
     assert report["errors"] == ["attestation_issued_at_invalid"]
+
+
+def test_attestation_rejects_timestamp_without_timezone():
+    attestation = _attestation()
+    attestation["claims"]["issued_at"] = "2026-10-19T10:00:00"
+
+    report = verify_execution_attestation(
+        attestation,
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+        expected_record=RECORD,
+    )
+
+    assert report["status"] == "FAIL"
+    assert report["attestation_verified"] is False
+    assert report["errors"] == ["attestation_issued_at_invalid"]

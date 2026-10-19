@@ -12,7 +12,13 @@ REPOSITORY = "example/protocol"
 COMMIT = "a" * 40
 
 
-def _bundle(*, task_id, exit_code=0, target_commit=COMMIT, fixture_version="assessment-test"):
+def _bundle(*, task_id, exit_code=0, target_commit=COMMIT, fixture_version="assessment-test", stdout_bytes=None):
+    if stdout_bytes is None:
+        stdout_bytes = (
+            b"control invariant_preserved=true"
+            if task_id == "control"
+            else b"counter seeded_violation_detected=true"
+        )
     record, artifacts = build_experiment_record(
         case_id=CASE_ID,
         round_id=ROUND_ID,
@@ -22,11 +28,7 @@ def _bundle(*, task_id, exit_code=0, target_commit=COMMIT, fixture_version="asse
         argv=["synthetic-fixture", task_id],
         toolchain={"python": "3.12.1", "fixture": fixture_version},
         input_bytes=b"fixed input",
-        stdout_bytes=(
-            b"control invariant_preserved=true"
-            if task_id == "control"
-            else b"counter seeded_violation_detected=true"
-        ),
+        stdout_bytes=stdout_bytes,
         stderr_bytes=b"",
         exit_code=exit_code,
     )
@@ -193,4 +195,19 @@ def test_semantic_criteria_cannot_be_reassigned_to_another_case():
     report = _assess(_bundle(task_id="control"), _bundle(task_id="counter"), semantic_criteria=criteria)
     assert report["status"] == "FAIL"
     assert report["errors"] == ["semantic_criteria_identity_mismatch"]
+    assert report["vulnerability_confirmed"] is False
+
+
+
+def test_forbidden_output_token_fails_even_when_required_token_is_present():
+    report = _assess(
+        _bundle(
+            task_id="control",
+            stdout_bytes=b"control invariant_preserved=true invariant_preserved=false",
+        ),
+        _bundle(task_id="counter"),
+    )
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["control_semantic_criteria_not_met"]
+    assert report["checks"]["control_output_matches_invariant"] is False
     assert report["vulnerability_confirmed"] is False

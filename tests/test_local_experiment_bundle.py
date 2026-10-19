@@ -45,6 +45,13 @@ def test_portable_bundle_round_trip_is_integrity_only():
         "checked_artifacts": 3,
         "integrity_only": True,
         "authenticated_execution": False,
+        "execution_provenance": {
+            "status": "UNAUTHENTICATED",
+            "runner_identity": "UNVERIFIED",
+            "environment_identity": "UNVERIFIED",
+            "execution_claim_source": "BUNDLE_METADATA",
+            "reproducibility": "NOT_ESTABLISHED",
+        },
         "vulnerability_confirmed": False,
         "errors": [],
     }

@@ -175,6 +175,8 @@ def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:
                 "task_id": experiment_report["task_id"],
                 "target_repository": experiment_report["target_repository"],
                 "target_commit": experiment_report["target_commit"],
+                "argv": manifest["record"]["argv"],
+                "toolchain": manifest["record"]["toolchain"],
                 "experiment_status": experiment_report["experiment_status"],
                 "checked_artifacts": experiment_report["checked_artifacts"],
                 "integrity_only": True,

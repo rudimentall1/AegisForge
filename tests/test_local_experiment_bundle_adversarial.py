@@ -105,24 +105,30 @@ def test_verifier_rejects_malformed_target_revision_in_manifest():
     assert report.get("vulnerability_confirmed", False) is False
 
 
-def test_verifier_rejects_symlink_artifact_entry():
+def test_verifier_rejects_non_regular_artifact_entries():
     record, artifacts = _fixture()
     bundle = export_local_experiment_bundle(record, artifacts)
-    rewritten = io.BytesIO()
-    with zipfile.ZipFile(io.BytesIO(bundle), "r") as source:
-        with zipfile.ZipFile(rewritten, "w", compression=zipfile.ZIP_DEFLATED) as target:
-            for info in source.infolist():
-                data = source.read(info.filename)
-                if info.filename == "input.bin":
-                    symlink = zipfile.ZipInfo(info.filename)
-                    symlink.create_system = 3
-                    symlink.external_attr = (0o120777 << 16)
-                    target.writestr(symlink, b"outside-target")
-                else:
-                    target.writestr(info, data)
 
-    report = verify_local_experiment_bundle(rewritten.getvalue())
+    # ZIP's Unix mode can describe filesystem objects that must never be
+    # accepted as evidence artifacts, even when the member name is allowlisted.
+    for file_type in (0o120000, 0o010000, 0o020000, 0o060000, 0o140000):
+        rewritten = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(bundle), "r") as source:
+            with zipfile.ZipFile(
+                rewritten, "w", compression=zipfile.ZIP_DEFLATED
+            ) as target:
+                for info in source.infolist():
+                    data = source.read(info.filename)
+                    if info.filename == "input.bin":
+                        special = zipfile.ZipInfo(info.filename)
+                        special.create_system = 3
+                        special.external_attr = ((file_type | 0o600) << 16)
+                        target.writestr(special, b"non-regular-entry")
+                    else:
+                        target.writestr(info, data)
 
-    assert report["status"] == "FAIL"
-    assert report["errors"] == ["bundle_entry_type_invalid"]
-    assert report.get("vulnerability_confirmed", False) is False
+        report = verify_local_experiment_bundle(rewritten.getvalue())
+
+        assert report["status"] == "FAIL"
+        assert report["errors"] == ["bundle_entry_type_invalid"]
+        assert report.get("vulnerability_confirmed", False) is False

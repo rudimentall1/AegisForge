@@ -1,4 +1,5 @@
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -159,3 +160,21 @@ def test_bundle_attestation_nonce_cannot_be_replayed(tmp_path):
     assert second["attestation_verified"] is True
     assert second["replay_protection_verified"] is False
     assert second["errors"] == ["attestation_replay_detected"]
+
+
+
+def test_concurrent_nonce_consumption_is_atomic(tmp_path):
+    database = tmp_path / "concurrent-replay.sqlite3"
+
+    def consume_once(_):
+        # Independent registry instances model concurrent verifier requests
+        # sharing one durable SQLite replay store.
+        return SQLiteAttestationReplayRegistry(database).consume(
+            "shared-signer", "one-time-nonce"
+        )
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        outcomes = list(pool.map(consume_once, range(24)))
+
+    assert outcomes.count(True) == 1
+    assert outcomes.count(False) == 23

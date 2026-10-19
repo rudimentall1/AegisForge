@@ -113,6 +113,8 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert report["experiment_status"] == "PASS"
         assert report["integrity_only"] is True
         assert report["authenticated_execution"] is False
+        assert report["execution_provenance"]["status"] == "UNAUTHENTICATED"
+        assert report["execution_provenance"]["execution_claim_source"] == "BUNDLE_METADATA"
         assert report["vulnerability_confirmed"] is False
 
         # The counter-test is represented as a separate terminal task and

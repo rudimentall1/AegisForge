@@ -177,18 +177,6 @@ def verify_execution_attestation(
         return {**base, "errors": errors}
     if claims["signer_id"] != expected_signer_id:
         return {**base, "errors": ["attestation_signer_identity_mismatch"]}
-    if max_age_seconds is not None:
-        issued_at = datetime.fromisoformat(
-            claims["issued_at"][:-1] + "+00:00"
-            if claims["issued_at"].endswith("Z") else claims["issued_at"]
-        )
-        verifier_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        issued_at = issued_at.astimezone(timezone.utc)
-        age_seconds = (verifier_time - issued_at).total_seconds()
-        if age_seconds > max_age_seconds:
-            return {**base, "errors": ["attestation_issued_at_expired"]}
-        if age_seconds < -max_future_skew_seconds:
-            return {**base, "errors": ["attestation_issued_at_in_future"]}
     signature_hex = attestation.get("signature_ed25519")
     if not isinstance(signature_hex, str) or not re.fullmatch(r"[0-9a-f]{128}", signature_hex):
         return {**base, "errors": ["attestation_signature_encoding_invalid"]}
@@ -213,6 +201,18 @@ def verify_execution_attestation(
         )
     except (InvalidSignature, ValueError):
         return {**base, "errors": ["attestation_signature_invalid"]}
+    if max_age_seconds is not None:
+        issued_at = datetime.fromisoformat(
+            claims["issued_at"][:-1] + "+00:00"
+            if claims["issued_at"].endswith("Z") else claims["issued_at"]
+        )
+        verifier_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        issued_at = issued_at.astimezone(timezone.utc)
+        age_seconds = (verifier_time - issued_at).total_seconds()
+        if age_seconds > max_age_seconds:
+            return {**base, "errors": ["attestation_issued_at_expired"]}
+        if age_seconds < -max_future_skew_seconds:
+            return {**base, "errors": ["attestation_issued_at_in_future"]}
     return {
         **base,
         "status": "PASS",

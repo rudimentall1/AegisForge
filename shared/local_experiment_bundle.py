@@ -86,7 +86,11 @@ def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:
                 if info.is_dir() or info.flag_bits & 0x1:
                     return {"status": "FAIL", "errors": ["bundle_entry_type_invalid"]}
                 mode = (info.external_attr >> 16) & 0xFFFF
-                if stat.S_ISLNK(mode) or (mode and not stat.S_ISREG(mode)):
+                file_type = stat.S_IFMT(mode)
+                # Some ZIP writers preserve only permission bits and omit the
+                # Unix file-type bits. Accept that portable representation, but
+                # reject explicit symlink/device/FIFO/socket types.
+                if stat.S_ISLNK(mode) or (file_type and file_type != stat.S_IFREG):
                     return {"status": "FAIL", "errors": ["bundle_entry_type_invalid"]}
                 if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
                     return {"status": "FAIL", "errors": ["bundle_compression_unsupported"]}

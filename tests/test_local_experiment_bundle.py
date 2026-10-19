@@ -107,3 +107,26 @@ def test_bundle_verifier_rejects_invalid_input():
         "status": "FAIL",
         "errors": ["bundle_malformed_or_unreadable"],
     }
+
+
+
+def test_bundle_verifier_rejects_symlink_artifact_entry():
+    import stat
+
+    bundle, _, _ = _bundle()
+    changed = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(bundle), "r") as source, zipfile.ZipFile(
+        changed, "w", compression=zipfile.ZIP_DEFLATED
+    ) as output:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            rewritten = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+            rewritten.compress_type = zipfile.ZIP_DEFLATED
+            rewritten.external_attr = info.external_attr
+            if info.filename == "input.bin":
+                rewritten.external_attr = (stat.S_IFLNK | 0o777) << 16
+                data = b"../outside.txt"
+            output.writestr(rewritten, data)
+
+    report = verify_local_experiment_bundle(changed.getvalue())
+    assert report == {"status": "FAIL", "errors": ["bundle_entry_type_invalid"]}

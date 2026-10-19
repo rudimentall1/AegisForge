@@ -132,3 +132,23 @@ def test_verifier_rejects_non_regular_artifact_entries():
         assert report["status"] == "FAIL"
         assert report["errors"] == ["bundle_entry_type_invalid"]
         assert report.get("vulnerability_confirmed", False) is False
+
+
+
+def test_verifier_rejects_corrupted_compressed_artifact_bytes():
+    record, artifacts = _fixture()
+    bundle = export_local_experiment_bundle(record, artifacts)
+    damaged = bytearray(bundle)
+
+    with zipfile.ZipFile(io.BytesIO(bundle), "r") as archive:
+        info = archive.getinfo("stdout.bin")
+        # Local-file header is 30 bytes followed by the filename and extra data.
+        payload_offset = info.header_offset + 30 + len(info.filename.encode("utf-8")) + len(info.extra)
+        assert info.compress_size > 0
+        damaged[payload_offset + info.compress_size // 2] ^= 0x01
+
+    report = verify_local_experiment_bundle(bytes(damaged))
+
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["bundle_malformed_or_unreadable"]
+    assert report.get("vulnerability_confirmed", False) is False

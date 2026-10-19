@@ -218,3 +218,60 @@ def test_attestation_rejects_timestamp_without_timezone():
     assert report["status"] == "FAIL"
     assert report["attestation_verified"] is False
     assert report["errors"] == ["attestation_issued_at_invalid"]
+
+def test_attestation_freshness_policy_accepts_within_window():
+    from datetime import datetime, timezone
+
+    attestation = _attestation(issued_at="2026-10-19T10:00:00Z")
+    report = verify_execution_attestation(
+        attestation,
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+        expected_record=RECORD,
+        max_age_seconds=600,
+        now=datetime(2026, 10, 19, 10, 5, tzinfo=timezone.utc),
+    )
+    assert report["status"] == "PASS"
+
+
+def test_attestation_freshness_policy_rejects_expired_claim():
+    from datetime import datetime, timezone
+
+    report = verify_execution_attestation(
+        _attestation(issued_at="2026-10-19T10:00:00Z"),
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+        expected_record=RECORD,
+        max_age_seconds=60,
+        now=datetime(2026, 10, 19, 10, 5, tzinfo=timezone.utc),
+    )
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["attestation_issued_at_expired"]
+
+
+def test_attestation_freshness_policy_rejects_far_future_claim():
+    from datetime import datetime, timezone
+
+    report = verify_execution_attestation(
+        _attestation(issued_at="2026-10-19T10:10:00Z"),
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+        expected_record=RECORD,
+        max_age_seconds=600,
+        max_future_skew_seconds=30,
+        now=datetime(2026, 10, 19, 10, 0, tzinfo=timezone.utc),
+    )
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["attestation_issued_at_in_future"]
+
+
+def test_attestation_freshness_policy_rejects_invalid_policy_arguments():
+    report = verify_execution_attestation(
+        _attestation(),
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+        max_age_seconds=True,
+    )
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["attestation_max_age_seconds_invalid"]
+

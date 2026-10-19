@@ -151,7 +151,11 @@ def verify_execution_attestation(
     if expected_record is not None:
         if not isinstance(expected_record, Mapping):
             return {**base, "errors": ["expected_record_invalid"]}
-        expected_digest = hashlib.sha256(_canonical_json(dict(expected_record))).hexdigest()
+        try:
+            expected_record_bytes = _canonical_json(dict(expected_record))
+        except (TypeError, ValueError, UnicodeError, OverflowError):
+            return {**base, "errors": ["expected_record_not_canonicalizable"]}
+        expected_digest = hashlib.sha256(expected_record_bytes).hexdigest()
         if claims["record_sha256"] != expected_digest:
             return {**base, "errors": ["attestation_record_digest_mismatch"]}
         for field in (

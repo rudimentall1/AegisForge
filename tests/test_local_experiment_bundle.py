@@ -39,6 +39,8 @@ def test_portable_bundle_round_trip_is_integrity_only():
         "task_id": "task-1",
         "target_repository": "example/protocol",
         "target_commit": "a" * 40,
+        "argv": ["pytest", "-q", "test_control.py"],
+        "toolchain": {"pytest": "8.3.4", "python": "3.12.1"},
         "experiment_status": "PASS",
         "checked_artifacts": 3,
         "integrity_only": True,

@@ -37,6 +37,8 @@ def test_portable_bundle_round_trip_is_integrity_only():
         "case_id": "case-1",
         "round_id": "round-1",
         "task_id": "task-1",
+        "target_repository": "example/protocol",
+        "target_commit": "a" * 40,
         "experiment_status": "PASS",
         "checked_artifacts": 3,
         "integrity_only": True,

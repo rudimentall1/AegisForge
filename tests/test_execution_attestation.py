@@ -194,3 +194,11 @@ def test_attestation_rejects_noncanonical_expected_record_without_raising():
     assert report["status"] == "FAIL"
     assert report["attestation_verified"] is False
     assert report["errors"] == ["expected_record_not_canonicalizable"]
+
+
+def test_attestation_rejects_invalid_timestamp():
+    attestation = _attestation()
+    attestation["claims"]["issued_at"] = "not-a-time"
+    report = verify_execution_attestation(attestation, trusted_public_key_bytes=PUBLIC_BYTES, expected_signer_id="ci-runner-key-1", expected_record=RECORD)
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["attestation_issued_at_invalid"]

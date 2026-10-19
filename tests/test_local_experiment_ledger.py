@@ -134,3 +134,16 @@ def test_local_experiment_storage_has_a_record_count_budget():
             ledger.record_local_experiment(changed, artifacts)
     finally:
         db.close()
+
+
+@pytest.mark.parametrize("task_status", ["pending", "running"])
+def test_local_experiment_rejects_nonterminal_task(task_status):
+    db, ledger, record, artifacts = _fixture()
+    try:
+        db.execute("UPDATE queue SET status = ? WHERE id = ?", (task_status, "task-1"))
+        db.commit()
+        with pytest.raises(ValueError, match="local_experiment_task_not_terminal"):
+            ledger.record_local_experiment(record, artifacts)
+        assert db.execute("SELECT COUNT(*) FROM local_experiment_records").fetchone()[0] == 0
+    finally:
+        db.close()

@@ -243,8 +243,11 @@ def verify_bundle_execution_attestation(
     *,
     trusted_public_key_bytes: bytes,
     expected_signer_id: str,
+    max_age_seconds: int | None = None,
+    max_future_skew_seconds: int = 300,
+    now: datetime | None = None,
 ) -> dict:
-    """Verify bundle integrity first, then verify a detached attestation for its record."""
+    """Verify bundle integrity, detached signature, and optional freshness policy."""
     from io import BytesIO
     import zipfile
 
@@ -277,6 +280,9 @@ def verify_bundle_execution_attestation(
         trusted_public_key_bytes=trusted_public_key_bytes,
         expected_signer_id=expected_signer_id,
         expected_record=record,
+        max_age_seconds=max_age_seconds,
+        max_future_skew_seconds=max_future_skew_seconds,
+        now=now,
     )
     return {
         **attestation_report,

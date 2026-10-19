@@ -212,6 +212,13 @@ def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:
                 "checked_artifacts": experiment_report["checked_artifacts"],
                 "integrity_only": True,
                 "authenticated_execution": False,
+                "execution_provenance": {
+                    "status": "UNAUTHENTICATED",
+                    "runner_identity": "UNVERIFIED",
+                    "environment_identity": "UNVERIFIED",
+                    "execution_claim_source": "BUNDLE_METADATA",
+                    "reproducibility": "NOT_ESTABLISHED",
+                },
                 "vulnerability_confirmed": False,
                 "errors": [],
             }

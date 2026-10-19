@@ -42,7 +42,7 @@ def _rewrite_bundle(bundle, *, replace_manifest=None, extra_entries=()):
     return rewritten.getvalue()
 
 
-def test_not_run_record_is_integrity_valid_but_never_a_pass():
+def test_not_run_record_preserves_not_run_when_bundle_integrity_passes():
     record, artifacts = _fixture(exit_code=None)
     bundle = export_local_experiment_bundle(record, artifacts)
 

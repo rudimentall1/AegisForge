@@ -91,6 +91,49 @@ def assess_local_experiment_pair(
                 "bundle_reports": reports,
             }
 
+    if control.get("task_id") == countertest.get("task_id"):
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {
+                "control_bundle_integrity": True,
+                "countertest_bundle_integrity": True,
+                "identity_match": True,
+                "distinct_tasks": False,
+            },
+            "errors": ["control_and_countertest_must_use_distinct_tasks"],
+            "bundle_reports": reports,
+        }
+    if control.get("argv") == countertest.get("argv"):
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {
+                "control_bundle_integrity": True,
+                "countertest_bundle_integrity": True,
+                "identity_match": True,
+                "distinct_tasks": True,
+                "distinct_experiment_commands": False,
+            },
+            "errors": ["control_and_countertest_commands_must_differ"],
+            "bundle_reports": reports,
+        }
+    if control.get("toolchain") != countertest.get("toolchain"):
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {
+                "control_bundle_integrity": True,
+                "countertest_bundle_integrity": True,
+                "identity_match": True,
+                "distinct_tasks": True,
+                "distinct_experiment_commands": True,
+                "toolchain_match": False,
+            },
+            "errors": ["control_and_countertest_toolchain_mismatch"],
+            "bundle_reports": reports,
+        }
+
     experiment_statuses = {
         control.get("experiment_status"),
         countertest.get("experiment_status"),

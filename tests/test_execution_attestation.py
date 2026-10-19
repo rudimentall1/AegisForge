@@ -275,3 +275,33 @@ def test_attestation_freshness_policy_rejects_invalid_policy_arguments():
     assert report["status"] == "FAIL"
     assert report["errors"] == ["attestation_max_age_seconds_invalid"]
 
+def test_bundle_attestation_applies_requested_freshness_policy():
+    from datetime import datetime, timezone
+
+    record, artifacts = build_experiment_record(
+        case_id="case-attest-1",
+        round_id="round-attest-1",
+        task_id="task-attest-1",
+        target_repository="example/protocol",
+        target_commit="a" * 40,
+        argv=["pytest", "-q"],
+        toolchain={"python": "3.12.1"},
+        input_bytes=b"fixture",
+        stdout_bytes=b"control passed",
+        stderr_bytes=b"",
+        exit_code=0,
+    )
+    bundle = export_local_experiment_bundle(record, artifacts)
+    report = verify_bundle_execution_attestation(
+        bundle,
+        _attestation(record=record, issued_at="2026-10-19T10:00:00Z"),
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+        max_age_seconds=60,
+        now=datetime(2026, 10, 19, 10, 5, tzinfo=timezone.utc),
+    )
+    assert report["status"] == "FAIL"
+    assert report["bundle_integrity_verified"] is True
+    assert report["attestation_verified"] is False
+    assert report["errors"] == ["attestation_issued_at_expired"]
+

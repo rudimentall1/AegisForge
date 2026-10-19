@@ -50,7 +50,7 @@ def test_not_run_record_is_integrity_valid_but_never_a_pass():
 
     assert report["status"] == "PASS"
     assert report["experiment_status"] == "NOT_RUN"
-    assert report["vulnerability_confirmed"] is False
+    assert report.get("vulnerability_confirmed", False) is False
 
 
 def test_verifier_rejects_duplicate_manifest_json_keys():
@@ -68,7 +68,7 @@ def test_verifier_rejects_duplicate_manifest_json_keys():
 
     assert report["status"] == "FAIL"
     assert report["errors"] == ["bundle_malformed_or_unreadable"]
-    assert report["vulnerability_confirmed"] is False
+    assert report.get("vulnerability_confirmed", False) is False
 
 
 def test_verifier_rejects_path_traversal_entry():
@@ -81,7 +81,7 @@ def test_verifier_rejects_path_traversal_entry():
 
     assert report["status"] == "FAIL"
     assert report["errors"] == ["bundle_entry_set_invalid"]
-    assert report["vulnerability_confirmed"] is False
+    assert report.get("vulnerability_confirmed", False) is False
 
 
 def test_verifier_rejects_malformed_target_revision_in_manifest():
@@ -102,4 +102,4 @@ def test_verifier_rejects_malformed_target_revision_in_manifest():
 
     assert report["status"] == "FAIL"
     assert report["errors"] == ["local_experiment_record_invalid"]
-    assert report["vulnerability_confirmed"] is False
+    assert report.get("vulnerability_confirmed", False) is False

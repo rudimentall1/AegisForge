@@ -5,6 +5,8 @@ queue lifecycle, ledger binding, and portable bundle verification without
 executing an untrusted command or claiming a real vulnerability reproduction.
 """
 import hashlib
+import json
+import zipfile
 
 from shared.evidence_ledger import EvidenceLedger
 from shared.experiment_assessment import assess_local_experiment_pair
@@ -15,6 +17,10 @@ from shared.local_experiment_bundle import (
 )
 from shared.queue import TaskQueue
 from shared.research_case import CaseStatus, ExecutionMode, ResearchCase, RoundSpec
+from shared.research_case_bundle import (
+    export_research_case_bundle,
+    verify_research_case_bundle,
+)
 
 
 def _case():
@@ -180,5 +186,25 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert assessment["vulnerability_confirmed"] is False
         assert assessment["checks"]["identity_match"] is True
         assert counter_task_id != task_id
+
+        # Independently export the registered Research Case dossier from the
+        # same queue database. The portable case dossier must retain both task
+        # identities that anchor the two local-experiment records.
+        dossier_path = tmp_path / "e2e-research-case.zip"
+        dossier_report = export_research_case_bundle(
+            tmp_path / "aegisforge-e2e.sqlite3",
+            case.case_id,
+            dossier_path,
+        )
+        offline_dossier_report = verify_research_case_bundle(dossier_path)
+        assert dossier_report["valid"] is True
+        assert offline_dossier_report["valid"] is True
+        assert offline_dossier_report["case_id"] == case.case_id
+        assert offline_dossier_report["task_count"] == 2
+        assert offline_dossier_report["authenticity"] == "UNSIGNED_INTEGRITY_ONLY"
+        with zipfile.ZipFile(dossier_path, "r") as dossier:
+            tasks_payload = json.loads(dossier.read("tasks.json"))
+        exported_task_ids = {task["id"] for task in tasks_payload["tasks"]}
+        assert exported_task_ids == {task_id, counter_task_id}
     finally:
         queue.db.close()

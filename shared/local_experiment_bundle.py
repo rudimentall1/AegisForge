@@ -110,6 +110,26 @@ def export_persisted_local_experiment_bundle(ledger, record_digest: str) -> byte
     return export_local_experiment_bundle(record, artifacts)
 
 
+def _read_bounded_member(archive: zipfile.ZipFile, info: zipfile.ZipInfo, limit: int) -> bytes:
+    """Read a ZIP member incrementally and validate its actual decompressed size."""
+    chunks = []
+    actual_size = 0
+    with archive.open(info, "r") as stream:
+        while True:
+            # Read at most one byte beyond the limit so a lying size header or
+            # malformed stream cannot make this verifier allocate without bound.
+            chunk = stream.read(min(1024 * 1024, limit - actual_size + 1))
+            if not chunk:
+                break
+            actual_size += len(chunk)
+            if actual_size > limit:
+                raise ValueError("bundle_entry_size_limit_exceeded")
+            chunks.append(chunk)
+    if actual_size != info.file_size:
+        raise ValueError("bundle_member_size_mismatch")
+    return b"".join(chunks)
+
+
 def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:
     """Fail closed on malformed archives, unsafe names, missing or extra files."""
     if not isinstance(bundle_bytes, bytes):
@@ -146,7 +166,17 @@ def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:
                 if total_size > _MAX_TOTAL_UNCOMPRESSED_BYTES:
                     return {"status": "FAIL", "errors": ["bundle_uncompressed_size_limit_exceeded"]}
 
-            manifest_bytes = archive.read(_MANIFEST_NAME)
+            files = {}
+            actual_total_size = 0
+            for info in infos:
+                limit = _MAX_MANIFEST_BYTES if info.filename == _MANIFEST_NAME else _MAX_ARTIFACT_BYTES
+                raw = _read_bounded_member(archive, info, limit)
+                actual_total_size += len(raw)
+                if actual_total_size > _MAX_TOTAL_UNCOMPRESSED_BYTES:
+                    return {"status": "FAIL", "errors": ["bundle_uncompressed_size_limit_exceeded"]}
+                files[info.filename] = raw
+
+            manifest_bytes = files[_MANIFEST_NAME]
             manifest = json.loads(
                 manifest_bytes.decode("utf-8"),
                 object_pairs_hook=_reject_duplicate_keys,
@@ -159,7 +189,7 @@ def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:
             if _canonical_json(manifest) != manifest_bytes:
                 return {"status": "FAIL", "errors": ["bundle_manifest_not_canonical"]}
 
-            artifacts = {name: archive.read(name) for name in _ARTIFACT_NAMES}
+            artifacts = {name: files[name] for name in _ARTIFACT_NAMES}
             experiment_report = verify_experiment_record(manifest.get("record"), artifacts)
             if experiment_report.get("status") != "PASS":
                 return {

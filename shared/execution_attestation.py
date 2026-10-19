@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Mapping
 
 from cryptography.exceptions import InvalidSignature
@@ -129,8 +129,16 @@ def verify_execution_attestation(
     trusted_public_key_bytes: bytes,
     expected_signer_id: str,
     expected_record: Mapping | None = None,
+    max_age_seconds: int | None = None,
+    max_future_skew_seconds: int = 300,
+    now: datetime | None = None,
 ) -> dict:
-    """Verify a detached signature against a caller-supplied trusted public key."""
+    """Verify a detached signature against a caller-supplied trusted public key.
+
+    Freshness checks are opt-in: provide max_age_seconds to enforce an
+    issuance window. now is injectable for deterministic tests. This does
+    not prevent replay; callers still need durable nonce tracking.
+    """
     base = {
         "status": "FAIL",
         "attestation_verified": False,
@@ -142,6 +150,21 @@ def verify_execution_attestation(
         return {**base, "errors": ["trusted_ed25519_public_key_must_be_32_bytes"]}
     if not _valid_id(expected_signer_id):
         return {**base, "errors": ["expected_signer_id_invalid"]}
+    if max_age_seconds is not None and (
+        isinstance(max_age_seconds, bool) or not isinstance(max_age_seconds, int)
+        or max_age_seconds < 0
+    ):
+        return {**base, "errors": ["attestation_max_age_seconds_invalid"]}
+    if (
+        isinstance(max_future_skew_seconds, bool)
+        or not isinstance(max_future_skew_seconds, int)
+        or max_future_skew_seconds < 0
+    ):
+        return {**base, "errors": ["attestation_max_future_skew_seconds_invalid"]}
+    if now is not None and (
+        not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None
+    ):
+        return {**base, "errors": ["attestation_verifier_time_invalid"]}
     if not isinstance(attestation, dict) or set(attestation) != {
         "claims", "signature_ed25519", "authenticity"
     }:
@@ -154,6 +177,18 @@ def verify_execution_attestation(
         return {**base, "errors": errors}
     if claims["signer_id"] != expected_signer_id:
         return {**base, "errors": ["attestation_signer_identity_mismatch"]}
+    if max_age_seconds is not None:
+        issued_at = datetime.fromisoformat(
+            claims["issued_at"][:-1] + "+00:00"
+            if claims["issued_at"].endswith("Z") else claims["issued_at"]
+        )
+        verifier_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        issued_at = issued_at.astimezone(timezone.utc)
+        age_seconds = (verifier_time - issued_at).total_seconds()
+        if age_seconds > max_age_seconds:
+            return {**base, "errors": ["attestation_issued_at_expired"]}
+        if age_seconds < -max_future_skew_seconds:
+            return {**base, "errors": ["attestation_issued_at_in_future"]}
     signature_hex = attestation.get("signature_ed25519")
     if not isinstance(signature_hex, str) or not re.fullmatch(r"[0-9a-f]{128}", signature_hex):
         return {**base, "errors": ["attestation_signature_encoding_invalid"]}

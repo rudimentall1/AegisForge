@@ -157,6 +157,22 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             expected_round_id=round_spec.round_id,
             expected_target_repository=case.target_repository,
             expected_target_commit=case.target_commit,
+            semantic_criteria={
+                "case_id": case.case_id,
+                "round_id": round_spec.round_id,
+                "target_repository": case.target_repository,
+                "target_commit": case.target_commit,
+                "invariant": case.expected_invariant,
+                "falsification_criteria": case.falsification_criteria,
+                "control": {
+                    "must_contain": ["invariant_preserved=true"],
+                    "must_not_contain": ["invariant_preserved=false"],
+                },
+                "countertest": {
+                    "must_contain": ["seeded_violation_detected=true"],
+                    "must_not_contain": ["seeded_violation_detected=false"],
+                },
+            },
             synthetic_fixture=True,
         )
         assert assessment["status"] == "INCONCLUSIVE"

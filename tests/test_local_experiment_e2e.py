@@ -16,7 +16,13 @@ from shared.local_experiment_bundle import (
     verify_local_experiment_bundle,
 )
 from shared.queue import TaskQueue
-from shared.research_case import CaseStatus, ExecutionMode, ResearchCase, RoundSpec
+from shared.research_case import (
+    CaseStatus,
+    ExecutionMode,
+    ResearchCase,
+    RoundSpec,
+    research_case_binding,
+)
 from shared.research_case_bundle import (
     export_research_case_bundle,
     verify_research_case_bundle,
@@ -80,6 +86,7 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             "synthetic_fixture": True,
             "experiment": "control",
             "invariant_preserved": True,
+            "research_case_binding": research_case_binding(case),
         })
         record, artifacts = build_experiment_record(
             case_id=case.case_id,
@@ -128,6 +135,7 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             "synthetic_fixture": True,
             "experiment": "falsification_counter_test",
             "seeded_violation_detected": True,
+            "research_case_binding": research_case_binding(case),
         })
         counter_record, counter_artifacts = build_experiment_record(
             case_id=case.case_id,

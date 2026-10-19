@@ -178,3 +178,19 @@ def test_bundle_attestation_refuses_tampered_bundle():
     assert report["status"] == "FAIL"
     assert report["bundle_integrity_verified"] is False
     assert report["errors"] == ["experiment_bundle_integrity_not_verified"]
+
+
+def test_attestation_rejects_noncanonical_expected_record_without_raising():
+    malformed_record = dict(RECORD)
+    malformed_record["unexpected_numeric"] = float("nan")
+
+    report = verify_execution_attestation(
+        _attestation(),
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+        expected_record=malformed_record,
+    )
+
+    assert report["status"] == "FAIL"
+    assert report["attestation_verified"] is False
+    assert report["errors"] == ["expected_record_not_canonicalizable"]

@@ -102,6 +102,10 @@ def test_valid_non_synthetic_pair_passes_workflow_not_vulnerability():
     assert report["vulnerability_status"] == "INCONCLUSIVE"
     assert report["vulnerability_confirmed"] is False
     assert report["checks"]["identity_match"] is True
+    assert report["execution_provenance"]["status"] == "UNAUTHENTICATED"
+    assert report["execution_provenance"]["runner_identity"] == "UNVERIFIED"
+    assert report["execution_provenance"]["environment_identity"] == "UNVERIFIED"
+    assert report["execution_provenance"]["reproducibility"] == "NOT_ESTABLISHED"
 
 
 def test_bundle_with_unexpected_exit_code_fails_workflow_not_confirm_finding():

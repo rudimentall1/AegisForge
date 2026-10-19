@@ -338,13 +338,18 @@ class EvidenceLedger:
         if not required.issubset(queue_columns):
             raise ValueError("local_experiment_queue_binding_schema_missing")
         row = self.db.execute(
-            "SELECT research_case_id, round_id FROM queue WHERE id = ?",
+            "SELECT research_case_id, round_id, status FROM queue WHERE id = ?",
             (task_id,),
         ).fetchone()
         if row is None:
             raise ValueError("local_experiment_task_not_found")
         if row[0] != record["case_id"] or row[1] != record["round_id"]:
             raise ValueError("local_experiment_task_identity_mismatch")
+        # Evidence must not be persisted as an execution result while its task
+        # can still change. Failed tasks are terminal too: their raw evidence
+        # may be needed to explain a failed experiment or timeout.
+        if row[2] not in {"completed", "failed"}:
+            raise ValueError("local_experiment_task_not_terminal")
 
         case_tables = {
             item[0] for item in self.db.execute(

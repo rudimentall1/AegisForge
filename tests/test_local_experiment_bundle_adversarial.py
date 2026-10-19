@@ -103,3 +103,26 @@ def test_verifier_rejects_malformed_target_revision_in_manifest():
     assert report["status"] == "FAIL"
     assert report["errors"] == ["local_experiment_record_invalid"]
     assert report.get("vulnerability_confirmed", False) is False
+
+
+def test_verifier_rejects_symlink_artifact_entry():
+    record, artifacts = _fixture()
+    bundle = export_local_experiment_bundle(record, artifacts)
+    rewritten = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(bundle), "r") as source:
+        with zipfile.ZipFile(rewritten, "w", compression=zipfile.ZIP_DEFLATED) as target:
+            for info in source.infolist():
+                data = source.read(info.filename)
+                if info.filename == "input.bin":
+                    symlink = zipfile.ZipInfo(info.filename)
+                    symlink.create_system = 3
+                    symlink.external_attr = (0o120777 << 16)
+                    target.writestr(symlink, b"outside-target")
+                else:
+                    target.writestr(info, data)
+
+    report = verify_local_experiment_bundle(rewritten.getvalue())
+
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["bundle_entry_type_invalid"]
+    assert report.get("vulnerability_confirmed", False) is False

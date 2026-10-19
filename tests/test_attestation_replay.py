@@ -6,9 +6,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from shared.attestation_replay import (
     SQLiteAttestationReplayRegistry,
+    verify_bundle_execution_attestation_with_replay_protection,
     verify_execution_attestation_with_replay_protection,
 )
 from shared.execution_attestation import create_execution_attestation
+from shared.local_experiment import build_experiment_record
+from shared.local_experiment_bundle import export_local_experiment_bundle
 
 
 PRIVATE_BYTES = bytes([0x31]) * 32
@@ -103,3 +106,56 @@ def test_registry_failure_fails_closed(tmp_path):
 def test_registry_rejects_ephemeral_database():
     with pytest.raises(ValueError, match="durable_database_path"):
         SQLiteAttestationReplayRegistry(":memory:")
+
+
+
+def test_bundle_attestation_nonce_cannot_be_replayed(tmp_path):
+    record, artifacts = build_experiment_record(
+        case_id="replay-case-1",
+        round_id="replay-round-1",
+        task_id="replay-task-1",
+        target_repository="example/protocol",
+        target_commit="a" * 40,
+        argv=["pytest", "-q"],
+        toolchain={"python": "3.12.1"},
+        input_bytes=b"fixture",
+        stdout_bytes=b"control passed",
+        stderr_bytes=b"",
+        exit_code=0,
+    )
+    bundle = export_local_experiment_bundle(record, artifacts)
+    attestation = create_execution_attestation(
+        record=record,
+        signer_id="trusted-signer",
+        runner_id="runner-1",
+        environment_sha256=hashlib.sha256(b"test-env").hexdigest(),
+        issued_at="2026-10-19T10:00:00Z",
+        nonce="bundle-nonce-1",
+        private_key_bytes=PRIVATE_BYTES,
+    )
+    registry = SQLiteAttestationReplayRegistry(tmp_path / "bundle-replay.sqlite3")
+
+    first = verify_bundle_execution_attestation_with_replay_protection(
+        bundle,
+        attestation,
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="trusted-signer",
+        replay_registry=registry,
+    )
+    second = verify_bundle_execution_attestation_with_replay_protection(
+        bundle,
+        attestation,
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="trusted-signer",
+        replay_registry=registry,
+    )
+
+    assert first["status"] == "PASS"
+    assert first["bundle_integrity_verified"] is True
+    assert first["attestation_verified"] is True
+    assert first["replay_protection_verified"] is True
+    assert second["status"] == "FAIL"
+    assert second["bundle_integrity_verified"] is True
+    assert second["attestation_verified"] is True
+    assert second["replay_protection_verified"] is False
+    assert second["errors"] == ["attestation_replay_detected"]

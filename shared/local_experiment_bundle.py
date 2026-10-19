@@ -7,6 +7,7 @@ internally consistent.
 from __future__ import annotations
 
 from io import BytesIO
+import hashlib
 import json
 import stat
 import zipfile
@@ -63,6 +64,50 @@ def export_local_experiment_bundle(record: object, artifacts: dict[str, bytes]) 
     if len(result) > _MAX_BUNDLE_BYTES:
         raise ValueError("local_experiment_bundle_too_large")
     return result
+
+
+def export_persisted_local_experiment_bundle(ledger, record_digest: str) -> bytes:
+    """Export a bundle from a persisted ledger row, never from caller-supplied artifacts.
+
+    The digest binds the canonical record JSON. Stored identity columns must match
+    the record before raw artifact bytes are passed to the normal bundle exporter.
+    """
+    if not isinstance(record_digest, str) or len(record_digest) != 64:
+        raise ValueError("local_experiment_record_digest_invalid")
+    try:
+        int(record_digest, 16)
+    except ValueError as exc:
+        raise ValueError("local_experiment_record_digest_invalid") from exc
+
+    row = ledger.db.execute(
+        """SELECT case_id, round_id, task_id, record_json,
+                  input_bytes, stdout_bytes, stderr_bytes
+           FROM local_experiment_records WHERE record_digest = ?""",
+        (record_digest.lower(),),
+    ).fetchone()
+    if row is None:
+        raise ValueError("local_experiment_record_not_found")
+
+    case_id, round_id, task_id, record_json, input_bytes, stdout_bytes, stderr_bytes = row
+    try:
+        record = json.loads(record_json)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("local_experiment_persisted_record_invalid") from exc
+    canonical = _canonical_json(record)
+    if hashlib.sha256(canonical).hexdigest() != record_digest.lower():
+        raise ValueError("local_experiment_persisted_record_digest_mismatch")
+    if (not isinstance(record, dict)
+            or record.get("case_id") != case_id
+            or record.get("round_id") != round_id
+            or record.get("task_id") != task_id):
+        raise ValueError("local_experiment_persisted_identity_mismatch")
+
+    artifacts = {
+        "input.bin": input_bytes,
+        "stdout.bin": stdout_bytes,
+        "stderr.bin": stderr_bytes,
+    }
+    return export_local_experiment_bundle(record, artifacts)
 
 
 def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:

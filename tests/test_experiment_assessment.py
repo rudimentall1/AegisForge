@@ -22,14 +22,41 @@ def _bundle(*, task_id, exit_code=0, target_commit=COMMIT, fixture_version="asse
         argv=["synthetic-fixture", task_id],
         toolchain={"python": "3.12.1", "fixture": fixture_version},
         input_bytes=b"fixed input",
-        stdout_bytes=b"test output",
+        stdout_bytes=(
+            b"control invariant_preserved=true"
+            if task_id == "control"
+            else b"counter seeded_violation_detected=true"
+        ),
         stderr_bytes=b"",
         exit_code=exit_code,
     )
     return export_local_experiment_bundle(record, artifacts)
 
 
-def _assess(control, counter, *, synthetic_fixture=False):
+def _criteria(**overrides):
+    criteria = {
+        "case_id": CASE_ID,
+        "round_id": ROUND_ID,
+        "target_repository": REPOSITORY,
+        "target_commit": COMMIT,
+        "invariant": "Control must preserve the invariant.",
+        "falsification_criteria": "Counter-test must detect the seeded violation.",
+        "control": {
+            "must_contain": ["invariant_preserved=true"],
+            "must_not_contain": ["invariant_preserved=false"],
+        },
+        "countertest": {
+            "must_contain": ["seeded_violation_detected=true"],
+            "must_not_contain": ["seeded_violation_detected=false"],
+        },
+    }
+    criteria.update(overrides)
+    return criteria
+
+
+def _assess(control, counter, *, synthetic_fixture=False, semantic_criteria="default"):
+    if semantic_criteria == "default":
+        semantic_criteria = _criteria()
     return assess_local_experiment_pair(
         control_bundle=control,
         countertest_bundle=counter,
@@ -37,6 +64,7 @@ def _assess(control, counter, *, synthetic_fixture=False):
         expected_round_id=ROUND_ID,
         expected_target_repository=REPOSITORY,
         expected_target_commit=COMMIT,
+        semantic_criteria=semantic_criteria,
         synthetic_fixture=synthetic_fixture,
     )
 
@@ -125,4 +153,44 @@ def test_control_and_countertest_require_the_same_pinned_toolchain():
     )
     assert report["status"] == "FAIL"
     assert report["errors"] == ["control_and_countertest_toolchain_mismatch"]
+    assert report["vulnerability_confirmed"] is False
+
+
+def test_exit_code_success_without_semantic_criteria_is_inconclusive():
+    report = _assess(
+        _bundle(task_id="control"),
+        _bundle(task_id="counter"),
+        semantic_criteria=None,
+    )
+    assert report["status"] == "INCONCLUSIVE"
+    assert report["errors"] == ["semantic_criteria_missing"]
+    assert report["vulnerability_confirmed"] is False
+
+
+def test_control_output_must_satisfy_declared_invariant():
+    criteria = _criteria()
+    criteria["control"]["must_contain"] = ["invariant_preserved=true", "balance_conserved=true"]
+    report = _assess(_bundle(task_id="control"), _bundle(task_id="counter"), semantic_criteria=criteria)
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["control_semantic_criteria_not_met"]
+    assert report["checks"]["control_output_matches_invariant"] is False
+    assert report["vulnerability_confirmed"] is False
+
+
+def test_countertest_output_must_satisfy_falsification_criteria():
+    criteria = _criteria()
+    criteria["countertest"]["must_contain"] = ["seeded_violation_detected=true", "invariant_broken=true"]
+    report = _assess(_bundle(task_id="control"), _bundle(task_id="counter"), semantic_criteria=criteria)
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["countertest_semantic_criteria_not_met"]
+    assert report["checks"]["countertest_output_matches_falsification_criteria"] is False
+    assert report["vulnerability_confirmed"] is False
+
+
+def test_semantic_criteria_cannot_be_reassigned_to_another_case():
+    criteria = _criteria()
+    criteria["case_id"] = "different-case"
+    report = _assess(_bundle(task_id="control"), _bundle(task_id="counter"), semantic_criteria=criteria)
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["semantic_criteria_identity_mismatch"]
     assert report["vulnerability_confirmed"] is False

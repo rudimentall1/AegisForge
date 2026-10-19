@@ -133,3 +133,45 @@ def test_attestation_rejects_malformed_envelope_and_key():
         trusted_public_key_bytes=b"short",
         expected_signer_id="ci-runner-key-1",
     )["errors"] == ["trusted_ed25519_public_key_must_be_32_bytes"]
+
+
+
+def test_bundle_attestation_checks_bundle_and_exact_embedded_record():
+    record, artifacts = build_experiment_record(
+        case_id="case-attest-1",
+        round_id="round-attest-1",
+        task_id="task-attest-1",
+        target_repository="example/protocol",
+        target_commit="a" * 40,
+        argv=["pytest", "-q"],
+        toolchain={"python": "3.12.1"},
+        input_bytes=b"fixture",
+        stdout_bytes=b"control passed",
+        stderr_bytes=b"",
+        exit_code=0,
+    )
+    bundle = export_local_experiment_bundle(record, artifacts)
+    attestation = _attestation(record=record)
+    report = verify_bundle_execution_attestation(
+        bundle,
+        attestation,
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+    )
+
+    assert report["status"] == "PASS"
+    assert report["bundle_integrity_verified"] is True
+    assert report["attestation_verified"] is True
+    assert report["execution_truth_established"] is False
+
+
+def test_bundle_attestation_refuses_tampered_bundle():
+    report = verify_bundle_execution_attestation(
+        b"not a zip",
+        _attestation(),
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+    )
+    assert report["status"] == "FAIL"
+    assert report["bundle_integrity_verified"] is False
+    assert report["errors"] == ["experiment_bundle_integrity_not_verified"]

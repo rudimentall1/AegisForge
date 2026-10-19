@@ -12,7 +12,7 @@ REPOSITORY = "example/protocol"
 COMMIT = "a" * 40
 
 
-def _bundle(*, task_id, exit_code=0, target_commit=COMMIT):
+def _bundle(*, task_id, exit_code=0, target_commit=COMMIT, fixture_version="assessment-test"):
     record, artifacts = build_experiment_record(
         case_id=CASE_ID,
         round_id=ROUND_ID,
@@ -20,7 +20,7 @@ def _bundle(*, task_id, exit_code=0, target_commit=COMMIT):
         target_repository=REPOSITORY,
         target_commit=target_commit,
         argv=["synthetic-fixture", task_id],
-        toolchain={"python": "3.12.1", "fixture": "assessment-test"},
+        toolchain={"python": "3.12.1", "fixture": fixture_version},
         input_bytes=b"fixed input",
         stdout_bytes=b"test output",
         stderr_bytes=b"",
@@ -106,4 +106,23 @@ def test_tampered_bundle_fails_closed():
     report = _assess(changed.getvalue(), _bundle(task_id="counter"))
     assert report["status"] == "FAIL"
     assert report["errors"] == ["control_bundle_invalid"]
+    assert report["vulnerability_confirmed"] is False
+
+
+
+def test_reusing_one_bundle_for_both_roles_fails_closed():
+    bundle = _bundle(task_id="same-task")
+    report = _assess(bundle, bundle)
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["control_and_countertest_must_use_distinct_tasks"]
+    assert report["vulnerability_confirmed"] is False
+
+
+def test_control_and_countertest_require_the_same_pinned_toolchain():
+    report = _assess(
+        _bundle(task_id="control"),
+        _bundle(task_id="counter", fixture_version="different-toolchain"),
+    )
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["control_and_countertest_toolchain_mismatch"]
     assert report["vulnerability_confirmed"] is False

@@ -43,6 +43,13 @@ def assess_local_experiment_pair(
         "missing_evidence": missing,
         "vulnerability_confirmed": False,
         "vulnerability_status": "INCONCLUSIVE",
+        "execution_provenance": {
+            "status": "UNAUTHENTICATED",
+            "runner_identity": "UNVERIFIED",
+            "environment_identity": "UNVERIFIED",
+            "execution_claim_source": "BUNDLE_METADATA",
+            "reproducibility": "NOT_ESTABLISHED",
+        },
     }
     if len(missing) == 2:
         return {

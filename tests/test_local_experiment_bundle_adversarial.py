@@ -84,10 +84,10 @@ def test_verifier_rejects_path_traversal_entry():
     assert report["vulnerability_confirmed"] is False
 
 
-def test_verifier_rejects_manifest_identity_mutation():
+def test_verifier_rejects_malformed_target_revision_in_manifest():
     record, artifacts = _fixture()
     bundle = export_local_experiment_bundle(record, artifacts)
-    record["case_id"] = "other-case"
+    record["target_commit"] = "not-a-full-git-sha"
     changed_manifest = json.dumps(
         {"schema_version": BUNDLE_SCHEMA_VERSION, "record": record},
         sort_keys=True,

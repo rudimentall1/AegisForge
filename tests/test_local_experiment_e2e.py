@@ -7,6 +7,7 @@ executing an untrusted command or claiming a real vulnerability reproduction.
 import hashlib
 
 from shared.evidence_ledger import EvidenceLedger
+from shared.experiment_assessment import assess_local_experiment_pair
 from shared.local_experiment import build_experiment_record
 from shared.local_experiment_bundle import (
     export_persisted_local_experiment_bundle,
@@ -148,6 +149,20 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert counter_report["task_id"] == counter_task_id
         assert counter_report["experiment_status"] == "PASS"
         assert counter_report["vulnerability_confirmed"] is False
+
+        assessment = assess_local_experiment_pair(
+            control_bundle=bundle,
+            countertest_bundle=counter_bundle,
+            expected_case_id=case.case_id,
+            expected_round_id=round_spec.round_id,
+            expected_target_repository=case.target_repository,
+            expected_target_commit=case.target_commit,
+            synthetic_fixture=True,
+        )
+        assert assessment["status"] == "INCONCLUSIVE"
+        assert assessment["vulnerability_status"] == "INCONCLUSIVE"
+        assert assessment["vulnerability_confirmed"] is False
+        assert assessment["checks"]["identity_match"] is True
         assert counter_task_id != task_id
     finally:
         queue.db.close()

@@ -4,6 +4,10 @@ import pytest
 
 from shared.evidence_ledger import EvidenceLedger
 from shared.local_experiment import build_experiment_record
+from shared.local_experiment_bundle import (
+    export_persisted_local_experiment_bundle,
+    verify_local_experiment_bundle,
+)
 
 
 def _fixture():
@@ -145,5 +149,57 @@ def test_local_experiment_rejects_nonterminal_task(task_status):
         with pytest.raises(ValueError, match="local_experiment_task_not_terminal"):
             ledger.record_local_experiment(record, artifacts)
         assert db.execute("SELECT COUNT(*) FROM local_experiment_records").fetchone()[0] == 0
+    finally:
+        db.close()
+
+
+
+def test_persisted_ledger_record_exports_a_portable_bundle():
+    db, ledger, record, artifacts = _fixture()
+    try:
+        stored = ledger.record_local_experiment(record, artifacts)
+        bundle = export_persisted_local_experiment_bundle(
+            ledger, stored["record_digest"]
+        )
+        report = verify_local_experiment_bundle(bundle)
+        assert report["status"] == "PASS"
+        assert report["case_id"] == "case-1"
+        assert report["round_id"] == "runtime-round-1"
+        assert report["task_id"] == "task-1"
+        assert report["integrity_only"] is True
+        assert report["authenticated_execution"] is False
+        assert report["vulnerability_confirmed"] is False
+    finally:
+        db.close()
+
+
+def test_persisted_bundle_export_rejects_corrupted_record_json():
+    db, ledger, record, artifacts = _fixture()
+    try:
+        stored = ledger.record_local_experiment(record, artifacts)
+        db.execute(
+            "UPDATE local_experiment_records SET record_json = ? WHERE record_digest = ?",
+            ('{"case_id":"forged"}', stored["record_digest"]),
+        )
+        db.commit()
+        with pytest.raises(
+            ValueError, match="local_experiment_persisted_record_digest_mismatch"
+        ):
+            export_persisted_local_experiment_bundle(ledger, stored["record_digest"])
+    finally:
+        db.close()
+
+
+def test_persisted_bundle_export_rejects_artifact_corruption():
+    db, ledger, record, artifacts = _fixture()
+    try:
+        stored = ledger.record_local_experiment(record, artifacts)
+        db.execute(
+            "UPDATE local_experiment_records SET stdout_bytes = ? WHERE record_digest = ?",
+            (b"forged output", stored["record_digest"]),
+        )
+        db.commit()
+        with pytest.raises(ValueError, match="local_experiment_record_invalid"):
+            export_persisted_local_experiment_bundle(ledger, stored["record_digest"])
     finally:
         db.close()

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime
 from typing import Mapping
 
 from cryptography.exceptions import InvalidSignature
@@ -63,6 +64,14 @@ def _validate_claims(claims: object) -> list[str]:
             return [f"attestation_{field}_invalid"]
     issued_at = claims.get("issued_at")
     if not isinstance(issued_at, str) or not issued_at.strip() or len(issued_at) > 64:
+        return ["attestation_issued_at_invalid"]
+    try:
+        parsed_issued_at = datetime.fromisoformat(
+            issued_at[:-1] + "+00:00" if issued_at.endswith("Z") else issued_at
+        )
+    except ValueError:
+        return ["attestation_issued_at_invalid"]
+    if parsed_issued_at.tzinfo is None or parsed_issued_at.utcoffset() is None:
         return ["attestation_issued_at_invalid"]
     return []
 

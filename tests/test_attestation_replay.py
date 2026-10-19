@@ -11,7 +11,7 @@ from shared.attestation_replay import (
 from shared.execution_attestation import create_execution_attestation
 
 
-PRIVATE_BYTES = b"\\x31" * 32
+PRIVATE_BYTES = bytes([0x31]) * 32
 PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(PRIVATE_BYTES)
 PUBLIC_BYTES = PRIVATE_KEY.public_key().public_bytes(
     encoding=serialization.Encoding.Raw,

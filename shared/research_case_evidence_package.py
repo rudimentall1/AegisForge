@@ -589,6 +589,7 @@ def verify_research_case_evidence_package(
         return {"status": "FAIL", "errors": ["package_bytes_required"]}
     if len(package_bytes) > _MAX_PACKAGE_BYTES:
         return {"status": "FAIL", "errors": ["package_size_limit_exceeded"]}
+    package_integrity_verified = False
     try:
         with zipfile.ZipFile(BytesIO(package_bytes), "r") as archive:
             infos = archive.infolist()
@@ -741,6 +742,11 @@ def verify_research_case_evidence_package(
             if not isinstance(item, dict) or set(item) != set(expected) or item != expected:
                 raise ValueError("package_experiment_identity_mismatch")
 
+        # At this point the outer ZIP manifest, all member hashes, the case
+        # dossier, nested experiment bundles and their semantic linkage passed.
+        # Later detached-attestation failures must not erase this independent
+        # integrity result from the report.
+        package_integrity_verified = True
         embedded_attestations = []
         for metadata in attestation_metadata:
             raw = files[metadata["path"]]
@@ -782,13 +788,14 @@ def verify_research_case_evidence_package(
             attestation_policy_requested and not prepared_attestations
         )
         attestation_coverage_missing = (
-            attestation_policy_requested
-            and bool(prepared_attestations)
+            bool(prepared_attestations)
             and len(prepared_attestations) != len(reports)
         )
+        # Coverage is a structural count, so report it even when signature
+        # authentication was not requested; do not hide partial presence behind
+        # the separate NOT_CHECKED signature status.
         attestation_coverage_status = (
-            "NOT_CHECKED" if not attestation_policy_requested
-            else "NOT_PRESENT" if not prepared_attestations
+            "NOT_PRESENT" if not prepared_attestations
             else "INCOMPLETE" if attestation_coverage_missing
             else "COMPLETE"
         )
@@ -894,6 +901,29 @@ def verify_research_case_evidence_package(
             "errors": final_errors,
         }
     except ValueError as exc:
+        if package_integrity_verified:
+            coverage_status = (
+                "NOT_PRESENT" if not attestation_metadata
+                else "INCOMPLETE" if len(attestation_metadata) != len(reports)
+                else "COMPLETE"
+            )
+            return {
+                "status": "FAIL",
+                "package_integrity_status": "PASS",
+                "attestation_verification_status": "FAIL",
+                "attestation_coverage_status": coverage_status,
+                "replay_protection_status": (
+                    "NOT_RUN" if replay_registry is not None else "NOT_REQUESTED"
+                ),
+                "execution_truth_established": False,
+                "schema_version": schema_version,
+                "case_id": dossier_report["case_id"],
+                "case_digest": dossier_report["case_digest"],
+                "experiment_count": len(reports),
+                "authenticity": "UNSIGNED_INTEGRITY_ONLY",
+                "vulnerability_confirmed": False,
+                "errors": [str(exc)],
+            }
         return {"status": "FAIL", "errors": [str(exc)]}
     except (OSError, EOFError, KeyError, TypeError, zipfile.BadZipFile, RuntimeError, zlib.error) as exc:
         return {"status": "FAIL", "errors": ["package_malformed_or_unreadable"]}

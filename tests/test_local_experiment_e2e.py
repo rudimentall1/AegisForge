@@ -28,6 +28,7 @@ from shared.research_case_bundle import (
     export_research_case_bundle,
     verify_research_case_bundle,
 )
+from shared.synthetic_fixture import run_synthetic_fixture
 
 
 def _case():
@@ -112,11 +113,15 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert claimed is not None
         assert claimed[0] == task_id
 
-        control_output = b"SYNTHETIC_FIXTURE control=PASS invariant_preserved=true\n"
+        control_fixture = run_synthetic_fixture("control")
+        assert control_fixture["passed"] is True
+        assert control_fixture["subprocess_started"] is False
+        assert control_fixture["network_access"] is False
+        control_output = control_fixture["stdout_bytes"]
         queue.finish(task_id, result={
             "synthetic_fixture": True,
             "experiment": "control",
-            "invariant_preserved": True,
+            "invariant_preserved": control_fixture["checks"]["invariant_preserved"],
             "research_case_binding": research_case_binding(case),
         })
         record, artifacts = build_experiment_record(
@@ -126,12 +131,13 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             task_id=task_id,
             target_repository=case.target_repository,
             target_commit=case.target_commit,
-            argv=["synthetic-fixture", "control"],
-            toolchain={"python": "CI runtime", "fixture": "aegisforge-e2e-v1"},
-            input_bytes=b"synthetic control input",
+            argv=control_fixture["argv"],
+            toolchain=control_fixture["toolchain"],
+            input_bytes=control_fixture["input_bytes"],
             stdout_bytes=control_output,
-            stderr_bytes=b"",
-            exit_code=0,
+            stderr_bytes=control_fixture["stderr_bytes"],
+            exit_code=control_fixture["exit_code"],
+            expected_exit_code=control_fixture["expected_exit_code"],
         )
         stored = ledger.record_local_experiment(record, artifacts)
         ledger.record_observation(
@@ -161,14 +167,15 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         counter_claim = queue.claim("e2e-worker-2", role="lab_runner")
         assert counter_claim is not None
         assert counter_claim[0] == counter_task_id
-        counter_output = (
-            b"SYNTHETIC_FIXTURE counter_test=PASS "
-            b"seeded_violation_detected=true\n"
-        )
+        counter_fixture = run_synthetic_fixture("countertest")
+        assert counter_fixture["passed"] is True
+        assert counter_fixture["subprocess_started"] is False
+        assert counter_fixture["network_access"] is False
+        counter_output = counter_fixture["stdout_bytes"]
         queue.finish(counter_task_id, result={
             "synthetic_fixture": True,
             "experiment": "falsification_counter_test",
-            "seeded_violation_detected": True,
+            "seeded_violation_detected": counter_fixture["checks"]["seeded_violation_detected"],
             "research_case_binding": research_case_binding(case),
         })
         counter_record, counter_artifacts = build_experiment_record(
@@ -178,12 +185,13 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             task_id=counter_task_id,
             target_repository=case.target_repository,
             target_commit=case.target_commit,
-            argv=["synthetic-fixture", "falsification-counter-test"],
-            toolchain={"python": "CI runtime", "fixture": "aegisforge-e2e-v1"},
-            input_bytes=b"synthetic seeded-violation input",
+            argv=counter_fixture["argv"],
+            toolchain=counter_fixture["toolchain"],
+            input_bytes=counter_fixture["input_bytes"],
             stdout_bytes=counter_output,
-            stderr_bytes=b"",
-            exit_code=0,
+            stderr_bytes=counter_fixture["stderr_bytes"],
+            exit_code=counter_fixture["exit_code"],
+            expected_exit_code=counter_fixture["expected_exit_code"],
         )
         counter_stored = ledger.record_local_experiment(
             counter_record, counter_artifacts

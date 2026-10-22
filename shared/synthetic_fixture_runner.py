@@ -19,45 +19,22 @@ import time
 from pathlib import Path
 
 from shared.synthetic_fixture import (
+    PROCESS_PROCESS_ADDRESS_SPACE_LIMIT_BYTES,
+    PROCESS_PROCESS_CPU_LIMIT_SECONDS,
+    PROCESS_PROCESS_FILE_SIZE_LIMIT_BYTES,
     PROCESS_INPUT_SCHEMA_VERSION,
+    PROCESS_PROCESS_OPEN_FILE_LIMIT,
     run_synthetic_fixture,
 )
 
 DEFAULT_TIMEOUT_SECONDS = 3.0
 MAX_TIMEOUT_SECONDS = 5.0
-CPU_LIMIT_SECONDS = 2
-ADDRESS_SPACE_LIMIT_BYTES = 256 * 1024 * 1024
-FILE_SIZE_LIMIT_BYTES = 1024 * 1024
-OPEN_FILE_LIMIT = 16
 MAX_CAPTURE_BYTES = 64 * 1024
 MAX_INPUT_BYTES = 4096
 
 
 class SyntheticFixtureRunnerError(RuntimeError):
     """Raised when the fixed synthetic subprocess cannot be verified."""
-
-
-def _apply_child_resource_limits() -> None:
-    """Apply POSIX limits before exec; deliberately unavailable elsewhere."""
-    import resource
-
-    limits = (
-        (resource.RLIMIT_CPU, CPU_LIMIT_SECONDS, CPU_LIMIT_SECONDS),
-        (
-            resource.RLIMIT_AS,
-            ADDRESS_SPACE_LIMIT_BYTES,
-            ADDRESS_SPACE_LIMIT_BYTES,
-        ),
-        (
-            resource.RLIMIT_FSIZE,
-            FILE_SIZE_LIMIT_BYTES,
-            FILE_SIZE_LIMIT_BYTES,
-        ),
-        (resource.RLIMIT_NOFILE, OPEN_FILE_LIMIT, OPEN_FILE_LIMIT),
-        (resource.RLIMIT_CORE, 0, 0),
-    )
-    for resource_id, soft, hard in limits:
-        resource.setrlimit(resource_id, (soft, hard))
 
 
 def _kill_process_group(process: subprocess.Popen) -> None:
@@ -205,7 +182,6 @@ def run_synthetic_fixture_subprocess(
                     env=environment,
                     close_fds=True,
                     start_new_session=True,
-                    preexec_fn=_apply_child_resource_limits,
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 raise SyntheticFixtureRunnerError(
@@ -251,10 +227,10 @@ def run_synthetic_fixture_subprocess(
         "fixture": expected["schema_version"],
         "runner": "aegisforge-fixed-synthetic-subprocess-v1",
         "wall_timeout_seconds": str(float(timeout_seconds)),
-        "cpu_limit_seconds": str(CPU_LIMIT_SECONDS),
-        "address_space_limit_bytes": str(ADDRESS_SPACE_LIMIT_BYTES),
-        "file_size_limit_bytes": str(FILE_SIZE_LIMIT_BYTES),
-        "open_file_limit": str(OPEN_FILE_LIMIT),
+        "cpu_limit_seconds": str(PROCESS_CPU_LIMIT_SECONDS),
+        "address_space_limit_bytes": str(PROCESS_ADDRESS_SPACE_LIMIT_BYTES),
+        "file_size_limit_bytes": str(PROCESS_FILE_SIZE_LIMIT_BYTES),
+        "open_file_limit": str(PROCESS_OPEN_FILE_LIMIT),
         "network_isolation": "not_enforced",
         "filesystem_isolation": "not_enforced",
     }
@@ -281,10 +257,10 @@ def run_synthetic_fixture_subprocess(
             "resource_limits_applied": True,
             "resource_limits": {
                 "wall_timeout_seconds": float(timeout_seconds),
-                "cpu_seconds": CPU_LIMIT_SECONDS,
-                "address_space_bytes": ADDRESS_SPACE_LIMIT_BYTES,
-                "file_size_bytes": FILE_SIZE_LIMIT_BYTES,
-                "open_files": OPEN_FILE_LIMIT,
+                "cpu_seconds": PROCESS_CPU_LIMIT_SECONDS,
+                "address_space_bytes": PROCESS_ADDRESS_SPACE_LIMIT_BYTES,
+                "file_size_bytes": PROCESS_FILE_SIZE_LIMIT_BYTES,
+                "open_files": PROCESS_OPEN_FILE_LIMIT,
                 "core_dumps": 0,
                 "stdout_capture_bytes": MAX_CAPTURE_BYTES,
                 "stderr_capture_bytes": MAX_CAPTURE_BYTES,

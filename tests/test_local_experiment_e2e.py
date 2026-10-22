@@ -8,6 +8,7 @@ import hashlib
 import json
 import zipfile
 
+from shared.case_rounds import start_case_round
 from shared.evidence_ledger import EvidenceLedger
 from shared.experiment_assessment import assess_local_experiment_pair
 from shared.local_experiment import build_experiment_record
@@ -67,19 +68,49 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert stored_case.target_commit == case.target_commit
 
         ledger = EvidenceLedger(queue.db)
+        started_round = start_case_round(queue, case.case_id, round_spec.round_id)
+        root_task_id = started_round["root_task_id"]
+        runtime_round_id = started_round["round_id"]
+        planned_round_id = started_round["round_spec_id"]
+        assert runtime_round_id != planned_round_id == round_spec.round_id
+
+        root_claim = queue.claim("e2e-root-worker", role="source_researcher")
+        assert root_claim is not None
+        assert root_claim[0] == root_task_id
+
+        # Queue both experiment tasks while the root is running, so the registry
+        # cannot transiently mark the runtime round complete between the pair.
         task_id = queue.add(
             "Synthetic local control experiment",
             role="lab_runner",
+            parent_task_id=root_task_id,
             research_case_id=case.case_id,
-            round_id=round_spec.round_id,
+            round_id=runtime_round_id,
+            round_spec_id=planned_round_id,
         )
+        counter_task_id = queue.add(
+            "Synthetic falsification counter-test",
+            role="lab_runner",
+            parent_task_id=root_task_id,
+            research_case_id=case.case_id,
+            round_id=runtime_round_id,
+            round_spec_id=planned_round_id,
+        )
+        for child_id in (task_id, counter_task_id):
+            child_identity = queue.db.execute(
+                "SELECT research_case_id, round_id, round_spec_id FROM queue WHERE id = ?",
+                (child_id,),
+            ).fetchone()
+            assert child_identity == (case.case_id, runtime_round_id, planned_round_id)
+
+        queue.finish(root_task_id, result={
+            "synthetic_fixture": True,
+            "round_dispatch": "INCONCLUSIVE",
+            "research_case_binding": research_case_binding(case),
+        })
         claimed = queue.claim("e2e-worker-1", role="lab_runner")
         assert claimed is not None
         assert claimed[0] == task_id
-        assert claimed[12] == case.case_id
-        assert queue.db.execute(
-            "SELECT round_id FROM queue WHERE id = ?", (task_id,)
-        ).fetchone()[0] == round_spec.round_id
 
         control_output = b"SYNTHETIC_FIXTURE control=PASS invariant_preserved=true\n"
         queue.finish(task_id, result={
@@ -90,7 +121,8 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         })
         record, artifacts = build_experiment_record(
             case_id=case.case_id,
-            round_id=round_spec.round_id,
+            round_id=runtime_round_id,
+            round_spec_id=planned_round_id,
             task_id=task_id,
             target_repository=case.target_repository,
             target_commit=case.target_commit,
@@ -108,7 +140,8 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         report = verify_local_experiment_bundle(bundle)
         assert report["status"] == "PASS"
         assert report["case_id"] == case.case_id
-        assert report["round_id"] == round_spec.round_id
+        assert report["round_id"] == runtime_round_id
+        assert report["round_spec_id"] == planned_round_id
         assert report["task_id"] == task_id
         assert report["experiment_status"] == "PASS"
         assert report["integrity_only"] is True
@@ -120,12 +153,6 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         # The counter-test is represented as a separate terminal task and
         # evidence record. It detects a deliberately seeded synthetic violation;
         # it is not evidence of a real target vulnerability.
-        counter_task_id = queue.add(
-            "Synthetic falsification counter-test",
-            role="lab_runner",
-            research_case_id=case.case_id,
-            round_id=round_spec.round_id,
-        )
         counter_claim = queue.claim("e2e-worker-2", role="lab_runner")
         assert counter_claim is not None
         assert counter_claim[0] == counter_task_id
@@ -141,7 +168,8 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         })
         counter_record, counter_artifacts = build_experiment_record(
             case_id=case.case_id,
-            round_id=round_spec.round_id,
+            round_id=runtime_round_id,
+            round_spec_id=planned_round_id,
             task_id=counter_task_id,
             target_repository=case.target_repository,
             target_commit=case.target_commit,
@@ -161,7 +189,8 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         counter_report = verify_local_experiment_bundle(counter_bundle)
         assert counter_report["status"] == "PASS"
         assert counter_report["case_id"] == case.case_id
-        assert counter_report["round_id"] == round_spec.round_id
+        assert counter_report["round_id"] == runtime_round_id
+        assert counter_report["round_spec_id"] == planned_round_id
         assert counter_report["task_id"] == counter_task_id
         assert counter_report["experiment_status"] == "PASS"
         assert counter_report["vulnerability_confirmed"] is False
@@ -170,12 +199,14 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             control_bundle=bundle,
             countertest_bundle=counter_bundle,
             expected_case_id=case.case_id,
-            expected_round_id=round_spec.round_id,
+            expected_round_id=runtime_round_id,
+            expected_round_spec_id=planned_round_id,
             expected_target_repository=case.target_repository,
             expected_target_commit=case.target_commit,
             semantic_criteria={
                 "case_id": case.case_id,
-                "round_id": round_spec.round_id,
+                "round_id": runtime_round_id,
+                "round_spec_id": planned_round_id,
                 "target_repository": case.target_repository,
                 "target_commit": case.target_commit,
                 "invariant": case.expected_invariant,
@@ -210,11 +241,11 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert dossier_report["valid"] is True
         assert offline_dossier_report["valid"] is True
         assert offline_dossier_report["case_id"] == case.case_id
-        assert offline_dossier_report["task_count"] == 2
+        assert offline_dossier_report["task_count"] == 3
         assert offline_dossier_report["authenticity"] == "UNSIGNED_INTEGRITY_ONLY"
         with zipfile.ZipFile(dossier_path, "r") as dossier:
             tasks_payload = json.loads(dossier.read("tasks.json"))
         exported_task_ids = {task["id"] for task in tasks_payload["tasks"]}
-        assert exported_task_ids == {task_id, counter_task_id}
+        assert exported_task_ids == {root_task_id, task_id, counter_task_id}
     finally:
         queue.db.close()

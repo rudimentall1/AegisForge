@@ -178,3 +178,53 @@ def test_concurrent_nonce_consumption_is_atomic(tmp_path):
 
     assert outcomes.count(True) == 1
     assert outcomes.count(False) == 23
+
+
+
+def test_invalid_bundle_does_not_consume_attestation_nonce(tmp_path):
+    record, artifacts = build_experiment_record(
+        case_id="replay-case-integrity",
+        round_id="replay-round-integrity",
+        task_id="replay-task-integrity",
+        target_repository="example/protocol",
+        target_commit="b" * 40,
+        argv=["pytest", "-q"],
+        toolchain={"python": "3.12.1"},
+        input_bytes=b"fixture",
+        stdout_bytes=b"control passed",
+        stderr_bytes=b"",
+        exit_code=0,
+    )
+    bundle = export_local_experiment_bundle(record, artifacts)
+    attestation = create_execution_attestation(
+        record=record,
+        signer_id="trusted-signer",
+        runner_id="runner-1",
+        environment_sha256=hashlib.sha256(b"test-env").hexdigest(),
+        issued_at="2026-10-19T10:00:00Z",
+        nonce="integrity-nonce-1",
+        private_key_bytes=PRIVATE_BYTES,
+    )
+    registry = SQLiteAttestationReplayRegistry(tmp_path / "integrity-replay.sqlite3")
+
+    tampered_bundle = bundle[:-1] + bytes([bundle[-1] ^ 0x01])
+    rejected = verify_bundle_execution_attestation_with_replay_protection(
+        tampered_bundle,
+        attestation,
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="trusted-signer",
+        replay_registry=registry,
+    )
+    accepted = verify_bundle_execution_attestation_with_replay_protection(
+        bundle,
+        attestation,
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="trusted-signer",
+        replay_registry=registry,
+    )
+
+    assert rejected["status"] == "FAIL"
+    assert rejected["replay_protection_verified"] is False
+    assert accepted["status"] == "PASS"
+    assert accepted["bundle_integrity_verified"] is True
+    assert accepted["replay_protection_verified"] is True

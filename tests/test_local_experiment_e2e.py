@@ -677,6 +677,26 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         )
         assert legacy_report["attestation_verification_status"] == "NOT_PRESENT"
 
+        trusted_but_unsigned_report = verify_research_case_evidence_package(
+            legacy_package_buffer.getvalue(),
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+        )
+        assert trusted_but_unsigned_report["status"] == "FAIL"
+        assert trusted_but_unsigned_report["package_integrity_status"] == "PASS"
+        assert trusted_but_unsigned_report["attestation_verification_status"] == "NOT_PRESENT"
+        assert trusted_but_unsigned_report["errors"] == ["execution_attestation_required"]
+
+        freshness_without_key_report = verify_research_case_evidence_package(
+            package_bytes,
+            max_age_seconds=600,
+        )
+        assert freshness_without_key_report["status"] == "FAIL"
+        assert freshness_without_key_report["package_integrity_status"] == "PASS"
+        assert freshness_without_key_report["attestation_verification_status"] == "NOT_CHECKED"
+        assert freshness_without_key_report["errors"] == [
+            "attestation_freshness_requires_trusted_attestors"
+        ]
+
         # Requesting replay protection must not silently pass an unsigned package.
         unsigned_replay_report = verify_research_case_evidence_package(
             legacy_package_buffer.getvalue(),

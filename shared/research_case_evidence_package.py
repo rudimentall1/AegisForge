@@ -796,6 +796,21 @@ def _write_output_atomic(path_text: str, data: bytes) -> None:
             temporary_path.unlink()
 
 
+def _parse_trusted_attestors(values: list[str]) -> dict[str, bytes]:
+    """Parse explicit out-of-band public keys from SIGNER_ID=64_HEX arguments."""
+    trusted = {}
+    for value in values:
+        signer_id, separator, key_hex = value.partition("=")
+        if not separator or not _ID_RE.fullmatch(signer_id) or not re.fullmatch(
+            r"[0-9a-fA-F]{64}", key_hex
+        ):
+            raise ValueError("trusted_attestor_argument_invalid")
+        if signer_id in trusted:
+            raise ValueError("trusted_attestor_duplicate_signer")
+        trusted[signer_id] = bytes.fromhex(key_hex)
+    return trusted
+
+
 def main(argv=None) -> int:
     """CLI for assembling/verifying offline packages; never executes a command."""
     parser = argparse.ArgumentParser(
@@ -811,10 +826,26 @@ def main(argv=None) -> int:
         help="Path to one persisted local-experiment ZIP; repeat for every linked record.",
     )
     build_parser.add_argument("--output", required=True)
+    build_parser.add_argument(
+        "--attestation", action="append", default=[],
+        help="Path to a detached execution-attestation JSON file; repeat as needed.",
+    )
     verify_parser = commands.add_parser(
         "verify", help="Verify a combined case-evidence package offline."
     )
     verify_parser.add_argument("package")
+    verify_parser.add_argument(
+        "--trusted-key", action="append", default=[],
+        help="Out-of-band Ed25519 public key in SIGNER_ID=64_HEX form; repeat as needed.",
+    )
+    verify_parser.add_argument(
+        "--max-attestation-age-seconds", type=int, default=None,
+        help="Optional maximum age for signed issuance timestamps.",
+    )
+    verify_parser.add_argument(
+        "--max-future-skew-seconds", type=int, default=300,
+        help="Maximum allowed future timestamp skew when freshness is enabled.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -826,12 +857,31 @@ def main(argv=None) -> int:
                 _read_input_file(name, _MAX_EXPERIMENT_BYTES)
                 for name in args.experiment
             ]
-            package = build_research_case_evidence_package(dossier, experiments)
+            if len(args.attestation) > _MAX_EXPERIMENTS:
+                raise ValueError("execution_attestation_count_invalid")
+            attestations = [
+                _strict_json(
+                    _read_input_file(name, _MAX_ATTESTATION_BYTES),
+                    error="execution_attestation_json_invalid",
+                )
+                for name in args.attestation
+            ]
+            package = build_research_case_evidence_package(
+                dossier, experiments, execution_attestations=attestations
+            )
             _write_output_atomic(args.output, package)
             report = verify_research_case_evidence_package(package)
         else:
             package = _read_input_file(args.package, _MAX_PACKAGE_BYTES)
-            report = verify_research_case_evidence_package(package)
+            trusted_attestors = (
+                _parse_trusted_attestors(args.trusted_key) if args.trusted_key else None
+            )
+            report = verify_research_case_evidence_package(
+                package,
+                trusted_attestors=trusted_attestors,
+                max_age_seconds=args.max_attestation_age_seconds,
+                max_future_skew_seconds=args.max_future_skew_seconds,
+            )
 
         print(json.dumps(report, sort_keys=True, indent=2, ensure_ascii=False))
         return 0 if report.get("status") == "PASS" else 2

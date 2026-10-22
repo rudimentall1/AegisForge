@@ -180,6 +180,10 @@ A code difference, unusual state, test failure, or static-analysis warning is a 
 
 Hashes make artifacts tamper-evident only relative to a trusted recorded digest. A GitHub Actions attestation can identify a workflow-produced artifact under its stated claims; it does not by itself prove that source produced a binary, that the experiment is valid, or that a vulnerability exists.
 
+**Implemented package trust layers:** `shared.research_case_evidence_package` schema v2 can embed detached Ed25519 execution attestations and structurally bind each signed record digest to an included experiment record. Offline verification reports package integrity separately from attestation verification. A signature is accepted only against a caller-supplied, out-of-band trusted public key; a package-provided key is not a trust root. Optional durable replay protection consumes a package's `(signer_id, nonce)` set atomically in SQLite and requires the same replay database across the intended verification domain. Schema v1 packages remain readable.
+
+The combined package and all ZIP member metadata remain unsigned. A valid Ed25519 signature verifies signed claims under the configured key, not the truth of those claims, the honesty of the runner, or the existence of a vulnerability. Replay protection prevents re-accepting a nonce in its configured registry; it is not distributed when verifiers use different databases.
+
 ### 3.9 Independent verifier and reproduction runner
 
 **Purpose:** enable a reviewer to verify the evidence package without trusting the agent that generated it.

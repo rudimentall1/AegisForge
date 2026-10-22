@@ -299,3 +299,32 @@ def test_invalid_bundle_does_not_consume_attestation_nonce(tmp_path):
     assert accepted["status"] == "PASS"
     assert accepted["bundle_integrity_verified"] is True
     assert accepted["replay_protection_verified"] is True
+
+
+def test_consume_many_commits_all_nonces_or_none(tmp_path):
+    registry = SQLiteAttestationReplayRegistry(tmp_path / "batch-replay.sqlite3")
+    assert registry.consume("signer", "already-used") is True
+
+    # The second pair conflicts with an existing nonce. The first new pair must
+    # be rolled back rather than partially consumed by a failed batch.
+    assert registry.consume_many([
+        ("signer", "new-first"),
+        ("signer", "already-used"),
+    ]) is False
+    assert registry.consume("signer", "new-first") is True
+
+
+def test_consume_many_rejects_duplicate_pairs_without_partial_consumption(tmp_path):
+    registry = SQLiteAttestationReplayRegistry(tmp_path / "duplicate-batch.sqlite3")
+    assert registry.consume_many([
+        ("signer-a", "nonce-a"),
+        ("signer-a", "nonce-a"),
+    ]) is False
+    assert registry.consume("signer-a", "nonce-a") is True
+
+
+@pytest.mark.parametrize("pairs", [None, "not-a-pair-list", [("signer",)], [(1, "nonce")], [("signer", "")]])
+def test_consume_many_rejects_malformed_pair_sets(tmp_path, pairs):
+    registry = SQLiteAttestationReplayRegistry(tmp_path / "invalid-batch.sqlite3")
+    with pytest.raises(ValueError):
+        registry.consume_many(pairs)

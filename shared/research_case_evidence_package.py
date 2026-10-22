@@ -744,6 +744,30 @@ def verify_research_case_evidence_package(
             max_future_skew_seconds=max_future_skew_seconds,
             now=now,
         )
+        attestation_verification_requested = (
+            trusted_attestors is not None or max_age_seconds is not None
+        )
+        attestation_policy_requested = (
+            attestation_verification_requested or replay_registry is not None
+        )
+        attestation_missing = (
+            attestation_policy_requested and not prepared_attestations
+        )
+        attestation_coverage_missing = (
+            attestation_policy_requested
+            and bool(prepared_attestations)
+            and len(prepared_attestations) != len(reports)
+        )
+        attestation_coverage_status = (
+            "NOT_CHECKED" if not attestation_policy_requested
+            else "NOT_PRESENT" if not prepared_attestations
+            else "INCOMPLETE" if attestation_coverage_missing
+            else "COMPLETE"
+        )
+        freshness_without_trust_store = (
+            max_age_seconds is not None and trusted_attestors is None
+            and bool(prepared_attestations)
+        )
         replay_status = "NOT_REQUESTED" if replay_registry is None else (
             "NOT_PRESENT" if not prepared_attestations else "NOT_RUN"
         )
@@ -755,7 +779,7 @@ def verify_research_case_evidence_package(
             elif trusted_attestors is None:
                 replay_status = "FAIL"
                 replay_errors = ["replay_protection_requires_trusted_attestors"]
-            elif attestation_status != "PASS":
+            elif attestation_status != "PASS" or attestation_coverage_missing:
                 replay_status = "NOT_RUN"
             else:
                 nonce_pairs = [
@@ -788,18 +812,9 @@ def verify_research_case_evidence_package(
         if replay_registry is not None and replay_status != "PASS":
             for item in attestation_reports:
                 item["replay_protection_verified"] = False
-        attestation_verification_requested = (
-            trusted_attestors is not None or max_age_seconds is not None
-        )
-        attestation_missing = (
-            attestation_verification_requested and not prepared_attestations
-        )
-        freshness_without_trust_store = (
-            max_age_seconds is not None and trusted_attestors is None
-            and bool(prepared_attestations)
-        )
         attestation_failed = (
             attestation_missing
+            or attestation_coverage_missing
             or freshness_without_trust_store
             or (
                 attestation_verification_requested
@@ -815,6 +830,8 @@ def verify_research_case_evidence_package(
         final_errors = []
         if attestation_missing and replay_registry is None:
             final_errors.append("execution_attestation_required")
+        if attestation_coverage_missing:
+            final_errors.append("execution_attestation_coverage_incomplete")
         if freshness_without_trust_store:
             final_errors.append("attestation_freshness_requires_trusted_attestors")
         if (
@@ -828,6 +845,7 @@ def verify_research_case_evidence_package(
             "status": final_status,
             "package_integrity_status": "PASS",
             "attestation_verification_status": attestation_status,
+            "attestation_coverage_status": attestation_coverage_status,
             "replay_protection_status": replay_status,
             "attestations": attestation_reports,
             "execution_truth_established": False,

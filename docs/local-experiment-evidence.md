@@ -37,10 +37,12 @@ Every `local_experiment_record:<digest>` evidence reference in the case dossier 
 
 Detached Ed25519 execution attestations and SQLite nonce replay protection are separate layers. Signature verification depends on a trusted public key supplied out of band; freshness is opt-in, and the SQLite replay registry is shared-database scoped rather than distributed. None of these mechanisms, alone or together, proves the runner was uncompromised or that a claimed experiment truly occurred.
 
-The included `shared/synthetic_fixture.py` is a fixed in-process fixture for testing evidence plumbing. It computes a control invariant and detects a deliberately seeded counter-test mismatch. It does not launch a subprocess, use the network, or accept user-provided commands. This fixture is not an isolated execution runner for arbitrary target code.
+The fixture logic in `shared/synthetic_fixture.py` computes a control invariant and detects a deliberately seeded counter-test mismatch. The end-to-end evidence path invokes it through `shared.synthetic_fixture_runner.run_synthetic_fixture_subprocess`, which launches only the fixed repository script with Python isolated mode and two allowlisted modes. It records the child's actual captured stdout/stderr, exit code, canonical stdin request, and command metadata. The runner uses a capped wall timeout, output-capture limits, a minimal environment, a temporary working directory, and POSIX CPU, address-space, file-size, open-file, and core-dump limits.
+
+This is a bounded subprocess adapter for the fixed synthetic fixture, **not a security sandbox**. It does not create a network namespace, deny network syscalls, isolate the filesystem, or safely run arbitrary target code. Its `network_access=false` fixture result means this fixed code path does not request network access; it is not evidence that network access was technically blocked. The runner rejects bundle-provided commands, executable paths, and environment variables.
 
 Synthetic outputs remain `INCONCLUSIVE` for target vulnerability status. No verifier automatically promotes a finding to `CONFIRMED`.
 
 ## Release gate
 
-RC gate #158 remains open until a clean-runner acceptance path demonstrates bounded execution/reproduction from a clean checkout, exact evidence persistence, portable export and offline verification, and clear failure behavior for missing or mismatched evidence. The deterministic in-process fixture proves the data plumbing only; it does not by itself close that gate.
+RC gate #158 remains open until a clean-runner acceptance path demonstrates bounded execution/reproduction from a clean checkout, exact evidence persistence, portable export and offline verification, and clear failure behavior for missing or mismatched evidence. The fixed-fixture subprocess exercises actual process output capture and resource-limit wiring, but the missing network and filesystem isolation mean it does not by itself close that gate.

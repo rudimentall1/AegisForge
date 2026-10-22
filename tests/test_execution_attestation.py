@@ -5,6 +5,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from shared.execution_attestation import (
+    ATTESTATION_SCHEMA_VERSION,
+    LEGACY_ATTESTATION_SCHEMA_VERSION,
     create_execution_attestation,
     verify_bundle_execution_attestation,
     verify_execution_attestation,
@@ -305,3 +307,47 @@ def test_bundle_attestation_applies_requested_freshness_policy():
     assert report["attestation_verified"] is False
     assert report["errors"] == ["attestation_issued_at_expired"]
 
+
+
+def test_attestation_v2_binds_exact_research_case_digest():
+    case_digest = hashlib.sha256(b"immutable Research Case contract").hexdigest()
+    attestation = _attestation(case_digest=case_digest)
+
+    assert attestation["claims"]["schema_version"] == ATTESTATION_SCHEMA_VERSION
+    assert attestation["claims"]["case_digest"] == case_digest
+
+    report = verify_execution_attestation(
+        attestation,
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+        expected_record=RECORD,
+        expected_case_digest=case_digest,
+    )
+    assert report["status"] == "PASS"
+    assert report["case_digest"] == case_digest
+
+    changed_case_digest = hashlib.sha256(b"altered case contract").hexdigest()
+    mismatch = verify_execution_attestation(
+        attestation,
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+        expected_record=RECORD,
+        expected_case_digest=changed_case_digest,
+    )
+    assert mismatch["status"] == "FAIL"
+    assert mismatch["errors"] == ["attestation_case_digest_mismatch"]
+
+
+def test_legacy_v1_attestation_cannot_satisfy_exact_case_binding_policy():
+    attestation = _attestation()
+    assert attestation["claims"]["schema_version"] == LEGACY_ATTESTATION_SCHEMA_VERSION
+
+    report = verify_execution_attestation(
+        attestation,
+        trusted_public_key_bytes=PUBLIC_BYTES,
+        expected_signer_id="ci-runner-key-1",
+        expected_record=RECORD,
+        expected_case_digest=hashlib.sha256(b"case").hexdigest(),
+    )
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["attestation_case_digest_required"]

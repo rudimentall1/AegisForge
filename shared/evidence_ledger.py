@@ -320,10 +320,11 @@ class EvidenceLedger:
         }
 
     def record_local_experiment(self, record, artifacts, observed_at=None, commit=True):
-        """Persist a bounded local-experiment record after checking task identity.
+        """Persist a bounded experiment atomically against authoritative case/task state.
 
-        The record and raw artifacts are stored separately from normalized
-        intelligence atoms. This method never executes the argv metadata.
+        Queue identity, terminal task state, target revision, and storage budgets
+        are checked under a SQLite write reservation. Concurrent writers therefore
+        cannot race the count/byte quota checks. This method never executes argv.
         """
         from shared.local_experiment import verify_experiment_record
 
@@ -331,93 +332,118 @@ class EvidenceLedger:
         if report.get("status") != "PASS":
             raise ValueError("local_experiment_record_invalid")
         task_id = record["task_id"]
-        queue_columns = {
-            row[1] for row in self.db.execute("PRAGMA table_info(queue)")
-        }
-        required = {"id", "research_case_id", "round_id"}
-        if not required.issubset(queue_columns):
-            raise ValueError("local_experiment_queue_binding_schema_missing")
-        row = self.db.execute(
-            "SELECT research_case_id, round_id, status FROM queue WHERE id = ?",
-            (task_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("local_experiment_task_not_found")
-        if row[0] != record["case_id"] or row[1] != record["round_id"]:
-            raise ValueError("local_experiment_task_identity_mismatch")
-        # Evidence must not be persisted as an execution result while its task
-        # can still change. Failed tasks are terminal too: their raw evidence
-        # may be needed to explain a failed experiment or timeout.
-        if row[2] not in {"completed", "failed"}:
-            raise ValueError("local_experiment_task_not_terminal")
-
-        case_tables = {
-            item[0] for item in self.db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-        }
-        if "research_cases" not in case_tables:
-            raise ValueError("local_experiment_registered_case_required")
-        case_row = self.db.execute(
-            "SELECT payload FROM research_cases WHERE case_id = ?",
-            (record["case_id"],),
-        ).fetchone()
-        if case_row is None:
-            raise ValueError("local_experiment_registered_case_required")
-        try:
-            case_payload = json.loads(case_row[0])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("local_experiment_registered_case_invalid") from exc
-        if (
-            not isinstance(case_payload, dict)
-            or case_payload.get("target_repository") != record["target_repository"]
-            or str(case_payload.get("target_commit", "")).lower()
-               != record["target_commit"]
-        ):
-            raise ValueError("local_experiment_target_identity_mismatch")
-
         canonical = json.dumps(
             record, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
             allow_nan=False,
         )
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         now = observed_at or datetime.now(timezone.utc).isoformat()
-        usage = self.db.execute(
-            """SELECT COUNT(*),
-                      COALESCE(SUM(length(input_bytes) + length(stdout_bytes) + length(stderr_bytes)), 0)
-               FROM local_experiment_records"""
-        ).fetchone()
-        incoming_size = sum(len(artifacts[name]) for name in (
-            "input.bin", "stdout.bin", "stderr.bin"
-        ))
-        if usage[0] >= self.MAX_LOCAL_EXPERIMENT_RECORDS:
-            raise ValueError("local_experiment_record_count_limit_exceeded")
-        if usage[1] + incoming_size > self.MAX_LOCAL_EXPERIMENT_STORAGE_BYTES:
-            raise ValueError("local_experiment_storage_limit_exceeded")
+        artifact_names = ("input.bin", "stdout.bin", "stderr.bin")
+        incoming_size = sum(len(artifacts[name]) for name in artifact_names)
+
+        # If the caller already has a transaction, protect this operation with a
+        # savepoint and preserve the caller's transaction semantics. Otherwise,
+        # BEGIN IMMEDIATE reserves the writer before any authoritative reads.
+        had_transaction = self.db.in_transaction
+        savepoint = "aegisforge_local_experiment_record"
+        if had_transaction:
+            self.db.execute(f"SAVEPOINT {savepoint}")
+        else:
+            self.db.execute("BEGIN IMMEDIATE")
+
         try:
-            self.db.execute(
-                """INSERT INTO local_experiment_records
-                   (record_digest, case_id, round_id, task_id, created_at,
-                    record_json, input_bytes, stdout_bytes, stderr_bytes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    digest, record["case_id"], record["round_id"], task_id, now,
-                    canonical, artifacts["input.bin"], artifacts["stdout.bin"],
-                    artifacts["stderr.bin"],
-                ),
-            )
-        except Exception as exc:
-            raise ValueError("local_experiment_record_persistence_failed") from exc
-        if commit:
-            self.db.commit()
-        return {
-            "record_digest": digest,
-            "case_id": record["case_id"],
-            "round_id": record["round_id"],
-            "task_id": task_id,
-            "experiment_status": report["experiment_status"],
-            "stored_artifacts": report["checked_artifacts"],
-        }
+            queue_columns = {
+                row[1] for row in self.db.execute("PRAGMA table_info(queue)")
+            }
+            required = {"id", "research_case_id", "round_id", "status"}
+            if not required.issubset(queue_columns):
+                raise ValueError("local_experiment_queue_binding_schema_missing")
+            row = self.db.execute(
+                "SELECT research_case_id, round_id, status FROM queue WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("local_experiment_task_not_found")
+            if row[0] != record["case_id"] or row[1] != record["round_id"]:
+                raise ValueError("local_experiment_task_identity_mismatch")
+            if row[2] not in {"completed", "failed"}:
+                raise ValueError("local_experiment_task_not_terminal")
+
+            case_tables = {
+                item[0] for item in self.db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            if "research_cases" not in case_tables:
+                raise ValueError("local_experiment_registered_case_required")
+            case_row = self.db.execute(
+                "SELECT payload FROM research_cases WHERE case_id = ?",
+                (record["case_id"],),
+            ).fetchone()
+            if case_row is None:
+                raise ValueError("local_experiment_registered_case_required")
+            try:
+                case_payload = json.loads(case_row[0])
+            except (TypeError, ValueError) as exc:
+                raise ValueError("local_experiment_registered_case_invalid") from exc
+            if (
+                not isinstance(case_payload, dict)
+                or case_payload.get("target_repository") != record["target_repository"]
+                or str(case_payload.get("target_commit", "")).lower()
+                   != record["target_commit"]
+            ):
+                raise ValueError("local_experiment_target_identity_mismatch")
+
+            usage = self.db.execute(
+                """SELECT COUNT(*),
+                          COALESCE(SUM(length(input_bytes) + length(stdout_bytes) + length(stderr_bytes)), 0)
+                   FROM local_experiment_records"""
+            ).fetchone()
+            if usage[0] >= self.MAX_LOCAL_EXPERIMENT_RECORDS:
+                raise ValueError("local_experiment_record_count_limit_exceeded")
+            if usage[1] + incoming_size > self.MAX_LOCAL_EXPERIMENT_STORAGE_BYTES:
+                raise ValueError("local_experiment_storage_limit_exceeded")
+
+            try:
+                self.db.execute(
+                    """INSERT INTO local_experiment_records
+                       (record_digest, case_id, round_id, task_id, created_at,
+                        record_json, input_bytes, stdout_bytes, stderr_bytes)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        digest, record["case_id"], record["round_id"], task_id, now,
+                        canonical, artifacts["input.bin"], artifacts["stdout.bin"],
+                        artifacts["stderr.bin"],
+                    ),
+                )
+            except Exception as exc:
+                raise ValueError("local_experiment_record_persistence_failed") from exc
+
+            if commit:
+                self.db.commit()
+            elif had_transaction:
+                self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+            # When no transaction existed and commit=False, leave the newly
+            # opened transaction for the caller to commit or roll back.
+            return {
+                "record_digest": digest,
+                "case_id": record["case_id"],
+                "round_id": record["round_id"],
+                "task_id": task_id,
+                "experiment_status": report["experiment_status"],
+                "stored_artifacts": report["checked_artifacts"],
+            }
+        except Exception:
+            try:
+                if had_transaction:
+                    self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+                elif self.db.in_transaction:
+                    self.db.rollback()
+            except Exception:
+                # Preserve the original validation/database failure.
+                pass
+            raise
 
     def record_observation(self, task_id, role, atom, observed_at=None, commit=True):
         """Record one bounded task-level evidence/audit observation.

@@ -837,6 +837,7 @@ def verify_research_case_evidence_package(
         if (
             attestation_failed
             and not attestation_missing
+            and not attestation_coverage_missing
             and not freshness_without_trust_store
         ):
             final_errors.append("execution_attestation_verification_failed")

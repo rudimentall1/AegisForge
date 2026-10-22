@@ -23,15 +23,37 @@ python -m shared.research_case_evidence_package build \
   --output case-evidence-package.zip
 ```
 
-Verify it offline:
+A package may additionally embed detached Ed25519 execution attestations associated with exact experiment-record digests:
+
+```bash
+python -m shared.research_case_evidence_package build \
+  --case-dossier case-dossier.zip \
+  --experiment control-experiment.zip \
+  --experiment counter-experiment.zip \
+  --attestation control-attestation.json \
+  --attestation counter-attestation.json \
+  --output case-evidence-package.zip
+```
+
+Verify the package structure, nested bundles, and evidence links offline:
 
 ```bash
 python -m shared.research_case_evidence_package verify case-evidence-package.zip
 ```
 
-The verifier returns a machine-readable report. A successful report includes case ID/digest, task IDs, record digests, runtime and planned round IDs, and the explicit status `UNSIGNED_INTEGRITY_ONLY`. Input ZIPs are treated as untrusted bytes, and the CLI reads only bounded files. It does not execute any command from a bundle.
+Without an external trust policy, this verifies package integrity and structurally binds each included attestation to an exact experiment record, but reports `attestation_verification_status=NOT_CHECKED`. To verify the signatures, supply each trusted raw Ed25519 public key out of band as a 32-byte hexadecimal value:
 
-Every `local_experiment_record:<digest>` evidence reference in the case dossier must be accompanied by the corresponding experiment bundle. A package containing only a subset of those records is rejected. The package manifest and all nested hashes are unsigned; a party capable of rewriting the whole package can recompute them. The package therefore does not authenticate who created the evidence.
+```bash
+python -m shared.research_case_evidence_package verify case-evidence-package.zip \
+  --trusted-key ci-runner-key-1=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --max-attestation-age-seconds 3600
+```
+
+Replace the example key with the actual public key from your independently managed trust store. Never treat a key or public-key label supplied only by the package itself as trusted. The verifier reports separate `package_integrity_status` and `attestation_verification_status` values (`NOT_PRESENT`, `NOT_CHECKED`, `PASS`, or `FAIL`). When a trust store is provided, any missing/untrusted signer, invalid signature, record mismatch, or requested freshness failure makes the overall verification fail. A valid signature still does not establish execution truth or rule out a compromised runner.
+
+The verifier returns a machine-readable report with case ID/digest, task IDs, record digests, runtime and planned round IDs, and the explicit package status `UNSIGNED_INTEGRITY_ONLY`. The outer package remains unsigned even when it contains signed claims. Input ZIPs are treated as untrusted bytes, and the CLI reads only bounded files. It never executes any command from a bundle.
+
+Every `local_experiment_record:<digest>` evidence reference in the case dossier must be accompanied by the corresponding experiment bundle. A package containing only a subset of those records is rejected. Schema v2 carries optional detached attestations; the verifier retains compatibility with packages using schema v1. The package manifest and nested hashes are unsigned; a party capable of rewriting the whole package can recompute them. Signatures can authenticate claims under a separately trusted public key, but they do not authenticate arbitrary package metadata or prove the runner told the truth.
 
 ## Attestation and verdict boundaries
 

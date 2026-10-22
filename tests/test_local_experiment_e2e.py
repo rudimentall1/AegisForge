@@ -709,7 +709,7 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert altered_dossier_report["valid"] is True
         assert altered_dossier_report["case_id"] == dossier_report["case_id"]
         assert altered_dossier_report["case_digest"] != dossier_report["case_digest"]
-        assert altered_case.target_commit == case.target_commit
+        assert changed_case.target_commit == case.target_commit
         with pytest.raises(
             ValueError, match="execution_attestation_case_digest_mismatch"
         ):

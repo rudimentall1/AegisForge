@@ -785,9 +785,9 @@ def verify_research_case_evidence_package(
                 elif not replay_errors:
                     replay_status = "FAIL"
                     replay_errors = ["attestation_replay_detected"]
-                if replay_status != "PASS":
-                    for item in attestation_reports:
-                        item["replay_protection_verified"] = False
+        if replay_registry is not None and replay_status != "PASS":
+            for item in attestation_reports:
+                item["replay_protection_verified"] = False
         attestation_failed = (
             trusted_attestors is not None
             and bool(prepared_attestations)

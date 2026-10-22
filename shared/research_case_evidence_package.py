@@ -276,7 +276,12 @@ def _read_experiment_record(bundle_bytes: bytes) -> dict:
         raise ValueError("experiment_bundle_record_unreadable") from exc
 
 
-def _validate_detached_attestation(attestation: object, records_by_digest: dict) -> dict:
+def _validate_detached_attestation(
+    attestation: object,
+    records_by_digest: dict,
+    *,
+    expected_case_digest: str,
+) -> dict:
     """Validate signed envelope shape and bind its claims to an included exact record.
 
     This structural check does not establish signature validity. That requires a
@@ -290,9 +295,9 @@ def _validate_detached_attestation(attestation: object, records_by_digest: dict)
         raise ValueError("execution_attestation_authenticity_label_invalid")
     claims = attestation.get("claims")
     required_claims = {
-        "schema_version", "signer_id", "runner_id", "case_id", "round_id",
-        "task_id", "target_repository", "target_commit", "record_sha256",
-        "environment_sha256", "issued_at", "nonce",
+        "schema_version", "signer_id", "runner_id", "case_id", "case_digest",
+        "round_id", "task_id", "target_repository", "target_commit",
+        "record_sha256", "environment_sha256", "issued_at", "nonce",
     }
     if not isinstance(claims, dict) or set(claims) != required_claims:
         raise ValueError("execution_attestation_claims_invalid")
@@ -312,9 +317,11 @@ def _validate_detached_attestation(attestation: object, records_by_digest: dict)
         claims["target_commit"]
     ):
         raise ValueError("execution_attestation_target_commit_invalid")
-    for field in ("record_sha256", "environment_sha256"):
+    for field in ("record_sha256", "environment_sha256", "case_digest"):
         if not isinstance(claims.get(field), str) or not _SHA256_RE.fullmatch(claims[field]):
             raise ValueError(f"execution_attestation_{field}_invalid")
+    if claims["case_digest"] != expected_case_digest:
+        raise ValueError("execution_attestation_case_digest_mismatch")
     issued_at = claims.get("issued_at")
     if not isinstance(issued_at, str) or not issued_at.strip() or len(issued_at) > 64:
         raise ValueError("execution_attestation_issued_at_invalid")
@@ -340,6 +347,7 @@ def _validate_detached_attestation(attestation: object, records_by_digest: dict)
         "record_digest": record_digest,
         "task_id": record["task_id"],
         "signer_id": claims["signer_id"],
+        "case_digest": claims["case_digest"],
         "record": record,
         "attestation": attestation,
     }
@@ -348,6 +356,8 @@ def _validate_detached_attestation(attestation: object, records_by_digest: dict)
 def _prepare_attestations(
     execution_attestations: object,
     experiment_bundles: list[bytes],
+    *,
+    expected_case_digest: str,
 ) -> list[dict]:
     """Bind each optional detached attestation to one included experiment record."""
     if execution_attestations is None:
@@ -370,7 +380,11 @@ def _prepare_attestations(
     seen_digests = set()
     seen_signer_nonces = set()
     for attestation in execution_attestations:
-        prepared = _validate_detached_attestation(attestation, records_by_digest)
+        prepared = _validate_detached_attestation(
+            attestation,
+            records_by_digest,
+            expected_case_digest=expected_case_digest,
+        )
         digest = prepared["record_digest"]
         if digest in seen_digests:
             raise ValueError("package_duplicate_execution_attestation")
@@ -441,6 +455,7 @@ def _evaluate_attestations(
                 trusted_public_key_bytes=key,
                 expected_signer_id=signer_id,
                 expected_record=item["record"],
+                expected_case_digest=item["case_digest"],
                 max_age_seconds=max_age_seconds,
                 max_future_skew_seconds=max_future_skew_seconds,
                 now=now,
@@ -483,7 +498,9 @@ def build_research_case_evidence_package(
     """
     dossier_report, reports = _validate_linkage(case_dossier, experiment_bundles)
     prepared_attestations = _prepare_attestations(
-        execution_attestations, experiment_bundles
+        execution_attestations,
+        experiment_bundles,
+        expected_case_digest=dossier_report["case_digest"],
     )
     by_digest = {}
     for bundle in experiment_bundles:
@@ -730,7 +747,9 @@ def verify_research_case_evidence_package(
                 raise ValueError("execution_attestation_json_not_canonical")
             embedded_attestations.append(envelope)
         prepared_attestations = _prepare_attestations(
-            embedded_attestations, bundle_bytes
+            embedded_attestations,
+            bundle_bytes,
+            expected_case_digest=dossier_report["case_digest"],
         )
         if len(prepared_attestations) != len(attestation_metadata):
             raise ValueError("package_attestation_manifest_invalid")

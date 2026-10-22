@@ -364,6 +364,7 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
                 issued_at="2026-10-22T00:00:00Z",
                 nonce=nonce,
                 private_key_bytes=test_private_key,
+                case_digest=dossier_report["case_digest"],
             ))
 
         # Build and verify the combined package through the public offline CLI.
@@ -607,6 +608,7 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             issued_at="2026-10-22T00:00:00Z",
             nonce="e2e-control-attestation-1",
             private_key_bytes=test_private_key,
+            case_digest=dossier_report["case_digest"],
         )
         with pytest.raises(
             ValueError, match="package_duplicate_attestation_nonce"

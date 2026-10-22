@@ -460,7 +460,10 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         )
         assert bad_signature_report["status"] == "FAIL"
         assert bad_signature_report["package_integrity_status"] == "PASS"
-        assert "attestation_signature_invalid" in bad_signature_report["attestations"][0]["errors"]
+        assert any(
+            "attestation_signature_invalid" in item["errors"]
+            for item in bad_signature_report["attestations"]
+        )
 
         mismatched_claim = copy.deepcopy(attestations[0])
         mismatched_claim["claims"]["task_id"] = "different-task"

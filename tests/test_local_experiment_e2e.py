@@ -42,11 +42,16 @@ def _case():
     )
     case = ResearchCase(
         case_id="e2e-synthetic-case-1",
-        target_repository="example/protocol",
-        target_commit="a" * 40,
-        scope_url="https://github.com/example/protocol",
-        scope_digest=hashlib.sha256(b"synthetic scope fixture").hexdigest(),
-        scope_reviewed_on="2026-10-19",
+        # Pin the repository commit that introduced this fixture implementation.
+        # The tested behavior is synthetic harness behavior, not a target finding.
+        target_repository="rudimentall1/AegisForge",
+        target_commit="cd3d185e56b7fdf4c024a5e7f8ae20d021675e70",
+        scope_url="https://github.com/rudimentall1/AegisForge",
+        scope_digest=hashlib.sha256(
+            b"synthetic fixture scope: shared/synthetic_fixture.py@"
+            b"cd3d185e56b7fdf4c024a5e7f8ae20d021675e70"
+        ).hexdigest(),
+        scope_reviewed_on="2026-10-22",
         hypothesis=round_spec.hypothesis,
         attacker_capability="Synthetic fixture input only; no network or chain access",
         expected_invariant="Control preserves state; counter-test detects the seeded violation",

@@ -55,7 +55,7 @@ To also enforce one-time nonce consumption for every embedded attestation, add a
 python -m shared.research_case_evidence_package verify case-evidence-package.zip \
   --trusted-key ci-runner-key-1=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
   --max-attestation-age-seconds 3600 \
-  --replay-database ./state/attestation-replay.sqlite3
+  --replay-database ./attestation-replay.sqlite3
 ```
 
 The first successful verification consumes the package's signer/nonce pairs atomically. Re-verifying the same package under the same registry returns failure with `replay_protection_status=FAIL`. Replay protection requires a trusted key policy and a durable, shared registry across all verifiers in the same replay domain. A local SQLite file is not a distributed replay service when workers use separate files or hosts.

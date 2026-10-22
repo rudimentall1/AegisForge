@@ -50,14 +50,14 @@ def _case():
     )
     case = ResearchCase(
         case_id="e2e-synthetic-case-1",
-        # Pin the repository commit that introduced this fixture implementation.
+        # Pin the exact committed fixture source used by the child process.
         # The tested behavior is synthetic harness behavior, not a target finding.
         target_repository="rudimentall1/AegisForge",
-        target_commit="cd3d185e56b7fdf4c024a5e7f8ae20d021675e70",
+        target_commit="97e3f751bde363f8ad442101e6ce4168ae5e9c0a",
         scope_url="https://github.com/rudimentall1/AegisForge",
         scope_digest=hashlib.sha256(
             b"synthetic fixture scope: shared/synthetic_fixture.py@"
-            b"cd3d185e56b7fdf4c024a5e7f8ae20d021675e70"
+            b"97e3f751bde363f8ad442101e6ce4168ae5e9c0a"
         ).hexdigest(),
         scope_reviewed_on="2026-10-22",
         hypothesis=round_spec.hypothesis,
@@ -70,6 +70,16 @@ def _case():
         rounds=(round_spec,),
     )
     return case, round_spec
+
+
+def test_pinned_synthetic_fixture_source_matches_case_commit():
+    """The checked-out child source must match the fixture commit in the case."""
+    source = Path(__file__).parents[1] / "shared" / "synthetic_fixture.py"
+    raw = source.read_bytes()
+    git_blob = hashlib.sha1(
+        b"blob " + str(len(raw)).encode("ascii") + b"\\0" + raw
+    ).hexdigest()
+    assert git_blob == "3c0e415e38ae33b717720d74d510d2a1785c0993"
 
 
 def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):

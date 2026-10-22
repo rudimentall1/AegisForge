@@ -86,6 +86,7 @@ class EvidenceLedger:
                 record_digest TEXT PRIMARY KEY,
                 case_id TEXT NOT NULL,
                 round_id TEXT NOT NULL,
+                round_spec_id TEXT,
                 task_id TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 record_json TEXT NOT NULL,
@@ -94,6 +95,15 @@ class EvidenceLedger:
                 stderr_bytes BLOB NOT NULL
             )
         """)
+        local_experiment_columns = {
+            row[1] for row in self.db.execute(
+                "PRAGMA table_info(local_experiment_records)"
+            )
+        }
+        if "round_spec_id" not in local_experiment_columns:
+            self.db.execute(
+                "ALTER TABLE local_experiment_records ADD COLUMN round_spec_id TEXT"
+            )
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_local_experiment_case_round
             ON local_experiment_records(case_id, round_id, created_at)
@@ -358,8 +368,11 @@ class EvidenceLedger:
             required = {"id", "research_case_id", "round_id", "status"}
             if not required.issubset(queue_columns):
                 raise ValueError("local_experiment_queue_binding_schema_missing")
+            queue_has_round_spec = "round_spec_id" in queue_columns
+            spec_select = "round_spec_id" if queue_has_round_spec else "NULL AS round_spec_id"
             row = self.db.execute(
-                "SELECT research_case_id, round_id, status FROM queue WHERE id = ?",
+                f"SELECT research_case_id, round_id, status, {spec_select} "
+                "FROM queue WHERE id = ?",
                 (task_id,),
             ).fetchone()
             if row is None:
@@ -368,6 +381,10 @@ class EvidenceLedger:
                 raise ValueError("local_experiment_task_identity_mismatch")
             if row[2] not in {"completed", "failed"}:
                 raise ValueError("local_experiment_task_not_terminal")
+            task_round_spec_id = row[3]
+            record_round_spec_id = record.get("round_spec_id")
+            if record_round_spec_id is not None and not queue_has_round_spec:
+                raise ValueError("local_experiment_round_spec_schema_missing")
 
             case_tables = {
                 item[0] for item in self.db.execute(
@@ -394,6 +411,55 @@ class EvidenceLedger:
             ):
                 raise ValueError("local_experiment_target_identity_mismatch")
 
+            planned_rounds = case_payload.get("rounds", [])
+            if not isinstance(planned_rounds, list):
+                raise ValueError("local_experiment_registered_case_invalid")
+            declared_round_spec_ids = set()
+            for planned_round in planned_rounds:
+                if (
+                    not isinstance(planned_round, dict)
+                    or not isinstance(planned_round.get("round_id"), str)
+                    or not planned_round["round_id"].strip()
+                    or planned_round["round_id"] in declared_round_spec_ids
+                ):
+                    raise ValueError("local_experiment_registered_case_invalid")
+                declared_round_spec_ids.add(planned_round["round_id"])
+
+            case_has_planned_rounds = bool(declared_round_spec_ids)
+            if case_has_planned_rounds:
+                if not queue_has_round_spec:
+                    raise ValueError("local_experiment_round_spec_schema_missing")
+                if record_round_spec_id is None:
+                    raise ValueError("local_experiment_round_spec_required")
+                if record_round_spec_id not in declared_round_spec_ids:
+                    raise ValueError("local_experiment_round_spec_not_declared_in_case")
+                if task_round_spec_id != record_round_spec_id:
+                    raise ValueError("local_experiment_task_round_spec_identity_mismatch")
+
+                if "research_case_rounds" not in case_tables:
+                    raise ValueError("local_experiment_round_registry_binding_required")
+                registry_columns = {
+                    item[1] for item in self.db.execute(
+                        "PRAGMA table_info(research_case_rounds)"
+                    )
+                }
+                if not {"case_id", "round_id", "round_spec_id"}.issubset(registry_columns):
+                    raise ValueError("local_experiment_round_registry_binding_required")
+                registry_row = self.db.execute(
+                    """SELECT round_spec_id FROM research_case_rounds
+                       WHERE case_id = ? AND round_id = ?""",
+                    (record["case_id"], record["round_id"]),
+                ).fetchone()
+                if registry_row is None:
+                    raise ValueError("local_experiment_round_registry_binding_required")
+                if registry_row[0] != record_round_spec_id:
+                    raise ValueError("local_experiment_round_registry_identity_mismatch")
+            else:
+                if record_round_spec_id is not None:
+                    raise ValueError("local_experiment_round_spec_not_declared_in_case")
+                if task_round_spec_id is not None:
+                    raise ValueError("local_experiment_task_round_spec_identity_mismatch")
+
             usage = self.db.execute(
                 """SELECT COUNT(*),
                           COALESCE(SUM(length(input_bytes) + length(stdout_bytes) + length(stderr_bytes)), 0)
@@ -407,12 +473,12 @@ class EvidenceLedger:
             try:
                 self.db.execute(
                     """INSERT INTO local_experiment_records
-                       (record_digest, case_id, round_id, task_id, created_at,
+                       (record_digest, case_id, round_id, round_spec_id, task_id, created_at,
                         record_json, input_bytes, stdout_bytes, stderr_bytes)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        digest, record["case_id"], record["round_id"], task_id, now,
-                        canonical, artifacts["input.bin"], artifacts["stdout.bin"],
+                        digest, record["case_id"], record["round_id"], record_round_spec_id,
+                        task_id, now, canonical, artifacts["input.bin"], artifacts["stdout.bin"],
                         artifacts["stderr.bin"],
                     ),
                 )
@@ -429,6 +495,7 @@ class EvidenceLedger:
                 "record_digest": digest,
                 "case_id": record["case_id"],
                 "round_id": record["round_id"],
+                "round_spec_id": record_round_spec_id,
                 "task_id": task_id,
                 "experiment_status": report["experiment_status"],
                 "stored_artifacts": report["checked_artifacts"],

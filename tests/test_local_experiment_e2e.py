@@ -134,6 +134,11 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             exit_code=0,
         )
         stored = ledger.record_local_experiment(record, artifacts)
+        ledger.record_observation(
+            task_id,
+            "lab_runner",
+            f"local_experiment_record:{stored['record_digest']}",
+        )
         bundle = export_persisted_local_experiment_bundle(
             ledger, stored["record_digest"]
         )
@@ -182,6 +187,11 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         )
         counter_stored = ledger.record_local_experiment(
             counter_record, counter_artifacts
+        )
+        ledger.record_observation(
+            counter_task_id,
+            "lab_runner",
+            f"local_experiment_record:{counter_stored['record_digest']}",
         )
         counter_bundle = export_persisted_local_experiment_bundle(
             ledger, counter_stored["record_digest"]
@@ -245,7 +255,39 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert offline_dossier_report["authenticity"] == "UNSIGNED_INTEGRITY_ONLY"
         with zipfile.ZipFile(dossier_path, "r") as dossier:
             tasks_payload = json.loads(dossier.read("tasks.json"))
+            evidence_payload = json.loads(dossier.read("evidence.json"))
+            rounds_payload = json.loads(dossier.read("rounds.json"))
         exported_task_ids = {task["id"] for task in tasks_payload["tasks"]}
         assert exported_task_ids == {root_task_id, task_id, counter_task_id}
+
+        evidence_by_task = {
+            item["task_id"]: item for item in evidence_payload["observations"]
+        }
+        assert set(evidence_by_task) == {task_id, counter_task_id}
+        assert len(evidence_by_task) == 2
+        for evidence in evidence_by_task.values():
+            assert evidence["case_id"] == case.case_id
+            assert evidence["round_id"] == runtime_round_id
+            assert evidence["round_spec_id"] == planned_round_id
+            assert evidence["role"] == "lab_runner"
+            assert evidence["atom_id"] in {
+                ledger.atom_id(f"local_experiment_record:{stored['record_digest']}"),
+                ledger.atom_id(
+                    f"local_experiment_record:{counter_stored['record_digest']}"
+                ),
+            }
+
+        registry_rounds = rounds_payload["rounds"]
+        assert rounds_payload["registry_available"] is True
+        assert len(registry_rounds) == 1
+        registry_round = registry_rounds[0]
+        assert registry_round["case_id"] == case.case_id
+        assert registry_round["round_id"] == runtime_round_id
+        assert registry_round["round_id"] != registry_round["round_spec_id"]
+        assert registry_round["round_spec_id"] == planned_round_id
+        assert registry_round["root_task_id"] == root_task_id
+        assert registry_round["status"] == "COMPLETED"
+        assert registry_round["started_at"] is not None
+        assert registry_round["finished_at"] is not None
     finally:
         queue.db.close()

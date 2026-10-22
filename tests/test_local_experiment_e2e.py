@@ -608,28 +608,14 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             nonce="e2e-control-attestation-1",
             private_key_bytes=test_private_key,
         )
-        duplicate_nonce_package = build_research_case_evidence_package(
-            dossier_path.read_bytes(),
-            [bundle, counter_bundle],
-            execution_attestations=[attestations[0], duplicate_nonce_attestation],
-        )
-        duplicate_nonce_registry = SQLiteAttestationReplayRegistry(
-            tmp_path / "duplicate-package-nonce.sqlite3"
-        )
-        duplicate_nonce_report = verify_research_case_evidence_package(
-            duplicate_nonce_package,
-            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
-            replay_registry=duplicate_nonce_registry,
-        )
-        assert duplicate_nonce_report["status"] == "FAIL"
-        assert duplicate_nonce_report["package_integrity_status"] == "PASS"
-        assert duplicate_nonce_report["attestation_verification_status"] == "PASS"
-        assert duplicate_nonce_report["replay_protection_status"] == "FAIL"
-        assert "attestation_replay_detected" in duplicate_nonce_report["errors"]
-        # The duplicate pair was rejected before any pair was committed.
-        assert duplicate_nonce_registry.consume(
-            "aegisforge-e2e-test-key", "e2e-control-attestation-1"
-        ) is True
+        with pytest.raises(
+            ValueError, match="package_duplicate_attestation_nonce"
+        ):
+            build_research_case_evidence_package(
+                dossier_path.read_bytes(),
+                [bundle, counter_bundle],
+                execution_attestations=[attestations[0], duplicate_nonce_attestation],
+            )
 
         mismatched_claim = copy.deepcopy(attestations[0])
         mismatched_claim["claims"]["task_id"] = "different-task"

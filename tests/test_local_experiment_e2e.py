@@ -476,6 +476,10 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         ]
         assert research_case_evidence_package_main(cli_replay_args) == 0
         assert research_case_evidence_package_main(cli_replay_args) == 2
+        assert research_case_evidence_package_main([
+            "verify", str(package_path),
+            "--replay-database", str(tmp_path / "replay-requires-key.sqlite3"),
+        ]) == 2
 
         wrong_key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex("44" * 32)).public_key().public_bytes(
             encoding=serialization.Encoding.Raw,

@@ -731,7 +731,13 @@ def verify_research_case_evidence_package(
             max_future_skew_seconds=max_future_skew_seconds,
             now=now,
         )
-        final_status = "FAIL" if trusted_attestors is not None and attestation_status != "PASS" else "PASS"
+        final_status = (
+            "FAIL"
+            if trusted_attestors is not None
+            and prepared_attestations
+            and attestation_status != "PASS"
+            else "PASS"
+        )
         final_errors = (
             ["execution_attestation_verification_failed"]
             if final_status == "FAIL" else []
@@ -742,7 +748,7 @@ def verify_research_case_evidence_package(
             "attestation_verification_status": attestation_status,
             "attestations": attestation_reports,
             "execution_truth_established": False,
-            "schema_version": PACKAGE_SCHEMA_VERSION,
+            "schema_version": schema_version,
             "case_id": dossier_report["case_id"],
             "case_digest": dossier_report["case_digest"],
             "experiment_count": len(reports),

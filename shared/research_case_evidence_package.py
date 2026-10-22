@@ -813,7 +813,7 @@ def verify_research_case_evidence_package(
         )
         final_status = "FAIL" if attestation_failed or replay_failed else "PASS"
         final_errors = []
-        if attestation_missing:
+        if attestation_missing and replay_registry is None:
             final_errors.append("execution_attestation_required")
         if freshness_without_trust_store:
             final_errors.append("attestation_freshness_requires_trusted_attestors")

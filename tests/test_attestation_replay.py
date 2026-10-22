@@ -1,5 +1,7 @@
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
+import zipfile
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -207,7 +209,23 @@ def test_invalid_bundle_does_not_consume_attestation_nonce(tmp_path):
     )
     registry = SQLiteAttestationReplayRegistry(tmp_path / "integrity-replay.sqlite3")
 
-    tampered_bundle = bundle[:-1] + bytes([bundle[-1] ^ 0x01])
+    # Change a real ZIP member while leaving manifest.json unchanged.
+    # Flipping the archive's final byte can alter ignored ZIP padding instead of
+    # invalidating any evidence, so it is not a reliable tampering test.
+    with zipfile.ZipFile(BytesIO(bundle), "r") as source:
+        entries = [
+            (info.filename, source.read(info.filename))
+            for info in source.infolist()
+        ]
+    tampered_stream = BytesIO()
+    with zipfile.ZipFile(
+        tampered_stream, "w", compression=zipfile.ZIP_DEFLATED
+    ) as target:
+        for name, data in entries:
+            if name == "stdout.bin":
+                data += b"tampered"
+            target.writestr(name, data)
+    tampered_bundle = tampered_stream.getvalue()
     rejected = verify_bundle_execution_attestation_with_replay_protection(
         tampered_bundle,
         attestation,
@@ -224,6 +242,7 @@ def test_invalid_bundle_does_not_consume_attestation_nonce(tmp_path):
     )
 
     assert rejected["status"] == "FAIL"
+    assert rejected["bundle_integrity_verified"] is False
     assert rejected["replay_protection_verified"] is False
     assert accepted["status"] == "PASS"
     assert accepted["bundle_integrity_verified"] is True

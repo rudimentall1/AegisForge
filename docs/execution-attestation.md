@@ -109,7 +109,7 @@ report = verify_research_case_evidence_package(
 
 Package replay verification validates every signature and record binding before consuming any nonce. The SQLite registry's `consume_many()` commits the full package's signer/nonce set atomically: if any nonce has already been consumed, the batch rolls back and the package fails with `replay_protection_status=FAIL`. A registry that supports only single-nonce `consume()` is insufficient for an attested package containing multiple records; the verifier fails closed instead of partially consuming the batch.
 
-The report separates `package_integrity_status`, `attestation_verification_status`, and `replay_protection_status`. Even when all three pass, `execution_truth_established` remains false: the package is not a sandbox proof, runner authentication, or finding confirmation.
+The report separates `package_integrity_status`, `attestation_verification_status`, `attestation_coverage_status`, and `replay_protection_status`. Under a requested trust, freshness, or replay policy, every experiment record must have exactly one attestation; partial coverage returns `INCOMPLETE`, fails overall verification, and does not consume any nonce. Even when all checks pass, `execution_truth_established` remains false: the package is not a sandbox proof, runner authentication, or finding confirmation.
 
 The CLI supports the same policy:
 

@@ -66,6 +66,25 @@ def test_portable_bundle_round_trip_is_integrity_only():
     }
 
 
+def test_bundle_bytes_and_record_digest_are_reproducible():
+    first_bundle, first_record, first_artifacts = _bundle()
+    second_bundle, second_record, second_artifacts = _bundle()
+
+    assert first_record == second_record
+    assert first_artifacts == second_artifacts
+    assert first_bundle == second_bundle
+
+    first_report = verify_local_experiment_bundle(first_bundle)
+    second_report = verify_local_experiment_bundle(second_bundle)
+    assert first_report["record_digest"] == second_report["record_digest"]
+    assert first_report["record_digest"] == hashlib.sha256(
+        json.dumps(
+            first_record, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False, allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def test_bundle_export_rejects_artifact_tampering():
     _, record, artifacts = _bundle()
     changed = dict(artifacts)

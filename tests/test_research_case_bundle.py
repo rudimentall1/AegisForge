@@ -1431,6 +1431,7 @@ def test_case_bundle_verifier_rejects_rehashed_evidence_planned_round_mismatch(t
     ("field", "value", "error"),
     [
         ("status", {"claimed": "completed"}, "round_registry_status_invalid"),
+        ("status", "FORGED_SUCCESS", "round_registry_status_invalid"),
         ("started_at", 123, "round_registry_started_at_invalid"),
         ("finished_at", [], "round_registry_finished_at_invalid"),
     ],

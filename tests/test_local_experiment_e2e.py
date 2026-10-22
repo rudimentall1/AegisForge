@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -77,7 +78,7 @@ def test_pinned_synthetic_fixture_source_matches_case_commit():
     source = Path(__file__).parents[1] / "shared" / "synthetic_fixture.py"
     raw = source.read_bytes()
     git_blob = hashlib.sha1(
-        b"blob " + str(len(raw)).encode("ascii") + b"\\0" + raw
+        b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw
     ).hexdigest()
     assert git_blob == "3c0e415e38ae33b717720d74d510d2a1785c0993"
 

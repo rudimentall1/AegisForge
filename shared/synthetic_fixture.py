@@ -8,6 +8,7 @@ behavior or a vulnerability.
 from __future__ import annotations
 
 import json
+import sys
 
 FIXTURE_SCHEMA_VERSION = "aegisforge-synthetic-accounting-v1"
 _ALLOWED_MODES = frozenset({"control", "countertest"})
@@ -84,3 +85,50 @@ def run_synthetic_fixture(mode: str) -> dict:
         "network_access": False,
         "subprocess_started": False,
     }
+
+
+
+PROCESS_INPUT_SCHEMA_VERSION = "aegisforge-synthetic-fixture-process-input-v1"
+_MAX_PROCESS_INPUT_BYTES = 4096
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Fixed child-process entry point; accepts only an allowlisted fixture mode.
+
+    The parent runner sends a tiny canonical JSON request over stdin. This CLI
+    emits the fixture's actual stdout/stderr bytes rather than a metadata wrapper,
+    so the parent can persist genuinely captured process output.
+    """
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if len(arguments) != 2 or arguments[0] != "--subprocess-run":
+        return 64
+    mode = arguments[1]
+    if not isinstance(mode, str) or mode not in _ALLOWED_MODES:
+        return 64
+
+    raw_input = sys.stdin.buffer.read(_MAX_PROCESS_INPUT_BYTES + 1)
+    if len(raw_input) > _MAX_PROCESS_INPUT_BYTES:
+        return 65
+    try:
+        request = json.loads(raw_input.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return 65
+    if (
+        not isinstance(request, dict)
+        or set(request) != {"schema_version", "mode"}
+        or request.get("schema_version") != PROCESS_INPUT_SCHEMA_VERSION
+        or request.get("mode") != mode
+        or _canonical_bytes(request) != raw_input
+    ):
+        return 65
+
+    result = run_synthetic_fixture(mode)
+    sys.stdout.buffer.write(result["stdout_bytes"])
+    sys.stderr.buffer.write(result["stderr_bytes"])
+    sys.stdout.buffer.flush()
+    sys.stderr.buffer.flush()
+    return result["exit_code"]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

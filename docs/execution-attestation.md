@@ -85,6 +85,43 @@ A local SQLite file is not a distributed replay registry if different machines o
 
 Nonce expiry/retention cleanup is not implemented. Removing consumed nonce records can allow archived attestations to be accepted again, so preserve the registry until an explicit retention policy proves that the affected attestations can no longer be valid.
 
+## Combined Research Case evidence package
+
+The outer package format v2 can carry optional detached attestations in `attestations/NNNN.json` while the individual experiment ZIP keeps its strict record-plus-raw-artifact allowlist. Every attestation is matched to the canonical record digest and task identity in one included experiment bundle. Package schema v1 remains readable for compatibility.
+
+A verifier that receives no trusted key store reports `attestation_verification_status=NOT_CHECKED`; package `PASS` then means only the archive, nested records, and cross-links passed integrity checks. To verify claims, supply trusted public keys obtained out of band:
+
+```python
+from shared.attestation_replay import SQLiteAttestationReplayRegistry
+from shared.research_case_evidence_package import (
+    verify_research_case_evidence_package,
+)
+
+report = verify_research_case_evidence_package(
+    package_bytes,
+    trusted_attestors={"ci-runner-key-1": trusted_public_key_bytes},
+    max_age_seconds=600,
+    replay_registry=SQLiteAttestationReplayRegistry(
+        "/var/lib/aegisforge/attestation-replay.sqlite3"
+    ),
+)
+```
+
+Package replay verification validates every signature and record binding before consuming any nonce. The SQLite registry's `consume_many()` commits the full package's signer/nonce set atomically: if any nonce has already been consumed, the batch rolls back and the package fails with `replay_protection_status=FAIL`. A registry that supports only single-nonce `consume()` is insufficient for an attested package containing multiple records; the verifier fails closed instead of partially consuming the batch.
+
+The report separates `package_integrity_status`, `attestation_verification_status`, and `replay_protection_status`. Even when all three pass, `execution_truth_established` remains false: the package is not a sandbox proof, runner authentication, or finding confirmation.
+
+The CLI supports the same policy:
+
+```bash
+python -m shared.research_case_evidence_package verify case-evidence-package.zip \
+  --trusted-key ci-runner-key-1=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --max-attestation-age-seconds 600 \
+  --replay-database ./attestation-replay.sqlite3
+```
+
+A second verification using the same replay database rejects the already-consumed package. Keep the replay database durable and shared by all verifiers in the same replay domain.
+
 ## Remaining trust work
 
 The caller remains responsible for trusted-key distribution, signer authorization, key rotation and revocation, nonce generation, freshness policy, durable replay-store operations, and authenticating the runner before signing. The current mechanism is not hardware attestation or a guarantee from a CI platform identity provider.

@@ -10,7 +10,8 @@ import hashlib
 import re
 from typing import Mapping
 
-SCHEMA_VERSION = "aegisforge-local-experiment-v1"
+LEGACY_SCHEMA_VERSION = "aegisforge-local-experiment-v1"
+SCHEMA_VERSION = "aegisforge-local-experiment-v2"
 _ARTIFACT_NAMES = ("input.bin", "stdout.bin", "stderr.bin")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -52,6 +53,7 @@ def build_experiment_record(
     stderr_bytes: bytes,
     exit_code: int | None,
     expected_exit_code: int = 0,
+    round_spec_id: str | None = None,
 ) -> tuple[dict, dict[str, bytes]]:
     """Build a canonical metadata record and its raw, bounded artifacts.
 
@@ -64,6 +66,8 @@ def build_experiment_record(
         ("task_id", task_id),
     ):
         _require_text(value, field)
+    if round_spec_id is not None:
+        round_spec_id = _require_text(round_spec_id, "round_spec_id")
     if (not isinstance(target_repository, str)
             or len(target_repository.encode("utf-8")) > _MAX_TEXT_BYTES
             or not _REPOSITORY_RE.fullmatch(target_repository)):
@@ -112,6 +116,7 @@ def build_experiment_record(
         "schema_version": SCHEMA_VERSION,
         "case_id": case_id,
         "round_id": round_id,
+        "round_spec_id": round_spec_id,
         "task_id": task_id,
         "target_repository": target_repository,
         "target_commit": target_commit,
@@ -131,14 +136,26 @@ def verify_experiment_record(
     """Verify record shape, outcome semantics, exact artifact set, sizes and hashes."""
     if not isinstance(record, dict):
         return {"status": "FAIL", "errors": ["record_must_be_object"]}
-    required = {
+    legacy_required = {
         "schema_version", "case_id", "round_id", "task_id", "target_repository", "target_commit",
         "argv", "toolchain", "exit_code", "expected_exit_code", "status", "artifacts",
     }
+    schema_version = record.get("schema_version")
+    if schema_version == LEGACY_SCHEMA_VERSION:
+        required = legacy_required
+    elif schema_version == SCHEMA_VERSION:
+        required = legacy_required | {"round_spec_id"}
+    else:
+        return {"status": "FAIL", "errors": ["schema_version_unsupported"]}
     if set(record) != required:
         return {"status": "FAIL", "errors": ["record_schema_invalid"]}
-    if record.get("schema_version") != SCHEMA_VERSION:
-        return {"status": "FAIL", "errors": ["schema_version_unsupported"]}
+    round_spec_id = record.get("round_spec_id")
+    if round_spec_id is not None and (
+        not isinstance(round_spec_id, str)
+        or not round_spec_id.strip()
+        or len(round_spec_id.encode("utf-8")) > _MAX_TEXT_BYTES
+    ):
+        return {"status": "FAIL", "errors": ["round_spec_id_invalid"]}
     for field in ("case_id", "round_id", "task_id"):
         value = record.get(field)
         if (not isinstance(value, str) or not value.strip()
@@ -208,6 +225,7 @@ def verify_experiment_record(
         "experiment_status": expected_status,
         "case_id": record["case_id"],
         "round_id": record["round_id"],
+        "round_spec_id": round_spec_id,
         "task_id": record["task_id"],
         "target_repository": target_repository,
         "target_commit": target_commit,

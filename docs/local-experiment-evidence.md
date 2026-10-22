@@ -23,7 +23,7 @@ python -m shared.research_case_evidence_package build \
   --output case-evidence-package.zip
 ```
 
-A package may additionally embed detached Ed25519 execution attestations associated with exact experiment-record digests:
+A package may additionally embed detached Ed25519 execution attestations associated with exact experiment-record digests. For a Research Case package, sign schema-v2 claims by passing the `case_digest` returned by verification of the exact case dossier; the package verifier rejects legacy v1 attestations and any signed case digest that differs from the dossier:
 
 ```bash
 python -m shared.research_case_evidence_package build \

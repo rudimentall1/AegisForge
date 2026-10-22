@@ -373,5 +373,6 @@ The current investigation of operator migration/effective-balance accounting has
 - [AegisForge README](../README.md)
 - [EVM Key Forensics overview](EVM-KEY-FORENSICS.md)
 - [Source provenance notes](evm-key-forensics-source-provenance.md)
+- [Execution Attestation trust boundary](execution-attestation.md)
 - [SSV Network Bug Bounty](https://immunefi.com/bug-bounty/ssvnetwork/information/)
 - [SSV Network scope](https://immunefi.com/bug-bounty/ssvnetwork/scope/)

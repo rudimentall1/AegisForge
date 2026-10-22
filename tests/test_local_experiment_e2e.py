@@ -485,6 +485,58 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert package_report["authenticity"] == "UNSIGNED_INTEGRITY_ONLY"
         assert package_report["vulnerability_confirmed"] is False
 
+        # A v1 package contains the same dossier/experiment members but predates
+        # the optional attestations manifest field. Keep old packages verifiable.
+        legacy_source = build_research_case_evidence_package(
+            dossier_path.read_bytes(), [bundle, counter_bundle]
+        )
+        with zipfile.ZipFile(io.BytesIO(legacy_source), "r") as archive:
+            legacy_files = {
+                info.filename: archive.read(info.filename)
+                for info in archive.infolist()
+            }
+        legacy_manifest = json.loads(legacy_files["manifest.json"])
+        legacy_manifest["schema_version"] = (
+            "aegisforge-research-case-evidence-package-v1"
+        )
+        legacy_manifest.pop("attestations")
+        legacy_core = {
+            key: legacy_manifest[key]
+            for key in (
+                "schema_version", "case_id", "case_digest", "members", "experiments"
+            )
+        }
+        legacy_manifest["package_sha256"] = hashlib.sha256(
+            json.dumps(
+                legacy_core,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        legacy_files["manifest.json"] = json.dumps(
+            legacy_manifest,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        legacy_package_buffer = io.BytesIO()
+        with zipfile.ZipFile(
+            legacy_package_buffer, "w", compression=zipfile.ZIP_DEFLATED
+        ) as legacy_archive:
+            for member_name in sorted(legacy_files):
+                legacy_archive.writestr(member_name, legacy_files[member_name])
+        legacy_report = verify_research_case_evidence_package(
+            legacy_package_buffer.getvalue()
+        )
+        assert legacy_report["status"] == "PASS"
+        assert legacy_report["schema_version"] == (
+            "aegisforge-research-case-evidence-package-v1"
+        )
+        assert legacy_report["attestation_verification_status"] == "NOT_PRESENT"
+
         changed_package = io.BytesIO()
         with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as source:
             with zipfile.ZipFile(

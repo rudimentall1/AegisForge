@@ -18,22 +18,32 @@ import tempfile
 import zipfile
 import zlib
 
+from shared.execution_attestation import (
+    ATTESTATION_SCHEMA_VERSION,
+    verify_execution_attestation,
+)
 from shared.local_experiment_bundle import verify_local_experiment_bundle
 from shared.research_case_bundle import verify_research_case_bundle
 
 
-PACKAGE_SCHEMA_VERSION = "aegisforge-research-case-evidence-package-v1"
+LEGACY_PACKAGE_SCHEMA_VERSION = "aegisforge-research-case-evidence-package-v1"
+PACKAGE_SCHEMA_VERSION = "aegisforge-research-case-evidence-package-v2"
 _MANIFEST_NAME = "manifest.json"
 _DOSSIER_NAME = "case-dossier.zip"
-_EXPERIMENT_PATH_RE = re.compile(r"^experiments/[0-9]{4}\.zip$")
+_EXPERIMENT_PATH_RE = re.compile(r"^experiments/[0-9]{4}\\.zip$")
+_ATTESTATION_PATH_RE = re.compile(r"^attestations/[0-9]{4}\\.json$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,127}$")
+_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _MAX_EXPERIMENTS = 32
 _MAX_MANIFEST_BYTES = 512 * 1024
 _MAX_DOSSIER_BYTES = 64 * 1024 * 1024
 _MAX_EXPERIMENT_BYTES = 21 * 1024 * 1024
+_MAX_ATTESTATION_BYTES = 256 * 1024
 _MAX_TOTAL_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
 _MAX_PACKAGE_BYTES = 128 * 1024 * 1024
-_MAX_MEMBER_COUNT = _MAX_EXPERIMENTS + 2
+_MAX_MEMBER_COUNT = _MAX_EXPERIMENTS * 2 + 2
+
 
 
 def _canonical_json(value: object) -> bytes:
@@ -238,6 +248,197 @@ def _validate_linkage(dossier_bytes: bytes, experiment_bundles: list[bytes]) -> 
 
     reports.sort(key=lambda item: (item["task_id"], item["record_digest"]))
     return dossier_report, reports
+
+
+
+def _read_experiment_record(bundle_bytes: bytes) -> dict:
+    """Read the canonical record from an integrity-verified experiment bundle."""
+    report = verify_local_experiment_bundle(bundle_bytes)
+    if report.get("status") != "PASS":
+        raise ValueError("experiment_bundle_invalid")
+    try:
+        with zipfile.ZipFile(BytesIO(bundle_bytes), "r") as archive:
+            info = archive.getinfo("manifest.json")
+            raw = _read_member(archive, info, 256 * 1024)
+        manifest = _strict_json(raw, error="experiment_bundle_manifest_invalid")
+        record = manifest.get("record") if isinstance(manifest, dict) else None
+        if not isinstance(record, dict):
+            raise ValueError("experiment_bundle_record_invalid")
+        digest = _sha256(_canonical_json(record))
+        if digest != report.get("record_digest"):
+            raise ValueError("experiment_bundle_record_digest_mismatch")
+        return record
+    except ValueError:
+        raise
+    except (OSError, KeyError, TypeError, zipfile.BadZipFile, RuntimeError, zlib.error) as exc:
+        raise ValueError("experiment_bundle_record_unreadable") from exc
+
+
+def _validate_detached_attestation(attestation: object, records_by_digest: dict) -> dict:
+    """Validate signed envelope shape and bind its claims to an included exact record.
+
+    This structural check does not establish signature validity. That requires a
+    trusted public key supplied separately to package verification.
+    """
+    if not isinstance(attestation, dict) or set(attestation) != {
+        "claims", "signature_ed25519", "authenticity"
+    }:
+        raise ValueError("execution_attestation_envelope_invalid")
+    if attestation.get("authenticity") != "SIGNED_CLAIMS_ONLY":
+        raise ValueError("execution_attestation_authenticity_label_invalid")
+    claims = attestation.get("claims")
+    required_claims = {
+        "schema_version", "signer_id", "runner_id", "case_id", "round_id",
+        "task_id", "target_repository", "target_commit", "record_sha256",
+        "environment_sha256", "issued_at", "nonce",
+    }
+    if not isinstance(claims, dict) or set(claims) != required_claims:
+        raise ValueError("execution_attestation_claims_invalid")
+    if claims.get("schema_version") != ATTESTATION_SCHEMA_VERSION:
+        raise ValueError("execution_attestation_schema_unsupported")
+    signature = attestation.get("signature_ed25519")
+    if not isinstance(signature, str) or not re.fullmatch(r"[0-9a-f]{128}", signature):
+        raise ValueError("execution_attestation_signature_encoding_invalid")
+    for field in ("signer_id", "runner_id", "case_id", "round_id", "task_id", "nonce"):
+        if not isinstance(claims.get(field), str) or not _ID_RE.fullmatch(claims[field]):
+            raise ValueError(f"execution_attestation_{field}_invalid")
+    if not isinstance(claims.get("target_repository"), str) or not re.fullmatch(
+        r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", claims["target_repository"]
+    ):
+        raise ValueError("execution_attestation_target_repository_invalid")
+    if not isinstance(claims.get("target_commit"), str) or not _COMMIT_RE.fullmatch(
+        claims["target_commit"]
+    ):
+        raise ValueError("execution_attestation_target_commit_invalid")
+    for field in ("record_sha256", "environment_sha256"):
+        if not isinstance(claims.get(field), str) or not _SHA256_RE.fullmatch(claims[field]):
+            raise ValueError(f"execution_attestation_{field}_invalid")
+    issued_at = claims.get("issued_at")
+    if not isinstance(issued_at, str) or not issued_at.strip() or len(issued_at) > 64:
+        raise ValueError("execution_attestation_issued_at_invalid")
+
+    record_digest = claims["record_sha256"]
+    record = records_by_digest.get(record_digest)
+    if record is None:
+        raise ValueError("execution_attestation_record_not_in_package")
+    for field in (
+        "case_id", "round_id", "task_id", "target_repository", "target_commit"
+    ):
+        if claims.get(field) != record.get(field):
+            raise ValueError(f"execution_attestation_{field}_mismatch")
+    return {
+        "record_digest": record_digest,
+        "task_id": record["task_id"],
+        "signer_id": claims["signer_id"],
+        "record": record,
+        "attestation": attestation,
+    }
+
+
+def _prepare_attestations(
+    execution_attestations: object,
+    experiment_bundles: list[bytes],
+) -> list[dict]:
+    """Bind each optional detached attestation to one included experiment record."""
+    if execution_attestations is None:
+        execution_attestations = []
+    if not isinstance(execution_attestations, list):
+        raise ValueError("execution_attestations_must_be_a_list")
+    if len(execution_attestations) > _MAX_EXPERIMENTS:
+        raise ValueError("execution_attestation_count_invalid")
+    records_by_digest = {}
+    for bundle in experiment_bundles:
+        report = verify_local_experiment_bundle(bundle)
+        if report.get("status") != "PASS":
+            raise ValueError("experiment_bundle_invalid")
+        digest = report.get("record_digest")
+        if not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest):
+            raise ValueError("experiment_record_digest_invalid")
+        records_by_digest[digest] = _read_experiment_record(bundle)
+
+    normalized = []
+    seen_digests = set()
+    for attestation in execution_attestations:
+        prepared = _validate_detached_attestation(attestation, records_by_digest)
+        digest = prepared["record_digest"]
+        if digest in seen_digests:
+            raise ValueError("package_duplicate_execution_attestation")
+        seen_digests.add(digest)
+        normalized.append(prepared)
+    normalized.sort(key=lambda item: (item["record_digest"], item["signer_id"]))
+    return normalized
+
+
+def _evaluate_attestations(
+    prepared: list[dict],
+    *,
+    trusted_attestors,
+    max_age_seconds: int | None,
+    max_future_skew_seconds: int,
+    now,
+) -> tuple[str, list[dict]]:
+    """Return a separate signature-verification status without conflating integrity."""
+    if not prepared:
+        return "NOT_PRESENT", []
+    if trusted_attestors is None:
+        return "NOT_CHECKED", [
+            {
+                "record_digest": item["record_digest"],
+                "task_id": item["task_id"],
+                "signer_id": item["signer_id"],
+                "status": "NOT_CHECKED",
+                "attestation_verified": False,
+                "execution_truth_established": False,
+                "errors": [],
+            }
+            for item in prepared
+        ]
+    if not isinstance(trusted_attestors, dict):
+        results = []
+        for item in prepared:
+            results.append({
+                "record_digest": item["record_digest"],
+                "task_id": item["task_id"],
+                "signer_id": item["signer_id"],
+                "status": "FAIL",
+                "attestation_verified": False,
+                "execution_truth_established": False,
+                "errors": ["trusted_attestor_policy_invalid"],
+            })
+        return "FAIL", results
+
+    results = []
+    for item in prepared:
+        signer_id = item["signer_id"]
+        key = trusted_attestors.get(signer_id)
+        if key is None:
+            result = {
+                "status": "UNTRUSTED",
+                "attestation_verified": False,
+                "execution_truth_established": False,
+                "errors": ["attestation_signer_not_in_trust_store"],
+            }
+        else:
+            result = verify_execution_attestation(
+                item["attestation"],
+                trusted_public_key_bytes=key,
+                expected_signer_id=signer_id,
+                expected_record=item["record"],
+                max_age_seconds=max_age_seconds,
+                max_future_skew_seconds=max_future_skew_seconds,
+                now=now,
+            )
+        results.append({
+            "record_digest": item["record_digest"],
+            "task_id": item["task_id"],
+            "signer_id": signer_id,
+            "status": result.get("status", "FAIL"),
+            "attestation_verified": result.get("attestation_verified") is True,
+            "execution_truth_established": False,
+            "errors": result.get("errors", []),
+        })
+    summary = "PASS" if all(item["status"] == "PASS" for item in results) else "FAIL"
+    return summary, results
 
 
 def _zip_bytes(files: dict[str, bytes]) -> bytes:

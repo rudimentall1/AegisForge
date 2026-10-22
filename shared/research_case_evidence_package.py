@@ -7,6 +7,7 @@ package is not an authenticity anchor and does not prove execution truth.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 from io import BytesIO
 import hashlib
 import json
@@ -316,6 +317,14 @@ def _validate_detached_attestation(attestation: object, records_by_digest: dict)
             raise ValueError(f"execution_attestation_{field}_invalid")
     issued_at = claims.get("issued_at")
     if not isinstance(issued_at, str) or not issued_at.strip() or len(issued_at) > 64:
+        raise ValueError("execution_attestation_issued_at_invalid")
+    try:
+        parsed_issued_at = datetime.fromisoformat(
+            issued_at[:-1] + "+00:00" if issued_at.endswith("Z") else issued_at
+        )
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("execution_attestation_issued_at_invalid") from exc
+    if parsed_issued_at.tzinfo is None or parsed_issued_at.utcoffset() is None:
         raise ValueError("execution_attestation_issued_at_invalid")
 
     record_digest = claims["record_sha256"]

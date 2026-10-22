@@ -4,10 +4,12 @@ This is explicitly a synthetic fixture: it exercises real case registration,
 queue lifecycle, ledger binding, and portable bundle verification without
 executing an untrusted command or claiming a real vulnerability reproduction.
 """
+import copy
 import hashlib
 import io
 import json
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -397,6 +399,8 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         package_report = verify_research_case_evidence_package(
             package_bytes,
             trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+            max_age_seconds=600,
+            now=datetime(2026, 10, 22, 0, 5, tzinfo=timezone.utc),
         )
         assert research_case_evidence_package_main([
             "verify", str(package_path),
@@ -421,6 +425,51 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert failed_attestation_report["package_integrity_status"] == "PASS"
         assert failed_attestation_report["attestation_verification_status"] == "FAIL"
         assert failed_attestation_report["execution_truth_established"] is False
+
+        untrusted_signer_report = verify_research_case_evidence_package(
+            package_bytes,
+            trusted_attestors={"different-trusted-signer": test_public_key},
+        )
+        assert untrusted_signer_report["status"] == "FAIL"
+        assert untrusted_signer_report["package_integrity_status"] == "PASS"
+        assert untrusted_signer_report["attestations"][0]["errors"] == [
+            "attestation_signer_not_in_trust_store"
+        ]
+
+        expired_report = verify_research_case_evidence_package(
+            package_bytes,
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+            max_age_seconds=60,
+            now=datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc),
+        )
+        assert expired_report["status"] == "FAIL"
+        assert expired_report["package_integrity_status"] == "PASS"
+        assert expired_report["attestation_verification_status"] == "FAIL"
+        assert "attestation_issued_at_expired" in expired_report["attestations"][0]["errors"]
+
+        invalid_signature = copy.deepcopy(attestations[0])
+        invalid_signature["signature_ed25519"] = "00" * 64
+        tampered_signature_package = build_research_case_evidence_package(
+            dossier_path.read_bytes(),
+            [bundle, counter_bundle],
+            execution_attestations=[invalid_signature, attestations[1]],
+        )
+        bad_signature_report = verify_research_case_evidence_package(
+            tampered_signature_package,
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+        )
+        assert bad_signature_report["status"] == "FAIL"
+        assert bad_signature_report["package_integrity_status"] == "PASS"
+        assert "attestation_signature_invalid" in bad_signature_report["attestations"][0]["errors"]
+
+        mismatched_claim = copy.deepcopy(attestations[0])
+        mismatched_claim["claims"]["task_id"] = "different-task"
+        with pytest.raises(ValueError, match="execution_attestation_task_id_mismatch"):
+            build_research_case_evidence_package(
+                dossier_path.read_bytes(),
+                [bundle, counter_bundle],
+                execution_attestations=[mismatched_claim, attestations[1]],
+            )
         assert package_report["case_id"] == case.case_id
         assert package_report["case_digest"] == dossier_report["case_digest"]
         assert package_report["experiment_count"] == 2

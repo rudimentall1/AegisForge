@@ -605,6 +605,21 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         )
         assert legacy_report["attestation_verification_status"] == "NOT_PRESENT"
 
+        # Requesting replay protection must not silently pass an unsigned package.
+        unsigned_replay_report = verify_research_case_evidence_package(
+            legacy_package_buffer.getvalue(),
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+            replay_registry=SQLiteAttestationReplayRegistry(
+                tmp_path / "unsigned-package-replay.sqlite3"
+            ),
+        )
+        assert unsigned_replay_report["status"] == "FAIL"
+        assert unsigned_replay_report["package_integrity_status"] == "PASS"
+        assert unsigned_replay_report["replay_protection_status"] == "FAIL"
+        assert unsigned_replay_report["errors"] == [
+            "execution_attestation_required_for_replay_protection"
+        ]
+
         changed_package = io.BytesIO()
         with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as source:
             with zipfile.ZipFile(

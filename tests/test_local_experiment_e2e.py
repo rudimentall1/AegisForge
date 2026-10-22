@@ -36,7 +36,7 @@ from shared.research_case_evidence_package import (
     main as research_case_evidence_package_main,
     verify_research_case_evidence_package,
 )
-from shared.synthetic_fixture import run_synthetic_fixture
+from shared.synthetic_fixture_runner import run_synthetic_fixture_subprocess
 
 
 def _case():
@@ -126,9 +126,12 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert claimed is not None
         assert claimed[0] == task_id
 
-        control_fixture = run_synthetic_fixture("control")
+        control_fixture = run_synthetic_fixture_subprocess("control")
         assert control_fixture["passed"] is True
-        assert control_fixture["subprocess_started"] is False
+        assert control_fixture["subprocess_started"] is True
+        assert control_fixture["execution"]["resource_limits_applied"] is True
+        assert control_fixture["execution"]["network_isolation_enforced"] is False
+        assert control_fixture["execution"]["filesystem_isolation_enforced"] is False
         assert control_fixture["network_access"] is False
         control_output = control_fixture["stdout_bytes"]
         queue.finish(task_id, result={
@@ -180,9 +183,12 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         counter_claim = queue.claim("e2e-worker-2", role="lab_runner")
         assert counter_claim is not None
         assert counter_claim[0] == counter_task_id
-        counter_fixture = run_synthetic_fixture("countertest")
+        counter_fixture = run_synthetic_fixture_subprocess("countertest")
         assert counter_fixture["passed"] is True
-        assert counter_fixture["subprocess_started"] is False
+        assert counter_fixture["subprocess_started"] is True
+        assert counter_fixture["execution"]["resource_limits_applied"] is True
+        assert counter_fixture["execution"]["network_isolation_enforced"] is False
+        assert counter_fixture["execution"]["filesystem_isolation_enforced"] is False
         assert counter_fixture["network_access"] is False
         counter_output = counter_fixture["stdout_bytes"]
         queue.finish(counter_task_id, result={

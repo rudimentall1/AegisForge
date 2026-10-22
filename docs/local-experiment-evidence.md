@@ -41,7 +41,7 @@ Verify the package structure, nested bundles, and evidence links offline:
 python -m shared.research_case_evidence_package verify case-evidence-package.zip
 ```
 
-Without an external trust policy, this verifies package integrity and structurally binds each included attestation to an exact experiment record, but reports `attestation_verification_status=NOT_CHECKED`. To verify the signatures, supply each trusted raw Ed25519 public key out of band as a 32-byte hexadecimal value:
+Without an external trust policy, this verifies package integrity and structurally binds each included attestation to an exact experiment record, but reports `attestation_verification_status=NOT_CHECKED`. If a caller supplies a trust store, the package must contain at least one attestation and every included signature must pass; otherwise overall verification fails instead of treating a stripped/unsigned package as authenticated. Requesting freshness with `--max-attestation-age-seconds` also requires a trusted key store: timestamps on unsigned or unchecked claims are not verified. To verify the signatures, supply each trusted raw Ed25519 public key out of band as a 32-byte hexadecimal value:
 
 ```bash
 python -m shared.research_case_evidence_package verify case-evidence-package.zip \

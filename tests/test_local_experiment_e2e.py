@@ -6,6 +6,8 @@ executing an untrusted command or claiming a real vulnerability reproduction.
 """
 import copy
 import hashlib
+import sqlite3
+from dataclasses import asdict, replace
 import io
 import json
 import zipfile
@@ -38,6 +40,7 @@ from shared.research_case_bundle import (
     export_research_case_bundle,
     verify_research_case_bundle,
 )
+from shared.result_codec import decode, encode
 from shared.research_case_evidence_package import (
     build_research_case_evidence_package,
     main as research_case_evidence_package_main,
@@ -650,6 +653,70 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
                 dossier_path.read_bytes(),
                 [bundle, counter_bundle],
                 execution_attestations=[mismatched_case_claim, attestations[1]],
+            )
+
+        # Full substitution attack: mutate the immutable Research Case contract
+        # while preserving case_id and target commit, then re-export a valid
+        # dossier with rebuilt hashes and matching task-result bindings. The
+        # old experiment attestations must still fail because they signed the
+        # original dossier's exact case digest.
+        changed_round_spec = replace(
+            round_spec,
+            hypothesis=round_spec.hypothesis + " (attacker-modified plan)",
+        )
+        changed_case = replace(
+            case,
+            hypothesis=case.hypothesis + " (attacker-modified case)",
+            rounds=(changed_round_spec,),
+        )
+        changed_binding = research_case_binding(changed_case)
+        changed_payload = asdict(changed_case)
+        changed_payload["execution_mode"] = changed_case.execution_mode.value
+        changed_payload["status"] = changed_case.status.value
+        with sqlite3.connect(tmp_path / "aegisforge-e2e.sqlite3") as changed_db:
+            changed_db.execute(
+                "UPDATE research_cases SET payload = ? WHERE case_id = ?",
+                (
+                    json.dumps(
+                        changed_payload,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    changed_case.case_id,
+                ),
+            )
+            task_rows = changed_db.execute(
+                "SELECT id, result FROM queue WHERE research_case_id = ?",
+                (changed_case.case_id,),
+            ).fetchall()
+            for changed_task_id, raw_result in task_rows:
+                if raw_result is None:
+                    continue
+                task_result = decode(raw_result)
+                if isinstance(task_result, dict) and "research_case_binding" in task_result:
+                    task_result["research_case_binding"] = changed_binding
+                    changed_db.execute(
+                        "UPDATE queue SET result = ? WHERE id = ?",
+                        (encode(task_result), changed_task_id),
+                    )
+
+        altered_dossier_path = tmp_path / "altered-but-integrity-valid-dossier.zip"
+        altered_dossier_report = export_research_case_bundle(
+            tmp_path / "aegisforge-e2e.sqlite3",
+            changed_case.case_id,
+            altered_dossier_path,
+        )
+        assert altered_dossier_report["valid"] is True
+        assert altered_dossier_report["case_id"] == dossier_report["case_id"]
+        assert altered_dossier_report["case_digest"] != dossier_report["case_digest"]
+        assert altered_case.target_commit == case.target_commit
+        with pytest.raises(
+            ValueError, match="execution_attestation_case_digest_mismatch"
+        ):
+            build_research_case_evidence_package(
+                altered_dossier_path.read_bytes(),
+                [bundle, counter_bundle],
+                execution_attestations=attestations,
             )
 
         legacy_attestation = create_execution_attestation(

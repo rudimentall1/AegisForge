@@ -52,6 +52,51 @@ class SQLiteAttestationReplayRegistry:
         except sqlite3.IntegrityError:
             return False
 
+    def consume_many(self, pairs: list[tuple[str, str]]) -> bool:
+        """Atomically consume a whole attested package's nonce set.
+
+        If any signer/nonce pair was already consumed (or is duplicated within
+        this request), none of the new pairs are committed. This avoids partially
+        burning later nonces when a package replay is detected partway through.
+        """
+        if not isinstance(pairs, list):
+            raise ValueError("replay_registry_pairs_invalid")
+        normalized = []
+        for pair in pairs:
+            if (
+                not isinstance(pair, (tuple, list))
+                or len(pair) != 2
+            ):
+                raise ValueError("replay_registry_pair_invalid")
+            signer_id, nonce = pair
+            if not isinstance(signer_id, str) or not signer_id:
+                raise ValueError("replay_registry_signer_id_invalid")
+            if not isinstance(nonce, str) or not nonce:
+                raise ValueError("replay_registry_nonce_invalid")
+            normalized.append((signer_id, nonce))
+        if len(set(normalized)) != len(normalized):
+            return False
+        if not normalized:
+            return True
+
+        connection = sqlite3.connect(self.database_path, timeout=10)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.executemany(
+                "INSERT INTO consumed_attestation_nonces (signer_id, nonce) VALUES (?, ?)",
+                normalized,
+            )
+            connection.commit()
+            return True
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            return False
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
 
 def verify_execution_attestation_with_replay_protection(
     attestation: object,

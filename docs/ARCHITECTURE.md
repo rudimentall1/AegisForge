@@ -374,5 +374,6 @@ The current investigation of operator migration/effective-balance accounting has
 - [EVM Key Forensics overview](EVM-KEY-FORENSICS.md)
 - [Source provenance notes](evm-key-forensics-source-provenance.md)
 - [Execution Attestation trust boundary](execution-attestation.md)
+- [Local Experiment Evidence and Portable Case Packages](local-experiment-evidence.md)
 - [SSV Network Bug Bounty](https://immunefi.com/bug-bounty/ssvnetwork/information/)
 - [SSV Network scope](https://immunefi.com/bug-bounty/ssvnetwork/scope/)

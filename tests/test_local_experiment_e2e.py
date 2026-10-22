@@ -638,6 +638,45 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
                 [bundle, counter_bundle],
                 execution_attestations=[malformed_timestamp, attestations[1]],
             )
+
+        mismatched_case_claim = copy.deepcopy(attestations[0])
+        mismatched_case_claim["claims"]["case_digest"] = hashlib.sha256(
+            b"altered immutable Research Case"
+        ).hexdigest()
+        with pytest.raises(
+            ValueError, match="execution_attestation_case_digest_mismatch"
+        ):
+            build_research_case_evidence_package(
+                dossier_path.read_bytes(),
+                [bundle, counter_bundle],
+                execution_attestations=[mismatched_case_claim, attestations[1]],
+            )
+
+        legacy_attestation = create_execution_attestation(
+            record=record,
+            signer_id="aegisforge-e2e-test-key",
+            runner_id="aegisforge-e2e-test-runner",
+            environment_sha256=hashlib.sha256(
+                json.dumps(
+                    record["toolchain"],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                ).encode("utf-8")
+            ).hexdigest(),
+            issued_at="2026-10-22T00:00:00Z",
+            nonce="e2e-legacy-schema-attestation",
+            private_key_bytes=test_private_key,
+        )
+        with pytest.raises(
+            ValueError, match="execution_attestation_schema_unsupported"
+        ):
+            build_research_case_evidence_package(
+                dossier_path.read_bytes(),
+                [bundle, counter_bundle],
+                execution_attestations=[legacy_attestation, attestations[1]],
+            )
         assert package_report["case_id"] == case.case_id
         assert package_report["case_digest"] == dossier_report["case_digest"]
         assert package_report["experiment_count"] == 2

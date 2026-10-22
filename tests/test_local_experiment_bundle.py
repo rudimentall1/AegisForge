@@ -36,6 +36,7 @@ def test_portable_bundle_round_trip_is_integrity_only():
         "bundle_schema_version": BUNDLE_SCHEMA_VERSION,
         "case_id": "case-1",
         "round_id": "round-1",
+        "round_spec_id": None,
         "task_id": "task-1",
         "target_repository": "example/protocol",
         "target_commit": "a" * 40,

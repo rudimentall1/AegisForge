@@ -12,7 +12,15 @@ REPOSITORY = "example/protocol"
 COMMIT = "a" * 40
 
 
-def _bundle(*, task_id, exit_code=0, target_commit=COMMIT, fixture_version="assessment-test", stdout_bytes=None):
+def _bundle(
+    *,
+    task_id,
+    exit_code=0,
+    target_commit=COMMIT,
+    fixture_version="assessment-test",
+    stdout_bytes=None,
+    round_spec_id=None,
+):
     if stdout_bytes is None:
         stdout_bytes = (
             b"control invariant_preserved=true"
@@ -22,6 +30,7 @@ def _bundle(*, task_id, exit_code=0, target_commit=COMMIT, fixture_version="asse
     record, artifacts = build_experiment_record(
         case_id=CASE_ID,
         round_id=ROUND_ID,
+        round_spec_id=round_spec_id,
         task_id=task_id,
         target_repository=REPOSITORY,
         target_commit=target_commit,
@@ -56,7 +65,14 @@ def _criteria(**overrides):
     return criteria
 
 
-def _assess(control, counter, *, synthetic_fixture=False, semantic_criteria="default"):
+def _assess(
+    control,
+    counter,
+    *,
+    synthetic_fixture=False,
+    semantic_criteria="default",
+    expected_round_spec_id=None,
+):
     if semantic_criteria == "default":
         semantic_criteria = _criteria()
     return assess_local_experiment_pair(
@@ -64,12 +80,56 @@ def _assess(control, counter, *, synthetic_fixture=False, semantic_criteria="def
         countertest_bundle=counter,
         expected_case_id=CASE_ID,
         expected_round_id=ROUND_ID,
+        expected_round_spec_id=expected_round_spec_id,
         expected_target_repository=REPOSITORY,
         expected_target_commit=COMMIT,
         semantic_criteria=semantic_criteria,
         synthetic_fixture=synthetic_fixture,
     )
 
+
+
+
+def test_planned_round_identity_must_match_both_bundles_and_expected_case():
+    control = _bundle(task_id="control", round_spec_id="source-pattern-v1")
+    counter = _bundle(task_id="counter", round_spec_id="source-pattern-v1")
+    report = _assess(
+        control,
+        counter,
+        expected_round_spec_id="source-pattern-v1",
+        semantic_criteria=_criteria(round_spec_id="source-pattern-v1"),
+    )
+    assert report["status"] == "PASS"
+    assert report["round_spec_id"] == "source-pattern-v1"
+    assert report["vulnerability_status"] == "INCONCLUSIVE"
+    assert report["vulnerability_confirmed"] is False
+
+
+def test_planned_round_substitution_fails_closed():
+    control = _bundle(task_id="control", round_spec_id="source-pattern-v1")
+    counter = _bundle(task_id="counter", round_spec_id="other-planned-round")
+    report = _assess(
+        control,
+        counter,
+        expected_round_spec_id="source-pattern-v1",
+        semantic_criteria=_criteria(round_spec_id="source-pattern-v1"),
+    )
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["round_spec_identity_mismatch"]
+    assert report["vulnerability_confirmed"] is False
+
+
+def test_planned_round_bundles_require_explicit_expected_spec_pin():
+    control = _bundle(task_id="control", round_spec_id="source-pattern-v1")
+    counter = _bundle(task_id="counter", round_spec_id="source-pattern-v1")
+    report = _assess(
+        control,
+        counter,
+        semantic_criteria=_criteria(round_spec_id="source-pattern-v1"),
+    )
+    assert report["status"] == "FAIL"
+    assert report["errors"] == ["expected_round_spec_id_required"]
+    assert report["vulnerability_confirmed"] is False
 
 def test_pair_with_missing_both_bundles_is_not_run():
     report = _assess(None, None)

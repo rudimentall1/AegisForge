@@ -328,3 +328,21 @@ def test_consume_many_rejects_malformed_pair_sets(tmp_path, pairs):
     registry = SQLiteAttestationReplayRegistry(tmp_path / "invalid-batch.sqlite3")
     with pytest.raises(ValueError):
         registry.consume_many(pairs)
+
+
+def test_concurrent_batch_nonce_consumption_accepts_one_complete_set(tmp_path):
+    database = tmp_path / "concurrent-batch-replay.sqlite3"
+    pairs = [("shared-signer", "package-nonce-a"), ("shared-signer", "package-nonce-b")]
+
+    def consume_batch(_):
+        return SQLiteAttestationReplayRegistry(database).consume_many(pairs)
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        outcomes = list(pool.map(consume_batch, range(24)))
+
+    assert outcomes.count(True) == 1
+    assert outcomes.count(False) == 23
+    registry = SQLiteAttestationReplayRegistry(database)
+    assert registry.consume("shared-signer", "package-nonce-a") is False
+    assert registry.consume("shared-signer", "package-nonce-b") is False
+    assert registry.consume("shared-signer", "new-package-nonce") is True

@@ -1,4 +1,7 @@
+import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -203,3 +206,114 @@ def test_persisted_bundle_export_rejects_artifact_corruption():
             export_persisted_local_experiment_bundle(ledger, stored["record_digest"])
     finally:
         db.close()
+
+
+def _concurrent_quota_fixture(tmp_path, worker_count):
+    database_path = tmp_path / "quota-race.sqlite3"
+    connection = sqlite3.connect(database_path, timeout=15)
+    connection.execute(
+        """CREATE TABLE queue (
+            id TEXT PRIMARY KEY,
+            research_case_id TEXT NOT NULL,
+            round_id TEXT NOT NULL,
+            status TEXT NOT NULL
+        )"""
+    )
+    connection.execute(
+        "CREATE TABLE research_cases (case_id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+    )
+    connection.execute(
+        "INSERT INTO research_cases VALUES (?, ?)",
+        (
+            "case-quota-race",
+            json.dumps({
+                "case_id": "case-quota-race",
+                "target_repository": "example/protocol",
+                "target_commit": "a" * 40,
+            }),
+        ),
+    )
+    for index in range(worker_count):
+        connection.execute(
+            "INSERT INTO queue VALUES (?, ?, ?, 'completed')",
+            (f"task-{index}", "case-quota-race", "round-quota-race"),
+        )
+    EvidenceLedger(connection)
+    connection.close()
+
+    # Initialize each independent ledger connection before the race starts.
+    # This isolates the concurrency under test to validation + quota + insert.
+    ledgers = []
+    for _ in range(worker_count):
+        conn = sqlite3.connect(database_path, timeout=15, check_same_thread=False)
+        ledgers.append((conn, EvidenceLedger(conn)))
+    return database_path, ledgers
+
+
+def _race_local_experiment_quota(database_path, ledgers):
+    worker_count = len(ledgers)
+    barrier = Barrier(worker_count)
+
+    def attempt(index_and_ledger):
+        index, (connection, ledger) = index_and_ledger
+        record, artifacts = build_experiment_record(
+            case_id="case-quota-race",
+            round_id="round-quota-race",
+            task_id=f"task-{index}",
+            target_repository="example/protocol",
+            target_commit="a" * 40,
+            argv=["synthetic-fixture", str(index)],
+            toolchain={"python": "3.12.1"},
+            input_bytes=b"input",
+            stdout_bytes=b"ok",
+            stderr_bytes=b"",
+            exit_code=0,
+        )
+        barrier.wait(timeout=15)
+        try:
+            ledger.record_local_experiment(record, artifacts)
+            return "stored"
+        except ValueError as exc:
+            return str(exc)
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        outcomes = list(pool.map(attempt, enumerate(ledgers)))
+    with sqlite3.connect(database_path) as verify_db:
+        stored_count = verify_db.execute(
+            "SELECT COUNT(*) FROM local_experiment_records"
+        ).fetchone()[0]
+    return outcomes, stored_count
+
+
+def test_concurrent_local_experiment_writes_cannot_exceed_record_count_budget(
+    tmp_path, monkeypatch
+):
+    worker_count = 12
+    monkeypatch.setattr(EvidenceLedger, "MAX_LOCAL_EXPERIMENT_RECORDS", 3)
+    monkeypatch.setattr(EvidenceLedger, "MAX_LOCAL_EXPERIMENT_STORAGE_BYTES", 1024 * 1024)
+    database_path, ledgers = _concurrent_quota_fixture(tmp_path, worker_count)
+
+    outcomes, stored_count = _race_local_experiment_quota(database_path, ledgers)
+
+    assert stored_count == 3
+    assert outcomes.count("stored") == 3
+    assert outcomes.count("local_experiment_record_count_limit_exceeded") == worker_count - 3
+
+
+def test_concurrent_local_experiment_writes_cannot_exceed_storage_byte_budget(
+    tmp_path, monkeypatch
+):
+    worker_count = 12
+    monkeypatch.setattr(EvidenceLedger, "MAX_LOCAL_EXPERIMENT_RECORDS", 100)
+    # Each record stores seven raw artifact bytes (5 input + 2 stdout). Only
+    # two records fit; the previous SELECT-then-INSERT flow could race this cap.
+    monkeypatch.setattr(EvidenceLedger, "MAX_LOCAL_EXPERIMENT_STORAGE_BYTES", 15)
+    database_path, ledgers = _concurrent_quota_fixture(tmp_path, worker_count)
+
+    outcomes, stored_count = _race_local_experiment_quota(database_path, ledgers)
+
+    assert stored_count == 2
+    assert outcomes.count("stored") == 2
+    assert outcomes.count("local_experiment_storage_limit_exceeded") == worker_count - 2

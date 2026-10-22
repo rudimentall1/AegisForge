@@ -456,9 +456,18 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
 def build_research_case_evidence_package(
     case_dossier: bytes,
     experiment_bundles: list[bytes],
+    execution_attestations: list[dict] | None = None,
 ) -> bytes:
-    """Build a deterministic package after checking all dossier-to-experiment links."""
+    """Build a deterministic evidence package with optional detached attestations.
+
+    Attestations are structurally linked to exact included experiment records.
+    Their signatures are not trusted or reported as verified until a verifier is
+    given an out-of-band trust store.
+    """
     dossier_report, reports = _validate_linkage(case_dossier, experiment_bundles)
+    prepared_attestations = _prepare_attestations(
+        execution_attestations, experiment_bundles
+    )
     by_digest = {}
     for bundle in experiment_bundles:
         report = verify_local_experiment_bundle(bundle)
@@ -481,6 +490,20 @@ def build_research_case_evidence_package(
             "round_spec_id": report["round_spec_id"],
         })
 
+    attestation_metadata = []
+    for index, item in enumerate(prepared_attestations):
+        path = f"attestations/{index:04d}.json"
+        raw = _canonical_json(item["attestation"])
+        if len(raw) > _MAX_ATTESTATION_BYTES:
+            raise ValueError("execution_attestation_size_limit_exceeded")
+        files[path] = raw
+        attestation_metadata.append({
+            "path": path,
+            "record_digest": item["record_digest"],
+            "task_id": item["task_id"],
+            "signer_id": item["signer_id"],
+        })
+
     members = [
         {"path": name, "sha256": _sha256(raw), "size_bytes": len(raw)}
         for name, raw in sorted(files.items())
@@ -491,6 +514,7 @@ def build_research_case_evidence_package(
         "case_digest": dossier_report["case_digest"],
         "members": members,
         "experiments": experiment_metadata,
+        "attestations": attestation_metadata,
     }
     manifest = dict(core)
     manifest["package_sha256"] = _sha256(_canonical_json(core))

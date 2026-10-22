@@ -81,7 +81,7 @@ def export_persisted_local_experiment_bundle(ledger, record_digest: str) -> byte
         raise ValueError("local_experiment_record_digest_invalid") from exc
 
     row = ledger.db.execute(
-        """SELECT case_id, round_id, task_id, record_json,
+        """SELECT case_id, round_id, round_spec_id, task_id, record_json,
                   input_bytes, stdout_bytes, stderr_bytes
            FROM local_experiment_records WHERE record_digest = ?""",
         (record_digest.lower(),),
@@ -89,7 +89,7 @@ def export_persisted_local_experiment_bundle(ledger, record_digest: str) -> byte
     if row is None:
         raise ValueError("local_experiment_record_not_found")
 
-    case_id, round_id, task_id, record_json, input_bytes, stdout_bytes, stderr_bytes = row
+    case_id, round_id, round_spec_id, task_id, record_json, input_bytes, stdout_bytes, stderr_bytes = row
     try:
         record = json.loads(record_json)
     except (TypeError, json.JSONDecodeError) as exc:
@@ -100,6 +100,7 @@ def export_persisted_local_experiment_bundle(ledger, record_digest: str) -> byte
     if (not isinstance(record, dict)
             or record.get("case_id") != case_id
             or record.get("round_id") != round_id
+            or record.get("round_spec_id") != round_spec_id
             or record.get("task_id") != task_id):
         raise ValueError("local_experiment_persisted_identity_mismatch")
 
@@ -203,6 +204,7 @@ def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:
                 "bundle_schema_version": BUNDLE_SCHEMA_VERSION,
                 "case_id": experiment_report["case_id"],
                 "round_id": experiment_report["round_id"],
+                "round_spec_id": experiment_report["round_spec_id"],
                 "task_id": experiment_report["task_id"],
                 "target_repository": experiment_report["target_repository"],
                 "target_commit": experiment_report["target_commit"],

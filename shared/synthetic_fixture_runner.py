@@ -86,7 +86,7 @@ def _kill_process_group(process: subprocess.Popen) -> None:
 def _capture_bounded(
     process: subprocess.Popen,
     *,
-    timeout_seconds: float,
+    deadline: float,
 ) -> tuple[bytes, bytes]:
     """Drain both pipes without allowing unbounded in-memory output capture."""
     assert process.stdout is not None and process.stderr is not None
@@ -94,7 +94,6 @@ def _capture_bounded(
     selector = selectors.DefaultSelector()
     selector.register(process.stdout, selectors.EVENT_READ, "stdout")
     selector.register(process.stderr, selectors.EVENT_READ, "stderr")
-    deadline = time.monotonic() + timeout_seconds
     try:
         while selector.get_map():
             remaining = deadline - time.monotonic()
@@ -218,7 +217,7 @@ def run_synthetic_fixture_subprocess(
                 process.stdin.write(input_bytes)
                 process.stdin.close()
                 stdout_bytes, stderr_bytes = _capture_bounded(
-                    process, timeout_seconds=float(timeout_seconds)
+                    process, deadline=started + float(timeout_seconds)
                 )
                 exit_code = process.returncode
             except Exception:
@@ -227,6 +226,10 @@ def run_synthetic_fixture_subprocess(
             finally:
                 if process.stdin is not None:
                     process.stdin.close()
+                if process.stdout is not None:
+                    process.stdout.close()
+                if process.stderr is not None:
+                    process.stderr.close()
 
     except SyntheticFixtureRunnerError:
         raise

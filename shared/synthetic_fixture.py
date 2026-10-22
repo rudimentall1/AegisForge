@@ -89,7 +89,33 @@ def run_synthetic_fixture(mode: str) -> dict:
 
 
 PROCESS_INPUT_SCHEMA_VERSION = "aegisforge-synthetic-fixture-process-input-v1"
+PROCESS_CPU_LIMIT_SECONDS = 2
+PROCESS_ADDRESS_SPACE_LIMIT_BYTES = 256 * 1024 * 1024
+PROCESS_FILE_SIZE_LIMIT_BYTES = 1024 * 1024
+PROCESS_OPEN_FILE_LIMIT = 16
 _MAX_PROCESS_INPUT_BYTES = 4096
+
+
+def _apply_process_resource_limits() -> None:
+    """Apply fixed POSIX resource limits before interpreting fixture input."""
+    import resource
+
+    for resource_id, soft, hard in (
+        (resource.RLIMIT_CPU, PROCESS_CPU_LIMIT_SECONDS, PROCESS_CPU_LIMIT_SECONDS),
+        (
+            resource.RLIMIT_AS,
+            PROCESS_ADDRESS_SPACE_LIMIT_BYTES,
+            PROCESS_ADDRESS_SPACE_LIMIT_BYTES,
+        ),
+        (
+            resource.RLIMIT_FSIZE,
+            PROCESS_FILE_SIZE_LIMIT_BYTES,
+            PROCESS_FILE_SIZE_LIMIT_BYTES,
+        ),
+        (resource.RLIMIT_NOFILE, PROCESS_OPEN_FILE_LIMIT, PROCESS_OPEN_FILE_LIMIT),
+        (resource.RLIMIT_CORE, 0, 0),
+    ):
+        resource.setrlimit(resource_id, (soft, hard))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,6 +131,11 @@ def main(argv: list[str] | None = None) -> int:
     mode = arguments[1]
     if not isinstance(mode, str) or mode not in _ALLOWED_MODES:
         return 64
+
+    try:
+        _apply_process_resource_limits()
+    except (ImportError, AttributeError, OSError, ValueError):
+        return 70
 
     raw_input = sys.stdin.buffer.read(_MAX_PROCESS_INPUT_BYTES + 1)
     if len(raw_input) > _MAX_PROCESS_INPUT_BYTES:

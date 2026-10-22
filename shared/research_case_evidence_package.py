@@ -368,12 +368,19 @@ def _prepare_attestations(
 
     normalized = []
     seen_digests = set()
+    seen_signer_nonces = set()
     for attestation in execution_attestations:
         prepared = _validate_detached_attestation(attestation, records_by_digest)
         digest = prepared["record_digest"]
         if digest in seen_digests:
             raise ValueError("package_duplicate_execution_attestation")
+        signer_nonce = (
+            prepared["signer_id"], prepared["attestation"]["claims"]["nonce"]
+        )
+        if signer_nonce in seen_signer_nonces:
+            raise ValueError("package_duplicate_attestation_nonce")
         seen_digests.add(digest)
+        seen_signer_nonces.add(signer_nonce)
         normalized.append(prepared)
     normalized.sort(key=lambda item: (item["record_digest"], item["signer_id"]))
     return normalized

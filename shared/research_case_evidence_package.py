@@ -901,6 +901,10 @@ def main(argv=None) -> int:
         "--max-future-skew-seconds", type=int, default=300,
         help="Maximum allowed future timestamp skew when freshness is enabled.",
     )
+    verify_parser.add_argument(
+        "--replay-database",
+        help="Optional durable SQLite path for atomic signer/nonce replay protection; requires --trusted-key.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -931,11 +935,21 @@ def main(argv=None) -> int:
             trusted_attestors = (
                 _parse_trusted_attestors(args.trusted_key) if args.trusted_key else None
             )
+            replay_registry = None
+            if args.replay_database:
+                if trusted_attestors is None:
+                    raise ValueError("replay_protection_requires_trusted_attestors")
+                replay_path = Path(args.replay_database)
+                if replay_path.is_symlink():
+                    raise ValueError("replay_database_must_not_be_symlink")
+                from shared.attestation_replay import SQLiteAttestationReplayRegistry
+                replay_registry = SQLiteAttestationReplayRegistry(replay_path)
             report = verify_research_case_evidence_package(
                 package,
                 trusted_attestors=trusted_attestors,
                 max_age_seconds=args.max_attestation_age_seconds,
                 max_future_skew_seconds=args.max_future_skew_seconds,
+                replay_registry=replay_registry,
             )
 
         print(json.dumps(report, sort_keys=True, indent=2, ensure_ascii=False))

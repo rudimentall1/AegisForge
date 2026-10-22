@@ -16,6 +16,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from shared.attestation_replay import SQLiteAttestationReplayRegistry
 from shared.case_rounds import start_case_round
 from shared.evidence_ledger import EvidenceLedger
 from shared.execution_attestation import create_execution_attestation
@@ -412,6 +413,69 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert len(package_report["attestations"]) == 2
         assert all(item["attestation_verified"] is True for item in package_report["attestations"])
         assert package_report["execution_truth_established"] is False
+
+        # Replay protection is separate from signature verification. A durable
+        # registry accepts this set once, then rejects the identical package.
+        replay_registry = SQLiteAttestationReplayRegistry(
+            tmp_path / "package-attestation-replay.sqlite3"
+        )
+        replay_checked_report = verify_research_case_evidence_package(
+            package_bytes,
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+            replay_registry=replay_registry,
+            max_age_seconds=600,
+            now=datetime(2026, 10, 22, 0, 5, tzinfo=timezone.utc),
+        )
+        assert replay_checked_report["status"] == "PASS"
+        assert replay_checked_report["attestation_verification_status"] == "PASS"
+        assert replay_checked_report["replay_protection_status"] == "PASS"
+        assert all(
+            item["replay_protection_verified"] is True
+            for item in replay_checked_report["attestations"]
+        )
+        replayed_package_report = verify_research_case_evidence_package(
+            package_bytes,
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+            replay_registry=replay_registry,
+            max_age_seconds=600,
+            now=datetime(2026, 10, 22, 0, 5, tzinfo=timezone.utc),
+        )
+        assert replayed_package_report["status"] == "FAIL"
+        assert replayed_package_report["package_integrity_status"] == "PASS"
+        assert replayed_package_report["attestation_verification_status"] == "PASS"
+        assert replayed_package_report["replay_protection_status"] == "FAIL"
+        assert "attestation_replay_detected" in replayed_package_report["errors"]
+
+        # A batch conflict must roll back a new nonce too, so a failed package
+        # cannot partially consume the rest of its attestation set.
+        partial_replay_registry = SQLiteAttestationReplayRegistry(
+            tmp_path / "partial-package-replay.sqlite3"
+        )
+        assert partial_replay_registry.consume(
+            "aegisforge-e2e-test-key", "e2e-control-attestation-1"
+        ) is True
+        partial_report = verify_research_case_evidence_package(
+            package_bytes,
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+            replay_registry=partial_replay_registry,
+            max_age_seconds=600,
+            now=datetime(2026, 10, 22, 0, 5, tzinfo=timezone.utc),
+        )
+        assert partial_report["status"] == "FAIL"
+        assert partial_report["replay_protection_status"] == "FAIL"
+        assert "attestation_replay_detected" in partial_report["errors"]
+        assert partial_replay_registry.consume(
+            "aegisforge-e2e-test-key", "e2e-counter-attestation-1"
+        ) is True
+
+        replay_database = tmp_path / "cli-package-replay.sqlite3"
+        cli_replay_args = [
+            "verify", str(package_path),
+            "--trusted-key", f"aegisforge-e2e-test-key={test_public_key.hex()}",
+            "--replay-database", str(replay_database),
+        ]
+        assert research_case_evidence_package_main(cli_replay_args) == 0
+        assert research_case_evidence_package_main(cli_replay_args) == 2
 
         wrong_key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex("44" * 32)).public_key().public_bytes(
             encoding=serialization.Encoding.Raw,

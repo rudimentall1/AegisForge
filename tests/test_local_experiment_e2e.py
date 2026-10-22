@@ -33,6 +33,7 @@ from shared.research_case_bundle import (
 )
 from shared.research_case_evidence_package import (
     build_research_case_evidence_package,
+    main as research_case_evidence_package_main,
     verify_research_case_evidence_package,
 )
 from shared.synthetic_fixture import run_synthetic_fixture
@@ -310,12 +311,25 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert registry_round["started_at"] is not None
         assert registry_round["finished_at"] is not None
 
-        # Bundle the dossier and both raw experiment ZIPs as one portable unit.
-        package_bytes = build_research_case_evidence_package(
-            dossier_path.read_bytes(),
-            [bundle, counter_bundle],
-        )
+        # Build and verify the combined package through the public offline CLI.
+        control_bundle_path = tmp_path / "control-experiment.zip"
+        counter_bundle_path = tmp_path / "counter-experiment.zip"
+        package_path = tmp_path / "case-evidence-package.zip"
+        control_bundle_path.write_bytes(bundle)
+        counter_bundle_path.write_bytes(counter_bundle)
+        build_exit = research_case_evidence_package_main([
+            "build",
+            "--case-dossier", str(dossier_path),
+            "--experiment", str(control_bundle_path),
+            "--experiment", str(counter_bundle_path),
+            "--output", str(package_path),
+        ])
+        assert build_exit == 0
+        package_bytes = package_path.read_bytes()
         package_report = verify_research_case_evidence_package(package_bytes)
+        assert research_case_evidence_package_main([
+            "verify", str(package_path)
+        ]) == 0
         assert package_report["status"] == "PASS"
         assert package_report["case_id"] == case.case_id
         assert package_report["case_digest"] == dossier_report["case_digest"]

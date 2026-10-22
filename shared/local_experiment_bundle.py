@@ -203,6 +203,7 @@ def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:
                 "status": "PASS",
                 "bundle_schema_version": BUNDLE_SCHEMA_VERSION,
                 "case_id": experiment_report["case_id"],
+                "record_digest": hashlib.sha256(_canonical_json(manifest["record"])).hexdigest(),
                 "round_id": experiment_report["round_id"],
                 "round_spec_id": experiment_report["round_spec_id"],
                 "task_id": experiment_report["task_id"],

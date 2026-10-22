@@ -6,42 +6,61 @@ from threading import Barrier
 import pytest
 
 from shared.evidence_ledger import EvidenceLedger
-from shared.local_experiment import build_experiment_record
+from shared.local_experiment import build_experiment_record, verify_experiment_record
 from shared.local_experiment_bundle import (
     export_persisted_local_experiment_bundle,
     verify_local_experiment_bundle,
 )
 
 
-def _fixture():
+def _fixture(*, planned=False):
     db = sqlite3.connect(":memory:")
+    round_spec_id = "source-pattern-v1" if planned else None
     db.execute(
         """CREATE TABLE queue (
             id TEXT PRIMARY KEY,
             research_case_id TEXT NOT NULL,
             round_id TEXT NOT NULL,
+            round_spec_id TEXT,
             status TEXT NOT NULL
         )"""
     )
     db.execute(
-        "INSERT INTO queue VALUES (?, ?, ?, ?)",
-        ("task-1", "case-1", "runtime-round-1", "completed"),
+        """INSERT INTO queue
+           (id, research_case_id, round_id, round_spec_id, status)
+           VALUES (?, ?, ?, ?, ?)""",
+        ("task-1", "case-1", "runtime-round-1", round_spec_id, "completed"),
     )
     db.execute(
         "CREATE TABLE research_cases (case_id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
     )
+    case_payload = {
+        "case_id": "case-1",
+        "target_repository": "example/protocol",
+        "target_commit": "a" * 40,
+        "rounds": [{"round_id": round_spec_id}] if planned else [],
+    }
     db.execute(
         "INSERT INTO research_cases VALUES (?, ?)",
-        (
-            "case-1",
-            '{"case_id":"case-1","target_repository":"example/protocol",'
-            '"target_commit":"' + "a" * 40 + '"}',
-        ),
+        ("case-1", json.dumps(case_payload, sort_keys=True)),
     )
+    if planned:
+        db.execute(
+            """CREATE TABLE research_case_rounds (
+                round_id TEXT NOT NULL,
+                case_id TEXT NOT NULL,
+                round_spec_id TEXT
+            )"""
+        )
+        db.execute(
+            "INSERT INTO research_case_rounds VALUES (?, ?, ?)",
+            ("runtime-round-1", "case-1", round_spec_id),
+        )
     ledger = EvidenceLedger(db)
     record, artifacts = build_experiment_record(
         case_id="case-1",
         round_id="runtime-round-1",
+        round_spec_id=round_spec_id,
         task_id="task-1",
         target_repository="example/protocol",
         target_commit="a" * 40,
@@ -60,16 +79,97 @@ def test_local_experiment_persists_raw_artifacts_and_task_binding():
     try:
         result = ledger.record_local_experiment(record, artifacts)
         row = db.execute(
-            """SELECT case_id, round_id, task_id, record_json,
+            """SELECT case_id, round_id, round_spec_id, task_id, record_json,
                       input_bytes, stdout_bytes, stderr_bytes
                FROM local_experiment_records WHERE record_digest = ?""",
             (result["record_digest"],),
         ).fetchone()
         assert result["experiment_status"] == "PASS"
         assert result["stored_artifacts"] == 3
-        assert row[:3] == ("case-1", "runtime-round-1", "task-1")
-        assert row[4:] == (b"fixed input", b"control passed", b"")
-        assert '"target_commit":"' + "a" * 40 + '"' in row[3]
+        assert row[:4] == ("case-1", "runtime-round-1", None, "task-1")
+        assert row[5:] == (b"fixed input", b"control passed", b"")
+        assert '"target_commit":"' + "a" * 40 + '"' in row[4]
+        assert '"round_spec_id":null' in row[4]
+        assert result["round_spec_id"] is None
+    finally:
+        db.close()
+
+
+
+
+def test_local_experiment_persists_and_verifies_planned_round_identity():
+    db, ledger, record, artifacts = _fixture(planned=True)
+    try:
+        stored = ledger.record_local_experiment(record, artifacts)
+        row = db.execute(
+            "SELECT round_spec_id, record_json FROM local_experiment_records WHERE record_digest = ?",
+            (stored["record_digest"],),
+        ).fetchone()
+        assert row[0] == "source-pattern-v1"
+        assert json.loads(row[1])["round_spec_id"] == "source-pattern-v1"
+
+        report = verify_local_experiment_bundle(
+            export_persisted_local_experiment_bundle(ledger, stored["record_digest"])
+        )
+        assert report["status"] == "PASS"
+        assert report["round_id"] == "runtime-round-1"
+        assert report["round_spec_id"] == "source-pattern-v1"
+        assert report["vulnerability_confirmed"] is False
+    finally:
+        db.close()
+
+
+def test_local_experiment_rejects_missing_planned_round_identity():
+    db, ledger, record, artifacts = _fixture(planned=True)
+    try:
+        record_without_spec = dict(record)
+        record_without_spec["round_spec_id"] = None
+        assert verify_experiment_record(record_without_spec, artifacts)["status"] == "PASS"
+        with pytest.raises(ValueError, match="local_experiment_round_spec_required"):
+            ledger.record_local_experiment(record_without_spec, artifacts)
+        assert db.execute("SELECT COUNT(*) FROM local_experiment_records").fetchone()[0] == 0
+    finally:
+        db.close()
+
+
+def test_local_experiment_rejects_undeclared_planned_round_identity():
+    db, ledger, record, artifacts = _fixture(planned=True)
+    try:
+        forged = dict(record)
+        forged["round_spec_id"] = "another-planned-round"
+        assert verify_experiment_record(forged, artifacts)["status"] == "PASS"
+        with pytest.raises(ValueError, match="local_experiment_round_spec_not_declared_in_case"):
+            ledger.record_local_experiment(forged, artifacts)
+        assert db.execute("SELECT COUNT(*) FROM local_experiment_records").fetchone()[0] == 0
+    finally:
+        db.close()
+
+
+def test_local_experiment_rejects_task_registry_round_spec_substitution():
+    db, ledger, record, artifacts = _fixture(planned=True)
+    try:
+        db.execute(
+            "UPDATE research_case_rounds SET round_spec_id = ? WHERE case_id = ?",
+            ("another-planned-round", "case-1"),
+        )
+        with pytest.raises(
+            ValueError, match="local_experiment_round_registry_identity_mismatch"
+        ):
+            ledger.record_local_experiment(record, artifacts)
+        assert db.execute("SELECT COUNT(*) FROM local_experiment_records").fetchone()[0] == 0
+    finally:
+        db.close()
+
+
+def test_legacy_v1_local_experiment_record_remains_verifiable():
+    db, ledger, record, artifacts = _fixture()
+    try:
+        legacy = dict(record)
+        legacy["schema_version"] = "aegisforge-local-experiment-v1"
+        legacy.pop("round_spec_id")
+        report = verify_experiment_record(legacy, artifacts)
+        assert report["status"] == "PASS"
+        assert report["round_spec_id"] is None
     finally:
         db.close()
 
@@ -168,6 +268,7 @@ def test_persisted_ledger_record_exports_a_portable_bundle():
         assert report["status"] == "PASS"
         assert report["case_id"] == "case-1"
         assert report["round_id"] == "runtime-round-1"
+        assert report["round_spec_id"] is None
         assert report["task_id"] == "task-1"
         assert report["integrity_only"] is True
         assert report["authenticated_execution"] is False

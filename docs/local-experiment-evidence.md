@@ -49,7 +49,18 @@ python -m shared.research_case_evidence_package verify case-evidence-package.zip
   --max-attestation-age-seconds 3600
 ```
 
-Replace the example key with the actual public key from your independently managed trust store. Never treat a key or public-key label supplied only by the package itself as trusted. The verifier reports separate `package_integrity_status` and `attestation_verification_status` values (`NOT_PRESENT`, `NOT_CHECKED`, `PASS`, or `FAIL`). When a trust store is provided, any missing/untrusted signer, invalid signature, record mismatch, or requested freshness failure makes the overall verification fail. A valid signature still does not establish execution truth or rule out a compromised runner.
+To also enforce one-time nonce consumption for every embedded attestation, add a durable replay database:
+
+```bash
+python -m shared.research_case_evidence_package verify case-evidence-package.zip \
+  --trusted-key ci-runner-key-1=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --max-attestation-age-seconds 3600 \
+  --replay-database ./state/attestation-replay.sqlite3
+```
+
+The first successful verification consumes the package's signer/nonce pairs atomically. Re-verifying the same package under the same registry returns failure with `replay_protection_status=FAIL`. Replay protection requires a trusted key policy and a durable, shared registry across all verifiers in the same replay domain. A local SQLite file is not a distributed replay service when workers use separate files or hosts.
+
+Replace the example key with the actual public key from your independently managed trust store. Never treat a key or public-key label supplied only by the package itself as trusted. The verifier reports separate `package_integrity_status` and `attestation_verification_status` values (`NOT_PRESENT`, `NOT_CHECKED`, `PASS`, or `FAIL`), as well as a separate `replay_protection_status`. When a trust store is provided, any missing/untrusted signer, invalid signature, record mismatch, or requested freshness failure makes the overall verification fail. A valid signature still does not establish execution truth or rule out a compromised runner.
 
 The verifier returns a machine-readable report with case ID/digest, task IDs, record digests, runtime and planned round IDs, and the explicit package status `UNSIGNED_INTEGRITY_ONLY`. The outer package remains unsigned even when it contains signed claims. Input ZIPs are treated as untrusted bytes, and the CLI reads only bounded files. It never executes any command from a bundle.
 

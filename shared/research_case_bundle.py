@@ -295,9 +295,10 @@ def _validate_round_registry(
             raise ResearchCaseBundleError("round_registry_root_task_invalid")
         if not isinstance(record.get("created_at"), str) or not record["created_at"].strip():
             raise ResearchCaseBundleError("round_registry_created_at_invalid")
-        if "status" in record and record["status"] not in {
-            "QUEUED", "RUNNING", "FAILED", "COMPLETED"
-        }:
+        if "status" in record and (
+            not isinstance(record["status"], str)
+            or record["status"] not in {"QUEUED", "RUNNING", "FAILED", "COMPLETED"}
+        ):
             # The lifecycle field is operational state, not free-form metadata.
             # Reject unknown values rather than treating a forged label as a
             # valid stage in the plan-to-run provenance chain.

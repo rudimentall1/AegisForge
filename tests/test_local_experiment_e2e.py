@@ -735,6 +735,66 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             "execution_attestation_required_for_replay_protection"
         ]
 
+        # Simulate an attacker stripping one signature and rebuilding every
+        # unsigned outer-manifest digest. A trusted verifier must catch incomplete
+        # attestation coverage semantically, not rely on stale package hashes.
+        with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as source:
+            stripped_files = {
+                info.filename: source.read(info.filename)
+                for info in source.infolist()
+            }
+        stripped_manifest = json.loads(stripped_files["manifest.json"])
+        removed_attestation = stripped_manifest["attestations"].pop()
+        del stripped_files[removed_attestation["path"]]
+        stripped_manifest["members"] = [
+            {
+                "path": member_name,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "size_bytes": len(raw),
+            }
+            for member_name, raw in sorted(stripped_files.items())
+            if member_name != "manifest.json"
+        ]
+        stripped_core = {
+            key: stripped_manifest[key]
+            for key in (
+                "schema_version", "case_id", "case_digest", "members",
+                "experiments", "attestations",
+            )
+        }
+        stripped_manifest["package_sha256"] = hashlib.sha256(
+            json.dumps(
+                stripped_core,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        stripped_files["manifest.json"] = json.dumps(
+            stripped_manifest,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        stripped_package_buffer = io.BytesIO()
+        with zipfile.ZipFile(
+            stripped_package_buffer, "w", compression=zipfile.ZIP_DEFLATED
+        ) as stripped_archive:
+            for member_name in sorted(stripped_files):
+                stripped_archive.writestr(member_name, stripped_files[member_name])
+        stripped_report = verify_research_case_evidence_package(
+            stripped_package_buffer.getvalue(),
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+        )
+        assert stripped_report["status"] == "FAIL"
+        assert stripped_report["package_integrity_status"] == "PASS"
+        assert stripped_report["attestation_coverage_status"] == "INCOMPLETE"
+        assert stripped_report["errors"] == [
+            "execution_attestation_coverage_incomplete"
+        ]
+
         changed_package = io.BytesIO()
         with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as source:
             with zipfile.ZipFile(

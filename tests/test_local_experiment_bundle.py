@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import zipfile
@@ -28,13 +29,20 @@ def _bundle():
 
 
 def test_portable_bundle_round_trip_is_integrity_only():
-    bundle, _, _ = _bundle()
+    bundle, record, _ = _bundle()
     report = verify_local_experiment_bundle(bundle)
+    expected_record_digest = hashlib.sha256(
+        json.dumps(
+            record, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False, allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
 
     assert report == {
         "status": "PASS",
         "bundle_schema_version": BUNDLE_SCHEMA_VERSION,
         "case_id": "case-1",
+        "record_digest": expected_record_digest,
         "round_id": "round-1",
         "round_spec_id": None,
         "task_id": "task-1",

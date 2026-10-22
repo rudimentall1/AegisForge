@@ -739,8 +739,11 @@ def verify_research_case_evidence_package(
             "NOT_PRESENT" if not prepared_attestations else "NOT_RUN"
         )
         replay_errors = []
-        if replay_registry is not None and prepared_attestations:
-            if trusted_attestors is None:
+        if replay_registry is not None:
+            if not prepared_attestations:
+                replay_status = "FAIL"
+                replay_errors = ["execution_attestation_required_for_replay_protection"]
+            elif trusted_attestors is None:
                 replay_status = "FAIL"
                 replay_errors = ["replay_protection_requires_trusted_attestors"]
             elif attestation_status != "PASS":
@@ -783,7 +786,6 @@ def verify_research_case_evidence_package(
         )
         replay_failed = (
             replay_registry is not None
-            and bool(prepared_attestations)
             and replay_status != "PASS"
         )
         final_status = "FAIL" if attestation_failed or replay_failed else "PASS"

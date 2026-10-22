@@ -21,7 +21,7 @@ class CaseRoundError(ValueError):
     """A case round cannot safely be started."""
 
 
-def start_case_round(queue: TaskQueue, case_id: str) -> dict:
+def start_case_round(queue: TaskQueue, case_id: str, round_spec_id: str | None = None) -> dict:
     """Atomically enqueue one deliberate new round for a registered case."""
     if not isinstance(case_id, str) or not case_id.strip():
         raise CaseRoundError("case_id_required")
@@ -35,6 +35,17 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
         if case.status not in {CaseStatus.READY, CaseStatus.RUNNING}:
             raise CaseRoundError(f"research_case_not_runnable:{case.status.value}")
         validate_task_binding(case, case_id)
+
+        declared_specs = {item.round_id for item in case.rounds}
+        if declared_specs and round_spec_id is None:
+            raise CaseRoundError("planned_case_requires_round_spec_id")
+        if round_spec_id is not None:
+            if not isinstance(round_spec_id, str) or not round_spec_id.strip():
+                raise CaseRoundError("round_spec_id_invalid")
+            if round_spec_id not in declared_specs:
+                raise CaseRoundError("round_spec_id_not_declared_in_case")
+        elif declared_specs:
+            raise CaseRoundError("round_spec_id_required_for_planned_case")
 
         active = db.execute(
             """
@@ -83,6 +94,10 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
                 round_number INTEGER NOT NULL,
                 root_task_id TEXT NOT NULL UNIQUE,
                 created_at TEXT NOT NULL,
+                round_spec_id TEXT,
+                status TEXT NOT NULL DEFAULT 'QUEUED',
+                started_at TEXT,
+                finished_at TEXT,
                 UNIQUE(case_id, round_number)
             )
             """
@@ -120,14 +135,17 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
             "public sources and local/synthetic experiments only. Do not execute "
             "live-network actions, handle wallet/key material, or mark a finding CONFIRMED."
         )
+        queue_columns = {row[1] for row in db.execute("PRAGMA table_info(queue)")}
+        if "round_spec_id" not in queue_columns:
+            db.execute("ALTER TABLE queue ADD COLUMN round_spec_id TEXT")
         # Keep the root's round identity in the queue row as well as the ledger.
         # The task and ledger row are committed atomically below.
         db.execute(
             """
             INSERT INTO queue
                 (id, description, status, created_at, role, parent_task_id,
-                 research_case_id, round_id)
-            VALUES (?, ?, 'pending', ?, 'source_researcher', NULL, ?, ?)
+                 research_case_id, round_id, round_spec_id)
+            VALUES (?, ?, 'pending', ?, 'source_researcher', NULL, ?, ?, ?)
             """,
             (
                 root_task_id,
@@ -135,15 +153,26 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
                 now,
                 case_id,
                 round_id,
+                round_spec_id,
             ),
         )
+        round_columns = {row[1] for row in db.execute("PRAGMA table_info(research_case_rounds)")}
+        if "round_spec_id" not in round_columns:
+            db.execute("ALTER TABLE research_case_rounds ADD COLUMN round_spec_id TEXT")
+        if "status" not in round_columns:
+            db.execute("ALTER TABLE research_case_rounds ADD COLUMN status TEXT NOT NULL DEFAULT 'QUEUED'")
+        if "started_at" not in round_columns:
+            db.execute("ALTER TABLE research_case_rounds ADD COLUMN started_at TEXT")
+        if "finished_at" not in round_columns:
+            db.execute("ALTER TABLE research_case_rounds ADD COLUMN finished_at TEXT")
         db.execute(
             """
             INSERT INTO research_case_rounds
-                (round_id, case_id, round_number, root_task_id, created_at)
-            VALUES (?, ?, ?, ?, ?)
+                (round_id, case_id, round_number, root_task_id, created_at,
+                 round_spec_id, status, started_at, finished_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', NULL, NULL)
             """,
-            (round_id, case_id, round_number, root_task_id, now),
+            (round_id, case_id, round_number, root_task_id, now, round_spec_id),
         )
         db.commit()
         return {
@@ -151,6 +180,7 @@ def start_case_round(queue: TaskQueue, case_id: str) -> dict:
             "case_id": case_id,
             "round_number": round_number,
             "round_id": round_id,
+            "round_spec_id": round_spec_id,
             "root_task_id": root_task_id,
             "created_at": now,
         }
@@ -217,6 +247,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case-id", required=True, help="Existing immutable Research Case ID")
     parser.add_argument(
+        "--round-spec-id",
+        help="Declared planned-step identity for cases with bounded RoundSpecs",
+    )
+    parser.add_argument(
         "--confirm-new-round",
         action="store_true",
         help="Explicitly authorize creation of exactly one bounded research root",
@@ -227,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
 
     queue = TaskQueue()
     try:
-        result = start_case_round(queue, args.case_id)
+        result = start_case_round(queue, args.case_id, args.round_spec_id)
     except (CaseRoundError, ValueError, TypeError) as exc:
         print(json.dumps({"status": "rejected", "reason": str(exc)}, sort_keys=True))
         return 2

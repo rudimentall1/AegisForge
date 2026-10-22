@@ -12,7 +12,7 @@ import zipfile
 
 from shared.local_experiment_bundle import verify_local_experiment_bundle
 
-ASSESSMENT_SCHEMA_VERSION = "aegisforge-experiment-assessment-v1"
+ASSESSMENT_SCHEMA_VERSION = "aegisforge-experiment-assessment-v2"
 
 
 def assess_local_experiment_pair(
@@ -21,6 +21,7 @@ def assess_local_experiment_pair(
     countertest_bundle: bytes | None,
     expected_case_id: str,
     expected_round_id: str,
+    expected_round_spec_id: str | None = None,
     expected_target_repository: str,
     expected_target_commit: str,
     semantic_criteria: dict | None = None,
@@ -36,6 +37,7 @@ def assess_local_experiment_pair(
         "schema_version": ASSESSMENT_SCHEMA_VERSION,
         "case_id": expected_case_id,
         "round_id": expected_round_id,
+        "round_spec_id": expected_round_spec_id,
         "target_repository": expected_target_repository,
         "target_commit": expected_target_commit,
         "synthetic_fixture": bool(synthetic_fixture),
@@ -91,6 +93,50 @@ def assess_local_experiment_pair(
         "target_repository": expected_target_repository,
         "target_commit": expected_target_commit,
     }
+    control_round_spec_id = control.get("round_spec_id")
+    counter_round_spec_id = countertest.get("round_spec_id")
+    if control_round_spec_id != counter_round_spec_id:
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {
+                "control_bundle_integrity": True,
+                "countertest_bundle_integrity": True,
+                "identity_match": False,
+                "planned_round_identity_match": False,
+            },
+            "errors": ["round_spec_identity_mismatch"],
+            "bundle_reports": reports,
+        }
+    if control_round_spec_id is not None and expected_round_spec_id is None:
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {
+                "control_bundle_integrity": True,
+                "countertest_bundle_integrity": True,
+                "identity_match": False,
+                "planned_round_identity_pinned": False,
+            },
+            "errors": ["expected_round_spec_id_required"],
+            "bundle_reports": reports,
+        }
+    if control_round_spec_id != expected_round_spec_id:
+        return {
+            **base,
+            "status": "FAIL",
+            "checks": {
+                "control_bundle_integrity": True,
+                "countertest_bundle_integrity": True,
+                "identity_match": False,
+                "planned_round_identity_match": False,
+            },
+            "errors": ["round_spec_identity_mismatch"],
+            "bundle_reports": reports,
+        }
+    if expected_round_spec_id is not None:
+        expected["round_spec_id"] = expected_round_spec_id
+
     for name, report in reports.items():
         if any(report.get(field) != value for field, value in expected.items()):
             return {
@@ -169,6 +215,8 @@ def assess_local_experiment_pair(
         "case_id", "round_id", "target_repository", "target_commit",
         "invariant", "falsification_criteria", "control", "countertest",
     }
+    if expected_round_spec_id is not None:
+        required_criteria_keys.add("round_spec_id")
     if not isinstance(semantic_criteria, dict) or set(semantic_criteria) != required_criteria_keys:
         return {
             **base,

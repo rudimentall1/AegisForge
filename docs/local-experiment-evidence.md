@@ -58,7 +58,9 @@ python -m shared.research_case_evidence_package verify case-evidence-package.zip
   --replay-database ./attestation-replay.sqlite3
 ```
 
-The first successful verification consumes the package's signer/nonce pairs atomically. Re-verifying the same package under the same registry returns failure with `replay_protection_status=FAIL`. Replay protection requires a trusted key policy and a durable, shared registry across all verifiers in the same replay domain. A local SQLite file is not a distributed replay service when workers use separate files or hosts.
+The first successful verification consumes the package's signer/nonce pairs atomically. Re-verifying the same package under the same registry returns failure with `replay_protection_status=FAIL`. If replay protection is explicitly requested for a package with no embedded attestations, verification also fails rather than returning success with nothing protected. Invalid signatures are rejected before nonce consumption; duplicate or previously consumed signer/nonce pairs reject the entire batch without partial consumption.
+
+Replay protection requires a trusted key policy and a durable, shared registry across all verifiers in the same replay domain. A local SQLite file is not a distributed replay service when workers use separate files or hosts.
 
 Replace the example key with the actual public key from your independently managed trust store. Never treat a key or public-key label supplied only by the package itself as trusted. The verifier reports separate `package_integrity_status` and `attestation_verification_status` values (`NOT_PRESENT`, `NOT_CHECKED`, `PASS`, or `FAIL`), as well as a separate `replay_protection_status`. When a trust store is provided, any missing/untrusted signer, invalid signature, record mismatch, or requested freshness failure makes the overall verification fail. A valid signature still does not establish execution truth or rule out a compromised runner.
 

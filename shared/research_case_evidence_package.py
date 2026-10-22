@@ -294,15 +294,17 @@ def _validate_detached_attestation(
     if attestation.get("authenticity") != "SIGNED_CLAIMS_ONLY":
         raise ValueError("execution_attestation_authenticity_label_invalid")
     claims = attestation.get("claims")
+    if not isinstance(claims, dict):
+        raise ValueError("execution_attestation_claims_invalid")
+    if claims.get("schema_version") != ATTESTATION_SCHEMA_VERSION:
+        raise ValueError("execution_attestation_schema_unsupported")
     required_claims = {
         "schema_version", "signer_id", "runner_id", "case_id", "case_digest",
         "round_id", "task_id", "target_repository", "target_commit",
         "record_sha256", "environment_sha256", "issued_at", "nonce",
     }
-    if not isinstance(claims, dict) or set(claims) != required_claims:
+    if set(claims) != required_claims:
         raise ValueError("execution_attestation_claims_invalid")
-    if claims.get("schema_version") != ATTESTATION_SCHEMA_VERSION:
-        raise ValueError("execution_attestation_schema_unsupported")
     signature = attestation.get("signature_ed25519")
     if not isinstance(signature, str) or not re.fullmatch(r"[0-9a-f]{128}", signature):
         raise ValueError("execution_attestation_signature_encoding_invalid")

@@ -142,6 +142,8 @@ Agent names in code do not automatically mean every role has the target responsi
 - Support counter-tests: expected-safe control case, boundary values, alternative sequence, and regression checks.
 - Keep live-chain interaction disabled by default; require explicit authorization and safe test mode.
 
+**Current execution boundary:** `shared.synthetic_fixture_runner` now tests actual stdout/stderr capture for a single repository-owned synthetic fixture in a child process. It applies POSIX CPU, address-space, file-size, open-file and core-dump limits, an overall timeout, output caps, a minimal environment, and a temporary working directory. It accepts only fixed fixture modes and never executes dossier-provided argv. It does **not** enforce network isolation or filesystem isolation and is not an approved runner for target code. Full sandboxing and clean-checkout target reproduction remain unfinished.
+
 **Acceptance rule:** compilation is not reproduction. A passing test only establishes the behavior asserted by that test. The test must connect attacker capability and preconditions to an in-scope security impact.
 
 ### 3.7 Hypothesis, invariant, and impact model

@@ -11,9 +11,12 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from shared.case_rounds import start_case_round
 from shared.evidence_ledger import EvidenceLedger
+from shared.execution_attestation import create_execution_attestation
 from shared.experiment_assessment import assess_local_experiment_pair
 from shared.local_experiment import build_experiment_record
 from shared.local_experiment_bundle import (
@@ -328,26 +331,96 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert registry_round["started_at"] is not None
         assert registry_round["finished_at"] is not None
 
+        # Build a package with detached Ed25519 claims. The test key is
+        # deliberately ephemeral/test-only; consumers must supply trusted keys
+        # out of band when they ask the verifier to authenticate signatures.
+        test_private_key = bytes.fromhex("33" * 32)
+        test_public_key = Ed25519PrivateKey.from_private_bytes(
+            test_private_key
+        ).public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        attestations = []
+        for experiment_record, nonce in (
+            (record, "e2e-control-attestation-1"),
+            (counter_record, "e2e-counter-attestation-1"),
+        ):
+            environment_bytes = json.dumps(
+                experiment_record["toolchain"],
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+            attestations.append(create_execution_attestation(
+                record=experiment_record,
+                signer_id="aegisforge-e2e-test-key",
+                runner_id="aegisforge-e2e-test-runner",
+                environment_sha256=hashlib.sha256(environment_bytes).hexdigest(),
+                issued_at="2026-10-22T00:00:00Z",
+                nonce=nonce,
+                private_key_bytes=test_private_key,
+            ))
+
         # Build and verify the combined package through the public offline CLI.
         control_bundle_path = tmp_path / "control-experiment.zip"
         counter_bundle_path = tmp_path / "counter-experiment.zip"
+        control_attestation_path = tmp_path / "control-attestation.json"
+        counter_attestation_path = tmp_path / "counter-attestation.json"
         package_path = tmp_path / "case-evidence-package.zip"
         control_bundle_path.write_bytes(bundle)
         counter_bundle_path.write_bytes(counter_bundle)
+        control_attestation_path.write_text(
+            json.dumps(attestations[0], sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        counter_attestation_path.write_text(
+            json.dumps(attestations[1], sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
         build_exit = research_case_evidence_package_main([
             "build",
             "--case-dossier", str(dossier_path),
             "--experiment", str(control_bundle_path),
             "--experiment", str(counter_bundle_path),
+            "--attestation", str(control_attestation_path),
+            "--attestation", str(counter_attestation_path),
             "--output", str(package_path),
         ])
         assert build_exit == 0
         package_bytes = package_path.read_bytes()
-        package_report = verify_research_case_evidence_package(package_bytes)
+        unchecked_report = verify_research_case_evidence_package(package_bytes)
+        assert unchecked_report["status"] == "PASS"
+        assert unchecked_report["package_integrity_status"] == "PASS"
+        assert unchecked_report["attestation_verification_status"] == "NOT_CHECKED"
+        package_report = verify_research_case_evidence_package(
+            package_bytes,
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+        )
         assert research_case_evidence_package_main([
-            "verify", str(package_path)
+            "verify", str(package_path),
+            "--trusted-key", f"aegisforge-e2e-test-key={test_public_key.hex()}",
         ]) == 0
         assert package_report["status"] == "PASS"
+        assert package_report["package_integrity_status"] == "PASS"
+        assert package_report["attestation_verification_status"] == "PASS"
+        assert len(package_report["attestations"]) == 2
+        assert all(item["attestation_verified"] is True for item in package_report["attestations"])
+        assert package_report["execution_truth_established"] is False
+
+        wrong_key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex("44" * 32)).public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        failed_attestation_report = verify_research_case_evidence_package(
+            package_bytes,
+            trusted_attestors={"aegisforge-e2e-test-key": wrong_key},
+        )
+        assert failed_attestation_report["status"] == "FAIL"
+        assert failed_attestation_report["package_integrity_status"] == "PASS"
+        assert failed_attestation_report["attestation_verification_status"] == "FAIL"
+        assert failed_attestation_report["execution_truth_established"] is False
         assert package_report["case_id"] == case.case_id
         assert package_report["case_digest"] == dossier_report["case_digest"]
         assert package_report["experiment_count"] == 2

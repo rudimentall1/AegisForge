@@ -530,8 +530,22 @@ def build_research_case_evidence_package(
     return package_bytes
 
 
-def verify_research_case_evidence_package(package_bytes: bytes) -> dict:
-    """Verify package/archive integrity, nested bundles, and semantic evidence links."""
+def verify_research_case_evidence_package(
+    package_bytes: bytes,
+    *,
+    trusted_attestors: dict[str, bytes] | None = None,
+    max_age_seconds: int | None = None,
+    max_future_skew_seconds: int = 300,
+    now=None,
+) -> dict:
+    """Verify package integrity and, separately, optional detached signatures.
+
+    If trusted_attestors is omitted, included signatures are only structurally
+    linked to their exact experiment record and reported as NOT_CHECKED. When a
+    trust map is supplied, every included attestation must verify under the
+    out-of-band public key keyed by signer ID for the overall status to PASS.
+    Even then, signature verification does not establish execution truth.
+    """
     if not isinstance(package_bytes, bytes):
         return {"status": "FAIL", "errors": ["package_bytes_required"]}
     if len(package_bytes) > _MAX_PACKAGE_BYTES:
@@ -552,6 +566,7 @@ def verify_research_case_evidence_package(package_bytes: bytes) -> dict:
                     or any(part in ("", ".", "..") for part in PurePosixPath(name).parts)
                     or name not in {_MANIFEST_NAME, _DOSSIER_NAME}
                        and not _EXPERIMENT_PATH_RE.fullmatch(name)
+                       and not _ATTESTATION_PATH_RE.fullmatch(name)
                 ):
                     raise ValueError("package_member_path_invalid")
                 mode = (info.external_attr >> 16) & 0o170000
@@ -564,6 +579,7 @@ def verify_research_case_evidence_package(package_bytes: bytes) -> dict:
                 limit = (
                     _MAX_MANIFEST_BYTES if name == _MANIFEST_NAME
                     else _MAX_DOSSIER_BYTES if name == _DOSSIER_NAME
+                    else _MAX_ATTESTATION_BYTES if _ATTESTATION_PATH_RE.fullmatch(name)
                     else _MAX_EXPERIMENT_BYTES
                 )
                 if info.file_size > limit:
@@ -577,14 +593,21 @@ def verify_research_case_evidence_package(package_bytes: bytes) -> dict:
             raise ValueError("package_required_member_missing")
         manifest_bytes = files[_MANIFEST_NAME]
         manifest = _strict_json(manifest_bytes, error="package_manifest_invalid")
-        fields = {
-            "schema_version", "case_id", "case_digest", "members",
-            "experiments", "package_sha256",
-        }
+        schema_version = manifest.get("schema_version") if isinstance(manifest, dict) else None
+        if schema_version == LEGACY_PACKAGE_SCHEMA_VERSION:
+            fields = {
+                "schema_version", "case_id", "case_digest", "members",
+                "experiments", "package_sha256",
+            }
+        elif schema_version == PACKAGE_SCHEMA_VERSION:
+            fields = {
+                "schema_version", "case_id", "case_digest", "members",
+                "experiments", "attestations", "package_sha256",
+            }
+        else:
+            raise ValueError("package_schema_unsupported")
         if not isinstance(manifest, dict) or set(manifest) != fields:
             raise ValueError("package_manifest_fields_invalid")
-        if manifest.get("schema_version") != PACKAGE_SCHEMA_VERSION:
-            raise ValueError("package_schema_unsupported")
         if _canonical_json(manifest) != manifest_bytes:
             raise ValueError("package_manifest_not_canonical")
         if (
@@ -618,9 +641,12 @@ def verify_research_case_evidence_package(package_bytes: bytes) -> dict:
             member_paths.append(name)
         if member_paths != sorted(member_paths) or set(member_paths) != expected_paths:
             raise ValueError("package_member_manifest_invalid")
-        core = {key: manifest[key] for key in (
+        core_keys = [
             "schema_version", "case_id", "case_digest", "members", "experiments"
-        )}
+        ]
+        if schema_version == PACKAGE_SCHEMA_VERSION:
+            core_keys.append("attestations")
+        core = {key: manifest[key] for key in core_keys}
         if (
             not isinstance(manifest.get("package_sha256"), str)
             or not _SHA256_RE.fullmatch(manifest["package_sha256"])
@@ -629,8 +655,31 @@ def verify_research_case_evidence_package(package_bytes: bytes) -> dict:
             raise ValueError("package_manifest_digest_mismatch")
 
         exp_paths = [f"experiments/{index:04d}.zip" for index in range(len(experiments))]
-        if set(expected_paths) != {_DOSSIER_NAME, *exp_paths}:
+        attestation_metadata = manifest.get("attestations", [])
+        if not isinstance(attestation_metadata, list) or len(attestation_metadata) > len(experiments):
+            raise ValueError("package_attestation_manifest_invalid")
+        attestation_paths = [f"attestations/{index:04d}.json" for index in range(len(attestation_metadata))]
+        if set(expected_paths) != {_DOSSIER_NAME, *exp_paths, *attestation_paths}:
             raise ValueError("package_experiment_member_set_invalid")
+        previous_digest = None
+        for index, item in enumerate(attestation_metadata):
+            if not isinstance(item, dict) or set(item) != {
+                "path", "record_digest", "task_id", "signer_id"
+            }:
+                raise ValueError("package_attestation_manifest_invalid")
+            if item.get("path") != attestation_paths[index]:
+                raise ValueError("package_attestation_manifest_invalid")
+            digest = item.get("record_digest")
+            task_id = item.get("task_id")
+            signer_id = item.get("signer_id")
+            if (
+                not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest)
+                or not isinstance(task_id, str) or not _ID_RE.fullmatch(task_id)
+                or not isinstance(signer_id, str) or not _ID_RE.fullmatch(signer_id)
+                or (previous_digest is not None and digest <= previous_digest)
+            ):
+                raise ValueError("package_attestation_manifest_invalid")
+            previous_digest = digest
         if experiments != sorted(experiments, key=lambda item: item.get("path", "") if isinstance(item, dict) else ""):
             raise ValueError("package_experiment_manifest_order_invalid")
         bundle_bytes = [files[name] for name in exp_paths]
@@ -653,8 +702,46 @@ def verify_research_case_evidence_package(package_bytes: bytes) -> dict:
             if not isinstance(item, dict) or set(item) != set(expected) or item != expected:
                 raise ValueError("package_experiment_identity_mismatch")
 
+        embedded_attestations = []
+        for metadata in attestation_metadata:
+            raw = files[metadata["path"]]
+            envelope = _strict_json(raw, error="execution_attestation_json_invalid")
+            if _canonical_json(envelope) != raw:
+                raise ValueError("execution_attestation_json_not_canonical")
+            embedded_attestations.append(envelope)
+        prepared_attestations = _prepare_attestations(
+            embedded_attestations, bundle_bytes
+        )
+        if len(prepared_attestations) != len(attestation_metadata):
+            raise ValueError("package_attestation_manifest_invalid")
+        for index, (item, metadata) in enumerate(zip(prepared_attestations, attestation_metadata)):
+            expected = {
+                "path": f"attestations/{index:04d}.json",
+                "record_digest": item["record_digest"],
+                "task_id": item["task_id"],
+                "signer_id": item["signer_id"],
+            }
+            if metadata != expected:
+                raise ValueError("package_attestation_identity_mismatch")
+
+        attestation_status, attestation_reports = _evaluate_attestations(
+            prepared_attestations,
+            trusted_attestors=trusted_attestors,
+            max_age_seconds=max_age_seconds,
+            max_future_skew_seconds=max_future_skew_seconds,
+            now=now,
+        )
+        final_status = "FAIL" if trusted_attestors is not None and attestation_status != "PASS" else "PASS"
+        final_errors = (
+            ["execution_attestation_verification_failed"]
+            if final_status == "FAIL" else []
+        )
         return {
-            "status": "PASS",
+            "status": final_status,
+            "package_integrity_status": "PASS",
+            "attestation_verification_status": attestation_status,
+            "attestations": attestation_reports,
+            "execution_truth_established": False,
             "schema_version": PACKAGE_SCHEMA_VERSION,
             "case_id": dossier_report["case_id"],
             "case_digest": dossier_report["case_digest"],
@@ -668,7 +755,7 @@ def verify_research_case_evidence_package(package_bytes: bytes) -> dict:
             }),
             "authenticity": "UNSIGNED_INTEGRITY_ONLY",
             "vulnerability_confirmed": False,
-            "errors": [],
+            "errors": final_errors,
         }
     except ValueError as exc:
         return {"status": "FAIL", "errors": [str(exc)]}

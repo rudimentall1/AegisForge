@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import sqlite3
 import stat
 import tempfile
 import zipfile
@@ -954,7 +955,7 @@ def main(argv=None) -> int:
 
         print(json.dumps(report, sort_keys=True, indent=2, ensure_ascii=False))
         return 0 if report.get("status") == "PASS" else 2
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, sqlite3.Error) as exc:
         print(json.dumps(
             {"status": "FAIL", "errors": [str(exc)]},
             sort_keys=True, indent=2, ensure_ascii=False,

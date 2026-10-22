@@ -183,6 +183,58 @@ def test_concurrent_nonce_consumption_is_atomic(tmp_path):
 
 
 
+def test_concurrent_bundle_verification_accepts_attestation_once(tmp_path):
+    record, artifacts = build_experiment_record(
+        case_id="replay-concurrent-case",
+        round_id="replay-concurrent-round",
+        task_id="replay-concurrent-task",
+        target_repository="example/protocol",
+        target_commit="c" * 40,
+        argv=["pytest", "-q"],
+        toolchain={"python": "3.12.1"},
+        input_bytes=b"fixture",
+        stdout_bytes=b"control passed",
+        stderr_bytes=b"",
+        exit_code=0,
+    )
+    bundle = export_local_experiment_bundle(record, artifacts)
+    attestation = create_execution_attestation(
+        record=record,
+        signer_id="trusted-signer",
+        runner_id="runner-1",
+        environment_sha256=hashlib.sha256(b"test-env").hexdigest(),
+        issued_at="2026-10-19T10:00:00Z",
+        nonce="concurrent-bundle-nonce",
+        private_key_bytes=PRIVATE_BYTES,
+    )
+    database = tmp_path / "concurrent-bundle-replay.sqlite3"
+    # Initialize the shared durable store before concurrent verifications.
+    SQLiteAttestationReplayRegistry(database)
+
+    def verify_once(_):
+        return verify_bundle_execution_attestation_with_replay_protection(
+            bundle,
+            attestation,
+            trusted_public_key_bytes=PUBLIC_BYTES,
+            expected_signer_id="trusted-signer",
+            replay_registry=SQLiteAttestationReplayRegistry(database),
+        )
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        reports = list(pool.map(verify_once, range(24)))
+
+    assert sum(report["status"] == "PASS" for report in reports) == 1
+    assert sum(report["status"] == "FAIL" for report in reports) == 23
+    assert all(report["bundle_integrity_verified"] is True for report in reports)
+    assert all(report["attestation_verified"] is True for report in reports)
+    assert sum(report["replay_protection_verified"] is True for report in reports) == 1
+    assert sum(
+        report["errors"] == ["attestation_replay_detected"]
+        for report in reports
+    ) == 23
+
+
+
 def test_invalid_bundle_does_not_consume_attestation_nonce(tmp_path):
     record, artifacts = build_experiment_record(
         case_id="replay-case-integrity",

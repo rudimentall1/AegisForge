@@ -5,8 +5,11 @@ queue lifecycle, ledger binding, and portable bundle verification without
 executing an untrusted command or claiming a real vulnerability reproduction.
 """
 import hashlib
+import io
 import json
 import zipfile
+
+import pytest
 
 from shared.case_rounds import start_case_round
 from shared.evidence_ledger import EvidenceLedger
@@ -27,6 +30,10 @@ from shared.research_case import (
 from shared.research_case_bundle import (
     export_research_case_bundle,
     verify_research_case_bundle,
+)
+from shared.research_case_evidence_package import (
+    build_research_case_evidence_package,
+    verify_research_case_evidence_package,
 )
 from shared.synthetic_fixture import run_synthetic_fixture
 
@@ -302,5 +309,49 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert registry_round["status"] == "COMPLETED"
         assert registry_round["started_at"] is not None
         assert registry_round["finished_at"] is not None
+
+        # Bundle the dossier and both raw experiment ZIPs as one portable unit.
+        package_bytes = build_research_case_evidence_package(
+            dossier_path.read_bytes(),
+            [bundle, counter_bundle],
+        )
+        package_report = verify_research_case_evidence_package(package_bytes)
+        assert package_report["status"] == "PASS"
+        assert package_report["case_id"] == case.case_id
+        assert package_report["case_digest"] == dossier_report["case_digest"]
+        assert package_report["experiment_count"] == 2
+        assert set(package_report["task_ids"]) == {task_id, counter_task_id}
+        assert set(package_report["record_digests"]) == {
+            stored["record_digest"], counter_stored["record_digest"]
+        }
+        assert package_report["round_ids"] == [runtime_round_id]
+        assert package_report["round_spec_ids"] == [planned_round_id]
+        assert package_report["authenticity"] == "UNSIGNED_INTEGRITY_ONLY"
+        assert package_report["vulnerability_confirmed"] is False
+
+        changed_package = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as source:
+            with zipfile.ZipFile(
+                changed_package, "w", compression=zipfile.ZIP_DEFLATED
+            ) as output:
+                for info in source.infolist():
+                    raw = source.read(info.filename)
+                    if info.filename == "experiments/0000.zip":
+                        raw += b"tampered"
+                    output.writestr(info.filename, raw)
+        tamper_report = verify_research_case_evidence_package(
+            changed_package.getvalue()
+        )
+        assert tamper_report["status"] == "FAIL"
+        assert tamper_report["errors"] == ["package_member_digest_mismatch"]
+
+        with pytest.raises(
+            ValueError,
+            match="package_experiment_set_does_not_match_dossier_evidence",
+        ):
+            build_research_case_evidence_package(
+                dossier_path.read_bytes(),
+                [bundle],
+            )
     finally:
         queue.db.close()

@@ -6,9 +6,11 @@ package is not an authenticity anchor and does not prove execution truth.
 """
 from __future__ import annotations
 
+import argparse
 from io import BytesIO
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
@@ -447,3 +449,87 @@ def verify_research_case_evidence_package(package_bytes: bytes) -> dict:
         return {"status": "FAIL", "errors": [str(exc)]}
     except (OSError, EOFError, KeyError, TypeError, zipfile.BadZipFile, RuntimeError, zlib.error) as exc:
         return {"status": "FAIL", "errors": ["package_malformed_or_unreadable"]}
+
+def _read_input_file(path_text: str, limit: int) -> bytes:
+    path = Path(path_text)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("input_file_required")
+    size = path.stat().st_size
+    if size <= 0 or size > limit:
+        raise ValueError("input_file_size_limit_exceeded")
+    raw = path.read_bytes()
+    if len(raw) != size or len(raw) > limit:
+        raise ValueError("input_file_size_changed_during_read")
+    return raw
+
+
+def _write_output_atomic(path_text: str, data: bytes) -> None:
+    output = Path(path_text)
+    if output.is_symlink():
+        raise ValueError("output_path_must_not_be_symlink")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix=f".{output.name}.", suffix=".tmp",
+            dir=output.parent, delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, output)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
+def main(argv=None) -> int:
+    """CLI for assembling/verifying offline packages; never executes a command."""
+    parser = argparse.ArgumentParser(
+        description="Assemble or verify a portable AegisForge case-evidence package."
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    build_parser = commands.add_parser(
+        "build", help="Combine one verified case dossier and its experiment ZIPs."
+    )
+    build_parser.add_argument("--case-dossier", required=True)
+    build_parser.add_argument(
+        "--experiment", action="append", required=True,
+        help="Path to one persisted local-experiment ZIP; repeat for every linked record.",
+    )
+    build_parser.add_argument("--output", required=True)
+    verify_parser = commands.add_parser(
+        "verify", help="Verify a combined case-evidence package offline."
+    )
+    verify_parser.add_argument("package")
+    args = parser.parse_args(argv)
+
+    try:
+        if args.command == "build":
+            dossier = _read_input_file(args.case_dossier, _MAX_DOSSIER_BYTES)
+            if len(args.experiment) > _MAX_EXPERIMENTS:
+                raise ValueError("package_experiment_count_invalid")
+            experiments = [
+                _read_input_file(name, _MAX_EXPERIMENT_BYTES)
+                for name in args.experiment
+            ]
+            package = build_research_case_evidence_package(dossier, experiments)
+            _write_output_atomic(args.output, package)
+            report = verify_research_case_evidence_package(package)
+        else:
+            package = _read_input_file(args.package, _MAX_PACKAGE_BYTES)
+            report = verify_research_case_evidence_package(package)
+
+        print(json.dumps(report, sort_keys=True, indent=2, ensure_ascii=False))
+        return 0 if report.get("status") == "PASS" else 2
+    except (OSError, ValueError) as exc:
+        print(json.dumps(
+            {"status": "FAIL", "errors": [str(exc)]},
+            sort_keys=True, indent=2, ensure_ascii=False,
+        ))
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

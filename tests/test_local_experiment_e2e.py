@@ -419,6 +419,92 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert all(item["attestation_verified"] is True for item in package_report["attestations"])
         assert package_report["execution_truth_established"] is False
 
+        # The attestation claim can be malformed while every outer archive and
+        # nested evidence hash remains valid. Keep package integrity PASS in the
+        # report, classify the signed-claim mismatch separately, and consume no
+        # replay nonce on a rejected attestation.
+        case_digest_tamper_registry = SQLiteAttestationReplayRegistry(
+            tmp_path / "case-digest-tamper-replay.sqlite3"
+        )
+        with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as source:
+            case_digest_tampered_files = {
+                info.filename: source.read(info.filename)
+                for info in source.infolist()
+            }
+        case_digest_tampered_manifest = json.loads(
+            case_digest_tampered_files["manifest.json"]
+        )
+        case_digest_attestation_path = case_digest_tampered_manifest["attestations"][0]["path"]
+        changed_signed_claim = json.loads(
+            case_digest_tampered_files[case_digest_attestation_path]
+        )
+        changed_signed_claim["claims"]["case_digest"] = hashlib.sha256(
+            b"attacker-rebuilt-case-contract"
+        ).hexdigest()
+        case_digest_tampered_files[case_digest_attestation_path] = json.dumps(
+            changed_signed_claim,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        case_digest_tampered_manifest["members"] = [
+            {
+                "path": member_name,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "size_bytes": len(raw),
+            }
+            for member_name, raw in sorted(case_digest_tampered_files.items())
+            if member_name != "manifest.json"
+        ]
+        case_digest_tampered_core = {
+            key: case_digest_tampered_manifest[key]
+            for key in (
+                "schema_version", "case_id", "case_digest", "members",
+                "experiments", "attestations",
+            )
+        }
+        case_digest_tampered_manifest["package_sha256"] = hashlib.sha256(
+            json.dumps(
+                case_digest_tampered_core,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        case_digest_tampered_files["manifest.json"] = json.dumps(
+            case_digest_tampered_manifest,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        case_digest_tampered_buffer = io.BytesIO()
+        with zipfile.ZipFile(
+            case_digest_tampered_buffer, "w", compression=zipfile.ZIP_DEFLATED
+        ) as tampered_archive:
+            for member_name in sorted(case_digest_tampered_files):
+                tampered_archive.writestr(
+                    member_name, case_digest_tampered_files[member_name]
+                )
+        case_digest_tampered_report = verify_research_case_evidence_package(
+            case_digest_tampered_buffer.getvalue(),
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+            replay_registry=case_digest_tamper_registry,
+        )
+        assert case_digest_tampered_report["status"] == "FAIL"
+        assert case_digest_tampered_report["package_integrity_status"] == "PASS"
+        assert case_digest_tampered_report["attestation_verification_status"] == "FAIL"
+        assert case_digest_tampered_report["replay_protection_status"] == "NOT_RUN"
+        assert case_digest_tampered_report["errors"] == [
+            "execution_attestation_case_digest_mismatch"
+        ]
+        assert case_digest_tamper_registry.consume(
+            "aegisforge-e2e-test-key",
+            changed_signed_claim["claims"]["nonce"],
+        ) is True
+
         # Recomputing the unsigned outer manifest must not let an operator's
         # trusted-key policy accept a package with one experiment unsigned.
         partial_attestation_package = build_research_case_evidence_package(

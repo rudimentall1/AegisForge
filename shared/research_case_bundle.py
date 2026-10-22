@@ -383,6 +383,7 @@ def export_research_case_bundle(
         if case.case_id != case_id:
             raise ResearchCaseBundleError("registered_case_id_mismatch")
         binding = research_case_binding(case)
+        declared_round_spec_ids = {spec.round_id for spec in case.rounds}
 
         queue_columns = {row["name"] for row in connection.execute("PRAGMA table_info(queue)")}
         required_columns = {"id", "description", "status", "created_at", "result", "research_case_id"}
@@ -412,6 +413,16 @@ def export_research_case_bundle(
                 not isinstance(item["round_id"], str) or not item["round_id"].strip()
             ):
                 raise ResearchCaseBundleError("task_round_identity_invalid")
+            if item["round_spec_id"] is not None and (
+                not isinstance(item["round_spec_id"], str)
+                or not item["round_spec_id"].strip()
+            ):
+                raise ResearchCaseBundleError("task_round_spec_identity_invalid")
+            if (
+                item["round_spec_id"] is not None
+                and item["round_spec_id"] not in declared_round_spec_ids
+            ):
+                raise ResearchCaseBundleError("task_round_spec_not_declared_in_case")
             if item["round_spec_id"] is not None and item["round_id"] is None:
                 raise ResearchCaseBundleError("task_round_spec_requires_runtime_round")
             raw_result = item.pop("result", None)
@@ -782,6 +793,7 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
         raise ResearchCaseBundleError("tasks_file_schema_invalid")
     if len(tasks_file["tasks"]) > MAX_TASKS:
         raise ResearchCaseBundleError("case_task_count_exceeds_limit")
+    declared_round_spec_ids = {spec.round_id for spec in validated_case.rounds}
     task_ids = set()
     for task in tasks_file["tasks"]:
         if not isinstance(task, dict):
@@ -807,6 +819,11 @@ def verify_research_case_bundle(bundle_path: str | Path) -> dict:
             not isinstance(round_spec_id, str) or not round_spec_id.strip()
         ):
             raise ResearchCaseBundleError("task_round_spec_identity_invalid")
+        if (
+            round_spec_id is not None
+            and round_spec_id not in declared_round_spec_ids
+        ):
+            raise ResearchCaseBundleError("task_round_spec_not_declared_in_case")
         if round_spec_id is not None and round_id is None:
             raise ResearchCaseBundleError("task_round_spec_requires_runtime_round")
         result = task.get("result")

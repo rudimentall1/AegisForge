@@ -192,6 +192,65 @@ def _database_with_round_registry(path):
     return case, runtime_round_id
 
 
+
+def _register_runtime_round(db_path, runtime_round_id, round_spec_id=None):
+    """Attach task/evidence rows to a consistent runtime registry for bundle tests."""
+    with sqlite3.connect(db_path) as db:
+        queue_columns = {row[1] for row in db.execute("PRAGMA table_info(queue)")}
+        if "round_spec_id" not in queue_columns:
+            db.execute("ALTER TABLE queue ADD COLUMN round_spec_id TEXT")
+        evidence_columns = {
+            row[1] for row in db.execute("PRAGMA table_info(evidence_observations)")
+        }
+        if "round_spec_id" not in evidence_columns:
+            db.execute("ALTER TABLE evidence_observations ADD COLUMN round_spec_id TEXT")
+
+        db.execute(
+            """UPDATE queue
+               SET round_id = ?, round_spec_id = ?, role = 'source_researcher',
+                   parent_task_id = NULL
+               WHERE id = 'task-001'""",
+            (runtime_round_id, round_spec_id),
+        )
+        db.execute(
+            """UPDATE evidence_observations
+               SET round_id = ?, round_spec_id = ?, role = 'source_researcher'
+               WHERE task_id = 'task-001'""",
+            (runtime_round_id, round_spec_id),
+        )
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS research_case_rounds (
+                round_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                round_number INTEGER NOT NULL,
+                root_task_id TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                round_spec_id TEXT,
+                status TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                UNIQUE(case_id, round_number)
+            )"""
+        )
+        case_id = db.execute(
+            "SELECT research_case_id FROM queue WHERE id = 'task-001'"
+        ).fetchone()[0]
+        db.execute(
+            """INSERT INTO research_case_rounds
+               (round_id, case_id, round_number, root_task_id, created_at,
+                round_spec_id, status, started_at, finished_at)
+               VALUES (?, ?, 1, 'task-001', ?, ?, 'COMPLETED', ?, ?)""",
+            (
+                runtime_round_id,
+                case_id,
+                "2026-10-16T00:01:00+00:00",
+                round_spec_id,
+                "2026-10-16T00:01:01+00:00",
+                "2026-10-16T00:01:02+00:00",
+            ),
+        )
+
+
 def test_case_bundle_exports_and_verifies_runtime_round_registry(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case, runtime_round_id = _database_with_round_registry(db_path)
@@ -253,9 +312,9 @@ def test_case_bundle_export_rejects_runtime_round_missing_from_registry(tmp_path
                (id, description, status, created_at, role, parent_task_id,
                 result, retry_count, research_case_id, planner_decision,
                 round_id, round_spec_id)
-               VALUES (?, ?, 'pending', ?, 'validator', ?, NULL, 0, ?, NULL, ?, ?)""",
-            ("child-task-orphan-round", "Synthetic child with unregistered round",
-             "2026-10-16T00:02:00+00:00", "task-001", case.case_id,
+               VALUES (?, ?, 'pending', ?, 'source_researcher', NULL, NULL, 0, ?, NULL, ?, ?)""",
+            ("task-orphan-round", "Synthetic root with unregistered round",
+             "2026-10-16T00:02:00+00:00", case.case_id,
              orphan_runtime_id, "source-pattern-v1"),
         )
     with pytest.raises(ResearchCaseBundleError, match="task_runtime_round_missing_from_registry"):
@@ -471,6 +530,7 @@ def test_case_bundle_accepts_runtime_round_id_distinct_from_declared_spec(tmp_pa
             (runtime_round_id, "declared-round", "task-001"),
         )
 
+    _register_runtime_round(db_path, runtime_round_id, "declared-round")
     bundle = tmp_path / "runtime-round.zip"
     report = export_research_case_bundle(db_path, case.case_id, bundle)
     assert report["valid"] is True
@@ -717,7 +777,7 @@ def test_case_bundle_verifier_rejects_integrity_valid_orphaned_observation(tmp_p
             "sha256": hashlib.sha256(files[name]).hexdigest(),
             "size": len(files[name]),
         }
-        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+        for name in sorted(name for name in files if name != "manifest.json")
     ]
     manifest["entries"] = entries
     _refresh_manifest(files, manifest)
@@ -779,7 +839,7 @@ def test_case_bundle_verifier_rejects_parent_missing_from_bundle_even_with_rebui
             "sha256": hashlib.sha256(files[name]).hexdigest(),
             "size": len(files[name]),
         }
-        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+        for name in sorted(name for name in files if name != "manifest.json")
     ]
     _refresh_manifest(files, manifest)
 
@@ -818,7 +878,7 @@ def test_case_bundle_verifier_rejects_parent_cycle_even_with_rebuilt_manifest(tm
             "sha256": hashlib.sha256(files[name]).hexdigest(),
             "size": len(files[name]),
         }
-        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+        for name in sorted(name for name in files if name != "manifest.json")
     ]
     _refresh_manifest(files, manifest)
 
@@ -857,7 +917,7 @@ def test_case_bundle_verifier_rejects_non_string_parent_even_with_rebuilt_manife
             "sha256": hashlib.sha256(files[name]).hexdigest(),
             "size": len(files[name]),
         }
-        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+        for name in sorted(name for name in files if name != "manifest.json")
     ]
     _refresh_manifest(files, manifest)
 
@@ -918,12 +978,7 @@ def test_case_bundle_export_rejects_observation_without_ledger_record(tmp_path):
 def test_case_bundle_preserves_round_identity_in_tasks_and_evidence(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)
-    with sqlite3.connect(db_path) as db:
-        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-1", "task-001"))
-        db.execute(
-            "UPDATE evidence_observations SET round_id = ? WHERE task_id = ?",
-            ("round-1", "task-001"),
-        )
+    _register_runtime_round(db_path, "round-1")
 
     bundle = tmp_path / "round-bound.zip"
     report = export_research_case_bundle(db_path, case.case_id, bundle)
@@ -940,8 +995,8 @@ def test_case_bundle_preserves_round_identity_in_tasks_and_evidence(tmp_path):
 def test_case_bundle_export_rejects_conflicting_evidence_round_identity(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)
+    _register_runtime_round(db_path, "round-1")
     with sqlite3.connect(db_path) as db:
-        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-1", "task-001"))
         db.execute(
             "UPDATE evidence_observations SET round_id = ? WHERE task_id = ?",
             ("round-2", "task-001"),
@@ -994,8 +1049,12 @@ def test_case_bundle_rejects_changed_round_plan_in_historical_binding(tmp_path):
 def test_case_bundle_export_rejects_evidence_missing_task_round_identity(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)
+    _register_runtime_round(db_path, "round-001")
     with sqlite3.connect(db_path) as db:
-        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-001", "task-001"))
+        db.execute(
+            "UPDATE evidence_observations SET round_id = NULL WHERE task_id = ?",
+            ("task-001",),
+        )
 
     with pytest.raises(
         ResearchCaseBundleError,
@@ -1007,9 +1066,7 @@ def test_case_bundle_export_rejects_evidence_missing_task_round_identity(tmp_pat
 def test_case_bundle_verifier_rejects_integrity_valid_missing_evidence_round_identity(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)
-    with sqlite3.connect(db_path) as db:
-        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-001", "task-001"))
-        db.execute("UPDATE evidence_observations SET round_id = ? WHERE atom_id = ?", ("round-001", "atom-001"))
+    _register_runtime_round(db_path, "round-001")
     bundle = tmp_path / "case.zip"
     export_research_case_bundle(db_path, case.case_id, bundle)
 
@@ -1024,7 +1081,7 @@ def test_case_bundle_verifier_rejects_integrity_valid_missing_evidence_round_ide
     manifest = json.loads(files["manifest.json"])
     manifest["entries"] = [
         {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
-        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+        for name in sorted(name for name in files if name != "manifest.json")
     ]
     _refresh_manifest(files, manifest)
     forged = tmp_path / "integrity-valid-missing-round.zip"
@@ -1062,9 +1119,8 @@ def test_case_bundle_export_rejects_child_task_from_different_round(tmp_path):
 def test_case_bundle_verifier_rejects_rehashed_cross_round_child(tmp_path):
     db_path = tmp_path / "agent_farm.db"
     case = _database(db_path)
+    _register_runtime_round(db_path, "round-001")
     with sqlite3.connect(db_path) as db:
-        db.execute("UPDATE queue SET round_id = ? WHERE id = ?", ("round-001", "task-001"))
-        db.execute("UPDATE evidence_observations SET round_id = ? WHERE atom_id = ?", ("round-001", "atom-001"))
         db.execute(
             """INSERT INTO queue
                (id, description, status, created_at, role, parent_task_id,
@@ -1107,7 +1163,7 @@ def test_case_bundle_verifier_rejects_stale_merkle_root_after_entry_hashes_are_r
     original_root = manifest["merkle_root"]
     manifest["entries"] = [
         {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
-        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+        for name in sorted(name for name in files if name != "manifest.json")
     ]
     # Rebuild the ordinary manifest digest but deliberately retain the old root.
     core = {
@@ -1327,7 +1383,7 @@ def test_case_bundle_verifier_rejects_forged_case_source_commit_against_task_bin
     manifest["case_digest"] = binding["case_digest"]
     manifest["entries"] = [
         {"path": name, "sha256": hashlib.sha256(files[name]).hexdigest(), "size": len(files[name])}
-        for name in sorted(("case.json", "tasks.json", "evidence.json"))
+        for name in sorted(name for name in files if name != "manifest.json")
     ]
     _refresh_manifest(files, manifest)
     with zipfile.ZipFile(forged, "w", compression=zipfile.ZIP_DEFLATED) as archive:

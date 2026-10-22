@@ -256,22 +256,12 @@ def build_research_case_evidence_package(
 ) -> bytes:
     """Build a deterministic package after checking all dossier-to-experiment links."""
     dossier_report, reports = _validate_linkage(case_dossier, experiment_bundles)
-    by_digest = {
-        report["record_digest"]: bundle
-        for report, bundle in zip(
-            sorted(
-                (verify_local_experiment_bundle(item) for item in experiment_bundles),
-                key=lambda item: (item["task_id"], item["record_digest"]),
-            ),
-            sorted(
-                experiment_bundles,
-                key=lambda item: (
-                    verify_local_experiment_bundle(item).get("task_id", ""),
-                    verify_local_experiment_bundle(item).get("record_digest", ""),
-                ),
-            ),
-        )
-    }
+    by_digest = {}
+    for bundle in experiment_bundles:
+        report = verify_local_experiment_bundle(bundle)
+        if report.get("status") != "PASS":
+            raise ValueError("experiment_bundle_invalid")
+        by_digest[report["record_digest"]] = bundle
     files = {_DOSSIER_NAME: case_dossier}
     experiment_metadata = []
     for index, report in enumerate(reports):

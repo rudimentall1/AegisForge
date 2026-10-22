@@ -19,15 +19,17 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-ATTESTATION_SCHEMA_VERSION = "aegisforge-execution-attestation-v1"
+LEGACY_ATTESTATION_SCHEMA_VERSION = "aegisforge-execution-attestation-v1"
+ATTESTATION_SCHEMA_VERSION = "aegisforge-execution-attestation-v2"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,127}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-_REQUIRED_CLAIMS = {
+_REQUIRED_CLAIMS_V1 = {
     "schema_version", "signer_id", "runner_id", "case_id", "round_id",
     "task_id", "target_repository", "target_commit", "record_sha256",
     "environment_sha256", "issued_at", "nonce",
 }
+_REQUIRED_CLAIMS_V2 = {*_REQUIRED_CLAIMS_V1, "case_digest"}
 
 
 def _canonical_json(value: object) -> bytes:
@@ -42,13 +44,24 @@ def _valid_id(value: object) -> bool:
 
 
 def _validate_claims(claims: object) -> list[str]:
-    if not isinstance(claims, dict) or set(claims) != _REQUIRED_CLAIMS:
+    if not isinstance(claims, dict):
+        return ["attestation_claims_schema_invalid"]
+    schema_version = claims.get("schema_version")
+    if schema_version == LEGACY_ATTESTATION_SCHEMA_VERSION:
+        required_claims = _REQUIRED_CLAIMS_V1
+    elif schema_version == ATTESTATION_SCHEMA_VERSION:
+        required_claims = _REQUIRED_CLAIMS_V2
+    else:
+        return ["attestation_schema_unsupported"]
+    if set(claims) != required_claims:
         return ["attestation_claims_schema_invalid"]
     for field in ("signer_id", "runner_id", "case_id", "round_id", "task_id", "nonce"):
         if not _valid_id(claims.get(field)):
             return [f"attestation_{field}_invalid"]
-    if claims.get("schema_version") != ATTESTATION_SCHEMA_VERSION:
-        return ["attestation_schema_unsupported"]
+    if schema_version == ATTESTATION_SCHEMA_VERSION:
+        case_digest = claims.get("case_digest")
+        if not isinstance(case_digest, str) or not _SHA256_RE.fullmatch(case_digest):
+            return ["attestation_case_digest_invalid"]
     repository = claims.get("target_repository")
     if not isinstance(repository, str) or not re.fullmatch(
         r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository
@@ -85,6 +98,7 @@ def create_execution_attestation(
     issued_at: str,
     nonce: str,
     private_key_bytes: bytes,
+    case_digest: str | None = None,
 ) -> dict:
     """Sign claims that bind a verified experiment record to runner metadata.
 
@@ -95,9 +109,16 @@ def create_execution_attestation(
         raise ValueError("attestation_record_required")
     if not isinstance(private_key_bytes, bytes) or len(private_key_bytes) != 32:
         raise ValueError("attestation_ed25519_private_key_must_be_32_bytes")
+    if case_digest is not None and (
+        not isinstance(case_digest, str) or not _SHA256_RE.fullmatch(case_digest)
+    ):
+        raise ValueError("attestation_case_digest_invalid")
     record_bytes = _canonical_json(dict(record))
     claims = {
-        "schema_version": ATTESTATION_SCHEMA_VERSION,
+        "schema_version": (
+            ATTESTATION_SCHEMA_VERSION
+            if case_digest is not None else LEGACY_ATTESTATION_SCHEMA_VERSION
+        ),
         "signer_id": signer_id,
         "runner_id": runner_id,
         "case_id": record.get("case_id"),
@@ -110,6 +131,8 @@ def create_execution_attestation(
         "issued_at": issued_at,
         "nonce": nonce,
     }
+    if case_digest is not None:
+        claims["case_digest"] = case_digest
     errors = _validate_claims(claims)
     if errors:
         raise ValueError(errors[0])
@@ -129,6 +152,7 @@ def verify_execution_attestation(
     trusted_public_key_bytes: bytes,
     expected_signer_id: str,
     expected_record: Mapping | None = None,
+    expected_case_digest: str | None = None,
     max_age_seconds: int | None = None,
     max_future_skew_seconds: int = 300,
     now: datetime | None = None,
@@ -150,6 +174,11 @@ def verify_execution_attestation(
         return {**base, "errors": ["trusted_ed25519_public_key_must_be_32_bytes"]}
     if not _valid_id(expected_signer_id):
         return {**base, "errors": ["expected_signer_id_invalid"]}
+    if expected_case_digest is not None and (
+        not isinstance(expected_case_digest, str)
+        or not _SHA256_RE.fullmatch(expected_case_digest)
+    ):
+        return {**base, "errors": ["expected_case_digest_invalid"]}
     if max_age_seconds is not None and (
         isinstance(max_age_seconds, bool) or not isinstance(max_age_seconds, int)
         or max_age_seconds < 0
@@ -195,6 +224,11 @@ def verify_execution_attestation(
         ):
             if claims[field] != expected_record.get(field):
                 return {**base, "errors": ["attestation_record_identity_mismatch"]}
+    if expected_case_digest is not None:
+        if claims.get("schema_version") != ATTESTATION_SCHEMA_VERSION:
+            return {**base, "errors": ["attestation_case_digest_required"]}
+        if claims.get("case_digest") != expected_case_digest:
+            return {**base, "errors": ["attestation_case_digest_mismatch"]}
     try:
         Ed25519PublicKey.from_public_bytes(trusted_public_key_bytes).verify(
             bytes.fromhex(signature_hex), _canonical_json(claims)
@@ -228,6 +262,7 @@ def verify_execution_attestation(
         "task_id": claims["task_id"],
         "target_repository": claims["target_repository"],
         "target_commit": claims["target_commit"],
+        "case_digest": claims.get("case_digest"),
         "errors": [],
         "limitations": [
             "Signature verification proves the claims were signed by the key corresponding to the externally trusted public key.",
@@ -243,6 +278,7 @@ def verify_bundle_execution_attestation(
     *,
     trusted_public_key_bytes: bytes,
     expected_signer_id: str,
+    expected_case_digest: str | None = None,
     max_age_seconds: int | None = None,
     max_future_skew_seconds: int = 300,
     now: datetime | None = None,
@@ -280,6 +316,7 @@ def verify_bundle_execution_attestation(
         trusted_public_key_bytes=trusted_public_key_bytes,
         expected_signer_id=expected_signer_id,
         expected_record=record,
+        expected_case_digest=expected_case_digest,
         max_age_seconds=max_age_seconds,
         max_future_skew_seconds=max_future_skew_seconds,
         now=now,

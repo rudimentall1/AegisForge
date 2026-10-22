@@ -541,6 +541,17 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
                 [bundle, counter_bundle],
                 execution_attestations=[mismatched_claim, attestations[1]],
             )
+
+        malformed_timestamp = copy.deepcopy(attestations[0])
+        malformed_timestamp["claims"]["issued_at"] = "not-a-time"
+        with pytest.raises(
+            ValueError, match="execution_attestation_issued_at_invalid"
+        ):
+            build_research_case_evidence_package(
+                dossier_path.read_bytes(),
+                [bundle, counter_bundle],
+                execution_attestations=[malformed_timestamp, attestations[1]],
+            )
         assert package_report["case_id"] == case.case_id
         assert package_report["case_digest"] == dossier_report["case_digest"]
         assert package_report["experiment_count"] == 2

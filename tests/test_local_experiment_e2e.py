@@ -410,9 +410,46 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
         assert package_report["status"] == "PASS"
         assert package_report["package_integrity_status"] == "PASS"
         assert package_report["attestation_verification_status"] == "PASS"
+        assert package_report["attestation_coverage_status"] == "COMPLETE"
         assert len(package_report["attestations"]) == 2
         assert all(item["attestation_verified"] is True for item in package_report["attestations"])
         assert package_report["execution_truth_established"] is False
+
+        # Recomputing the unsigned outer manifest must not let an operator's
+        # trusted-key policy accept a package with one experiment unsigned.
+        partial_attestation_package = build_research_case_evidence_package(
+            dossier_path.read_bytes(),
+            [bundle, counter_bundle],
+            execution_attestations=[attestations[0]],
+        )
+        partial_attestation_report = verify_research_case_evidence_package(
+            partial_attestation_package,
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+        )
+        assert partial_attestation_report["status"] == "FAIL"
+        assert partial_attestation_report["package_integrity_status"] == "PASS"
+        assert partial_attestation_report["attestation_verification_status"] == "PASS"
+        assert partial_attestation_report["attestation_coverage_status"] == "INCOMPLETE"
+        assert partial_attestation_report["errors"] == [
+            "execution_attestation_coverage_incomplete"
+        ]
+
+        partial_coverage_registry = SQLiteAttestationReplayRegistry(
+            tmp_path / "partial-coverage-replay.sqlite3"
+        )
+        partial_coverage_report = verify_research_case_evidence_package(
+            partial_attestation_package,
+            trusted_attestors={"aegisforge-e2e-test-key": test_public_key},
+            replay_registry=partial_coverage_registry,
+        )
+        assert partial_coverage_report["status"] == "FAIL"
+        assert partial_coverage_report["replay_protection_status"] == "NOT_RUN"
+        assert partial_coverage_report["errors"] == [
+            "execution_attestation_coverage_incomplete"
+        ]
+        assert partial_coverage_registry.consume(
+            "aegisforge-e2e-test-key", "e2e-control-attestation-1"
+        ) is True
 
         # Replay protection is separate from signature verification. A durable
         # registry accepts this set once, then rejects the identical package.

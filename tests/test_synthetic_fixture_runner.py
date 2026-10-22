@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -10,8 +11,11 @@ from shared.synthetic_fixture import (
     run_synthetic_fixture,
 )
 from shared.synthetic_fixture_runner import (
+    MAX_CAPTURE_BYTES,
     MAX_TIMEOUT_SECONDS,
     SyntheticFixtureRunnerError,
+    _capture_bounded,
+    _kill_process_group,
     run_synthetic_fixture_subprocess,
 )
 
@@ -121,3 +125,59 @@ def test_fixed_child_rejects_input_mode_mismatch():
     )
     assert process.returncode == 65
     assert process.stdout == b""
+
+
+@pytest.mark.parametrize("stream_name", ["stdout", "stderr"])
+def test_pipe_capture_kills_output_that_exceeds_the_hard_limit(stream_name):
+    source = (
+        "import sys; "
+        f"sys.{stream_name}.buffer.write(b'x' * {MAX_CAPTURE_BYTES + 4096}); "
+        f"sys.{stream_name}.flush()"
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-I", "-c", source],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        close_fds=True,
+        start_new_session=True,
+        shell=False,
+    )
+    try:
+        with pytest.raises(
+            SyntheticFixtureRunnerError,
+            match=f"synthetic_fixture_{stream_name}_limit_exceeded",
+        ):
+            _capture_bounded(process, deadline=time.monotonic() + 3.0)
+    finally:
+        _kill_process_group(process)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+
+
+def test_pipe_capture_timeout_is_a_controlled_failure_and_can_be_killed():
+    process = subprocess.Popen(
+        [sys.executable, "-I", "-c", "import time; time.sleep(30)"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        close_fds=True,
+        start_new_session=True,
+        shell=False,
+    )
+    started = time.monotonic()
+    try:
+        with pytest.raises(
+            SyntheticFixtureRunnerError,
+            match="synthetic_fixture_timeout",
+        ):
+            _capture_bounded(process, deadline=time.monotonic() + 0.05)
+    finally:
+        _kill_process_group(process)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+    assert time.monotonic() - started < 1.5

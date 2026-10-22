@@ -536,15 +536,18 @@ def verify_research_case_evidence_package(
     trusted_attestors: dict[str, bytes] | None = None,
     max_age_seconds: int | None = None,
     max_future_skew_seconds: int = 300,
+    replay_registry=None,
     now=None,
 ) -> dict:
-    """Verify package integrity and, separately, optional detached signatures.
+    """Verify package integrity, detached signatures, and optional replay policy.
 
     If trusted_attestors is omitted, included signatures are only structurally
     linked to their exact experiment record and reported as NOT_CHECKED. When a
     trust map is supplied, every included attestation must verify under the
     out-of-band public key keyed by signer ID for the overall status to PASS.
-    Even then, signature verification does not establish execution truth.
+    Optional replay protection requires verified signatures and consumes all
+    package nonces atomically when the registry supports consume_many().
+    Even valid signatures do not establish execution truth.
     """
     if not isinstance(package_bytes, bytes):
         return {"status": "FAIL", "errors": ["package_bytes_required"]}
@@ -731,21 +734,67 @@ def verify_research_case_evidence_package(
             max_future_skew_seconds=max_future_skew_seconds,
             now=now,
         )
-        final_status = (
-            "FAIL"
-            if trusted_attestors is not None
-            and prepared_attestations
+        replay_status = "NOT_REQUESTED" if replay_registry is None else (
+            "NOT_PRESENT" if not prepared_attestations else "NOT_RUN"
+        )
+        replay_errors = []
+        if replay_registry is not None and prepared_attestations:
+            if trusted_attestors is None:
+                replay_status = "FAIL"
+                replay_errors = ["replay_protection_requires_trusted_attestors"]
+            elif attestation_status != "PASS":
+                replay_status = "NOT_RUN"
+            else:
+                nonce_pairs = [
+                    (
+                        item["attestation"]["claims"]["signer_id"],
+                        item["attestation"]["claims"]["nonce"],
+                    )
+                    for item in prepared_attestations
+                ]
+                consume_many = getattr(replay_registry, "consume_many", None)
+                consume_one = getattr(replay_registry, "consume", None)
+                try:
+                    if callable(consume_many):
+                        consumed = consume_many(nonce_pairs)
+                    elif len(nonce_pairs) == 1 and callable(consume_one):
+                        consumed = consume_one(*nonce_pairs[0])
+                    else:
+                        consumed = None
+                        replay_errors = ["attestation_replay_registry_atomic_batch_required"]
+                except Exception:
+                    consumed = None
+                    replay_errors = ["attestation_replay_registry_unavailable"]
+                if not replay_errors and consumed is True:
+                    replay_status = "PASS"
+                    for item in attestation_reports:
+                        item["replay_protection_verified"] = True
+                elif not replay_errors:
+                    replay_status = "FAIL"
+                    replay_errors = ["attestation_replay_detected"]
+                if replay_status != "PASS":
+                    for item in attestation_reports:
+                        item["replay_protection_verified"] = False
+        attestation_failed = (
+            trusted_attestors is not None
+            and bool(prepared_attestations)
             and attestation_status != "PASS"
-            else "PASS"
         )
-        final_errors = (
-            ["execution_attestation_verification_failed"]
-            if final_status == "FAIL" else []
+        replay_failed = (
+            replay_registry is not None
+            and bool(prepared_attestations)
+            and replay_status != "PASS"
         )
+        final_status = "FAIL" if attestation_failed or replay_failed else "PASS"
+        final_errors = []
+        if attestation_failed:
+            final_errors.append("execution_attestation_verification_failed")
+        final_errors.extend(replay_errors)
         return {
             "status": final_status,
             "package_integrity_status": "PASS",
             "attestation_verification_status": attestation_status,
+            "replay_protection_status": replay_status,
             "attestations": attestation_reports,
             "execution_truth_established": False,
             "schema_version": schema_version,

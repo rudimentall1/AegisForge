@@ -2,6 +2,33 @@
 
 This document describes the current evidence path and its trust limits. The data packages are offline, deterministic integrity transports; they are not signatures, execution attestations, or vulnerability verdicts.
 
+## Reproduce the core vertical slice from a clean checkout
+
+Run this from a fresh clone of the branch containing this document. Python 3.10+ is used by the current CI job.
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt pytest
+python -m pytest -q \
+  tests/test_local_experiment_e2e.py \
+  tests/test_local_experiment_bundle_adversarial.py \
+  tests/test_research_case_bundle_e2e.py \
+  tests/test_attestation_replay.py
+```
+
+The primary end-to-end test is `tests/test_local_experiment_e2e.py::test_synthetic_case_queue_ledger_bundle_offline_verification`. It drives a synthetic Research Case through queue and round binding, fixed local control and counter-test subprocesses, evidence-ledger persistence, experiment bundles, case dossier export, combined package construction, offline verification, trusted-key attestation checks, and nonce replay rejection. The test also rebuilds a package with a modified signed case digest and verifies that package integrity and attestation validity are reported separately.
+
+Expected interpretation:
+- A passing test proves this synthetic fixture path behaves as asserted in the tested environment.
+- The fixture is not a real EVM exploit, historical key-forensics reproduction, or vulnerability finding.
+- The subprocess adapter applies resource limits but is not a security sandbox; its metadata explicitly does not claim network or filesystem isolation.
+- The test signing key is ephemeral and public test data. It is not a production trust anchor.
+- A successful package verification does not establish execution truth or confirm a vulnerability.
+
+For the complete repository test suite, use `python -m pytest -q --tb=short`. The current GitHub Actions run is the authoritative public record for the exact commit and environment it tested; local results must not be presented as a different CI run.
+
 ## Evidence layers
 
 1. `shared/local_experiment.py` builds a canonical record and exact raw `input.bin`, `stdout.bin`, and `stderr.bin` bytes from output supplied by a caller. Record schema v2 includes both the planned `round_spec_id` and runtime `round_id`. Schema v1 records remain readable. The record builder never executes `argv`.

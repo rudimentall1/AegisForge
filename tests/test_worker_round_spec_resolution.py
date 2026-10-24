@@ -130,3 +130,13 @@ def test_resolve_planned_spec_from_real_queue_schema(tmp_path):
     finally:
         queue.db.close()
 
+def test_unknown_explicit_planned_spec_fails_closed_instead_of_inheriting():
+    """A corrupt child binding must not be masked by a valid ancestor binding."""
+    spec = make_round_spec("planned-spec-1")
+    worker = make_worker({
+        "child": ("root", "runtime-round-1", "unknown-planned-spec"),
+        "root": (None, "runtime-round-1", spec.round_id),
+    })
+    case = SimpleNamespace(rounds=(spec,))
+
+    assert worker._resolve_round_spec("child", case) is None

@@ -44,6 +44,9 @@ def test_runner_captures_real_child_stdout_stderr_and_exit_code(mode):
     # These flags intentionally avoid claiming a full network/filesystem sandbox.
     assert actual["execution"]["network_isolation_enforced"] is False
     assert actual["execution"]["filesystem_isolation_enforced"] is False
+    assert actual["execution"]["network_isolation_status"] == "NOT_ENFORCED"
+    assert actual["execution"]["filesystem_isolation_status"] == "NOT_ENFORCED"
+    assert actual["execution"]["network_access_observed"] == "NONE_IN_FIXED_FIXTURE"
     assert actual["execution"]["resource_limits"]["stdout_capture_bytes"] > 0
     assert actual["execution"]["resource_limits"]["stderr_capture_bytes"] > 0
 
@@ -58,6 +61,7 @@ def test_runner_captures_real_child_stdout_stderr_and_exit_code(mode):
     assert actual["toolchain"]["runner"] == "aegisforge-fixed-synthetic-subprocess-v1"
     assert actual["toolchain"]["network_isolation"] == "not_enforced"
     assert actual["toolchain"]["filesystem_isolation"] == "not_enforced"
+    assert actual["toolchain"]["network_access_observed"] == "none_in_fixed_fixture"
 
 
 @pytest.mark.parametrize("mode", [

@@ -500,7 +500,12 @@ class Worker:
         }
 
     def _resolve_round_spec(self, task_id, research_case):
-        """Resolve the round technique for a task or its ancestor root."""
+        """Resolve the planned round spec from a task or its ancestor root.
+
+        ``round_id`` identifies a runtime execution round, while
+        ``round_spec_id`` identifies the immutable planned RoundSpec. They are
+        intentionally different identifiers and must not be conflated.
+        """
         if research_case is None:
             return None
         rounds = getattr(research_case, "rounds", ()) or ()
@@ -510,17 +515,23 @@ class Worker:
         while current_id and current_id not in visited:
             visited.add(current_id)
             row = self.queue.db.execute(
-                "SELECT parent_task_id, round_id FROM queue WHERE id = ?",
+                "SELECT parent_task_id, round_id, round_spec_id "
+                "FROM queue WHERE id = ?",
                 (current_id,),
             ).fetchone()
             if row is None:
                 return None
-            parent_id, round_id = row
-            if round_id and round_id in specs:
-                return specs[round_id]
+            parent_id, runtime_round_id, planned_round_spec_id = row
+            # An explicit planned-spec binding is authoritative. If it is
+            # absent from this immutable case, fail closed rather than silently
+            # inheriting a different spec from an ancestor.
+            if planned_round_spec_id:
+                return specs.get(planned_round_spec_id)
+            # Legacy rows may use the runtime round ID as the planned identity.
+            if runtime_round_id and runtime_round_id in specs:
+                return specs[runtime_round_id]
             current_id = parent_id
         return None
-
     def run_once(self):
         recovered = self.queue.recover_stale_running(
             stale_minutes=10

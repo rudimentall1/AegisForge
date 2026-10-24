@@ -134,6 +134,11 @@ class TaskQueue:
                 "ALTER TABLE queue ADD COLUMN round_id TEXT"
             )
 
+        if "round_spec_id" not in columns:
+            self.db.execute(
+                "ALTER TABLE queue ADD COLUMN round_spec_id TEXT"
+            )
+
         if "planner_decision" not in columns:
             self.db.execute(
                 "ALTER TABLE queue ADD COLUMN planner_decision TEXT"
@@ -665,6 +670,7 @@ class TaskQueue:
         evaluation_id=None,
         research_case_id=None,
         round_id=None,
+        round_spec_id=None,
     ):
         task_id = str(uuid.uuid4())
 
@@ -672,12 +678,18 @@ class TaskQueue:
         # Inherit a parent's case by default and reject attempts to attach a
         # child to a different case (or to detach a case-bound parent).
         if parent_task_id:
+            parent_columns = {row[1] for row in self.db.execute("PRAGMA table_info(queue)")}
+            parent_select = "SELECT research_case_id, round_id"
+            if "round_spec_id" in parent_columns:
+                parent_select += ", round_spec_id"
             parent_row = self.db.execute(
-                "SELECT research_case_id, round_id FROM queue WHERE id = ?",
-                (parent_task_id,),
+                parent_select + " FROM queue WHERE id = ?", (parent_task_id,)
             ).fetchone()
             parent_case_id = parent_row[0] if parent_row is not None else None
             parent_round_id = parent_row[1] if parent_row is not None else None
+            parent_round_spec_id = (
+                parent_row[2] if parent_row is not None and len(parent_row) > 2 else None
+            )
             if research_case_id is None and parent_case_id:
                 research_case_id = parent_case_id
             elif research_case_id != parent_case_id and (
@@ -697,6 +709,14 @@ class TaskQueue:
                     round_id is not None or parent_round_id is not None
                 ):
                     raise ValueError("research_case_round_parent_mismatch")
+
+            if parent_row is not None:
+                if round_spec_id is None and parent_round_spec_id:
+                    round_spec_id = parent_round_spec_id
+                elif round_spec_id != parent_round_spec_id and (
+                    round_spec_id is not None or parent_round_spec_id is not None
+                ):
+                    raise ValueError("research_case_round_spec_parent_mismatch")
 
         # Reject unbound forensic work at enqueue time instead of allowing a
         # task that can only fail later when a worker eventually picks it up.
@@ -740,9 +760,10 @@ class TaskQueue:
                 evaluation_only,
                 evaluation_id,
                 research_case_id,
-                round_id
+                round_id,
+                round_spec_id
             )
-            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task_id,
@@ -756,6 +777,7 @@ class TaskQueue:
                 evaluation_id,
                 research_case_id,
                 round_id,
+                round_spec_id,
             ),
         )
 
@@ -2105,6 +2127,77 @@ class TaskQueue:
     # CLAIM
     # ---------------------------------------------------------
 
+    def _sync_research_case_round_lifecycle(self, task_id, *, event_at=None):
+        """Keep round ledger state aligned with queue transitions atomically."""
+        tables = {
+            row[0] for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        if "research_case_rounds" not in tables:
+            return
+        columns = {
+            row[1] for row in self.db.execute(
+                "PRAGMA table_info(research_case_rounds)"
+            )
+        }
+        if not {"round_id", "case_id", "status"}.issubset(columns):
+            return
+        task_columns = {
+            row[1] for row in self.db.execute("PRAGMA table_info(queue)")
+        }
+        if not {"research_case_id", "round_id"}.issubset(task_columns):
+            return
+        task = self.db.execute(
+            "SELECT research_case_id, round_id FROM queue WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if task is None or not task[0] or not task[1]:
+            return
+        case_id, round_id = task
+        if self.db.execute(
+            "SELECT 1 FROM research_case_rounds WHERE case_id = ? AND round_id = ?",
+            (case_id, round_id),
+        ).fetchone() is None:
+            return
+
+        rows = self.db.execute(
+            "SELECT status, COUNT(*) FROM queue "
+            "WHERE research_case_id = ? AND round_id = ? GROUP BY status",
+            (case_id, round_id),
+        ).fetchall()
+        counts = {str(state): int(count) for state, count in rows}
+        pending = counts.get("pending", 0)
+        running = counts.get("running", 0)
+        failed = counts.get("failed", 0)
+        completed = counts.get("completed", 0)
+        now = event_at or datetime.now(timezone.utc).isoformat()
+
+        if running:
+            status, finished_at = "RUNNING", None
+        elif failed:
+            status, finished_at = "FAILED", now
+        elif pending:
+            status = "RUNNING" if completed else "QUEUED"
+            finished_at = None
+        else:
+            status, finished_at = "COMPLETED", now
+
+        assignments = ["status = ?"]
+        values = [status]
+        if "started_at" in columns:
+            assignments.append("started_at = COALESCE(started_at, ?)")
+            values.append(now if status != "QUEUED" else None)
+        if "finished_at" in columns:
+            assignments.append("finished_at = ?")
+            values.append(finished_at)
+        values.extend([case_id, round_id])
+        self.db.execute(
+            "UPDATE research_case_rounds SET " + ", ".join(assignments)
+            + " WHERE case_id = ? AND round_id = ?",
+            values,
+        )
+
     def claim(self, worker, role=None):
         self.db.execute("BEGIN IMMEDIATE")
 
@@ -2208,6 +2301,7 @@ class TaskQueue:
                 self.db.rollback()
                 return None
 
+            self._sync_research_case_round_lifecycle(task_id)
             self.db.commit()
 
             return self.get(task_id)
@@ -2298,6 +2392,10 @@ class TaskQueue:
             ).rowcount
 
             if updated == 1:
+                # Recovery is a queue lifecycle transition too. Recompute the
+                # aggregate round state before committing so the registry does
+                # not remain RUNNING after its only worker has been requeued.
+                self._sync_research_case_round_lifecycle(task_id)
                 recovered.append(task_id)
 
         if recovered:
@@ -2400,6 +2498,10 @@ class TaskQueue:
             self.db.rollback()
             return False
 
+        # A retry changes the round's aggregate lifecycle too. Keep this in
+        # the same transaction as the queue transition so exports cannot see
+        # a requeued task alongside a stale terminal round status.
+        self._sync_research_case_round_lifecycle(task_id)
         self.db.commit()
 
         return True
@@ -2450,6 +2552,7 @@ class TaskQueue:
                 f"task is not in running state"
             )
 
+        self._sync_research_case_round_lifecycle(task_id, event_at=finished_at)
         self.db.commit()
 
     # ---------------------------------------------------------
@@ -2494,4 +2597,5 @@ class TaskQueue:
                 f"task is not in running state"
             )
 
+        self._sync_research_case_round_lifecycle(task_id, event_at=finished_at)
         self.db.commit()

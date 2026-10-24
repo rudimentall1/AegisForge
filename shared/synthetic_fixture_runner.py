@@ -233,6 +233,7 @@ def run_synthetic_fixture_subprocess(
         "open_file_limit": str(PROCESS_OPEN_FILE_LIMIT),
         "network_isolation": "not_enforced",
         "filesystem_isolation": "not_enforced",
+        "network_access_observed": "none_in_fixed_fixture",
     }
     result = dict(expected)
     result.update({
@@ -267,6 +268,9 @@ def run_synthetic_fixture_subprocess(
             },
             "network_isolation_enforced": False,
             "filesystem_isolation_enforced": False,
+            "network_isolation_status": "NOT_ENFORCED",
+            "filesystem_isolation_status": "NOT_ENFORCED",
+            "network_access_observed": "NONE_IN_FIXED_FIXTURE",
             "scope_note": (
                 "Fixed synthetic fixture only; not a security sandbox and not "
                 "approved for target code or bundle-provided commands."

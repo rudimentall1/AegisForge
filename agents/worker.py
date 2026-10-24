@@ -522,12 +522,14 @@ class Worker:
             if row is None:
                 return None
             parent_id, runtime_round_id, planned_round_spec_id = row
-            # Prefer the explicit planned-spec binding. The round_id fallback
-            # preserves compatibility with legacy rows where both identities
-            # used the same value.
-            spec_id = planned_round_spec_id or runtime_round_id
-            if spec_id and spec_id in specs:
-                return specs[spec_id]
+            # An explicit planned-spec binding is authoritative. If it is
+            # absent from this immutable case, fail closed rather than silently
+            # inheriting a different spec from an ancestor.
+            if planned_round_spec_id:
+                return specs.get(planned_round_spec_id)
+            # Legacy rows may use the runtime round ID as the planned identity.
+            if runtime_round_id and runtime_round_id in specs:
+                return specs[runtime_round_id]
             current_id = parent_id
         return None
     def run_once(self):

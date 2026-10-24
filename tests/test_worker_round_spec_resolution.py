@@ -140,3 +140,83 @@ def test_unknown_explicit_planned_spec_fails_closed_instead_of_inheriting():
     case = SimpleNamespace(rounds=(spec,))
 
     assert worker._resolve_round_spec("child", case) is None
+
+def test_run_once_passes_registered_case_and_resolved_spec_to_agent(tmp_path, monkeypatch):
+    """Exercise the normal worker entrypoint against a real SQLite queue."""
+    import hashlib
+
+    from shared.capability_policy import ActionIntent, CapabilityDecision
+    from shared.case_rounds import start_case_round
+    from shared.queue import TaskQueue
+    from shared.research_case import CaseStatus, ExecutionMode, ResearchCase
+
+    spec = make_round_spec("planned-spec-1")
+    case = ResearchCase(
+        case_id="worker-entrypoint-case",
+        target_repository="example/project",
+        target_commit="a" * 40,
+        scope_url="https://github.com/example/project",
+        scope_digest=hashlib.sha256(b"worker-entrypoint-scope").hexdigest(),
+        scope_reviewed_on="2026-10-24",
+        hypothesis=spec.hypothesis,
+        attacker_capability="Synthetic local fixture only",
+        expected_invariant="The worker preserves the planned case binding",
+        falsification_criteria=spec.falsification_criteria,
+        execution_mode=ExecutionMode.LOCAL,
+        status=CaseStatus.READY,
+        allowed_techniques=("source_pattern",),
+        rounds=(spec,),
+    )
+    queue = TaskQueue(db_path=tmp_path / "worker-run-once.sqlite3")
+    try:
+        queue.register_research_case(case)
+        started = start_case_round(queue, case.case_id, spec.round_id)
+        captured = {}
+
+        class FakeAgent:
+            def run(self, task):
+                captured["task"] = task
+                return {
+                    "status": "INCONCLUSIVE",
+                    "synthetic_fixture": True,
+                }
+
+        worker = Worker.__new__(Worker)
+        worker.role = "source_researcher"
+        worker.worker_id = "source-researcher-integration-test"
+        worker.agent_id = "source-researcher-test"
+        worker.agent_identity = SimpleNamespace(
+            to_dict=lambda: {"agent_id": "source-researcher-test"}
+        )
+        worker.queue = queue
+        worker.memory = SimpleNamespace(save_task=lambda task: None)
+        worker.agent = FakeAgent()
+        worker._capability_decision = lambda task: (
+            ActionIntent(role="source_researcher", action="research"),
+            {
+                "decision": CapabilityDecision.ALLOW,
+                "reason": "test-only allow",
+            },
+        )
+        worker._record_capability_decision = lambda *args: None
+        worker._enqueue_execution_handoff = lambda *args: None
+
+        monkeypatch.setattr(
+            "agents.worker.EvidenceLedger",
+            lambda db: SimpleNamespace(record_observation=lambda *args, **kwargs: None),
+        )
+
+        assert worker.run_once() is True
+        observed = captured["task"]
+        assert observed.task_id == started["root_task_id"]
+        assert observed.payload["research_case_id"] == case.case_id
+        assert observed.payload["research_case"].target_commit == case.target_commit
+        assert observed.payload["round_spec"] is not None
+        assert observed.payload["round_spec"].round_id == spec.round_id
+        assert observed.payload["technique"] == spec.technique
+
+        stored = queue.get_result(started["root_task_id"])
+        assert stored["research_case_binding"]["case_id"] == case.case_id
+        assert stored["research_case_binding"]["target_commit"] == case.target_commit
+    finally:
+        queue.db.close()

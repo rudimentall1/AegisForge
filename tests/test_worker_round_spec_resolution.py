@@ -42,7 +42,7 @@ def make_worker(rows):
 
 def test_resolve_round_spec_from_task_round_identity():
     spec = make_round_spec()
-    worker = make_worker({"root": (None, spec.round_id)})
+    worker = make_worker({"root": (None, spec.round_id, None)})
     case = SimpleNamespace(rounds=(spec,))
 
     assert worker._resolve_round_spec("root", case) is spec
@@ -61,7 +61,7 @@ def test_resolve_round_spec_from_ancestor_when_legacy_child_has_no_round_id():
 
 def test_resolve_round_spec_returns_none_for_unknown_round_id():
     spec = make_round_spec()
-    worker = make_worker({"root": (None, "round-not-in-case")})
+    worker = make_worker({"root": (None, "round-not-in-case", None)})
     case = SimpleNamespace(rounds=(spec,))
 
     assert worker._resolve_round_spec("root", case) is None
@@ -78,8 +78,8 @@ def test_resolve_round_spec_returns_none_for_missing_task():
 def test_resolve_round_spec_terminates_on_parent_cycle():
     spec = make_round_spec()
     worker = make_worker({
-        "child": ("parent", None),
-        "parent": ("child", None),
+        "child": ("parent", None, None),
+        "parent": ("child", None, None),
     })
     case = SimpleNamespace(rounds=(spec,))
 

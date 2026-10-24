@@ -91,3 +91,42 @@ def test_resolve_round_spec_returns_none_without_case():
 
     assert worker._resolve_round_spec("root", None) is None
     assert worker.queue.db.queries == []
+
+
+def test_resolve_planned_spec_from_real_queue_schema(tmp_path):
+    """The worker query resolves planned identity against TaskQueue's SQLite schema."""
+    from datetime import datetime, timezone
+
+    from shared.queue import TaskQueue
+
+    spec = make_round_spec("planned-spec-1")
+    queue = TaskQueue(db_path=tmp_path / "worker-round-resolution.sqlite3")
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        queue.db.execute(
+            """
+            INSERT INTO queue (
+                id, description, status, created_at, role, parent_task_id,
+                round_id, round_spec_id
+            ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)
+            """,
+            (
+                "task-child",
+                "regression fixture",
+                now,
+                "lab_runner",
+                None,
+                "runtime-round-uuid",
+                spec.round_id,
+            ),
+        )
+        queue.db.commit()
+
+        worker = Worker.__new__(Worker)
+        worker.queue = queue
+        case = SimpleNamespace(rounds=(spec,))
+
+        assert worker._resolve_round_spec("task-child", case) is spec
+    finally:
+        queue.db.close()
+

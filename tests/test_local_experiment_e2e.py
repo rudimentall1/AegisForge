@@ -994,3 +994,68 @@ def test_synthetic_case_queue_ledger_bundle_offline_verification(tmp_path):
             )
     finally:
         queue.db.close()
+
+
+def test_worker_resolves_planned_round_spec_not_runtime_round_id():
+    """A runtime round UUID must not be mistaken for the planned RoundSpec ID."""
+    from types import SimpleNamespace
+    from agents.worker import Worker
+
+    spec = RoundSpec(
+        round_id="planned-round-regression",
+        technique="source_pattern",
+        hypothesis="The declared invariant holds for the control fixture",
+        expected_evidence_atoms=("control_output",),
+        falsification_criteria="A counter-test violates the invariant",
+        disclosure_deadline_days=30,
+    )
+
+    class Result:
+        def __init__(self, row):
+            self.row = row
+
+        def fetchone(self):
+            return self.row
+
+    class DB:
+        def execute(self, _query, params):
+            rows = {
+                "child": ("root", "runtime-round-uuid", spec.round_id),
+                "root": (None, "runtime-round-uuid", spec.round_id),
+            }
+            return Result(rows.get(params[0]))
+
+    worker = object.__new__(Worker)
+    worker.queue = SimpleNamespace(db=DB())
+    case = SimpleNamespace(rounds=(spec,))
+
+    assert worker._resolve_round_spec("child", case) is spec
+
+
+def test_worker_does_not_guess_when_planned_round_binding_is_missing():
+    """A runtime round ID alone must not be treated as a planned spec ID."""
+    from types import SimpleNamespace
+    from agents.worker import Worker
+
+    spec = RoundSpec(
+        round_id="planned-round-unbound",
+        technique="source_pattern",
+        hypothesis="The declared invariant holds for the control fixture",
+        expected_evidence_atoms=("control_output",),
+        falsification_criteria="A counter-test violates the invariant",
+        disclosure_deadline_days=30,
+    )
+
+    class Result:
+        def fetchone(self):
+            return (None, "runtime-round-uuid", None)
+
+    class DB:
+        def execute(self, _query, _params):
+            return Result()
+
+    worker = object.__new__(Worker)
+    worker.queue = SimpleNamespace(db=DB())
+    case = SimpleNamespace(rounds=(spec,))
+
+    assert worker._resolve_round_spec("unbound", case) is None

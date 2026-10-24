@@ -217,6 +217,6 @@ def test_run_once_passes_registered_case_and_resolved_spec_to_agent(tmp_path, mo
 
         stored = queue.get_result(started["root_task_id"])
         assert stored["research_case_binding"]["case_id"] == case.case_id
-        assert stored["research_case_binding"]["target_commit"] == case.target_commit
+        assert stored["research_case_binding"]["case"]["target_commit"] == case.target_commit
     finally:
         queue.db.close()

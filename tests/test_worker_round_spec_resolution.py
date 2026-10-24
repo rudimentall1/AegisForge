@@ -51,8 +51,8 @@ def test_resolve_round_spec_from_task_round_identity():
 def test_resolve_round_spec_from_ancestor_when_legacy_child_has_no_round_id():
     spec = make_round_spec()
     worker = make_worker({
-        "child": ("root", None),
-        "root": (None, spec.round_id),
+        "child": ("root", None, None),
+        "root": (None, spec.round_id, None),
     })
     case = SimpleNamespace(rounds=(spec,))
 

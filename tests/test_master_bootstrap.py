@@ -241,8 +241,14 @@ def test_terminal_round_records_completion_and_never_auto_confirms(tmp_path, mon
         ("round-001",),
     ).fetchone()[0]
     queue.db.execute(
+        "UPDATE queue SET status = 'completed', planner_decision = 'CONTINUE', result = ? WHERE id = ?",
+        (json.dumps({"stage": "sources"}), root),
+    )
+    queue.db.commit()
+    validator_id = queue.add(description="validator result", role="validator", parent_task_id=root)
+    queue.db.execute(
         "UPDATE queue SET status = 'completed', planner_decision = 'COMPLETE', result = ? WHERE id = ?",
-        (json.dumps({"research_validation": {"verdict": "REPRODUCED"}}), root),
+        (json.dumps({"research_validation": {"verdict": "REPRODUCED"}}), validator_id),
     )
     queue.db.commit()
 
@@ -396,8 +402,14 @@ def test_master_calls_new_complete_round(tmp_path, monkeypatch):
         ("round-001",),
     ).fetchone()[0]
     queue.db.execute(
+        "UPDATE queue SET status = 'completed', planner_decision = 'CONTINUE', result = ? WHERE id = ?",
+        (json.dumps({"stage": "sources"}), root),
+    )
+    queue.db.commit()
+    validator_id = queue.add(description="validator result", role="validator", parent_task_id=root)
+    queue.db.execute(
         "UPDATE queue SET status = 'completed', planner_decision = 'COMPLETE', result = ? WHERE id = ?",
-        (json.dumps({"research_validation": {"verdict": "NOT_REPRODUCED"}}), root),
+        (json.dumps({"research_validation": {"verdict": "NOT_REPRODUCED"}}), validator_id),
     )
     queue.db.commit()
 
@@ -555,8 +567,14 @@ def test_completed_branch_marks_round_completed(tmp_path, monkeypatch):
         (case_id, "round-001"),
     ).fetchone()[0]
     queue.db.execute(
+        "UPDATE queue SET status = 'completed', planner_decision = 'CONTINUE', result = ? WHERE id = ?",
+        (json.dumps({"stage": "sources"}), root_id),
+    )
+    queue.db.commit()
+    validator_id = queue.add(description="validator result", role="validator", parent_task_id=root_id)
+    queue.db.execute(
         "UPDATE queue SET status = 'completed', planner_decision = 'COMPLETE', result = ? WHERE id = ?",
-        (json.dumps({"research_validation": {"verdict": "REPRODUCED"}}), root_id),
+        (json.dumps({"research_validation": {"verdict": "REPRODUCED"}}), validator_id),
     )
     queue.db.commit()
 

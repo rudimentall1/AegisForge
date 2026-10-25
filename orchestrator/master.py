@@ -3122,6 +3122,7 @@ class MasterOrchestrator:
             SELECT task.result
             FROM queue AS task
             JOIN descendants ON descendants.id = task.id
+            WHERE task.role = 'validator' AND task.status = 'completed'
             ORDER BY descendants.depth DESC, task.created_at DESC
             """,
             (root_id,),

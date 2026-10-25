@@ -216,6 +216,43 @@ def test_registered_case_runs_through_normal_planner_workers_and_validator(
             (case.case_id, "normal-pipeline-round"),
         ).fetchone()
         assert round_status == ("COMPLETED", "NOT_REPRODUCED")
+
+        # Export the actual end-to-end run as a portable package, then verify it
+        # using only the archive files and CLI contract.
+        from shared.local_experiment_bundle import main as bundle_cli_main
+        from shared.research_case_bundle import export_research_case_bundle
+        from shared.research_case_evidence_package import main as case_package_cli_main
+        import json
+
+        capsys.readouterr()
+        experiment_bundle = tmp_path / "normal-pipeline-experiment.zip"
+        assert bundle_cli_main([
+            "export", "--db", str(db_path),
+            "--record-digest", lab_result["local_experiment_evidence"]["record_digest"],
+            "--output", str(experiment_bundle),
+        ]) == 0
+        assert json.loads(capsys.readouterr().out)["status"] == "PASS"
+
+        dossier = tmp_path / "normal-pipeline-case-dossier.zip"
+        dossier_report = export_research_case_bundle(db_path, case.case_id, dossier)
+        assert dossier_report["valid"] is True
+
+        package = tmp_path / "normal-pipeline-evidence-package.zip"
+        assert case_package_cli_main([
+            "build", "--case-dossier", str(dossier),
+            "--experiment", str(experiment_bundle),
+            "--output", str(package),
+        ]) == 0
+        build_report = json.loads(capsys.readouterr().out)
+        assert build_report["status"] == "PASS"
+        assert build_report["experiment_count"] == 1
+
+        assert case_package_cli_main(["verify", str(package)]) == 0
+        verify_report = json.loads(capsys.readouterr().out)
+        assert verify_report["status"] == "PASS"
+        assert verify_report["case_id"] == case.case_id
+        assert verify_report["execution_truth_established"] is False
+        assert verify_report["vulnerability_confirmed"] is False
     finally:
         queue.db.close()
 

@@ -177,14 +177,23 @@ def test_registered_case_runs_through_normal_planner_workers_and_validator(
                 )
 
         rows = queue.db.execute(
-            "SELECT role, status, parent_task_id, result FROM queue "
-            "WHERE research_case_id = ? ORDER BY created_at, id",
+            "SELECT id, role, status, parent_task_id FROM queue "
+            "WHERE research_case_id = ?",
             (case.case_id,),
         ).fetchall()
-        roles = [row[0] for row in rows]
-        assert roles == expected_roles
-        assert all(row[1] == "completed" for row in rows)
-        assert all(rows[i][2] == rows[i - 1][0] or rows[i][2] is not None for i in range(1, len(rows)))
+        by_id = {row[0]: row for row in rows}
+        roots = [row for row in rows if row[3] is None]
+        assert len(roots) == 1
+        ordered = [roots[0]]
+        while True:
+            children = [row for row in rows if row[3] == ordered[-1][0]]
+            if not children:
+                break
+            assert len(children) == 1, "unexpected branch fan-out in vertical-slice fixture"
+            ordered.append(children[0])
+        assert [row[1] for row in ordered] == expected_roles
+        assert all(row[2] == "completed" for row in ordered)
+        assert len(ordered) == len(rows), "pipeline left an unlinked or unexpected task"
 
         lab_result = queue.get_result(
             queue.db.execute(

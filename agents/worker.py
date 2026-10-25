@@ -23,6 +23,8 @@ from shared.action_intent import build_action_intent
 from shared.agent_identity import AgentIdentity
 from shared.agent_authority import AgentAuthorityRegistry
 from shared.evidence_ledger import EvidenceLedger
+from shared.lab_experiment_persistence import persist_synthetic_lab_experiment
+from shared.result_codec import encode
 from shared.capability_grant import CapabilityGrant, CapabilityGrantError
 from shared.capability_signing import CapabilitySigner, CapabilitySignatureError
 from shared.execution_gate import ExecutionGate
@@ -888,6 +890,52 @@ class Worker:
                 task_id,
                 result=result_value,
             )
+
+            # Persist only the repository-owned synthetic LabRunner experiment.
+            # The queue task must be terminal first because the ledger checks
+            # authoritative task/case/round identity before accepting evidence.
+            if self.role == "lab_runner" and research_case is not None:
+                try:
+                    ledger = getattr(self, "evidence_ledger", None)
+                    if ledger is None:
+                        ledger = EvidenceLedger(self.queue.db)
+                    evidence_ref = persist_synthetic_lab_experiment(
+                        queue=self.queue,
+                        ledger=ledger,
+                        task_id=task_id,
+                        role=self.role,
+                        research_case=research_case,
+                        round_spec=round_spec,
+                        result_value=result_value,
+                    )
+                    if evidence_ref is not None:
+                        result_value = dict(result_value)
+                        result_value["local_experiment_evidence"] = evidence_ref
+                        self.queue.db.execute(
+                            "UPDATE queue SET result = ? WHERE id = ? AND status = 'completed'",
+                            (encode(result_value), task_id),
+                        )
+                        self.queue.db.commit()
+                except Exception as evidence_exc:
+                    # Preserve the completed computation but explicitly expose
+                    # that evidence persistence failed; never silently imply that
+                    # a portable evidence bundle exists.
+                    result_value = dict(result_value) if isinstance(result_value, dict) else {}
+                    result_value["local_experiment_evidence"] = {
+                        "status": "PERSISTENCE_FAILED",
+                        "error": str(evidence_exc),
+                        "vulnerability_confirmed": False,
+                    }
+                    self.queue.db.execute(
+                        "UPDATE queue SET result = ? WHERE id = ? AND status = 'completed'",
+                        (encode(result_value), task_id),
+                    )
+                    self.queue.db.commit()
+                    print(
+                        f"[{self.worker_id}] EVIDENCE PERSISTENCE FAILED "
+                        f"{task_id}: {evidence_exc}",
+                        flush=True,
+                    )
 
             print(
                 f"[{self.worker_id}] "

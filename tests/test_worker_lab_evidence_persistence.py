@@ -9,7 +9,9 @@ from shared.capability_policy import ActionIntent, CapabilityDecision
 from shared.case_rounds import start_case_round
 from shared.evidence_ledger import EvidenceLedger
 from shared.queue import TaskQueue
-from shared.research_case import CaseStatus, ExecutionMode, ResearchCase, RoundSpec
+from shared.research_case import (
+    CaseStatus, ExecutionMode, ResearchCase, RoundSpec, research_case_binding,
+)
 from shared.local_experiment_bundle import (
     export_persisted_local_experiment_bundle,
     verify_local_experiment_bundle,
@@ -61,7 +63,10 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys)
         root_id = started["root_task_id"]
         # The root must finish before the lab worker can claim its child task.
         queue.claim("root-test-worker", role="source_researcher")
-        queue.finish(root_id, result={"status": "INCONCLUSIVE"})
+        queue.finish(root_id, result={
+            "status": "INCONCLUSIVE",
+            "research_case_binding": research_case_binding(case),
+        })
         task_id = queue.add(
             "Run built-in synthetic LabRunner experiment",
             role="lab_runner",
@@ -176,7 +181,10 @@ def test_persistence_adapter_rejects_execution_output_digest_mismatch(tmp_path):
         started = start_case_round(queue, case.case_id, spec.round_id)
         root_id = started["root_task_id"]
         queue.claim("root-test-worker", role="source_researcher")
-        queue.finish(root_id, result={"status": "INCONCLUSIVE"})
+        queue.finish(root_id, result={
+            "status": "INCONCLUSIVE",
+            "research_case_binding": research_case_binding(case),
+        })
         task_id = queue.add(
             "Synthetic result digest mismatch fixture",
             role="lab_runner",

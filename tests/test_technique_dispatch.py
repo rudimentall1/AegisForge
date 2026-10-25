@@ -140,7 +140,7 @@ def test_master_assigns_root_role_from_round_technique(tmp_path, monkeypatch):
 
     assert master.bootstrap() is True
     rows = master.queue.db.execute(
-        "SELECT round_id, role FROM queue WHERE research_case_id = ? AND parent_task_id IS NULL",
+        "SELECT round_spec_id, role FROM queue WHERE research_case_id = ? AND parent_task_id IS NULL",
         (case.case_id,),
     ).fetchall()
     assert dict(rows) == {

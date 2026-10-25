@@ -3093,11 +3093,12 @@ class MasterOrchestrator:
             "supply_chain": "source_researcher",
         }
         root_role = root_roles.get(round_spec.technique, "source_researcher")
+        runtime_round_id = f"{case.case_id}:{round_spec.round_id}"
         task_id = self.queue.add(
             description=description,
             role=root_role,
             research_case_id=case.case_id,
-            round_id=round_spec.round_id,
+            round_id=runtime_round_id,
             round_spec_id=round_spec.round_id,
         )
         # The evidence ledger requires every executable round to have a
@@ -3175,7 +3176,7 @@ class MasterOrchestrator:
             )
             self.queue.db.execute("DROP TABLE research_case_rounds_legacy")
         existing_registry = self.queue.db.execute(
-            "SELECT round_number FROM research_case_rounds WHERE case_id = ? AND round_id = ?",
+            "SELECT round_number FROM research_case_rounds WHERE case_id = ? AND round_spec_id = ?",
             (case.case_id, round_spec.round_id),
         ).fetchone()
         if existing_registry:
@@ -3203,7 +3204,7 @@ class MasterOrchestrator:
               AND research_case_rounds.round_spec_id = excluded.round_spec_id
             """,
             (
-                round_spec.round_id,
+                runtime_round_id,
                 case.case_id,
                 round_number,
                 task_id,
@@ -3213,7 +3214,7 @@ class MasterOrchestrator:
         )
         self.queue.db.commit()
         self.queue.create_round_transparency(
-            round_id=round_spec.round_id,
+            round_id=runtime_round_id,
             case_id=case.case_id,
             technique=round_spec.technique,
             started_at=started_at.isoformat(),
@@ -3322,7 +3323,7 @@ class MasterOrchestrator:
 
                 roots = self.queue.db.execute(
                     """
-                    SELECT id, role, status, round_id, created_at FROM queue
+                    SELECT id, role, status, round_id, round_spec_id, created_at FROM queue
                     WHERE parent_task_id IS NULL AND research_case_id = ?
                     ORDER BY created_at ASC, id ASC
                     """,
@@ -3335,11 +3336,12 @@ class MasterOrchestrator:
                     # are reconstructed from its original created_at timestamp.
                     if case.rounds:
                         specs_by_id = {item.round_id: item for item in case.rounds}
-                        existing_round_ids = {
-                            row[3] for row in roots if row[3] in specs_by_id
+                        existing_spec_ids = {
+                            (row[4] or row[3]) for row in roots
+                            if (row[4] or row[3]) in specs_by_id
                         }
-                        for root_id, _role, _status, round_id, created_at in roots:
-                            spec = specs_by_id.get(round_id)
+                        for root_id, _role, _status, round_id, round_spec_id, created_at in roots:
+                            spec = specs_by_id.get(round_spec_id or round_id)
                             if spec is None:
                                 continue
                             timeline_exists = self.queue.db.execute(
@@ -3368,7 +3370,7 @@ class MasterOrchestrator:
                             )
                         missing_specs = [
                             item for item in case.rounds
-                            if item.round_id not in existing_round_ids
+                            if item.round_id not in existing_spec_ids
                         ]
                         if missing_specs:
                             created = []
@@ -3391,7 +3393,7 @@ class MasterOrchestrator:
                     failed_round_ids = []
                     failed_legacy_roots = []
                     all_roots_completed = True
-                    for root_id, _role, root_status, round_id, _created_at in roots:
+                    for root_id, _role, root_status, round_id, _round_spec_id, _created_at in roots:
                         active_descendants = self._has_active_descendants(root_id)
                         if root_status not in {"completed", "failed"} or active_descendants:
                             # A branch with active work must keep its round OPEN/EXTENDED.

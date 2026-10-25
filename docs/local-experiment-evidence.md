@@ -23,7 +23,9 @@ The primary end-to-end test is `tests/test_local_experiment_e2e.py::test_synthet
 Expected interpretation:
 - A passing test proves this synthetic fixture path behaves as asserted in the tested environment.
 - The fixture is not a real EVM exploit, historical key-forensics reproduction, or vulnerability finding.
-- The subprocess adapter applies resource limits but is not a security sandbox; its metadata explicitly does not claim network or filesystem isolation.
+- The legacy `shared.synthetic_fixture_runner` subprocess adapter applies resource limits but is not a security sandbox; its metadata explicitly does not claim network or filesystem isolation.
+
+An opt-in Linux backend, `shared.isolated_synthetic_fixture_runner`, uses Bubblewrap for the same fixed fixture only. It requests separate user, PID, network, IPC, and UTS namespaces; a read-only system tree; a private writable `/tmp`; a cleared environment; and no capabilities. Before accepting fixture output, the child checks that its network namespace differs from the host namespace and that the system tree rejects writes. If Bubblewrap is missing or these checks fail, the backend fails closed; it never falls back to the legacy subprocess runner. The backend is not wired to execute target repositories or dossier-supplied commands. A successful fixture run still does not establish target behavior, exploitability, or vulnerability confirmation. The actual Bubblewrap integration test runs only on hosts where Bubblewrap is installed; environments without it exercise the explicit fail-closed path.
 - The test signing key is ephemeral and public test data. It is not a production trust anchor.
 - A successful package verification does not establish execution truth or confirm a vulnerability.
 

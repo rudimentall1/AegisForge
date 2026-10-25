@@ -3192,7 +3192,7 @@ class MasterOrchestrator:
                 (round_id, case_id, round_number, root_task_id, created_at,
                  round_spec_id, status, started_at, finished_at)
             VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', NULL, NULL)
-            ON CONFLICT(round_id) DO UPDATE SET
+            ON CONFLICT(case_id, round_id) DO UPDATE SET
                 root_task_id = excluded.root_task_id,
                 created_at = excluded.created_at,
                 round_spec_id = excluded.round_spec_id,

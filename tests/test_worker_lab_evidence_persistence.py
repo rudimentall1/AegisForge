@@ -126,12 +126,15 @@ def test_persistence_adapter_rejects_execution_output_digest_mismatch(tmp_path):
         )
         claim = queue.claim("lab-test-worker", role="lab_runner")
         assert claim[0] == task_id
-        result = LabRunner.run_synthetic_entropy_demo(
+        experiment = LabRunner.run_synthetic_entropy_demo(
             case_binding=research_case_binding(case)
         )
-        result["research_track"] = "evm_key_forensics"
-        result["lab_experiments"] = [result]
-        result["lab_experiments"][0]["execution_record"]["stdout"] += "tampered"
+        experiment["execution_record"]["stdout"] += "tampered"
+        result = {
+            "research_track": "evm_key_forensics",
+            "research_case_binding": research_case_binding(case),
+            "lab_experiments": [experiment],
+        }
         queue.finish(task_id, result=result)
         ledger = EvidenceLedger(queue.db)
         import pytest

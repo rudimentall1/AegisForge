@@ -227,3 +227,101 @@ def verify_local_experiment_bundle(bundle_bytes: bytes) -> dict:
             }
     except (OSError, EOFError, UnicodeDecodeError, json.JSONDecodeError, ValueError, zipfile.BadZipFile, RuntimeError, zlib.error):
         return {"status": "FAIL", "errors": ["bundle_malformed_or_unreadable"]}
+
+
+def _read_bounded_cli_file(path_text: str, limit: int) -> bytes:
+    from pathlib import Path
+
+    path = Path(path_text)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("input_file_required")
+    size = path.stat().st_size
+    if size <= 0 or size > limit:
+        raise ValueError("input_file_size_limit_exceeded")
+    raw = path.read_bytes()
+    if len(raw) != size or len(raw) > limit:
+        raise ValueError("input_file_size_changed_during_read")
+    return raw
+
+
+def _write_cli_file_atomic(path_text: str, data: bytes) -> None:
+    import os
+    import tempfile
+    from pathlib import Path
+
+    output = Path(path_text)
+    if output.is_symlink():
+        raise ValueError("output_path_must_not_be_symlink")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix=f".{output.name}.", suffix=".tmp",
+            dir=output.parent, delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, output)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
+def main(argv=None) -> int:
+    """Export one persisted experiment or verify a bundle without executing it."""
+    import argparse
+    import json
+    import sqlite3
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    parser = argparse.ArgumentParser(
+        description="Export or verify a portable AegisForge local-experiment bundle."
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    export_parser = commands.add_parser(
+        "export", help="Export a persisted record from a queue/evidence SQLite database."
+    )
+    export_parser.add_argument("--db", required=True)
+    export_parser.add_argument("--record-digest", required=True)
+    export_parser.add_argument("--output", required=True)
+    verify_parser = commands.add_parser(
+        "verify", help="Verify a portable local-experiment ZIP offline."
+    )
+    verify_parser.add_argument("bundle")
+    args = parser.parse_args(argv)
+
+    try:
+        if args.command == "export":
+            db_path = Path(args.db)
+            if db_path.is_symlink() or not db_path.is_file():
+                raise ValueError("database_file_required")
+            connection = sqlite3.connect(
+                db_path.resolve().as_uri() + "?mode=ro", uri=True, timeout=10
+            )
+            try:
+                bundle = export_persisted_local_experiment_bundle(
+                    SimpleNamespace(db=connection), args.record_digest
+                )
+            finally:
+                connection.close()
+            _write_cli_file_atomic(args.output, bundle)
+            report = verify_local_experiment_bundle(bundle)
+        else:
+            bundle = _read_bounded_cli_file(args.bundle, _MAX_BUNDLE_BYTES)
+            report = verify_local_experiment_bundle(bundle)
+
+        print(json.dumps(report, sort_keys=True, indent=2, ensure_ascii=False))
+        return 0 if report.get("status") == "PASS" else 2
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        print(json.dumps(
+            {"status": "FAIL", "errors": [str(exc)]},
+            sort_keys=True, indent=2, ensure_ascii=False,
+        ))
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

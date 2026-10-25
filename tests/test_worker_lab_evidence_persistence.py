@@ -49,6 +49,8 @@ def _case_and_spec():
 def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys):
     from agents.lab_runner.agent import LabRunner
     from shared.local_experiment_bundle import main as bundle_cli_main
+    from shared.research_case_bundle import export_research_case_bundle
+    from shared.research_case_evidence_package import main as case_package_cli_main
 
     case, spec = _case_and_spec()
     db_path = tmp_path / "worker-lab-evidence.sqlite3"
@@ -109,7 +111,25 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys)
         assert export_report["status"] == "PASS"
         bundle = bundle_path.read_bytes()
 
-        # The CLI verifier must work after the source database is closed.
+        # Complete the vertical slice: export the registered case dossier,
+        # link the persisted experiment, and build the combined offline package.
+        dossier_path = tmp_path / "portable-case-dossier.zip"
+        dossier_export = export_research_case_bundle(
+            db_path, case.case_id, dossier_path
+        )
+        assert dossier_export["valid"] is True
+        package_path = tmp_path / "portable-case-evidence-package.zip"
+        assert case_package_cli_main([
+            "build", "--case-dossier", str(dossier_path),
+            "--experiment", str(bundle_path),
+            "--output", str(package_path),
+        ]) == 0
+        package_build_report = __import__("json").loads(capsys.readouterr().out)
+        assert package_build_report["status"] == "PASS"
+        assert package_build_report["case_id"] == case.case_id
+        assert package_build_report["experiment_count"] == 1
+
+        # Both verifiers must work after the source database is closed.
         queue.db.close()
         assert bundle_cli_main(["verify", str(bundle_path)]) == 0
         report = __import__("json").loads(capsys.readouterr().out)
@@ -119,6 +139,15 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys)
         assert report["task_id"] == task_id
         assert report["authenticated_execution"] is False
         assert report["vulnerability_confirmed"] is False
+
+        assert case_package_cli_main(["verify", str(package_path)]) == 0
+        package_report = __import__("json").loads(capsys.readouterr().out)
+        assert package_report["status"] == "PASS"
+        assert package_report["package_integrity_status"] == "PASS"
+        assert package_report["case_id"] == case.case_id
+        assert package_report["experiment_count"] == 1
+        assert package_report["execution_truth_established"] is False
+        assert package_report["vulnerability_confirmed"] is False
 
         with zipfile.ZipFile(BytesIO(bundle), "r") as archive:
             members = {name: archive.read(name) for name in archive.namelist()}

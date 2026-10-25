@@ -3111,7 +3111,17 @@ class MasterOrchestrator:
     def _round_verdict(self, root_id: str) -> str:
         """Read the final validator verdict; never infer confirmation from other fields."""
         rows = self.queue.db.execute(
-            "SELECT result FROM queue WHERE id = ? OR parent_task_id = ? ORDER BY created_at DESC",
+            "WITH RECURSIVE descendants(id, depth) AS (
+                SELECT id, 0 FROM queue WHERE id = ?
+                UNION ALL
+                SELECT child.id, parent.depth + 1
+                FROM queue AS child
+                JOIN descendants AS parent ON child.parent_task_id = parent.id
+            )
+            SELECT task.result
+            FROM queue AS task
+            JOIN descendants ON descendants.id = task.id
+            ORDER BY descendants.depth DESC, task.created_at DESC",
             (root_id, root_id),
         ).fetchall()
         # Keep Round verdicts aligned with the attestation vocabulary; never accept CONFIRMED.

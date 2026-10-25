@@ -1,6 +1,8 @@
 """Integration tests for the ordinary Worker -> LabRunner -> evidence path."""
 import hashlib
+from io import BytesIO
 from types import SimpleNamespace
+import zipfile
 
 from agents.worker import Worker
 from shared.capability_policy import ActionIntent, CapabilityDecision
@@ -96,6 +98,8 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path):
         bundle = export_persisted_local_experiment_bundle(
             ledger, evidence["record_digest"]
         )
+        # The verifier must work after the source database is closed.
+        queue.db.close()
         report = verify_local_experiment_bundle(bundle)
         assert report["status"] == "PASS"
         assert report["case_id"] == case.case_id
@@ -103,6 +107,16 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path):
         assert report["task_id"] == task_id
         assert report["authenticated_execution"] is False
         assert report["vulnerability_confirmed"] is False
+
+        with zipfile.ZipFile(BytesIO(bundle), "r") as archive:
+            members = {name: archive.read(name) for name in archive.namelist()}
+        members["stdout.bin"] += b"tampered"
+        tampered_buffer = BytesIO()
+        with zipfile.ZipFile(tampered_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, data in members.items():
+                archive.writestr(name, data)
+        tampered_report = verify_local_experiment_bundle(tampered_buffer.getvalue())
+        assert tampered_report["status"] == "FAIL"
     finally:
         queue.db.close()
 

@@ -22,6 +22,10 @@ from shared.research_case import (
 )
 
 
+def _runtime_round_id(case_id, round_spec_id):
+    return f"{case_id}:{round_spec_id}"
+
+
 def _case():
     spec = RoundSpec(
         round_id="normal-pipeline-round",
@@ -160,7 +164,10 @@ def test_registered_case_runs_through_normal_planner_workers_and_validator(
             (case.case_id,),
         ).fetchall()
         assert len(root_row) == 1
-        assert root_row[0] == ("normal-pipeline-round", "normal-pipeline-round")
+        assert root_row[0] == (
+            _runtime_round_id(case.case_id, "normal-pipeline-round"),
+            "normal-pipeline-round",
+        )
 
         expected_roles = [
             "source_researcher",
@@ -213,7 +220,7 @@ def test_registered_case_runs_through_normal_planner_workers_and_validator(
         assert master.bootstrap() is False
         round_status = queue.db.execute(
             "SELECT status, verdict FROM round_transparency WHERE case_id = ? AND round_id = ?",
-            (case.case_id, "normal-pipeline-round"),
+            (case.case_id, _runtime_round_id(case.case_id, "normal-pipeline-round")),
         ).fetchone()
         assert round_status == ("COMPLETED", "NOT_REPRODUCED")
 
@@ -286,8 +293,16 @@ def test_round_registry_allows_same_round_spec_id_in_two_cases(
             ("normal-pipeline-round",),
         ).fetchall()
         assert rows == [
-            ("normal-pipeline-case", "normal-pipeline-round", "normal-pipeline-round"),
-            ("normal-pipeline-case-2", "normal-pipeline-round", "normal-pipeline-round"),
+            (
+                "normal-pipeline-case",
+                _runtime_round_id("normal-pipeline-case", "normal-pipeline-round"),
+                "normal-pipeline-round",
+            ),
+            (
+                "normal-pipeline-case-2",
+                _runtime_round_id("normal-pipeline-case-2", "normal-pipeline-round"),
+                "normal-pipeline-round",
+            ),
         ]
     finally:
         queue.db.close()

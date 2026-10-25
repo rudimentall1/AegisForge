@@ -204,7 +204,7 @@ def test_registered_case_runs_through_normal_planner_workers_and_validator(
                 (case.case_id,),
             ).fetchone()[0]
         )
-        assert lab_result["local_experiment_evidence"]["status"] == "PERSISTED"
+        assert lab_result["local_experiment_evidence"]["status"] == "PERSISTED", lab_result["local_experiment_evidence"]
         assert lab_result["local_experiment_evidence"]["integrity_only"] is True
         assert lab_result["local_experiment_evidence"]["authenticated_execution"] is False
 

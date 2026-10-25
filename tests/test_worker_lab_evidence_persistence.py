@@ -154,6 +154,29 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys)
         assert package_report["execution_truth_established"] is False
         assert package_report["vulnerability_confirmed"] is False
 
+        # A dossier that references an additional experiment record must not be
+        # packaged with only a subset of the referenced experiment bundles.
+        # Record a syntactically valid but intentionally absent digest through the
+        # ledger API, then export a fresh, internally valid dossier.
+        ledger.record_observation(
+            task_id, "lab_runner", "local_experiment_record:" + ("f" * 64)
+        )
+        incomplete_dossier_path = tmp_path / "case-dossier-with-missing-experiment.zip"
+        incomplete_export = export_research_case_bundle(
+            db_path, case.case_id, incomplete_dossier_path
+        )
+        assert incomplete_export["valid"] is True
+        capsys.readouterr()
+        incomplete_package_path = tmp_path / "incomplete-case-package.zip"
+        assert case_package_cli_main([
+            "build", "--case-dossier", str(incomplete_dossier_path),
+            "--experiment", str(bundle_path),
+            "--output", str(incomplete_package_path),
+        ]) == 2
+        incomplete_report = __import__("json").loads(capsys.readouterr().out)
+        assert incomplete_report["status"] == "FAIL"
+        assert "package_experiment_set_does_not_match_dossier_evidence" in incomplete_report["errors"]
+
         # The outer package must reject a modified nested dossier even when the
         # ZIP remains structurally readable. This exercises the combined
         # package verifier, not only the inner experiment-bundle verifier.

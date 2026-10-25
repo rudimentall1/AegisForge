@@ -46,11 +46,13 @@ def _case_and_spec():
     return case, spec
 
 
-def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path):
+def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys):
     from agents.lab_runner.agent import LabRunner
+    from shared.local_experiment_bundle import main as bundle_cli_main
 
     case, spec = _case_and_spec()
-    queue = TaskQueue(db_path=tmp_path / "worker-lab-evidence.sqlite3")
+    db_path = tmp_path / "worker-lab-evidence.sqlite3"
+    queue = TaskQueue(db_path=db_path)
     try:
         queue.register_research_case(case)
         started = start_case_round(queue, case.case_id, spec.round_id)
@@ -95,12 +97,20 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path):
         assert evidence["status"] == "PERSISTED"
         assert evidence["integrity_only"] is True
         assert evidence["authenticated_execution"] is False
-        bundle = export_persisted_local_experiment_bundle(
-            ledger, evidence["record_digest"]
-        )
-        # The verifier must work after the source database is closed.
+        bundle_path = tmp_path / "portable-experiment.zip"
+        assert bundle_cli_main([
+            "export", "--db", str(db_path),
+            "--record-digest", evidence["record_digest"],
+            "--output", str(bundle_path),
+        ]) == 0
+        export_report = __import__("json").loads(capsys.readouterr().out)
+        assert export_report["status"] == "PASS"
+        bundle = bundle_path.read_bytes()
+
+        # The CLI verifier must work after the source database is closed.
         queue.db.close()
-        report = verify_local_experiment_bundle(bundle)
+        assert bundle_cli_main(["verify", str(bundle_path)]) == 0
+        report = __import__("json").loads(capsys.readouterr().out)
         assert report["status"] == "PASS"
         assert report["case_id"] == case.case_id
         assert report["round_spec_id"] == spec.round_id

@@ -89,7 +89,7 @@ def start_case_round(queue: TaskQueue, case_id: str, round_spec_id: str | None =
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS research_case_rounds (
-                round_id TEXT PRIMARY KEY,
+                round_id TEXT NOT NULL,
                 case_id TEXT NOT NULL,
                 round_number INTEGER NOT NULL,
                 root_task_id TEXT NOT NULL UNIQUE,
@@ -98,6 +98,7 @@ def start_case_round(queue: TaskQueue, case_id: str, round_spec_id: str | None =
                 status TEXT NOT NULL DEFAULT 'QUEUED',
                 started_at TEXT,
                 finished_at TEXT,
+                PRIMARY KEY(case_id, round_id),
                 UNIQUE(case_id, round_number)
             )
             """

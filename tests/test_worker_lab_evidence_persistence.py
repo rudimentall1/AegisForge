@@ -97,6 +97,8 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys)
         assert evidence["status"] == "PERSISTED"
         assert evidence["integrity_only"] is True
         assert evidence["authenticated_execution"] is False
+        # Worker.run_once() may emit diagnostics; isolate the CLI JSON response.
+        capsys.readouterr()
         bundle_path = tmp_path / "portable-experiment.zip"
         assert bundle_cli_main([
             "export", "--db", str(db_path),

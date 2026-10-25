@@ -3,6 +3,7 @@ import shutil
 
 import pytest
 
+from shared.synthetic_fixture import run_synthetic_fixture
 from shared import isolated_synthetic_fixture_runner as sandbox
 
 
@@ -69,6 +70,8 @@ def test_bubblewrap_backend_runs_only_the_fixture_with_isolation_checks(mode):
     assert result["execution"]["network_namespace_checked"] is True
     assert result["execution"]["read_only_system_tree_checked"] is True
     assert result["execution"]["private_tmp_write_checked"] is True
-    assert result["stdout_bytes"] == result["stdout_bytes"]
+    assert result["stdout_bytes"] == run_synthetic_fixture(mode)["stdout_bytes"]
+    assert result["stderr_bytes"] == run_synthetic_fixture(mode)["stderr_bytes"]
     assert result["execution"]["status"] == "PASS"
-    assert result["vulnerability_confirmed"] if "vulnerability_confirmed" in result else True
+    assert result["synthetic_fixture"] is True
+    assert result["subprocess_started"] is True

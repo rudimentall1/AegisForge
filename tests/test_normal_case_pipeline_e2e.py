@@ -218,3 +218,39 @@ def test_registered_case_runs_through_normal_planner_workers_and_validator(
         assert round_status == ("COMPLETED", "NOT_REPRODUCED")
     finally:
         queue.db.close()
+
+
+
+def test_round_registry_allows_same_round_spec_id_in_two_cases(
+    tmp_path, monkeypatch
+):
+    db_path = tmp_path / "case-scoped-round-registry.sqlite3"
+    monkeypatch.setattr(
+        master_module,
+        "TaskQueue",
+        lambda: RealTaskQueue(db_path=db_path),
+    )
+    from dataclasses import replace
+
+    master = master_module.MasterOrchestrator()
+    queue = master.queue
+    try:
+        first = _case()
+        second = replace(first, case_id="normal-pipeline-case-2")
+        queue.register_research_case(first)
+        queue.register_research_case(second)
+
+        assert master.bootstrap() is True
+        assert master.bootstrap() is True
+
+        rows = queue.db.execute(
+            "SELECT case_id, round_id, round_spec_id FROM research_case_rounds "
+            "WHERE round_spec_id = ? ORDER BY case_id",
+            ("normal-pipeline-round",),
+        ).fetchall()
+        assert rows == [
+            ("normal-pipeline-case", "normal-pipeline-round", "normal-pipeline-round"),
+            ("normal-pipeline-case-2", "normal-pipeline-round", "normal-pipeline-round"),
+        ]
+    finally:
+        queue.db.close()

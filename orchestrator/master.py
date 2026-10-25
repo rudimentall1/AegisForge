@@ -3100,6 +3100,78 @@ class MasterOrchestrator:
             round_id=round_spec.round_id,
             round_spec_id=round_spec.round_id,
         )
+        # The evidence ledger requires every executable round to have a
+        # durable registry row, not only a transparency row. Keep the schema
+        # compatible with the explicit case-round command and repair older DBs.
+        self.queue.db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_case_rounds (
+                round_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                round_number INTEGER NOT NULL,
+                root_task_id TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                round_spec_id TEXT,
+                status TEXT NOT NULL DEFAULT 'QUEUED',
+                started_at TEXT,
+                finished_at TEXT,
+                UNIQUE(case_id, round_number)
+            )
+            """
+        )
+        registry_columns = {
+            row[1] for row in self.queue.db.execute(
+                "PRAGMA table_info(research_case_rounds)"
+            )
+        }
+        for column, declaration in (
+            ("round_spec_id", "TEXT"),
+            ("status", "TEXT NOT NULL DEFAULT 'QUEUED'"),
+            ("started_at", "TEXT"),
+            ("finished_at", "TEXT"),
+        ):
+            if column not in registry_columns:
+                self.queue.db.execute(
+                    f"ALTER TABLE research_case_rounds ADD COLUMN {column} {declaration}"
+                )
+        existing_registry = self.queue.db.execute(
+            "SELECT round_number FROM research_case_rounds WHERE case_id = ? AND round_id = ?",
+            (case.case_id, round_spec.round_id),
+        ).fetchone()
+        if existing_registry:
+            round_number = int(existing_registry[0])
+        else:
+            round_number = int(self.queue.db.execute(
+                "SELECT COALESCE(MAX(round_number), 0) + 1 "
+                "FROM research_case_rounds WHERE case_id = ?",
+                (case.case_id,),
+            ).fetchone()[0])
+        self.queue.db.execute(
+            """
+            INSERT INTO research_case_rounds
+                (round_id, case_id, round_number, root_task_id, created_at,
+                 round_spec_id, status, started_at, finished_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', NULL, NULL)
+            ON CONFLICT(round_id) DO UPDATE SET
+                root_task_id = excluded.root_task_id,
+                created_at = excluded.created_at,
+                round_spec_id = excluded.round_spec_id,
+                status = 'QUEUED',
+                started_at = NULL,
+                finished_at = NULL
+            WHERE research_case_rounds.case_id = excluded.case_id
+              AND research_case_rounds.round_spec_id = excluded.round_spec_id
+            """,
+            (
+                round_spec.round_id,
+                case.case_id,
+                round_number,
+                task_id,
+                started_at.isoformat(),
+                round_spec.round_id,
+            ),
+        )
+        self.queue.db.commit()
         self.queue.create_round_transparency(
             round_id=round_spec.round_id,
             case_id=case.case_id,

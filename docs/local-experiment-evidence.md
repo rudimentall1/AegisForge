@@ -34,6 +34,22 @@ For the complete repository test suite, use `python -m pytest -q --tb=short`. Th
 1. `shared/local_experiment.py` builds a canonical record and exact raw `input.bin`, `stdout.bin`, and `stderr.bin` bytes from output supplied by a caller. Record schema v2 includes both the planned `round_spec_id` and runtime `round_id`. Schema v1 records remain readable. The record builder never executes `argv`.
 2. `EvidenceLedger.record_local_experiment()` accepts a record only for a terminal queue task. It checks the registered case and pinned target revision, the task's case/runtime/planned identities, and the authoritative runtime-round registry for planned cases. Count and raw-byte budgets are checked under a SQLite write reservation.
 3. `shared/local_experiment_bundle.py` creates and verifies a strict ZIP containing the canonical record and raw artifact bytes. A PASS means the record and bytes are internally consistent. The verifier exposes the canonical record digest so dossier evidence can link to it.
+
+### Export one persisted experiment
+
+The normal case-bound `lab_runner` worker path persists the built-in synthetic entropy demo to `EvidenceLedger`. Its task result contains `local_experiment_evidence.record_digest` only when persistence succeeds. Export that record from the worker's SQLite database, then verify the resulting ZIP without the database:
+
+```bash
+python -m shared.local_experiment_bundle export \\
+  --db ./data/agent_farm.db \\
+  --record-digest <RECORD_SHA256> \\
+  --output ./experiment-evidence.zip
+
+python -m shared.local_experiment_bundle verify ./experiment-evidence.zip
+```
+
+The export command opens the existing database read-only. The verifier reads only the bounded ZIP file and returns exit code `0` for an internally valid bundle or `2` on failure. A passing report is an integrity result, not proof of authenticated execution, target behavior, exploitability, or a confirmed vulnerability. This first worker integration is deliberately restricted to the repository-owned synthetic demo; it does not execute arbitrary commands or target code.
+
 4. `shared/research_case_bundle.py` exports a portable case dossier. Schema v3 includes `rounds.json`, which records the runtime-round registry separately from the case's planned RoundSpecs. The offline verifier checks task-parent, evidence, case, root-task, runtime-round, and planned-round relationships. Schema v1/v2 compatibility remains explicit.
 5. `shared/experiment_assessment.py` checks a control and a falsification counter-test against caller-specified byte-string criteria. Both artifacts must have matching case, round, planned round, repository and commit identities, with separate tasks and distinct commands. This is explicit byte matching, not a proof of general program behavior.
 6. `shared/research_case_evidence_package.py` combines the case dossier and all local-experiment ZIPs referenced by its evidence observations into one deterministic archive. It verifies the nested archives, cross-checks each record digest against exactly one task-bound evidence observation, and rejects packages that omit a referenced experiment.

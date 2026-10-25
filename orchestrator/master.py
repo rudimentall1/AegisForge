@@ -3106,7 +3106,7 @@ class MasterOrchestrator:
         self.queue.db.execute(
             """
             CREATE TABLE IF NOT EXISTS research_case_rounds (
-                round_id TEXT PRIMARY KEY,
+                round_id TEXT NOT NULL,
                 case_id TEXT NOT NULL,
                 round_number INTEGER NOT NULL,
                 root_task_id TEXT NOT NULL UNIQUE,
@@ -3115,6 +3115,7 @@ class MasterOrchestrator:
                 status TEXT NOT NULL DEFAULT 'QUEUED',
                 started_at TEXT,
                 finished_at TEXT,
+                PRIMARY KEY(case_id, round_id),
                 UNIQUE(case_id, round_number)
             )
             """
@@ -3134,6 +3135,45 @@ class MasterOrchestrator:
                 self.queue.db.execute(
                     f"ALTER TABLE research_case_rounds ADD COLUMN {column} {declaration}"
                 )
+        # Older versions keyed this registry globally by round_id. RoundSpec
+        # IDs are case-scoped, so migrate to (case_id, round_id) before inserts.
+        registry_pk = {
+            row[1]: row[5] for row in self.queue.db.execute(
+                "PRAGMA table_info(research_case_rounds)"
+            )
+        }
+        if registry_pk.get("round_id") and not registry_pk.get("case_id"):
+            self.queue.db.execute(
+                "ALTER TABLE research_case_rounds RENAME TO research_case_rounds_legacy"
+            )
+            self.queue.db.execute(
+                """
+                CREATE TABLE research_case_rounds (
+                    round_id TEXT NOT NULL,
+                    case_id TEXT NOT NULL,
+                    round_number INTEGER NOT NULL,
+                    root_task_id TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    round_spec_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'QUEUED',
+                    started_at TEXT,
+                    finished_at TEXT,
+                    PRIMARY KEY(case_id, round_id),
+                    UNIQUE(case_id, round_number)
+                )
+                """
+            )
+            self.queue.db.execute(
+                """
+                INSERT INTO research_case_rounds
+                    (round_id, case_id, round_number, root_task_id, created_at,
+                     round_spec_id, status, started_at, finished_at)
+                SELECT round_id, case_id, round_number, root_task_id, created_at,
+                       round_spec_id, status, started_at, finished_at
+                FROM research_case_rounds_legacy
+                """
+            )
+            self.queue.db.execute("DROP TABLE research_case_rounds_legacy")
         existing_registry = self.queue.db.execute(
             "SELECT round_number FROM research_case_rounds WHERE case_id = ? AND round_id = ?",
             (case.case_id, round_spec.round_id),

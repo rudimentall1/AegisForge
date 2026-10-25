@@ -504,8 +504,8 @@ def test_multiple_expired_rounds_create_multiple_reviews(tmp_path, monkeypatch):
         (case_id,),
     ).fetchall()
     assert reviews == [
-        ("deadline_exceeded:r1", "OPEN"),
-        ("deadline_exceeded:r2", "OPEN"),
+        ("deadline_exceeded:" + runtime_round_id(case_id, "r1"), "OPEN"),
+        ("deadline_exceeded:" + runtime_round_id(case_id, "r2"), "OPEN"),
     ]
     queue.db.close()
 

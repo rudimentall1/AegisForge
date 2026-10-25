@@ -134,26 +134,6 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys)
         assert package_build_report["case_id"] == case.case_id
         assert package_build_report["experiment_count"] == 1
 
-        # Both verifiers must work after the source database is closed.
-        queue.db.close()
-        assert bundle_cli_main(["verify", str(bundle_path)]) == 0
-        report = __import__("json").loads(capsys.readouterr().out)
-        assert report["status"] == "PASS"
-        assert report["case_id"] == case.case_id
-        assert report["round_spec_id"] == spec.round_id
-        assert report["task_id"] == task_id
-        assert report["authenticated_execution"] is False
-        assert report["vulnerability_confirmed"] is False
-
-        assert case_package_cli_main(["verify", str(package_path)]) == 0
-        package_report = __import__("json").loads(capsys.readouterr().out)
-        assert package_report["status"] == "PASS"
-        assert package_report["package_integrity_status"] == "PASS"
-        assert package_report["case_id"] == case.case_id
-        assert package_report["experiment_count"] == 1
-        assert package_report["execution_truth_established"] is False
-        assert package_report["vulnerability_confirmed"] is False
-
         # A dossier that references an additional experiment record must not be
         # packaged with only a subset of the referenced experiment bundles.
         # Record a syntactically valid but intentionally absent digest through the
@@ -176,6 +156,26 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys)
         incomplete_report = __import__("json").loads(capsys.readouterr().out)
         assert incomplete_report["status"] == "FAIL"
         assert "package_experiment_set_does_not_match_dossier_evidence" in incomplete_report["errors"]
+
+        # Both verifiers must work after the source database is closed.
+        queue.db.close()
+        assert bundle_cli_main(["verify", str(bundle_path)]) == 0
+        report = __import__("json").loads(capsys.readouterr().out)
+        assert report["status"] == "PASS"
+        assert report["case_id"] == case.case_id
+        assert report["round_spec_id"] == spec.round_id
+        assert report["task_id"] == task_id
+        assert report["authenticated_execution"] is False
+        assert report["vulnerability_confirmed"] is False
+
+        assert case_package_cli_main(["verify", str(package_path)]) == 0
+        package_report = __import__("json").loads(capsys.readouterr().out)
+        assert package_report["status"] == "PASS"
+        assert package_report["package_integrity_status"] == "PASS"
+        assert package_report["case_id"] == case.case_id
+        assert package_report["experiment_count"] == 1
+        assert package_report["execution_truth_established"] is False
+        assert package_report["vulnerability_confirmed"] is False
 
         # The outer package must reject a modified nested dossier even when the
         # ZIP remains structurally readable. This exercises the combined

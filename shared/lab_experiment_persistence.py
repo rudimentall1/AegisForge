@@ -75,6 +75,12 @@ def persist_synthetic_lab_experiment(
         raise ValueError("synthetic_lab_stdout_digest_mismatch")
     if hashlib.sha256(stderr_bytes).hexdigest() != execution.get("stderr_sha256"):
         raise ValueError("synthetic_lab_stderr_digest_mismatch")
+    exit_code = execution.get("exit_code")
+    test_passed = execution.get("test_passed")
+    if exit_code == 0 and test_passed is not True:
+        raise ValueError("synthetic_lab_pass_claim_inconsistent")
+    if test_passed is True and exit_code != 0:
+        raise ValueError("synthetic_lab_pass_claim_inconsistent")
 
     binding = result_value.get("research_case_binding")
     expected_binding = research_case_binding(research_case)

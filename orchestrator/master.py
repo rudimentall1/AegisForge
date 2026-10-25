@@ -3098,6 +3098,7 @@ class MasterOrchestrator:
             role=root_role,
             research_case_id=case.case_id,
             round_id=round_spec.round_id,
+            round_spec_id=round_spec.round_id,
         )
         self.queue.create_round_transparency(
             round_id=round_spec.round_id,

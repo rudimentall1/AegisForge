@@ -245,7 +245,7 @@ def test_terminal_round_records_completion_and_never_auto_confirms(tmp_path, mon
     assert master.bootstrap() is True
     root = queue.db.execute(
         "SELECT id FROM queue WHERE parent_task_id IS NULL AND round_id = ?",
-        (runtime_round_id(case_id, runtime_round_id(case_id, "round-001")),),
+        (runtime_round_id(case_id, "round-001"),),
     ).fetchone()[0]
     queue.db.execute(
         "UPDATE queue SET status = 'completed', planner_decision = 'CONTINUE', result = ? WHERE id = ?",
@@ -265,7 +265,7 @@ def test_terminal_round_records_completion_and_never_auto_confirms(tmp_path, mon
         SELECT status, completed_at, verdict FROM round_transparency
         WHERE round_id = ?
         """,
-        (runtime_round_id(case_id, runtime_round_id(case_id, "round-001")),),
+        (runtime_round_id(case_id, "round-001"),),
     ).fetchone()
     assert row[0] == "COMPLETED"
     assert row[1] is not None
@@ -409,7 +409,7 @@ def test_master_calls_new_complete_round(tmp_path, monkeypatch):
     assert master.bootstrap() is True
     root = queue.db.execute(
         "SELECT id FROM queue WHERE parent_task_id IS NULL AND round_id = ?",
-        (runtime_round_id(case_id, runtime_round_id(case_id, "round-001")),),
+        (runtime_round_id(case_id, "round-001"),),
     ).fetchone()[0]
     queue.db.execute(
         "UPDATE queue SET status = 'completed', planner_decision = 'CONTINUE', result = ? WHERE id = ?",
@@ -446,7 +446,7 @@ def test_master_uses_expired_rounds_for_review(tmp_path, monkeypatch):
     assert master.bootstrap() is True
     root = queue.db.execute(
         "SELECT id FROM queue WHERE parent_task_id IS NULL AND round_id = ?",
-        (runtime_round_id(case_id, runtime_round_id(case_id, "round-001")),),
+        (runtime_round_id(case_id, "round-001"),),
     ).fetchone()[0]
     queue.add(description="active child", role="crypto_analyst", parent_task_id=root)
     expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
@@ -564,7 +564,7 @@ def test_failed_branch_marks_round_failed_and_creates_round_review(tmp_path, mon
         "SELECT reason, status FROM pending_human_review WHERE case_id = ?",
         (case_id,),
     ).fetchall()
-    assert review == [("round_failed:round-001", "OPEN")]
+    assert review == [("round_failed:" + runtime_round_id(case_id, "round-001"), "OPEN")]
     queue.db.close()
 
 

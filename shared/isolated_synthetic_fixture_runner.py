@@ -94,8 +94,6 @@ def _build_bwrap_command(
         "--ro-bind-try", "/opt", "/opt",
         "--ro-bind-try", "/lib", "/lib",
         "--ro-bind-try", "/lib64", "/lib64",
-        "--dir", "/etc",
-        "--ro-bind-try", "/etc/ld.so.cache", "/etc/ld.so.cache",
         "--dev", "/dev",
         "--proc", "/proc",
         "--tmpfs", "/tmp",

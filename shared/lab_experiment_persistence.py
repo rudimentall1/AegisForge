@@ -7,9 +7,11 @@ vulnerability or of an authenticated execution environment.
 from __future__ import annotations
 
 import hashlib
+import json
 import platform
 import sys
 
+from agents.lab_runner.agent import LabRunner
 from shared.local_experiment import build_experiment_record
 from shared.research_case import research_case_binding
 
@@ -58,7 +60,13 @@ def persist_synthetic_lab_experiment(
 
     stdout_bytes = stdout_text.encode("utf-8")
     stderr_bytes = stderr_text.encode("utf-8")
-    command_bytes = __import__("json").dumps(
+    script_bytes = LabRunner._SYNTHETIC_EXPERIMENT_SCRIPT.encode("utf-8")
+    expected_command = [sys.executable, "-c", LabRunner._SYNTHETIC_EXPERIMENT_SCRIPT]
+    if command != expected_command:
+        raise ValueError("synthetic_lab_command_not_allowlisted")
+    if hashlib.sha256(script_bytes).hexdigest() != execution.get("script_source_sha256"):
+        raise ValueError("synthetic_lab_script_digest_mismatch")
+    command_bytes = json.dumps(
         command, ensure_ascii=False, separators=(",", ":")
     ).encode("utf-8")
     if hashlib.sha256(command_bytes).hexdigest() != execution.get("command_sha256"):

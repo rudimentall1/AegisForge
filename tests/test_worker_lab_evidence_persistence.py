@@ -125,7 +125,10 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys)
         with zipfile.ZipFile(tampered_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for name, data in members.items():
                 archive.writestr(name, data)
-        tampered_report = verify_local_experiment_bundle(tampered_buffer.getvalue())
+        tampered_path = tmp_path / "tampered-experiment.zip"
+        tampered_path.write_bytes(tampered_buffer.getvalue())
+        assert bundle_cli_main(["verify", str(tampered_path)]) == 2
+        tampered_report = __import__("json").loads(capsys.readouterr().out)
         assert tampered_report["status"] == "FAIL"
     finally:
         queue.db.close()

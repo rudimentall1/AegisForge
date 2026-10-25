@@ -154,6 +154,28 @@ def test_worker_lab_result_persists_and_exports_offline_bundle(tmp_path, capsys)
         assert package_report["execution_truth_established"] is False
         assert package_report["vulnerability_confirmed"] is False
 
+        # The outer package must reject a modified nested dossier even when the
+        # ZIP remains structurally readable. This exercises the combined
+        # package verifier, not only the inner experiment-bundle verifier.
+        with zipfile.ZipFile(package_path, "r") as archive:
+            package_members = {
+                name: archive.read(name) for name in archive.namelist()
+            }
+        dossier_member = "case-dossier.zip"
+        assert dossier_member in package_members
+        package_members[dossier_member] += b"tampered"
+        tampered_package_buffer = BytesIO()
+        with zipfile.ZipFile(
+            tampered_package_buffer, "w", compression=zipfile.ZIP_DEFLATED
+        ) as archive:
+            for name, data in package_members.items():
+                archive.writestr(name, data)
+        tampered_package_path = tmp_path / "tampered-case-package.zip"
+        tampered_package_path.write_bytes(tampered_package_buffer.getvalue())
+        assert case_package_cli_main(["verify", str(tampered_package_path)]) == 2
+        tampered_package_report = __import__("json").loads(capsys.readouterr().out)
+        assert tampered_package_report["status"] == "FAIL"
+
         with zipfile.ZipFile(BytesIO(bundle), "r") as archive:
             members = {name: archive.read(name) for name in archive.namelist()}
         members["stdout.bin"] += b"tampered"

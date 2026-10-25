@@ -154,10 +154,13 @@ def test_registered_case_runs_through_normal_planner_workers_and_validator(
 
         # The real bootstrap creates the first root from the registered RoundSpec.
         assert master.bootstrap() is True
-        assert queue.db.execute(
-            "SELECT COUNT(*) FROM queue WHERE parent_task_id IS NULL AND research_case_id = ?",
+        root_row = queue.db.execute(
+            "SELECT round_id, round_spec_id FROM queue "
+            "WHERE parent_task_id IS NULL AND research_case_id = ?",
             (case.case_id,),
-        ).fetchone()[0] == 1
+        ).fetchall()
+        assert len(root_row) == 1
+        assert root_row[0] == ("normal-pipeline-round", "normal-pipeline-round")
 
         expected_roles = [
             "source_researcher",

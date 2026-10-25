@@ -558,6 +558,24 @@ def test_failed_branch_marks_round_failed_and_creates_round_review(tmp_path, mon
     queue.db.close()
 
 
+def test_round_verdict_ignores_root_claim_without_completed_validator(tmp_path, monkeypatch):
+    master, queue = make_master(tmp_path, monkeypatch)
+    case_id = register_case(queue, make_case(rounds=(make_round(),)))
+    assert master.bootstrap() is True
+    root_id = queue.db.execute(
+        "SELECT id FROM queue WHERE parent_task_id IS NULL AND research_case_id = ? AND round_id = ?",
+        (case_id, "round-001"),
+    ).fetchone()[0]
+    queue.db.execute(
+        "UPDATE queue SET status = 'completed', planner_decision = 'COMPLETE', result = ? WHERE id = ?",
+        (json.dumps({"research_validation": {"verdict": "REPRODUCED"}}), root_id),
+    )
+    queue.db.commit()
+
+    assert master._round_verdict(root_id) == "INCONCLUSIVE"
+    queue.db.close()
+
+
 def test_completed_branch_marks_round_completed(tmp_path, monkeypatch):
     master, queue = make_master(tmp_path, monkeypatch)
     case_id = register_case(queue, make_case(rounds=(make_round(),)))

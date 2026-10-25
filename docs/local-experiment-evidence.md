@@ -126,3 +126,18 @@ Synthetic outputs remain `INCONCLUSIVE` for target vulnerability status. No veri
 ## Release gate
 
 RC gate #158 remains open until a clean-runner acceptance path demonstrates bounded execution/reproduction from a clean checkout, exact evidence persistence, portable export and offline verification, and clear failure behavior for missing or mismatched evidence. The fixed-fixture subprocess exercises actual process output capture and resource-limit wiring, but the missing network and filesystem isolation mean it does not by itself close that gate.
+
+
+## Bubblewrap harness acceptance command
+
+The optional Bubblewrap backend is limited to the fixed repository-owned synthetic fixture. To verify that the runtime isolation checks actually execute on a Linux host with Bubblewrap and user namespaces available, run this from a clean checkout:
+
+```bash
+python scripts/verify_bubblewrap_fixture.py --output ./artifacts/bubblewrap-acceptance.json
+```
+
+The command runs both `control` and `countertest`, requires runtime checks for a distinct network namespace, a read-only system tree, and writable private `/tmp`, and writes a machine-readable report. Exit code `0` means both fixture modes passed these harness checks; non-zero means acceptance failed or the required isolation dependency is unavailable. It does not silently fall back to the non-isolated subprocess runner.
+
+The report records the runner commit when available, platform, Python and Bubblewrap versions, per-mode exit codes, output hashes, and check results. Treat it as local acceptance evidence, not as a signed attestation. Preserve the exact report and environment details when asking another engineer to independently verify the run.
+
+**Scope limit:** a successful report proves only that this fixed synthetic fixture ran with the tested Bubblewrap isolation profile. It does not prove that arbitrary target code is safe to execute, reproduce a historical vulnerability, establish exploitability, or close release gate #158. The current CI environment may skip the actual Bubblewrap integration tests when Bubblewrap is absent; a skipped test is not a pass.

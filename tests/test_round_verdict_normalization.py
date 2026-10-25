@@ -104,6 +104,18 @@ def test_round_verdict_finds_nested_validator_descendant(tmp_path):
         "research_validation": {"verdict": "NOT_REPRODUCED"}
     })
 
+    # A deeper non-validator task must not override the validator's verdict,
+    # even if its untrusted result contains a verdict-shaped field.
+    misleading_id = queue.add(
+        "untrusted downstream note",
+        role="researcher",
+        parent_task_id=validator_id,
+    )
+    assert queue.claim("researcher-worker", role="researcher")[0] == misleading_id
+    queue.finish(misleading_id, result={
+        "research_validation": {"verdict": "REPRODUCED"}
+    })
+
     master = MasterOrchestrator.__new__(MasterOrchestrator)
     master.queue = queue
     from orchestrator.master import AutonomousPlanner

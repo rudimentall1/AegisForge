@@ -33,10 +33,10 @@ jobs:
           fi
           pip install pytest
 
-      - name: Install C++ compiler
+      - name: Install C++ compiler and Bubblewrap
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++
+          sudo apt-get install -y g++ bubblewrap
 
       - name: Compile diagnostic twice and compare binaries
         run: |
@@ -274,3 +274,19 @@ jobs:
         with:
           name: aegisforge-pytest-failure
           path: pytest.log
+
+      - name: Run Bubblewrap fixture acceptance
+        if: always()
+        run: |
+          set -euo pipefail
+          python -m scripts.verify_bubblewrap_fixture \
+            --output artifacts/bubblewrap-acceptance.json
+
+      - name: Upload Bubblewrap acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegisforge-bubblewrap-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/bubblewrap-acceptance.json
+          if-no-files-found: warn
+          retention-days: 30

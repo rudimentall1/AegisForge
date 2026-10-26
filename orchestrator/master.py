@@ -3093,14 +3093,128 @@ class MasterOrchestrator:
             "supply_chain": "source_researcher",
         }
         root_role = root_roles.get(round_spec.technique, "source_researcher")
+        runtime_round_id = f"{case.case_id}:{round_spec.round_id}"
         task_id = self.queue.add(
             description=description,
             role=root_role,
             research_case_id=case.case_id,
-            round_id=round_spec.round_id,
+            round_id=runtime_round_id,
+            round_spec_id=round_spec.round_id,
         )
+        # The evidence ledger requires every executable round to have a
+        # durable registry row, not only a transparency row. Keep the schema
+        # compatible with the explicit case-round command and repair older DBs.
+        self.queue.db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_case_rounds (
+                round_id TEXT NOT NULL,
+                case_id TEXT NOT NULL,
+                round_number INTEGER NOT NULL,
+                root_task_id TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                round_spec_id TEXT,
+                status TEXT NOT NULL DEFAULT 'QUEUED',
+                started_at TEXT,
+                finished_at TEXT,
+                PRIMARY KEY(case_id, round_id),
+                UNIQUE(case_id, round_number)
+            )
+            """
+        )
+        registry_columns = {
+            row[1] for row in self.queue.db.execute(
+                "PRAGMA table_info(research_case_rounds)"
+            )
+        }
+        for column, declaration in (
+            ("round_spec_id", "TEXT"),
+            ("status", "TEXT NOT NULL DEFAULT 'QUEUED'"),
+            ("started_at", "TEXT"),
+            ("finished_at", "TEXT"),
+        ):
+            if column not in registry_columns:
+                self.queue.db.execute(
+                    f"ALTER TABLE research_case_rounds ADD COLUMN {column} {declaration}"
+                )
+        # Older versions keyed this registry globally by round_id. RoundSpec
+        # IDs are case-scoped, so migrate to (case_id, round_id) before inserts.
+        registry_pk = {
+            row[1]: row[5] for row in self.queue.db.execute(
+                "PRAGMA table_info(research_case_rounds)"
+            )
+        }
+        if registry_pk.get("round_id") and not registry_pk.get("case_id"):
+            self.queue.db.execute(
+                "ALTER TABLE research_case_rounds RENAME TO research_case_rounds_legacy"
+            )
+            self.queue.db.execute(
+                """
+                CREATE TABLE research_case_rounds (
+                    round_id TEXT NOT NULL,
+                    case_id TEXT NOT NULL,
+                    round_number INTEGER NOT NULL,
+                    root_task_id TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    round_spec_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'QUEUED',
+                    started_at TEXT,
+                    finished_at TEXT,
+                    PRIMARY KEY(case_id, round_id),
+                    UNIQUE(case_id, round_number)
+                )
+                """
+            )
+            self.queue.db.execute(
+                """
+                INSERT INTO research_case_rounds
+                    (round_id, case_id, round_number, root_task_id, created_at,
+                     round_spec_id, status, started_at, finished_at)
+                SELECT round_id, case_id, round_number, root_task_id, created_at,
+                       round_spec_id, status, started_at, finished_at
+                FROM research_case_rounds_legacy
+                """
+            )
+            self.queue.db.execute("DROP TABLE research_case_rounds_legacy")
+        existing_registry = self.queue.db.execute(
+            "SELECT round_number FROM research_case_rounds WHERE case_id = ? AND round_spec_id = ?",
+            (case.case_id, round_spec.round_id),
+        ).fetchone()
+        if existing_registry:
+            round_number = int(existing_registry[0])
+        else:
+            round_number = int(self.queue.db.execute(
+                "SELECT COALESCE(MAX(round_number), 0) + 1 "
+                "FROM research_case_rounds WHERE case_id = ?",
+                (case.case_id,),
+            ).fetchone()[0])
+        self.queue.db.execute(
+            """
+            INSERT INTO research_case_rounds
+                (round_id, case_id, round_number, root_task_id, created_at,
+                 round_spec_id, status, started_at, finished_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', NULL, NULL)
+            ON CONFLICT(case_id, round_id) DO UPDATE SET
+                root_task_id = excluded.root_task_id,
+                created_at = excluded.created_at,
+                round_spec_id = excluded.round_spec_id,
+                status = 'QUEUED',
+                started_at = NULL,
+                finished_at = NULL
+            WHERE research_case_rounds.case_id = excluded.case_id
+              AND research_case_rounds.round_spec_id = excluded.round_spec_id
+            """,
+            (
+                runtime_round_id,
+                case.case_id,
+                round_number,
+                task_id,
+                started_at.isoformat(),
+                round_spec.round_id,
+            ),
+        )
+        self.queue.db.commit()
         self.queue.create_round_transparency(
-            round_id=round_spec.round_id,
+            round_id=runtime_round_id,
             case_id=case.case_id,
             technique=round_spec.technique,
             started_at=started_at.isoformat(),
@@ -3111,8 +3225,21 @@ class MasterOrchestrator:
     def _round_verdict(self, root_id: str) -> str:
         """Read the final validator verdict; never infer confirmation from other fields."""
         rows = self.queue.db.execute(
-            "SELECT result FROM queue WHERE id = ? OR parent_task_id = ? ORDER BY created_at DESC",
-            (root_id, root_id),
+            """
+            WITH RECURSIVE descendants(id, depth) AS (
+                SELECT id, 0 FROM queue WHERE id = ?
+                UNION ALL
+                SELECT child.id, parent.depth + 1
+                FROM queue AS child
+                JOIN descendants AS parent ON child.parent_task_id = parent.id
+            )
+            SELECT task.result
+            FROM queue AS task
+            JOIN descendants ON descendants.id = task.id
+            WHERE task.role = 'validator' AND task.status = 'completed'
+            ORDER BY descendants.depth DESC, task.created_at DESC
+            """,
+            (root_id,),
         ).fetchall()
         # Keep Round verdicts aligned with the attestation vocabulary; never accept CONFIRMED.
         allowed = {"REPRODUCED", "NOT_REPRODUCED", "INCONCLUSIVE", "OUT_OF_SCOPE"}
@@ -3196,7 +3323,7 @@ class MasterOrchestrator:
 
                 roots = self.queue.db.execute(
                     """
-                    SELECT id, role, status, round_id, created_at FROM queue
+                    SELECT id, role, status, round_id, round_spec_id, created_at FROM queue
                     WHERE parent_task_id IS NULL AND research_case_id = ?
                     ORDER BY created_at ASC, id ASC
                     """,
@@ -3209,11 +3336,12 @@ class MasterOrchestrator:
                     # are reconstructed from its original created_at timestamp.
                     if case.rounds:
                         specs_by_id = {item.round_id: item for item in case.rounds}
-                        existing_round_ids = {
-                            row[3] for row in roots if row[3] in specs_by_id
+                        existing_spec_ids = {
+                            (row[4] or row[3]) for row in roots
+                            if (row[4] or row[3]) in specs_by_id
                         }
-                        for root_id, _role, _status, round_id, created_at in roots:
-                            spec = specs_by_id.get(round_id)
+                        for root_id, _role, _status, round_id, round_spec_id, created_at in roots:
+                            spec = specs_by_id.get(round_spec_id or round_id)
                             if spec is None:
                                 continue
                             timeline_exists = self.queue.db.execute(
@@ -3242,7 +3370,7 @@ class MasterOrchestrator:
                             )
                         missing_specs = [
                             item for item in case.rounds
-                            if item.round_id not in existing_round_ids
+                            if item.round_id not in existing_spec_ids
                         ]
                         if missing_specs:
                             created = []
@@ -3265,7 +3393,7 @@ class MasterOrchestrator:
                     failed_round_ids = []
                     failed_legacy_roots = []
                     all_roots_completed = True
-                    for root_id, _role, root_status, round_id, _created_at in roots:
+                    for root_id, _role, root_status, round_id, _round_spec_id, _created_at in roots:
                         active_descendants = self._has_active_descendants(root_id)
                         if root_status not in {"completed", "failed"} or active_descendants:
                             # A branch with active work must keep its round OPEN/EXTENDED.

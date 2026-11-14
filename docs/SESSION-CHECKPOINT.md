@@ -113,3 +113,12 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - The CI pass validates the implemented synthetic fixture-to-ledger-to-bundle-to-paired-assessment path. It does not demonstrate execution of pinned target code, vulnerability reproduction, or the full #158 acceptance contract.
 - Issue #158 remains OPEN. PR #196 remains DRAFT. Do not merge or close the gate based solely on this CI result.
 - Next engineering priority: design and review the pinned-target execution boundary before implementing an adapter. It must bind execution to the immutable Research Case target commit and scope; pin toolchain versions; deny network by default; constrain filesystem, CPU, memory, wall time and output; reject bundle-supplied commands; capture raw outputs and exit status; and fail closed when isolation is unavailable. The existing fixture-only runner must remain fixture-only.
+
+
+## 11. Pinned-target execution design — 2026-11-14
+
+- Added `docs/PINNED-TARGET-EXECUTION-ADAPTER-DESIGN.md` in commit `3123a58be58fe38e40123d5dca8a65f73a094767`.
+- The document defines immutable case admission, exact source materialization, fixed Foundry/Slither adapters, executor request schema, isolation/resource controls, evidence lifecycle, result semantics, staged acceptance, and unresolved deployment/toolchain decisions.
+- Critical security decision: do not treat same-kernel Bubblewrap as a sufficient hostile-repository boundary. Public/untrusted target code requires a disposable isolated VM/microVM with no host credentials or shared writable mounts. Bubblewrap remains limited to the existing fixed synthetic fixture and lower-assurance local use only if explicitly approved.
+- No arbitrary target execution code was added. This is deliberate: the available repository state does not yet establish a safe VM backend or pinned toolchain profile. Implementing a shell wrapper before resolving that boundary would create a dangerous false sense of security.
+- Next: choose and verify the disposable execution backend and exact Foundry/Slither versions, then implement Stage A typed admission and negative tests before any target process can start.

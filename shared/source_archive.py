@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,10 +76,11 @@ def extract_github_source_archive(
     if target.exists():
         raise SourceArchiveError("destination_must_not_exist")
 
+    target_created = False
     try:
         with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as archive:
             members = archive.getmembers()
-            if not members or len(members) > limits.max_files + 1:
+            if not members or len(members) > (limits.max_files * 2) + 1:
                 raise SourceArchiveError("archive_member_count_out_of_bounds")
 
             root_name: str | None = None
@@ -126,6 +128,7 @@ def extract_github_source_archive(
                         raise SourceArchiveError("archive_file_directory_collision")
 
             target.mkdir(parents=False, exist_ok=False)
+            target_created = True
             root_dir = target / root_name
             root_dir.mkdir()
 
@@ -170,6 +173,14 @@ def extract_github_source_archive(
                 total_bytes=total_bytes,
             )
     except SourceArchiveError:
+        if target_created:
+            shutil.rmtree(target, ignore_errors=True)
         raise
     except (tarfile.TarError, OSError, EOFError) as exc:
+        if target_created:
+            shutil.rmtree(target, ignore_errors=True)
         raise SourceArchiveError("archive_invalid_or_unreadable") from exc
+    except Exception:
+        if target_created:
+            shutil.rmtree(target, ignore_errors=True)
+        raise

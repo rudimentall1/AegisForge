@@ -3,16 +3,17 @@
 **Updated:** 2026-11-14  
 **Repository:** https://github.com/rudimentall1/AegisForge  
 **Working branch:** `feat/persist-local-experiment-evidence-main`  
+**Latest checkpoint commit:** `6cc6c386ca33412bc7800c79675c1e7a0df42594`  
 **PR:** [#196](https://github.com/rudimentall1/AegisForge/pull/196) — OPEN, DRAFT, not merged  
 **Release gate:** [Issue #158](https://github.com/rudimentall1/AegisForge/issues/158) — OPEN
 
 ## 1. Where we stopped (verified repository state)
 
-- PR #196 head is `25bade6f4ce64354197fd3e841c89afd4328d10b`; base is `main` at `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
-- PR contains 236 commits, 43 changed files, +9,860/-138 lines. It remains Draft. Do not merge it as-is.
-- The only workflow run returned for the current PR head is run #1614 / ID `40369651993`; conclusion: **FAILURE**. The previously recorded failure is the Bubblewrap fixture runner failing to create loopback networking in the hosted runner (`RTM_NEWADDR: Operation not permitted`). This is an environment/acceptance blocker, not evidence that the complete isolated execution contract works.
+- PR #196 currently has 238 commits, 45 changed files, +10,0xx/-138 lines (GitHub PR metadata; exact line count should be refreshed before release notes). Head after the latest docs commits: `6cc6c386ca33412bc7800c79675c1e7a0df42594`; base is `main` at `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
+- PR remains OPEN and DRAFT. Latest observed PR metadata reports `mergeable: true`; this is not approval to merge. Keep Draft until release gate #158 is satisfied.
+- Workflow run #1615 / ID `43597955894` on the previous checkpoint head `33eb493b554752eca43b92f795d3dd980c0dc2ba` completed **SUCCESS**. This supersedes the older observed run #1614 failure for that earlier head, but does not prove the release acceptance contract or close issue #158. The latest docs-only commits still need their own CI result.
 - Issue #158 remains open. Its acceptance contract still requires one clean-runner, local-only path from immutable Research Case registration through bounded experiment, evidence export, independent verification, adversarial rejection tests, and honest machine-readable statuses.
-- `docs/SESSION-CHECKPOINT.md` did not exist on the default branch when checked. This file records the current handoff on the PR branch.
+- `docs/SESSION-CHECKPOINT.md` is maintained on this PR branch as the handoff record.
 - `README.md`, `docs/ARCHITECTURE.md`, and `docs/PRODUCT-READINESS.md` all explicitly say release readiness and commercial fit are not established.
 - Current Python requirements are small (requests, python-dotenv, cryptography, pydantic). No confirmed Slither or Echidna integration was found in the files reviewed. Foundry appears in the target architecture, not as proof of a completed end-to-end adapter.
 
@@ -58,11 +59,13 @@ Sell saved researcher/reviewer time and defensible evidence, not access to free 
 **Not selected for the MVP:**
 - Do not adopt Certora, Sherlock, Olympix, AuditAgent or other commercial/closed products as code dependencies without a clearly licensed public source and explicit rights.
 - Do not add generic pentest agents, Nuclei, MCP wrappers, LangGraph, extra LLM agents, or another database merely to increase feature count.
-- No code from the candidate upstream projects has been copied or integrated as of this checkpoint. Attribution, exact version pinning, license review, NOTICE files and dependency inventory are required before any reuse/distribution.
+- No code from candidate upstream projects has been copied or integrated as of this checkpoint. Attribution, exact version pinning, license review, NOTICE files and dependency inventory are required before any reuse/distribution.
+
+**External AI/API security lab reviewed:** [Parakh-Shinde/AegisForge](https://github.com/Parakh-Shinde/AegisForge) is an unrelated Apache-2.0 project with synthetic AI/API scenarios, deterministic tenant-authorization simulation, telemetry correlation, evaluation and report provenance. It is NOT part of our codebase. Its documented untouched holdout v2 metrics are weak (F1 0.1333, recall 0.0833); later adapted regression metrics must not be presented as independent validation. Keep it separate and do not let it delay the EVM MVP. Detailed assessment and reuse conditions: `docs/EXTERNAL-COMPONENT-EVALUATION-AI-API-LAB.md`. Both projects share the AegisForge name; preserve clear attribution and avoid implying affiliation.
 
 ## 5. Immediate execution order
 
-1. Reconcile PR #196 with current `main`; inspect the exact failing job and reproduce the Bubblewrap limitation. Keep PR Draft and issue #158 open.
+1. Refresh CI on the current PR head and inspect whether the release-gate acceptance contract is actually exercised. The observed successful run #1615 is not sufficient by itself. Keep PR Draft and issue #158 open.
 2. Close the release-critical gap with a truthful clean-checkout acceptance path. Do not relabel process limits as a security sandbox. If hosted CI cannot provide the required namespace capability, use a supported runner/isolated environment or mark that acceptance as NOT_RUN; do not fake a pass.
 3. Once the case-to-bundle workflow is reproducible, add **one** vertical slice: pinned Solidity target → Foundry build/test → Slither static analysis → raw outputs and tool metadata recorded in the existing evidence model → offline bundle verification.
 4. Pin tool versions, record installation provenance and licenses. Keep tools as subprocess/container adapters; never execute commands taken from an evidence bundle.
@@ -83,3 +86,10 @@ Sell saved researcher/reviewer time and defensible evidence, not access to free 
 A clean checkout can run one pinned, authorized Solidity case using Foundry and Slither, retain raw and attributable evidence, export a portable bundle, and have a second environment verify it. Every stage reports PASS/FAIL/INCONCLUSIVE/NOT_RUN honestly. Then a researcher outside the project can reproduce and review the result.
 
 **Current status:** substantial evidence foundation exists; release gate is not passed; commercial demand is not validated; Foundry/Slither/Echidna integrations are plans, not completed capabilities.
+
+
+## 8. Latest execution note — 2026-11-14
+
+- Re-read PR #196 metadata and the checkpoint from the working branch. PR is open, Draft, and currently reported mergeable.
+- Added `docs/EXTERNAL-COMPONENT-EVALUATION-AI-API-LAB.md` with upstream ownership, Apache-2.0 reuse conditions, candidate modules, limitations, weak holdout metrics, and the decision to keep the repositories separate.
+- No external code was copied. No runtime integration was claimed. Next engineering work remains the release-gate acceptance path, then the Foundry + Slither vertical slice.

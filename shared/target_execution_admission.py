@@ -82,10 +82,10 @@ def admit_target_execution(
             raise TargetExecutionAdmissionError("task_not_registered")
         task_id, status, role, case_id, round_id, round_spec_id = row
 
-        if role != "lab_runner":
-            raise TargetExecutionAdmissionError("task_role_not_lab_runner")
         if status != "running":
             raise TargetExecutionAdmissionError("task_not_running")
+        if role != "lab_runner":
+            raise TargetExecutionAdmissionError("task_role_not_lab_runner")
         if not case_id:
             raise TargetExecutionAdmissionError("task_case_binding_missing")
         if not round_id:

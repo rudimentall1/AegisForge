@@ -195,3 +195,17 @@ The existing fixed-fixture Bubblewrap runner remains unchanged and fixture-only.
 5. What is the maximum per-case CPU, memory, disk, runtime, and artifact budget?
 
 Until these are answered, a production-capable hostile-repository runner must not be implemented or advertised.
+
+
+## 13. Non-executing archive extraction prototype — 2026-11-14
+
+Implemented `shared/source_archive.py` as a pure local extraction boundary. It accepts bounded archive bytes and a server-selected destination; it performs no HTTP requests and executes no repository content.
+
+- Enforces compressed-byte, uncompressed-byte, and regular-file limits.
+- Requires one archive root; rejects absolute paths, traversal components, backslashes, NULs, duplicate paths, file/directory collisions, and multiple roots.
+- Rejects symlinks, hardlinks, devices, FIFOs, sparse entries, and all non-regular non-directory members.
+- Writes files with exclusive creation and no-follow where supported. Archive ownership, timestamps, and permission bits are not preserved; files receive restrictive local modes.
+- Removes a partially created destination if extraction fails.
+- The caller must resolve the full commit SHA and Git tree through GitHub metadata before fetching the corresponding pinned archive. This module does not prove that archive bytes correspond to a commit; that verification remains a required upstream step.
+- This is not yet a source downloader, commit resolver, tree verifier, immutable artifact store, or execution sandbox. The destination parent must be server-owned and not writable by untrusted tasks.
+- Tests are added in `tests/test_source_archive.py`. Await exact-head CI before treating this implementation as validated.

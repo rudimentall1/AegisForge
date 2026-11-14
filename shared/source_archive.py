@@ -257,14 +257,14 @@ def compute_git_tree_sha(root: str | os.PathLike[str]) -> str:
                 child_tree = build(child)
                 if not child_tree:
                     continue
-                object_sha = hashlib.sha1(b"tree " + str(len(child_tree)).encode() + b"\\0" + child_tree).digest()
+                object_sha = hashlib.sha1(b"tree " + str(len(child_tree)).encode() + b"\0" + child_tree).digest()
                 entries.append((name_bytes + b"/", b"40000", object_sha))
             elif stat.S_ISREG(mode):
                 try:
                     data = child.read_bytes()
                 except OSError as exc:
                     raise SourceArchiveError("source_file_unreadable") from exc
-                blob_header = b"blob " + str(len(data)).encode() + b"\\0"
+                blob_header = b"blob " + str(len(data)).encode() + b"\0"
                 object_sha = hashlib.sha1(blob_header + data).digest()
                 file_mode = b"100755" if mode & 0o111 else b"100644"
                 entries.append((name_bytes, file_mode, object_sha))
@@ -273,10 +273,10 @@ def compute_git_tree_sha(root: str | os.PathLike[str]) -> str:
 
         entries.sort(key=lambda item: item[0])
         payload = b"".join(
-            mode + b" " + sort_name.rstrip(b"/") + b"\\0" + object_sha
+            mode + b" " + sort_name.rstrip(b"/") + b"\0" + object_sha
             for sort_name, mode, object_sha in entries
         )
-        header = b"tree " + str(len(payload)).encode() + b"\\0"
+        header = b"tree " + str(len(payload)).encode() + b"\0"
         return header + payload
 
     root_object = build(root_path)

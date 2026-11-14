@@ -196,3 +196,16 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - The latest implementation/tests/docs are newer than run #1646 and therefore not yet CI-verified. A new exact-head CI result is required.
 - No network downloader, redirect handling, or immutable source store has been added. No target code is executed. Symlinks, special files, and gitlinks/submodules are intentionally rejected pending a safe, verifiable design.
 - PR #196 remains OPEN and DRAFT; issue #158 remains OPEN.
+
+
+## 17. Git tree hash regression and correction — 2026-11-14
+
+- Latest PR #196 implementation head: `79c04db3bb9848c8039d8add11bd89ba599b3895`. PR remains OPEN and DRAFT; base is `main`. Latest metadata reports 282 commits, 53 changed files, +11,708/-138, and `mergeable: true`. Do not merge.
+- Exact-head CI run #1655 / ID `43603314753` on prior head `536ee0100c5e9c0bc5780570be1f69930ea89431` failed in pytest: **1,855 passed, 1 failed**. The failing case was the empty-directory branch in `compute_git_tree_sha()`; it treated the recursively returned complete Git tree object as though it were only a tree payload, producing an incorrect nested tree object hash. Other workflow stages, including Bubblewrap fixture acceptance, completed successfully.
+- Fixed `shared/source_archive.py`: recursive directory hashing now recognizes the canonical empty tree object (`tree 0\\0`) and omits empty directories, while hashes non-empty child tree objects directly. This preserves Git's rule that empty directories are not represented in Git trees.
+- Fix commit: `79c04db3bb9848c8039d8add11bd89ba599b3895`.
+- Exact-head CI run #1656 / ID `43603669224` was created for this fix. At last inspection its job was still `in_progress` during dependency installation; no pytest result or final conclusion was available. The fix is therefore **not yet CI-verified**. Recheck this run before further implementation.
+- The source archive layer now includes bounded tar.gz extraction, full commit/tree metadata validation, Git SHA-1 blob/tree reconstruction (including executable mode), and fail-closed archive-to-pinned-tree comparison with cleanup on mismatch. It remains a local helper only: it accepts archive bytes and metadata supplied by its caller and performs no network access.
+- Outstanding limitations remain: no HTTP source downloader, redirect validation, streamed response-size enforcement, immutable source storage, or independent acquisition provenance. Symlinks, hardlinks, special files and gitlinks/submodules are rejected. No target code execution or process launcher has been added.
+- Next action: inspect CI #1656 to completion. If green, record the exact pytest count and Bubblewrap result, then review source archive edge cases and design the trusted, bounded HTTP resolver separately. If red, fix only the demonstrated failure and rerun exact-head CI.
+- Issue #158 remains OPEN. PR #196 remains DRAFT. This prototype does not close the release gate or establish arbitrary target execution safety.

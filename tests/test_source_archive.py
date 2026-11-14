@@ -8,6 +8,9 @@ from shared.source_archive import (
     SourceArchiveLimits,
     extract_github_source_archive,
     compute_git_tree_sha,
+    verify_extracted_source_tree,
+    ExtractedSource,
+    PinnedCommit,
     validate_pinned_commit_metadata,
 )
 
@@ -177,5 +180,25 @@ def test_git_tree_sha_ignores_empty_directories(tmp_path):
     root = tmp_path / "checkout"
     root.mkdir()
     baseline = compute_git_tree_sha(root)
+    assert baseline == "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
     (root / "empty").mkdir()
     assert compute_git_tree_sha(root) == baseline
+
+
+
+def test_extracted_source_must_match_pinned_tree_sha(tmp_path):
+    archive = make_archive([("repo/file.txt", "file", "pinned content")])
+    extracted = extract_github_source_archive(archive, tmp_path / "source")
+    tree_sha = compute_git_tree_sha(extracted.root)
+    pinned = PinnedCommit("a" * 40, tree_sha)
+    assert verify_extracted_source_tree(extracted, pinned) == tree_sha
+
+    tampered = extracted.root / "file.txt"
+    tampered.write_text("modified")
+    with pytest.raises(SourceArchiveError, match="git_tree_sha_mismatch"):
+        verify_extracted_source_tree(extracted, pinned)
+
+
+def test_tree_verification_rejects_untrusted_input_types():
+    with pytest.raises(SourceArchiveError, match="inputs_invalid"):
+        verify_extracted_source_tree(object(), object())

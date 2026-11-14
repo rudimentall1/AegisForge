@@ -2,12 +2,14 @@ import pytest
 
 from shared.repository_policy import (
     RepositoryPolicyError,
-    authorize_admitted_target_source,\n    authorize_case_repository,
+    authorize_admitted_target_source,
+    authorize_case_repository,
     load_repository_allowlist,
     parse_github_repository,
     parse_repository_allowlist,
 )
-from shared.research_case import ResearchCase\nfrom shared.target_execution_admission import AdmittedTarget, AdapterProfile
+from shared.research_case import ResearchCase
+from shared.target_execution_admission import AdmittedTarget, AdapterProfile
 
 
 def case(repository):

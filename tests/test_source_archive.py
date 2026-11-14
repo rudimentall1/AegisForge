@@ -21,6 +21,8 @@ def make_archive(entries):
             elif kind == "file":
                 data = payload if isinstance(payload, bytes) else payload.encode()
                 info.size = len(data)
+                if name.endswith(".sh"):
+                    info.mode = 0o755
                 archive.addfile(info, io.BytesIO(data))
             elif kind == "symlink":
                 info.type = tarfile.SYMTYPE
@@ -76,6 +78,15 @@ def test_rejects_file_directory_collisions(tmp_path):
     archive = make_archive([
         ("root/a", "file", "x"),
         ("root/a/child", "file", "y"),
+    ])
+    with pytest.raises(SourceArchiveError, match="file_directory_collision"):
+        extract_github_source_archive(archive, tmp_path / "source")
+
+
+def test_rejects_file_as_parent_of_explicit_directory(tmp_path):
+    archive = make_archive([
+        ("root/a", "file", "x"),
+        ("root/a/child/", "dir", b""),
     ])
     with pytest.raises(SourceArchiveError, match="file_directory_collision"):
         extract_github_source_archive(archive, tmp_path / "source")

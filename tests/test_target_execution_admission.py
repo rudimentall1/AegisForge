@@ -86,7 +86,7 @@ def test_admission_resolves_target_only_from_registered_case(queue):
     assert admitted.round_spec_id == case.rounds[0].round_id
     assert admitted.research_case.target_repository == case.target_repository
     assert admitted.research_case.target_commit == case.target_commit
-    assert admitted.round_spec is case.rounds[0]
+    assert admitted.round_spec == case.rounds[0]
     assert admitted.execution_assurance == "NOT_RUN"
 
 

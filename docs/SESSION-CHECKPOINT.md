@@ -174,3 +174,13 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - Fix commits: `b76aeb0` (policy module) and `ae11ebe` (test imports).
 - CI run #1639 / ID `43602043973` is running on the corrected HEAD `ae11ebe2706f159d1e6433367f59b31c2b21b408`. No pytest result is available yet. Do not claim the repository policy tests pass until this run completes.
 - The policy code is now syntactically clean on direct file inspection; exact-head CI remains the authority.
+
+
+## 15. Source archive extraction prototype — 2026-11-14
+
+- CI run #1639 / ID `43602043973` completed SUCCESS on code head `ae11ebe2706f159d1e6433367f59b31c2b21b408`: **1,832 passed, 4 warnings, 30 subtests passed**. Python compilation, whitespace, EVM Key Forensics evidence generation, and Bubblewrap fixture acceptance passed. The four pytest warnings remain visible (duplicate ZIP member names in adversarial tests).
+- Added `shared/source_archive.py` and `tests/test_source_archive.py` to PR #196. The helper performs bounded, non-executing extraction of an already-fetched tar.gz archive; it rejects traversal, multiple roots, duplicate paths, file/directory collisions, links, special files, and oversized archives, and cleans partial output on failure.
+- The helper deliberately performs no network access and does not establish that archive bytes correspond to a Git commit. The future resolver must first fetch GitHub commit metadata for the exact 40-character SHA, verify the returned commit SHA and tree SHA, then fetch the archive pinned to that SHA. Redirect policy and response-size enforcement must be implemented before enabling HTTP.
+- No target code is executed. No Foundry/Slither process launcher is added. A disposable VM/microVM and pinned toolchain remain unresolved.
+- New extraction tests and implementation are committed after run #1639 and therefore are **not yet CI-verified**. Trigger and inspect a fresh workflow for the latest branch head.
+- PR #196 remains OPEN, DRAFT, and mergeable. Issue #158 remains OPEN.

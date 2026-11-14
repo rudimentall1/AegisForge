@@ -12,6 +12,7 @@ from shared.source_archive import (
     ExtractedSource,
     PinnedCommit,
     validate_pinned_commit_metadata,
+    extract_and_verify_pinned_github_source_archive,
 )
 
 
@@ -202,3 +203,44 @@ def test_extracted_source_must_match_pinned_tree_sha(tmp_path):
 def test_tree_verification_rejects_untrusted_input_types():
     with pytest.raises(SourceArchiveError, match="inputs_invalid"):
         verify_extracted_source_tree(object(), object())
+
+
+
+def test_combined_pinned_extraction_requires_matching_commit_and_tree(tmp_path):
+    archive = make_archive([("repo/file.txt", "file", "pinned content")])
+    probe = extract_github_source_archive(archive, tmp_path / "probe")
+    expected_tree = compute_git_tree_sha(probe.root)
+    import shutil
+    shutil.rmtree(tmp_path / "probe")
+
+    commit_sha = "a" * 40
+    metadata = {"sha": commit_sha, "commit": {"tree": {"sha": expected_tree}}}
+    extracted, pinned = extract_and_verify_pinned_github_source_archive(
+        archive,
+        tmp_path / "verified",
+        expected_commit_sha=commit_sha,
+        commit_metadata=metadata,
+    )
+    assert extracted.root.joinpath("file.txt").read_text() == "pinned content"
+    assert pinned.tree_sha == expected_tree
+
+    with pytest.raises(SourceArchiveError, match="git_tree_sha_mismatch"):
+        extract_and_verify_pinned_github_source_archive(
+            archive,
+            tmp_path / "rejected",
+            expected_commit_sha=commit_sha,
+            commit_metadata={"sha": commit_sha, "commit": {"tree": {"sha": "b" * 40}}},
+        )
+    assert not (tmp_path / "rejected").exists()
+
+
+def test_combined_pinned_extraction_rejects_wrong_resolved_commit_before_writing(tmp_path):
+    archive = make_archive([("repo/file.txt", "file", "content")])
+    with pytest.raises(SourceArchiveError, match="commit_sha_mismatch"):
+        extract_and_verify_pinned_github_source_archive(
+            archive,
+            tmp_path / "rejected",
+            expected_commit_sha="a" * 40,
+            commit_metadata={"sha": "c" * 40, "commit": {"tree": {"sha": "b" * 40}}},
+        )
+    assert not (tmp_path / "rejected").exists()

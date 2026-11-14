@@ -2,12 +2,12 @@ import pytest
 
 from shared.repository_policy import (
     RepositoryPolicyError,
-    authorize_case_repository,
+    authorize_admitted_target_source,\n    authorize_case_repository,
     load_repository_allowlist,
     parse_github_repository,
     parse_repository_allowlist,
 )
-from shared.research_case import ResearchCase
+from shared.research_case import ResearchCase\nfrom shared.target_execution_admission import AdmittedTarget, AdapterProfile
 
 
 def case(repository):
@@ -112,3 +112,31 @@ def test_authorization_requires_registered_case_type():
 def test_authorization_revalidates_policy_entries():
     with pytest.raises(RepositoryPolicyError):
         authorize_case_repository(case("owner/repo"), frozenset({"https://evil.example/a/b"}))
+
+
+
+def test_source_authorization_requires_admitted_registry_context():
+    registered_case = case("owner/repo")
+    admitted = AdmittedTarget(
+        task_id="task-1",
+        case_id=registered_case.case_id,
+        round_id="runtime-round-1",
+        round_spec_id=None,
+        adapter_profile=AdapterProfile.SLITHER_STATIC,
+        research_case=registered_case,
+        round_spec=None,
+    )
+    resolved, repository = authorize_admitted_target_source(
+        admitted,
+        frozenset({"owner/repo"}),
+    )
+    assert resolved is admitted
+    assert repository.full_name == "owner/repo"
+
+
+def test_source_authorization_rejects_non_admitted_context():
+    with pytest.raises(RepositoryPolicyError, match="admitted_target_required"):
+        authorize_admitted_target_source(
+            {"research_case": case("owner/repo")},
+            frozenset({"owner/repo"}),
+        )

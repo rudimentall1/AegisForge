@@ -11,7 +11,7 @@ import io
 import os
 import tarfile
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 
 class SourceArchiveError(ValueError):
@@ -62,14 +62,14 @@ def extract_github_source_archive(
     """
     if not isinstance(archive_bytes, bytes):
         raise SourceArchiveError("archive_bytes_required")
-    if len(archive_bytes) == 0 or len(archive_bytes) > limits.max_archive_bytes:
-        raise SourceArchiveError("archive_compressed_size_out_of_bounds")
     if (
         limits.max_archive_bytes <= 0
         or limits.max_uncompressed_bytes <= 0
         or limits.max_files <= 0
     ):
         raise SourceArchiveError("archive_limits_invalid")
+    if len(archive_bytes) == 0 or len(archive_bytes) > limits.max_archive_bytes:
+        raise SourceArchiveError("archive_compressed_size_out_of_bounds")
 
     target = Path(destination)
     if target.exists():
@@ -84,6 +84,7 @@ def extract_github_source_archive(
             root_name: str | None = None
             explicit_paths: set[tuple[str, ...]] = set()
             file_paths: set[tuple[str, ...]] = set()
+            all_paths: set[tuple[str, ...]] = set()
             directory_paths: set[tuple[str, ...]] = set()
             total_bytes = 0
             regular_files = 0
@@ -98,6 +99,7 @@ def extract_github_source_archive(
                 if parts in explicit_paths:
                     raise SourceArchiveError("archive_duplicate_path_rejected")
                 explicit_paths.add(parts)
+                all_paths.add(parts)
 
                 if member.isdir():
                     directory_paths.add(parts)
@@ -118,10 +120,9 @@ def extract_github_source_archive(
                 file_paths.add(parts)
                 validated.append((member, parts))
 
-            for file_path in file_paths:
-                for index in range(1, len(file_path)):
-                    parent = file_path[:index]
-                    if parent in file_paths:
+            for path_parts in all_paths:
+                for index in range(1, len(path_parts)):
+                    if path_parts[:index] in file_paths:
                         raise SourceArchiveError("archive_file_directory_collision")
 
             target.mkdir(parents=False, exist_ok=False)

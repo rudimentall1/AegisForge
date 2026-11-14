@@ -133,3 +133,11 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - Commits: `db2272b` (admission module), `40b2774` (tests), `06c611c` (remove unused import).
 - Validation status: no workflow run was returned for HEAD `06c611c` at checkpoint time. The new tests and latest branch state are **not yet CI-verified**. Do not describe this gate as validated until a run for the exact HEAD passes.
 - Next: verify the exact-head CI result; repair any failures; then implement the source-revision resolver as a separate non-executing step. Do not add a process launcher until an ephemeral VM/microVM execution backend and pinned toolchain are selected.
+
+## 10. Admission gate CI correction — 2026-11-14
+
+- CI run #1628 on HEAD `4c3781f` exposed two failures in the new admission tests; the rest of the suite passed: 1,799 passed, 2 failed, 4 warnings, 30 subtests passed.
+- Failure 1 was a test asserting object identity for a deserialized RoundSpec. Corrected to value equality.
+- Failure 2 showed the gate reported role mismatch before task lifecycle mismatch. Reordered checks so non-running tasks fail first, then role is checked. This is deterministic fail-closed behavior and matches the intended admission contract.
+- Fix commits: `15b4b85`, `560ee20`.
+- These fixes have not yet been confirmed by CI on the exact latest HEAD. Continue from the latest PR head and verify the workflow result before adding source acquisition.

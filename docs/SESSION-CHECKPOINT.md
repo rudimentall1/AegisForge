@@ -141,3 +141,15 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - Failure 2 showed the gate reported role mismatch before task lifecycle mismatch. Reordered checks so non-running tasks fail first, then role is checked. This is deterministic fail-closed behavior and matches the intended admission contract.
 - Fix commits: `15b4b85`, `560ee20`.
 - These fixes have not yet been confirmed by CI on the exact latest HEAD. Continue from the latest PR head and verify the workflow result before adding source acquisition.
+
+
+## 12. Exact-head CI and source-acquisition security review — 2026-11-14
+
+- Refreshed PR #196: OPEN, DRAFT, mergeable; current head `a0f6d136987dbaa7ee3a7ba13de027708709ad89`; 253 commits, 49 changed files, +10,750/-138. Keep Draft; do not merge.
+- CI run #1629 completed SUCCESS on code-fix head `560ee2033c76826bd094a7ee2725f3a5f612b93b`. CI run #1630 / ID `43601010509` completed SUCCESS for the current checkpoint head `a0f6d136987dbaa7ee3a7ba13de027708709ad89`.
+- Retrieved #1630 job log: **1,801 passed, 4 warnings, 30 subtests passed**. Compile, whitespace, EVM Key Forensics evidence steps, and Bubblewrap fixture acceptance also completed successfully. The four pytest warnings include duplicate ZIP member-name warnings in adversarial package tests; they are not silently treated as a clean warning-free run.
+- Re-read `shared/target_execution_admission.py`, `shared/research_case.py`, `shared/queue.py`, tests, README, architecture and pinned-target adapter design.
+- New security finding before source acquisition: ResearchCase accepts either `owner/repo` or an arbitrary absolute HTTPS URL. The admission gate validates task/case/round bindings and LOCAL mode, but it does not apply a trusted repository allowlist or canonical GitHub-host policy. A source fetcher must not consume this field directly as a clone URL; doing so could create an arbitrary-remote/SSRF boundary.
+- Do not implement `git clone` or source materialization yet. First define a server-side trusted repository policy (canonical host + owner/repo allowlist), ensure it is enforced against the immutable registered case before any network access, and test rejection of alternate hosts, credentials in URLs, ports, redirects, path tricks, mutable refs, and non-full SHAs. Existing cases/tests currently use identifiers such as `owner/repository`; preserve compatibility at the ResearchCase contract layer unless a reviewed migration is explicitly approved.
+- Once repository authorization is in place, source acquisition must be non-executing: resolve exact full SHA, fetch without hooks, no recursive submodules by default, verify commit and tree identity, create a read-only source artifact, compute a content digest, and record provenance. No Foundry/Slither process launch until the disposable VM/microVM backend and pinned toolchain decisions are resolved.
+- Issue #158 remains OPEN. The green CI verifies implemented tests and fixed-fixture acceptance only; it does not prove pinned-target execution, historical vulnerability reproduction, or release readiness.

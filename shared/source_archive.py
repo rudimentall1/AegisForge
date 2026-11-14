@@ -7,12 +7,20 @@ perform network access or execute repository content.
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import os
+import stat
 import shutil
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
+
+
+@dataclass(frozen=True, slots=True)
+class PinnedCommit:
+    commit_sha: str
+    tree_sha: str
 
 
 class SourceArchiveError(ValueError):
@@ -184,3 +192,92 @@ def extract_github_source_archive(
         if target_created:
             shutil.rmtree(target, ignore_errors=True)
         raise
+
+
+
+def validate_pinned_commit_metadata(
+    expected_commit_sha: str,
+    metadata: object,
+) -> PinnedCommit:
+    """Validate a GitHub commit API response against a full requested SHA."""
+    if (
+        not isinstance(expected_commit_sha, str)
+        or len(expected_commit_sha) != 40
+        or any(ch not in "0123456789abcdefABCDEF" for ch in expected_commit_sha)
+    ):
+        raise SourceArchiveError("full_commit_sha_required")
+    if not isinstance(metadata, dict):
+        raise SourceArchiveError("commit_metadata_invalid")
+    actual_sha = metadata.get("sha")
+    commit = metadata.get("commit")
+    tree = commit.get("tree") if isinstance(commit, dict) else None
+    tree_sha = tree.get("sha") if isinstance(tree, dict) else None
+    if not isinstance(actual_sha, str) or actual_sha.lower() != expected_commit_sha.lower():
+        raise SourceArchiveError("resolved_commit_sha_mismatch")
+    if (
+        not isinstance(tree_sha, str)
+        or len(tree_sha) != 40
+        or any(ch not in "0123456789abcdefABCDEF" for ch in tree_sha)
+    ):
+        raise SourceArchiveError("resolved_tree_sha_invalid")
+    return PinnedCommit(actual_sha.lower(), tree_sha.lower())
+
+
+def compute_git_tree_sha(root: str | os.PathLike[str]) -> str:
+    """Compute the Git SHA-1 tree object ID for a regular-file-only checkout.
+
+    Git symlinks and gitlinks/submodules are intentionally unsupported. Empty
+    directories are ignored, as they are not represented in Git trees.
+    """
+    root_path = Path(root)
+    if not root_path.is_dir() or root_path.is_symlink():
+        raise SourceArchiveError("source_root_invalid")
+
+    def build(directory: Path) -> bytes:
+        entries: list[tuple[bytes, bytes, bytes]] = []
+        try:
+            children = list(directory.iterdir())
+        except OSError as exc:
+            raise SourceArchiveError("source_tree_unreadable") from exc
+
+        for child in children:
+            name = child.name
+            try:
+                name_bytes = os.fsencode(name)
+            except (UnicodeError, ValueError) as exc:
+                raise SourceArchiveError("source_filename_invalid") from exc
+            if not name_bytes or b"/" in name_bytes or b"\\x00" in name_bytes:
+                raise SourceArchiveError("source_filename_invalid")
+            try:
+                mode = child.lstat().st_mode
+            except OSError as exc:
+                raise SourceArchiveError("source_tree_unreadable") from exc
+
+            if stat.S_ISDIR(mode):
+                child_tree = build(child)
+                if not child_tree:
+                    continue
+                object_sha = hashlib.sha1(b"tree " + str(len(child_tree)).encode() + b"\\0" + child_tree).digest()
+                entries.append((name_bytes + b"/", b"40000", object_sha))
+            elif stat.S_ISREG(mode):
+                try:
+                    data = child.read_bytes()
+                except OSError as exc:
+                    raise SourceArchiveError("source_file_unreadable") from exc
+                blob_header = b"blob " + str(len(data)).encode() + b"\\0"
+                object_sha = hashlib.sha1(blob_header + data).digest()
+                file_mode = b"100755" if mode & 0o111 else b"100644"
+                entries.append((name_bytes, file_mode, object_sha))
+            else:
+                raise SourceArchiveError("source_non_regular_entry_rejected")
+
+        entries.sort(key=lambda item: item[0])
+        payload = b"".join(
+            mode + b" " + sort_name.rstrip(b"/") + b"\\0" + object_sha
+            for sort_name, mode, object_sha in entries
+        )
+        header = b"tree " + str(len(payload)).encode() + b"\\0"
+        return header + payload
+
+    root_object = build(root_path)
+    return hashlib.sha1(root_object).hexdigest()

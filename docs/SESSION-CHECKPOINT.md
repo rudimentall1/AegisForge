@@ -184,3 +184,15 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - No target code is executed. No Foundry/Slither process launcher is added. A disposable VM/microVM and pinned toolchain remain unresolved.
 - New extraction tests and implementation are committed after run #1639 and therefore are **not yet CI-verified**. Trigger and inspect a fresh workflow for the latest branch head.
 - PR #196 remains OPEN, DRAFT, and mergeable. Issue #158 remains OPEN.
+
+
+## 16. Pinned commit and Git tree verification prototype — 2026-11-14
+
+- Exact-head CI for `3ef07ba8a0143a6006c214651c97b1e37087139e`, run #1646 / ID `43602474301`, completed SUCCESS: **1,844 passed, 4 warnings, 30 subtests passed**. Bubblewrap fixture acceptance and evidence artifact upload also passed.
+- Added commit metadata validation: require requested full 40-character SHA, returned SHA equality, and valid root tree SHA.
+- Added Git blob/tree object ID calculation for extracted regular files and executable-bit semantics, plus fail-closed comparison against the pinned root tree SHA.
+- Added combined extract-and-verify entry point. It removes extracted content if the computed Git tree does not match the pinned metadata.
+- New tests cover metadata mismatch, empty Git tree known vector, content/mode changes, symlink rejection, successful pinned extraction, tree mismatch cleanup, and rejection before writing when commit SHA mismatches.
+- The latest implementation/tests/docs are newer than run #1646 and therefore not yet CI-verified. A new exact-head CI result is required.
+- No network downloader, redirect handling, or immutable source store has been added. No target code is executed. Symlinks, special files, and gitlinks/submodules are intentionally rejected pending a safe, verifiable design.
+- PR #196 remains OPEN and DRAFT; issue #158 remains OPEN.

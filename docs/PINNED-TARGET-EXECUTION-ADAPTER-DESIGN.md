@@ -209,3 +209,20 @@ Implemented `shared/source_archive.py` as a pure local extraction boundary. It a
 - The caller must resolve the full commit SHA and Git tree through GitHub metadata before fetching the corresponding pinned archive. This module does not prove that archive bytes correspond to a commit; that verification remains a required upstream step.
 - This is not yet a source downloader, commit resolver, tree verifier, immutable artifact store, or execution sandbox. The destination parent must be server-owned and not writable by untrusted tasks.
 - Tests are added in `tests/test_source_archive.py`. Await exact-head CI before treating this implementation as validated.
+
+
+## 14. Pinned commit and Git tree verification — 2026-11-14
+
+The source archive helper now includes a fail-closed verification path:
+
+1. Require a full 40-character commit SHA supplied by the server-side admitted case.
+2. Validate the GitHub commit API response: returned commit SHA must exactly match the requested SHA, and its root tree SHA must be a valid full Git object ID.
+3. Extract the already-fetched tar.gz using the bounded non-executing extractor.
+4. Recompute Git blob and tree object IDs from extracted regular files, including executable-bit semantics.
+5. Require the computed root tree SHA to equal the pinned commit's root tree SHA. On mismatch, delete the extracted destination and fail.
+
+The combined entry point is `extract_and_verify_pinned_github_source_archive()`. It accepts archive bytes and commit metadata; it does not fetch either. The caller must obtain metadata from the GitHub API and request the archive using the exact pinned SHA, never a branch or tag.
+
+Important compatibility boundary: this extractor rejects symlinks, hardlinks, special files, and gitlinks/submodules. Such repositories fail closed rather than being silently altered. Supporting these requires a separately designed representation and verification path; do not weaken the rejection policy.
+
+This still is not an HTTP downloader or a full source-acquisition service. Redirect validation, response streaming limits, API rate handling, immutable storage, and independent provenance recording remain unimplemented. No target code is executed.

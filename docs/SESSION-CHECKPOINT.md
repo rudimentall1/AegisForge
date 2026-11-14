@@ -165,3 +165,12 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - Files are committed in PR #196. Current implementation head before this checkpoint update: `7f9c550dcfdc3ee29aaf957a468a5000a19a0ae3`. No CI result has yet been returned for these policy changes; do not claim tests pass until the exact-head workflow completes.
 - Important limitation: this is an authorization/parser boundary, not a source fetcher. No network request, checkout, redirect handling, commit resolution, or source digest is implemented yet. The next step is run CI, fix any failures, then build a non-executing source materializer that consumes only this authorized result and verifies the full commit SHA and tree identity.
 - PR #196 remains OPEN and DRAFT. Issue #158 remains OPEN. The source policy is intentionally separate from the legacy ResearchCase schema so existing registered cases remain compatible.
+
+
+## 14. Repository policy compile correction — 2026-11-14
+
+- CI run #1638 / ID `43601989735` failed at the Python compile step before pytest. The cause was literal backslash-n characters accidentally inserted into two import statements while editing through the GitHub contents API; this was caught by the compile gate, not hidden.
+- Corrected both imports and added the missing explicit rejection for passing a single string/bytes object as the allowlist iterable.
+- Fix commits: `b76aeb0` (policy module) and `ae11ebe` (test imports).
+- CI run #1639 / ID `43602043973` is running on the corrected HEAD `ae11ebe2706f159d1e6433367f59b31c2b21b408`. No pytest result is available yet. Do not claim the repository policy tests pass until this run completes.
+- The policy code is now syntactically clean on direct file inspection; exact-head CI remains the authority.

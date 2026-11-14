@@ -255,9 +255,11 @@ def compute_git_tree_sha(root: str | os.PathLike[str]) -> str:
 
             if stat.S_ISDIR(mode):
                 child_tree = build(child)
-                if not child_tree:
+                # Git does not store empty directories. ``build`` returns a
+                # complete tree object, so detect its canonical empty form.
+                if child_tree == b"tree 0\0":
                     continue
-                object_sha = hashlib.sha1(b"tree " + str(len(child_tree)).encode() + b"\0" + child_tree).digest()
+                object_sha = hashlib.sha1(child_tree).digest()
                 entries.append((name_bytes + b"/", b"40000", object_sha))
             elif stat.S_ISREG(mode):
                 try:

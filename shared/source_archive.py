@@ -281,3 +281,17 @@ def compute_git_tree_sha(root: str | os.PathLike[str]) -> str:
 
     root_object = build(root_path)
     return hashlib.sha1(root_object).hexdigest()
+
+
+
+def verify_extracted_source_tree(
+    extracted: ExtractedSource,
+    pinned_commit: PinnedCommit,
+) -> str:
+    """Fail closed unless extracted regular files reproduce the pinned Git tree."""
+    if not isinstance(extracted, ExtractedSource) or not isinstance(pinned_commit, PinnedCommit):
+        raise SourceArchiveError("source_verification_inputs_invalid")
+    actual_tree_sha = compute_git_tree_sha(extracted.root)
+    if actual_tree_sha != pinned_commit.tree_sha:
+        raise SourceArchiveError("extracted_git_tree_sha_mismatch")
+    return actual_tree_sha

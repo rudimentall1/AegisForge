@@ -9,7 +9,7 @@
 
 ## 1. Where we stopped (verified repository state)
 
-- PR #196 currently has 238 commits, 45 changed files, +10,0xx/-138 lines (GitHub PR metadata; exact line count should be refreshed before release notes). Head after the latest docs commits: `6cc6c386ca33412bc7800c79675c1e7a0df42594`; base is `main` at `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
+- PR #196 currently has 239 commits, 45 changed files, +10,012/-138 lines. Current head: `a7c7c318f4d5fe2baf2d80f195c0a8a5608d1f5e`; base is `main` at `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
 - PR remains OPEN and DRAFT. Latest observed PR metadata reports `mergeable: true`; this is not approval to merge. Keep Draft until release gate #158 is satisfied.
 - Workflow run #1615 / ID `43597955894` on the previous checkpoint head `33eb493b554752eca43b92f795d3dd980c0dc2ba` completed **SUCCESS**. This supersedes the older observed run #1614 failure for that earlier head, but does not prove the release acceptance contract or close issue #158. The latest docs-only commits still need their own CI result.
 - Issue #158 remains open. Its acceptance contract still requires one clean-runner, local-only path from immutable Research Case registration through bounded experiment, evidence export, independent verification, adversarial rejection tests, and honest machine-readable statuses.

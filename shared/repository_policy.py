@@ -11,7 +11,8 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from shared.research_case import ResearchCase\nfrom shared.target_execution_admission import AdmittedTarget
+from shared.research_case import ResearchCase
+from shared.target_execution_admission import AdmittedTarget
 
 
 class RepositoryPolicyError(ValueError):
@@ -101,6 +102,8 @@ def parse_repository_allowlist(values) -> frozenset[str]:
     """Normalize an explicit iterable of trusted owner/repo identifiers."""
     if values is None:
         return frozenset()
+    if isinstance(values, (str, bytes)):
+        raise RepositoryPolicyError("repository_allowlist_must_be_an_iterable_of_entries")
     normalized: set[str] = set()
     for value in values:
         parsed = parse_github_repository(value)

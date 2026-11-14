@@ -154,6 +154,13 @@ def test_bubblewrap_fixture_results_persist_and_verify_end_to_end(tmp_path):
             expected_target_repository=case.target_repository,
             expected_target_commit=case.target_commit,
             semantic_criteria={
+                "case_id": case.case_id,
+                "round_id": runtime_round_id,
+                "round_spec_id": planned_round_id,
+                "target_repository": case.target_repository,
+                "target_commit": case.target_commit,
+                "invariant": case.expected_invariant,
+                "falsification_criteria": case.falsification_criteria,
                 "control": {
                     "must_contain": ["invariant_preserved=true"],
                     "must_not_contain": ["invariant_preserved=false"],

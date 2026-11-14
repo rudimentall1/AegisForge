@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from shared.research_case import ResearchCase
+from shared.research_case import ResearchCase\nfrom shared.target_execution_admission import AdmittedTarget
 
 
 class RepositoryPolicyError(ValueError):
@@ -135,3 +135,22 @@ def authorize_case_repository(
     if target.full_name.casefold() not in allowed_repositories:
         raise RepositoryPolicyError("repository_not_allowlisted")
     return target
+
+
+
+def authorize_admitted_target_source(
+    admitted_target: AdmittedTarget,
+    allowed_repositories: frozenset[str],
+) -> tuple[AdmittedTarget, AuthorizedRepository]:
+    """Apply repository policy to an already admitted, registry-resolved target.
+
+    Source-acquisition code must call this function before opening any network
+    connection. It deliberately accepts no repository or URL from the caller.
+    """
+    if not isinstance(admitted_target, AdmittedTarget):
+        raise RepositoryPolicyError("admitted_target_required")
+    repository = authorize_case_repository(
+        admitted_target.research_case,
+        allowed_repositories,
+    )
+    return admitted_target, repository

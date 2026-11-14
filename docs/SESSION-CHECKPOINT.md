@@ -122,3 +122,14 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - Critical security decision: do not treat same-kernel Bubblewrap as a sufficient hostile-repository boundary. Public/untrusted target code requires a disposable isolated VM/microVM with no host credentials or shared writable mounts. Bubblewrap remains limited to the existing fixed synthetic fixture and lower-assurance local use only if explicitly approved.
 - No arbitrary target execution code was added. This is deliberate: the available repository state does not yet establish a safe VM backend or pinned toolchain profile. Implementing a shell wrapper before resolving that boundary would create a dangerous false sense of security.
 - Next: choose and verify the disposable execution backend and exact Foundry/Slither versions, then implement Stage A typed admission and negative tests before any target process can start.
+
+## 9. Target-execution admission gate — 2026-11-14
+
+- Added `shared/target_execution_admission.py` and `tests/test_target_execution_admission.py`.
+- The gate accepts only a typed task ID plus a fixed adapter-profile enum. It does not accept caller-supplied case JSON, target URL/commit, argv, environment variables, or scripts.
+- It resolves the target exclusively from `TaskQueue.get_research_case()`, then checks the registered task is a running `lab_runner`, the case is runnable and LOCAL, the runtime round exists and is RUNNING, the root task belongs to the same case/round, and any planned RoundSpec matches both the case and round registry.
+- The gate returns `execution_assurance=NOT_RUN`. It does not spawn a process, fetch source, or provide isolation. It is not a sandbox and does not close issue #158.
+- This deliberately reuses the existing SQLite Research Case registry in `shared/queue.py`; no parallel registry was introduced.
+- Commits: `db2272b` (admission module), `40b2774` (tests), `06c611c` (remove unused import).
+- Validation status: no workflow run was returned for HEAD `06c611c` at checkpoint time. The new tests and latest branch state are **not yet CI-verified**. Do not describe this gate as validated until a run for the exact HEAD passes.
+- Next: verify the exact-head CI result; repair any failures; then implement the source-revision resolver as a separate non-executing step. Do not add a process launcher until an ephemeral VM/microVM execution backend and pinned toolchain are selected.

@@ -295,3 +295,27 @@ def verify_extracted_source_tree(
     if actual_tree_sha != pinned_commit.tree_sha:
         raise SourceArchiveError("extracted_git_tree_sha_mismatch")
     return actual_tree_sha
+
+
+
+def extract_and_verify_pinned_github_source_archive(
+    archive_bytes: bytes,
+    destination: str | os.PathLike[str],
+    *,
+    expected_commit_sha: str,
+    commit_metadata: object,
+    limits: SourceArchiveLimits = SourceArchiveLimits(),
+) -> tuple[ExtractedSource, PinnedCommit]:
+    """Extract only when commit metadata and resulting Git tree both match."""
+    pinned = validate_pinned_commit_metadata(expected_commit_sha, commit_metadata)
+    extracted = extract_github_source_archive(
+        archive_bytes,
+        destination,
+        limits=limits,
+    )
+    try:
+        verify_extracted_source_tree(extracted, pinned)
+    except Exception:
+        shutil.rmtree(Path(destination), ignore_errors=True)
+        raise
+    return extracted, pinned

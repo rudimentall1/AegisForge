@@ -153,3 +153,15 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - Do not implement `git clone` or source materialization yet. First define a server-side trusted repository policy (canonical host + owner/repo allowlist), ensure it is enforced against the immutable registered case before any network access, and test rejection of alternate hosts, credentials in URLs, ports, redirects, path tricks, mutable refs, and non-full SHAs. Existing cases/tests currently use identifiers such as `owner/repository`; preserve compatibility at the ResearchCase contract layer unless a reviewed migration is explicitly approved.
 - Once repository authorization is in place, source acquisition must be non-executing: resolve exact full SHA, fetch without hooks, no recursive submodules by default, verify commit and tree identity, create a read-only source artifact, compute a content digest, and record provenance. No Foundry/Slither process launch until the disposable VM/microVM backend and pinned toolchain decisions are resolved.
 - Issue #158 remains OPEN. The green CI verifies implemented tests and fixed-fixture acceptance only; it does not prove pinned-target execution, historical vulnerability reproduction, or release readiness.
+
+
+## 13. Trusted target repository policy — 2026-11-14
+
+- Added `shared/repository_policy.py` and `tests/test_repository_policy.py`.
+- Added a server-side allowlist loaded from `AEGISFORGE_ALLOWED_TARGET_REPOSITORIES`. Unset/empty configuration denies all repositories; no wildcard or caller-provided policy exists.
+- Accepted identities are limited to `owner/repo` and canonical `https://github.com/owner/repo[.git]`. Reject alternate hosts, non-HTTPS, credentials, explicit ports, query/fragment, nested paths, trailing slash, percent-encoding, backslashes, control characters and malformed path segments.
+- Added `authorize_admitted_target_source()`: source acquisition must provide a registry-resolved `AdmittedTarget`, then authorize the immutable ResearchCase repository against the server-owned allowlist before any network access. It returns the canonical GitHub clone URL only after authorization.
+- Updated `docs/PINNED-TARGET-EXECUTION-ADAPTER-DESIGN.md` to make this policy mandatory and to require redirects be disabled or each redirect target be revalidated.
+- Files are committed in PR #196. Current implementation head before this checkpoint update: `7f9c550dcfdc3ee29aaf957a468a5000a19a0ae3`. No CI result has yet been returned for these policy changes; do not claim tests pass until the exact-head workflow completes.
+- Important limitation: this is an authorization/parser boundary, not a source fetcher. No network request, checkout, redirect handling, commit resolution, or source digest is implemented yet. The next step is run CI, fix any failures, then build a non-executing source materializer that consumes only this authorized result and verifies the full commit SHA and tree identity.
+- PR #196 remains OPEN and DRAFT. Issue #158 remains OPEN. The source policy is intentionally separate from the legacy ResearchCase schema so existing registered cases remain compatible.

@@ -11,7 +11,6 @@ from enum import Enum
 
 from shared.queue import TaskQueue
 from shared.research_case import (
-    CASE_REQUIRED_ROLES,
     CaseStatus,
     ExecutionMode,
     ResearchCase,

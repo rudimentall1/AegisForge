@@ -21,6 +21,7 @@ from shared.source_archive import (
     SourceArchiveLimits,
     extract_and_verify_pinned_github_source_archive,
     validate_pinned_commit_metadata,
+    validate_source_archive_limits,
 )
 
 

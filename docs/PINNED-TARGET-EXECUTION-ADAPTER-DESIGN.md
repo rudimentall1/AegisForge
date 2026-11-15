@@ -226,3 +226,33 @@ The combined entry point is `extract_and_verify_pinned_github_source_archive()`.
 Important compatibility boundary: this extractor rejects symlinks, hardlinks, special files, and gitlinks/submodules. Such repositories fail closed rather than being silently altered. Supporting these requires a separately designed representation and verification path; do not weaken the rejection policy.
 
 This still is not an HTTP downloader or a full source-acquisition service. Redirect validation, response streaming limits, API rate handling, immutable storage, and independent provenance recording remain unimplemented. No target code is executed.
+
+
+## 15. Bounded allowlisted GitHub source resolver — 2026-11-15
+
+A non-executing acquisition prototype now exists in `shared/github_source_resolver.py`.
+
+### Enforced boundary
+
+- Input is an `AdmittedTarget` resolved from persisted case/task/round state, plus a server-owned repository allowlist and a server-selected destination.
+- Repository identity is re-authorized before network access. Empty allowlist denies all.
+- Only a full immutable commit SHA from the admitted Research Case is accepted.
+- Commit metadata is requested first. The returned commit SHA and root tree SHA are validated before requesting the archive.
+- Archive request is constructed from the canonical allowlisted owner/repository and the exact commit SHA. No branch/tag, user URL, task URL, or agent-supplied archive location is accepted.
+- HTTPS only. Redirects are limited to `api.github.com` and `codeload.github.com`, with a maximum of three. Credentials, explicit ports, and host aliases are rejected.
+- Metadata and archive responses are streamed under byte limits. The resolver uses a bounded socket timeout.
+- Gzip expansion is bounded into a temporary file before TAR parsing. TAR member metadata is counted incrementally. Existing path, file-count, regular-file, and payload-size restrictions still apply.
+- Extracted Git blob/tree identities must reproduce the commit API root tree SHA. Any mismatch fails closed and partial extraction is removed.
+- No target file is executed, no dependency is installed, and no process is spawned.
+
+### Current limitations and non-claims
+
+- Public GitHub repositories only; private-repository credentials are not supported.
+- No API rate-limit backoff/retry, immutable artifact store, or independent provenance source.
+- Socket timeout is not a strict end-to-end wall-clock deadline for a slow-drip response.
+- Symlinks, hardlinks, gitlinks/submodules and special files remain unsupported and are rejected.
+- Resolver is not yet wired into a worker/executor lifecycle. Destination parent ownership and immutable storage policy must be defined before integration.
+- A matching Git tree proves consistency with the tree SHA returned by GitHub over TLS; it does not independently establish repository ownership, publisher identity, workflow provenance, or source trust.
+- This acquisition prototype does not authorize execution. The VM/microVM execution boundary and pinned toolchain remain unresolved.
+
+Exact-head CI for the current resolver and archive defenses: 1,869 tests passed, 4 warnings, 30 subtests passed; Bubblewrap fixture acceptance PASS (2026-11-15, CI run #1668). This is unit/CI validation only, not full issue #158 acceptance.

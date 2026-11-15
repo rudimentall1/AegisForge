@@ -169,6 +169,32 @@ def test_rejects_non_finite_or_boolean_fetch_limits_before_network(tmp_path, mon
             )
 
 
+@pytest.mark.parametrize(
+    "limits",
+    [
+        SourceArchiveLimits(max_archive_bytes=True),
+        SourceArchiveLimits(max_uncompressed_bytes=float("nan")),
+        SourceArchiveLimits(max_tar_uncompressed_bytes=float("inf")),
+        SourceArchiveLimits(max_files=1.5),
+        SourceArchiveLimits(max_files=False),
+    ],
+)
+def test_rejects_malformed_archive_limits_before_network(
+    tmp_path, monkeypatch, limits
+):
+    def fail_if_network_is_constructed(*_args, **_kwargs):
+        raise AssertionError("network opener must not be constructed")
+
+    monkeypatch.setattr(
+        fetch.urllib.request, "build_opener", fail_if_network_is_constructed
+    )
+    with pytest.raises(fetch.GitHubSourceFetchError, match="fetch_limits_invalid"):
+        fetch.fetch_and_extract_pinned_github_source(
+            "owner", "repo", "a" * 40, str(tmp_path / "output"),
+            archive_limits=limits,
+        )
+
+
 def test_rejects_invalid_archive_limit_before_network(tmp_path, monkeypatch):
     def fail_if_network_is_constructed(*_args, **_kwargs):
         raise AssertionError("network opener must not be constructed")

@@ -6,6 +6,7 @@ This module never executes repository content and never forwards credentials.
 from __future__ import annotations
 
 import json
+import math
 import re
 import urllib.error
 import urllib.parse
@@ -117,9 +118,16 @@ def fetch_and_extract_pinned_github_source(
     ):
         raise GitHubSourceFetchError("full_commit_sha_required")
     if (
-        not isinstance(fetch_limits.timeout_seconds, (int, float))
+        isinstance(fetch_limits.timeout_seconds, bool)
+        or not isinstance(fetch_limits.timeout_seconds, (int, float))
+        or not math.isfinite(fetch_limits.timeout_seconds)
         or fetch_limits.timeout_seconds <= 0
+        or isinstance(fetch_limits.max_metadata_bytes, bool)
+        or not isinstance(fetch_limits.max_metadata_bytes, int)
         or fetch_limits.max_metadata_bytes <= 0
+        or isinstance(archive_limits.max_archive_bytes, bool)
+        or not isinstance(archive_limits.max_archive_bytes, int)
+        or archive_limits.max_archive_bytes <= 0
     ):
         raise GitHubSourceFetchError("fetch_limits_invalid")
 

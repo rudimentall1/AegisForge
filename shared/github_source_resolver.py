@@ -24,6 +24,7 @@ from shared.source_archive import (
     SourceArchiveError,
     SourceArchiveLimits,
     extract_and_verify_pinned_github_source_archive,
+    validate_source_archive_limits,
 )
 from shared.target_execution_admission import AdmittedTarget
 
@@ -143,6 +144,10 @@ def acquire_allowlisted_pinned_github_source(
     """
     if not isinstance(admitted_target, AdmittedTarget):
         raise GitHubSourceAcquisitionError("admitted_target_required")
+    try:
+        validate_source_archive_limits(limits)
+    except SourceArchiveError as exc:
+        raise GitHubSourceAcquisitionError("source_archive_limits_invalid") from exc
     if (
         not isinstance(timeout_seconds, int)
         or isinstance(timeout_seconds, bool)

@@ -1,6 +1,6 @@
 # Pinned-target execution adapter — design decision
 
-**Status:** proposed; not implemented  
+**Status:** proposed; standalone Docker reproduction prototype exists but is not accepted as the production execution boundary  
 **Date:** 2026-11-14  
 **Parent:** PR #196 / release gate #158  
 **Decision owner:** AegisForge maintainers
@@ -256,3 +256,33 @@ A non-executing acquisition prototype now exists in `shared/github_source_resolv
 - This acquisition prototype does not authorize execution. The VM/microVM execution boundary and pinned toolchain remain unresolved.
 
 Exact-head CI for the current resolver and archive defenses: 1,869 tests passed, 4 warnings, 30 subtests passed; Bubblewrap fixture acceptance PASS (2026-11-15, CI run #1668). This is unit/CI validation only, not full issue #158 acceptance.
+
+
+## 16. Review of the existing Docker reproduction prototype — 2026-11-15
+
+The branch contains `shared/reproduction_contract.py` and `shared/reproduction_runner.py`. This is a real, explicitly invoked Docker prototype, not merely a design sketch. It must not be confused with the fixed Bubblewrap fixture runner or treated as an accepted hostile-repository executor.
+
+### What the prototype already enforces
+
+- Requires a locally available image referenced by a SHA-256 digest and uses `--pull=never`.
+- Refuses execution when Docker is unavailable, when the host identity is root, or when POSIX UID/GID support is unavailable.
+- Copies the pinned Git worktree into a temporary workspace and checks file blobs against the requested commit tree.
+- Mounts source read-only; disables network and IPC; uses a read-only container root, drops capabilities, enables `no-new-privileges`, sets PID, CPU, memory, memory+swap, and output tmpfs limits.
+- Does not inherit the host process environment; passes only contract-declared environment values.
+- Collects outputs only after a confirmed container stop, validates exact output paths and SHA-256 digests, and requires container cleanup to succeed for a successful result.
+- Does not change the finding verdict; its result is an execution result only.
+
+### Why it is not yet an approved target runner
+
+1. The contract accepts arbitrary argv and environment values (with sensitive variable names blocked). That is acceptable only as a low-level prototype input, not as the product API. The public execution API must accept a server-authorized task ID plus a fixed adapter/profile enum; it must construct argv and environment internally.
+2. The contract does not bind itself to the authoritative Research Case store, task ID, runtime round ID, or planned RoundSpec ID. The separate admission gate exists, but the reviewed runtime entrypoints do not wire that gate into this runner.
+3. Docker shares the host kernel. Default Docker seccomp behavior and these container flags are useful defense-in-depth, but they do not meet the design requirement for a disposable VM/microVM boundary against hostile public repositories.
+4. The runner verifies a digest-form image reference syntactically and relies on Docker's digest-qualified image resolution with `--pull=never`; it does not independently attest the daemon/runtime or host configuration.
+5. The current tests mock Docker and Git. They validate command construction and state handling, not actual host/network isolation or resistance to a kernel/container escape.
+
+### Decision
+
+- Keep this prototype isolated and explicitly opt-in. Do not wire it into the worker, API, orchestrator, or public CLI.
+- Do not execute target repositories through `shared.sandbox.run_in_sandbox`; its process mode is not a security boundary and its Docker mode is weaker than this prototype.
+- Before enabling any untrusted target execution: integrate persisted case/task/round admission, replace arbitrary request-supplied argv/env with fixed server-owned adapter profiles, select and verify a disposable VM/microVM backend, and add real adversarial host-isolation acceptance on the deployment runner.
+- Until those conditions pass, the supported execution path remains the repository-owned synthetic fixture. Issue #158 remains OPEN.

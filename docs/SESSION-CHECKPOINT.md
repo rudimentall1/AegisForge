@@ -3,15 +3,15 @@
 **Updated:** 2026-11-15
 **Repository:** https://github.com/rudimentall1/AegisForge  
 **Working branch:** `feat/persist-local-experiment-evidence-main`  
-**Latest implementation commit:** `c23528119c5f0ce3372bc7a2d98b165ec147de12`  
+**Latest implementation commit:** `d571f2911706c98052ed5a686407ed8155a0c7c1`  
 **PR:** [#196](https://github.com/rudimentall1/AegisForge/pull/196) — OPEN, DRAFT, not merged  
 **Release gate:** [Issue #158](https://github.com/rudimentall1/AegisForge/issues/158) — OPEN
 
 ## 1. Where we stopped (verified repository state)
 
-- PR #196 currently has 305 commits, 57 changed files, +12711/-138 lines. Current head: `c23528119c5f0ce3372bc7a2d98b165ec147de12`; base is `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
+- PR #196 currently has 309 commits, 57 changed files, +12,798/-138 lines. Current head: `b4f070b2480bb38327f3e9537cece06456cba90d` (checkpoint-only commit); latest implementation commit: `d571f2911706c98052ed5a686407ed8155a0c7c1`; base: `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
 - PR remains OPEN and DRAFT. Latest observed PR metadata reports `mergeable: true`; this is not approval to merge. Keep Draft until release gate #158 is satisfied.
-- Workflow run #1615 / ID `43597955894` on the previous checkpoint head `33eb493b554752eca43b92f795d3dd980c0dc2ba` completed **SUCCESS**. This supersedes the older observed run #1614 failure for that earlier head, but does not prove the release acceptance contract or close issue #158. The latest docs-only commits still need their own CI result.
+- Historical CI run #1615 is retained below for chronology; current code verification is CI #1680 / ID `43677460311` (see section 22). The latest checkpoint-only commit `b4f070b...` has no workflow run returned yet.
 - Issue #158 remains open. Its acceptance contract still requires one clean-runner, local-only path from immutable Research Case registration through bounded experiment, evidence export, independent verification, adversarial rejection tests, and honest machine-readable statuses.
 - `docs/SESSION-CHECKPOINT.md` is maintained on this PR branch as the handoff record.
 - `README.md`, `docs/ARCHITECTURE.md`, and `docs/PRODUCT-READINESS.md` all explicitly say release readiness and commercial fit are not established.

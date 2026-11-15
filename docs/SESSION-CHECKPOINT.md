@@ -269,3 +269,16 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - Current head: `c23528119c5f0ce3372bc7a2d98b165ec147de12`. CI run #1677 / ID `43677232465` is **in progress**; latest observed job ID `132699935186`. Do not claim the new source fetcher is CI-verified until this run completes.
 - PR #196 remains OPEN and DRAFT, not merged. Keep it Draft. Issue #158 remains OPEN.
 - Next: inspect run #1677 and logs. If green, review the source fetcher's redirect/response/error behavior and only then decide whether to expose a CLI or integrate source acquisition into a higher-level workflow. Do not execute downloaded target code. Continue to treat GitHub metadata/archive agreement as consistency, not independent provenance.
+
+## 22. Pinned GitHub source fetcher hardening — 2026-11-15
+
+- Latest implementation commit: `d571f2911706c98052ed5a686407ed8155a0c7c1`.
+- Hardened `shared/github_source_fetch.py`: validate all caller-supplied fetch limits before network access; reject boolean values as numeric limits; require timeout to be a finite positive number; require metadata/archive byte caps to be positive integers.
+- Added regression coverage for NaN/Infinity/bool timeout values, boolean and invalid byte limits, redirects using non-standard ports or URL userinfo, non-HTTPS redirects, and oversized declared Content-Length.
+- GitHub Actions run #1680 / ID `43677460311` completed **SUCCESS** for this code head. Job `132700618281`: **1,878 passed, 4 warnings, 30 subtests passed** in 35.67s. Python compilation and whitespace checks passed; EVM Key Forensics evidence artifact uploaded; Bubblewrap fixture acceptance returned **PASS** and its report artifact uploaded.
+- Four pytest warnings are intentional duplicate ZIP-member warnings from adversarial archive tests. GitHub Actions emitted Node.js 20 deprecation warnings for existing workflow actions; neither caused failure.
+- CI checked the PR merge ref `0a408c77c707bb6ceaca5e1e6f9d420b1d74bacf`, which contains head `d571f291...` merged with base `0adfc88...`. The PR head itself is `d571f291...`.
+- PR #196 remains OPEN, DRAFT, not merged; current metadata reports 308 commits, 57 changed files, +12,785/-138, mergeable true. Keep Draft.
+- Issue #158 remains OPEN. The source fetcher remains acquisition-only and is not wired into a runner. GitHub API metadata/archive tree agreement is consistency checking, not independent provenance. No arbitrary target code execution is enabled.
+- Next engineering focus: review the existing admitted-target and immutable source-storage boundaries, then build only the missing local-only acceptance path required by #158. Do not modify protected attestation files, reserved workflows, or Agent B-owned orchestration/CLI paths. Do not add a process launcher before a reviewed VM/microVM isolation contract and pinned toolchain exist.
+

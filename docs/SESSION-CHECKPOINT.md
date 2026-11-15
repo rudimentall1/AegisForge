@@ -317,3 +317,15 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - The reproduction contract accepts arbitrary argv and declared environment values and is not bound to persisted Research Case/task/runtime-round/planned-round state. The separate target admission gate is not wired into the runner in the reviewed runtime entrypoints. Do not expose this as a public runner or wire it into workers/API/CLI.
 - Updated `docs/PINNED-TARGET-EXECUTION-ADAPTER-DESIGN.md` in commit `df4c813aa60d963a6f296a608a28ceb29694e675` to accurately distinguish the existing prototype from an approved execution boundary and to record the missing admission, fixed-profile, and VM/microVM requirements.
 - Next engineering step is not another generic subprocess wrapper. First establish a disposable VM/microVM backend that can be provisioned and verified on the actual deployment runner; then connect persisted admission and fixed server-owned tool profiles. Until then, only repository-owned synthetic fixtures may execute. Issue #158 stays OPEN; PR #196 stays DRAFT.
+
+
+## 26. Hostile execution backend decision — 2026-11-15
+
+- Added `docs/EXECUTION-BACKEND-DECISION.md` in commit `2e86d8c8c98a68c2aba31e7d4511d32bf17c2119`.
+- Decision: Firecracker on a dedicated Linux KVM host is the first production microVM candidate, but it is NOT approved until the actual host proves CPU virtualization, usable `/dev/kvm`, jailer startup, and adversarial host/network isolation.
+- Kata Containers is deferred because it also requires bare metal/nested virtualization and adds a CRI/containerd operational stack not justified by the current single-host MVP.
+- gVisor systrap is documented as a possible lower-assurance internal tier where KVM is unavailable. It is explicitly not equivalent to a VM/microVM and does not close the hostile-public-repository release gate.
+- GitHub-hosted `ubuntu-latest` is not assumed to expose KVM merely because it is itself a VM. The workflow specification does not guarantee nested virtualization; do not modify protected CI workflows for speculative probing.
+- The new decision document includes a read-only host capability probe and ten mandatory microVM acceptance conditions. No kernel modules, permissions, packages, services, or workflows were changed.
+- The execution pipeline remains intentionally unconnected: persisted admission gate exists, Docker reproduction prototype remains opt-in, and only the repository-owned synthetic fixture is approved for execution.
+- Latest documentation commit is `2e86d8c8c98a68c2aba31e7d4511d32bf17c2119`. CI for this documentation-only commit has not yet been observed. PR #196 remains DRAFT; issues #158, #80, #88, #116, #118, #100, and #67 remain OPEN. No merge or release-gate closure.

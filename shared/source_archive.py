@@ -121,8 +121,12 @@ def extract_github_source_archive(
     target_created = False
     try:
         with _open_bounded_tar(archive_bytes, limits.max_tar_uncompressed_bytes) as archive:
-            members = archive.getmembers()
-            if not members or len(members) > (limits.max_files * 2) + 1:
+            members = []
+            for member in archive:
+                members.append(member)
+                if len(members) > (limits.max_files * 2) + 1:
+                    raise SourceArchiveError("archive_member_count_out_of_bounds")
+            if not members:
                 raise SourceArchiveError("archive_member_count_out_of_bounds")
 
             root_name: str | None = None

@@ -15,7 +15,9 @@ python -m pytest -q \
   tests/test_local_experiment_e2e.py \
   tests/test_local_experiment_bundle_adversarial.py \
   tests/test_research_case_bundle_e2e.py \
-  tests/test_attestation_replay.py
+  tests/test_attestation_replay.py \\
+  tests/test_source_archive.py \\
+  tests/test_github_source_fetch.py
 ```
 
 The primary end-to-end test is `tests/test_local_experiment_e2e.py::test_synthetic_case_queue_ledger_bundle_offline_verification`. It drives a synthetic Research Case through queue and round binding, fixed local control and counter-test subprocesses, evidence-ledger persistence, experiment bundles, case dossier export, combined package construction, offline verification, trusted-key attestation checks, and nonce replay rejection. The test also rebuilds a package with a modified signed case digest and verifies that package integrity and attestation validity are reported separately.
@@ -30,6 +32,12 @@ An opt-in Linux backend, `shared.isolated_synthetic_fixture_runner`, uses Bubble
 - A successful package verification does not establish execution truth or confirm a vulnerability.
 
 For the complete repository test suite, use `python -m pytest -q --tb=short`. The current GitHub Actions run is the authoritative public record for the exact commit and environment it tested; local results must not be presented as a different CI run.
+
+## Pinned GitHub source acquisition
+
+`shared.github_source_fetch` is an acquisition-only adapter. It resolves the requested full commit SHA through the GitHub commit API, validates the returned commit and root tree IDs, fetches the tarball for that exact SHA, enforces bounded response sizes and timeouts, and restricts HTTPS redirects to GitHub API/codeload hosts. It sends no authorization header and does not use ambient credentials. The archive is then extracted by the non-executing bounded extractor and accepted only if its computed Git tree SHA matches the API tree SHA.
+
+This establishes consistency between the fetched archive and the commit metadata response; it does not independently authenticate the GitHub repository, prove workflow provenance, or establish that the source is safe to execute. Symlinks, hardlinks, special files, and submodules remain intentionally unsupported. Source acquisition must happen outside the experiment runner; this module never executes fetched content.
 
 ## Evidence layers
 

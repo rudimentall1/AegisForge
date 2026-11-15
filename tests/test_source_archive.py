@@ -1,3 +1,4 @@
+import gzip
 import io
 import tarfile
 
@@ -290,3 +291,19 @@ def test_git_tree_sha_matches_git_for_mixed_names_modes_and_nested_directories(t
     ).stdout.strip()
 
     assert expected == actual
+
+
+def test_rejects_gzip_expansion_before_tar_header_parsing(tmp_path):
+    compressed_bomb = gzip.compress(b"Z" * 100_000)
+    destination = tmp_path / "source"
+    with pytest.raises(SourceArchiveError, match="tar_uncompressed_size_out_of_bounds"):
+        extract_github_source_archive(
+            compressed_bomb,
+            destination,
+            limits=SourceArchiveLimits(
+                max_archive_bytes=1024,
+                max_uncompressed_bytes=1024,
+                max_tar_uncompressed_bytes=4096,
+            ),
+        )
+    assert not destination.exists()

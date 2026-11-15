@@ -294,3 +294,16 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - PR #196 remains OPEN, DRAFT, not merged; GitHub currently reports mergeable true. Issue #158 remains OPEN.
 - Remaining boundary: this proves the fixed repository-owned synthetic fixture path and portable evidence integrity. It does not execute arbitrary target code, prove runner honesty, establish independent provenance, or satisfy all #158 release blockers. Do not turn the fixture backend into a generic command runner. Continue with separately reviewed isolation/toolchain design and the outstanding Agent B-owned case-entrypoint/operator lifecycle blockers without editing their files.
 
+
+
+## 24. Resolver hardening, exact-head CI, and sandbox boundary review — 2026-11-15
+
+- PR #196 head at review: `a484c0dfc67eaea0169f06cf066165d94fd3fee9`; PR remains OPEN, DRAFT, not merged. Release gate #158 remains OPEN.
+- Added resolver-side validation of source archive limits before the first network request. Invalid booleans, floats, NaN, Infinity, and out-of-range values fail closed as `source_archive_limits_invalid`.
+- Added duplicate-key rejection for GitHub commit metadata JSON in `shared/github_source_resolver.py`; duplicate metadata keys fail before archive retrieval as `github_commit_metadata_duplicate_key`.
+- Added negative tests proving malformed limits do not trigger network access and duplicate metadata keys block archive fetch.
+- CI run #1696 / ID `43678177553` completed SUCCESS on PR merge ref `a82170ec6a750f88fba3eb0e1a0ad1bdb01d3eaf`, containing PR head `a484c0d...`. Job ID `132702810909`: **1,913 passed, 4 warnings, 30 subtests passed**; Python compilation, whitespace check, EVM Key Forensics evidence steps, and Bubblewrap fixture acceptance all passed. Bubblewrap report status: PASS.
+- The four pytest warnings are duplicate ZIP member-name warnings intentionally triggered by adversarial tests. They are not runtime failures.
+- Re-reviewed `shared/sandbox.py` and `tests/test_sandbox.py`. This generic helper is not evidence of a hostile-code sandbox. The process backend has no filesystem or network isolation; POSIX resource limits do not establish isolation, and `RLIMIT_NPROC` is not a reliable process-count boundary when the service runs as root. The Docker backend has no explicit seccomp profile, no PID limit, no `no-new-privileges`, and uses floating image tag `python:3.12-slim`. These are known limitations, not acceptable controls for arbitrary public repositories.
+- No arbitrary target runner is authorized by this review. Keep the existing fixed-fixture-only execution path. Do not route untrusted repository content or dossier-provided argv through `run_in_sandbox`.
+- Next: inspect all call sites and the pinned-target adapter design; decide and document the actual disposable VM/microVM backend and pinned toolchain. Only then implement a narrow fixed-profile adapter with fail-closed admission and adversarial tests. Keep PR Draft and do not close #158 until the full acceptance contract is met.

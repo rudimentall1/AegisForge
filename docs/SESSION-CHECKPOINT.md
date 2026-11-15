@@ -209,3 +209,14 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - Outstanding limitations remain: no HTTP source downloader, redirect validation, streamed response-size enforcement, immutable source storage, or independent acquisition provenance. Symlinks, hardlinks, special files and gitlinks/submodules are rejected. No target code execution or process launcher has been added.
 - Next action: inspect CI #1656 to completion. If green, record the exact pytest count and Bubblewrap result, then review source archive edge cases and design the trusted, bounded HTTP resolver separately. If red, fix only the demonstrated failure and rerun exact-head CI.
 - Issue #158 remains OPEN. PR #196 remains DRAFT. This prototype does not close the release gate or establish arbitrary target execution safety.
+
+
+## 18. Pinned source tree fix — exact-head CI passed — 2026-11-15
+
+- CI run #1656 / ID `43603669224` completed SUCCESS for implementation commit `79c04db3bb9848c8039d8add11bd89ba599b3895`.
+- Retrieved job log confirms: **1,856 passed, 4 warnings, 30 subtests passed**. Python compilation, whitespace checks, EVM Key Forensics evidence steps, and Bubblewrap fixture acceptance all completed successfully. Bubblewrap acceptance report status was PASS and the report artifact uploaded successfully.
+- This verifies the empty-directory/Git tree hashing correction described in section 17. The four pytest warnings remain present and visible; they include duplicate ZIP member-name warnings in adversarial evidence-package tests. Do not describe the run as warning-free.
+- The workflow ran against code commit `79c04db`; subsequent checkpoint-only commits `3ecf6c0` and `8918d80` change documentation, not implementation. CI #1656 is the relevant exact-code-head validation.
+- PR #196 remains OPEN and DRAFT; latest observed PR head is checkpoint commit `8918d80e3a41e8d24d28d2cddc22664344ae8da3`, and GitHub reports `mergeable: true`. Issue #158 remains OPEN.
+- Next: review source archive and repository-policy boundaries together before adding network acquisition. Any resolver must enforce the server-side repository allowlist, bind requests to the immutable full commit SHA, disable/revalidate redirects, enforce streamed response and extraction limits, verify commit metadata and reconstructed Git tree, and clean up on every failure. Keep acquisition non-executing. Do not launch Foundry/Slither or arbitrary target code until the isolated VM/microVM backend and pinned toolchain are selected.
+- This CI pass does not prove source acquisition, target execution safety, vulnerability reproduction, or full #158 release acceptance.

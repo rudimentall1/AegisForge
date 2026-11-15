@@ -307,3 +307,19 @@ def test_rejects_gzip_expansion_before_tar_header_parsing(tmp_path):
             ),
         )
     assert not destination.exists()
+
+
+def test_rejects_excessive_tar_member_metadata_during_iteration(tmp_path):
+    archive = make_archive([
+        ("root/", "dir", b""),
+        ("root/a", "file", "a"),
+        ("root/b", "file", "b"),
+        ("root/c", "file", "c"),
+    ])
+    with pytest.raises(SourceArchiveError, match="member_count_out_of_bounds"):
+        extract_github_source_archive(
+            archive,
+            tmp_path / "source",
+            limits=SourceArchiveLimits(max_files=1),
+        )
+    assert not (tmp_path / "source").exists()

@@ -4,7 +4,7 @@ import tarfile
 
 import pytest
 
-from shared.source_archive import compute_git_tree_sha
+from shared.source_archive import SourceArchiveLimits, compute_git_tree_sha
 from shared.research_case import ResearchCase
 from shared.target_execution_admission import AdmittedTarget, AdapterProfile
 from shared.github_source_resolver import (
@@ -131,6 +131,37 @@ def test_resolver_denies_repository_before_network_or_filesystem_changes(tmp_pat
             destination,
         )
     assert not destination.exists()
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        SourceArchiveLimits(max_archive_bytes=True),
+        SourceArchiveLimits(max_uncompressed_bytes=float("nan")),
+        SourceArchiveLimits(max_tar_uncompressed_bytes=float("inf")),
+        SourceArchiveLimits(max_files=1.5),
+        SourceArchiveLimits(max_files=False),
+    ],
+)
+def test_resolver_rejects_malformed_archive_limits_before_network(
+    tmp_path, monkeypatch, limits
+):
+    from shared import github_source_resolver as resolver
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("network must not be touched for malformed resource budgets")
+
+    monkeypatch.setattr(resolver, "_open_response", unexpected)
+    with pytest.raises(
+        GitHubSourceAcquisitionError, match="source_archive_limits_invalid"
+    ):
+        acquire_allowlisted_pinned_github_source(
+            _admitted_target(),
+            frozenset({"owner/repo"}),
+            tmp_path / "source",
+            limits=limits,
+        )
+    assert not (tmp_path / "source").exists()
 
 
 def test_resolver_rejects_wrong_commit_metadata_before_archive_fetch(tmp_path, monkeypatch):

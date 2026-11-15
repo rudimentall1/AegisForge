@@ -18,6 +18,14 @@ from shared.local_experiment_bundle import (
     export_persisted_local_experiment_bundle,
     verify_local_experiment_bundle,
 )
+from shared.research_case_bundle import (
+    export_research_case_bundle,
+    verify_research_case_bundle,
+)
+from shared.research_case_evidence_package import (
+    build_research_case_evidence_package,
+    verify_research_case_evidence_package,
+)
 from shared.queue import TaskQueue
 from shared.research_case import (
     CaseStatus,
@@ -59,7 +67,8 @@ def test_bubblewrap_fixture_results_persist_and_verify_end_to_end(tmp_path):
         rounds=(spec,),
     )
 
-    queue = TaskQueue(db_path=tmp_path / "bwrap-evidence.sqlite3")
+    db_path = tmp_path / "bwrap-evidence.sqlite3"
+    queue = TaskQueue(db_path=db_path)
     try:
         queue.register_research_case(case)
         ledger = EvidenceLedger(queue.db)
@@ -177,5 +186,35 @@ def test_bubblewrap_fixture_results_persist_and_verify_end_to_end(tmp_path):
         assert assessment["vulnerability_confirmed"] is False
         assert assessment["checks"]["identity_match"] is True
         assert task_ids["control"] != task_ids["countertest"]
+
+        # Carry the actual isolated control/counter-test records through the
+        # Research Case dossier and independently verifiable outer package.
+        dossier_path = tmp_path / "bwrap-case-dossier.zip"
+        dossier_export = export_research_case_bundle(
+            db_path, case.case_id, dossier_path
+        )
+        assert dossier_export["valid"] is True
+        dossier_report = verify_research_case_bundle(dossier_path)
+        assert dossier_report["valid"] is True
+        assert dossier_report["case_id"] == case.case_id
+        assert dossier_report["case_digest"]
+
+        package = build_research_case_evidence_package(
+            dossier_path.read_bytes(),
+            [bundles["control"], bundles["countertest"]],
+        )
+        package_report = verify_research_case_evidence_package(package)
+        assert package_report["status"] == "PASS"
+        assert package_report["package_integrity_status"] == "PASS"
+        assert package_report["case_id"] == case.case_id
+        assert package_report["experiment_count"] == 2
+        assert set(package_report["task_ids"]) == set(task_ids.values())
+        assert package_report["round_ids"] == [runtime_round_id]
+        assert package_report["round_spec_ids"] == [planned_round_id]
+        assert package_report["attestation_verification_status"] == "NOT_CHECKED"
+        assert package_report["attestation_coverage_status"] == "NOT_PRESENT"
+        assert package_report["authenticity"] == "UNSIGNED_INTEGRITY_ONLY"
+        assert package_report["execution_truth_established"] is False
+        assert package_report["vulnerability_confirmed"] is False
     finally:
         queue.db.close()

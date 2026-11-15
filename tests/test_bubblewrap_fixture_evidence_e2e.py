@@ -211,7 +211,7 @@ def test_bubblewrap_fixture_results_persist_and_verify_end_to_end(tmp_path):
         assert set(package_report["task_ids"]) == set(task_ids.values())
         assert package_report["round_ids"] == [runtime_round_id]
         assert package_report["round_spec_ids"] == [planned_round_id]
-        assert package_report["attestation_verification_status"] == "NOT_CHECKED"
+        assert package_report["attestation_verification_status"] == "NOT_PRESENT"
         assert package_report["attestation_coverage_status"] == "NOT_PRESENT"
         assert package_report["authenticity"] == "UNSIGNED_INTEGRITY_ONLY"
         assert package_report["execution_truth_established"] is False

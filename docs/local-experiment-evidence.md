@@ -15,8 +15,8 @@ python -m pytest -q \
   tests/test_local_experiment_e2e.py \
   tests/test_local_experiment_bundle_adversarial.py \
   tests/test_research_case_bundle_e2e.py \
-  tests/test_attestation_replay.py \\
-  tests/test_source_archive.py \\
+  tests/test_attestation_replay.py \
+  tests/test_source_archive.py \
   tests/test_github_source_fetch.py
 ```
 

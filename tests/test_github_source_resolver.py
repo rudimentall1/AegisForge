@@ -164,6 +164,33 @@ def test_resolver_rejects_malformed_archive_limits_before_network(
     assert not (tmp_path / "source").exists()
 
 
+def test_resolver_rejects_duplicate_commit_metadata_keys_before_archive_fetch(
+    tmp_path, monkeypatch
+):
+    from shared import github_source_resolver as resolver
+
+    calls = []
+
+    def fake_open(url, timeout):
+        calls.append(url)
+        return _FakeResponse(
+            b'{"sha":"' + b"a" * 40 + b'","sha":"' + b"b" * 40
+            + b'","commit":{"tree":{"sha":"' + b"c" * 40 + b'"}}}'
+        )
+
+    monkeypatch.setattr(resolver, "_open_response", fake_open)
+    with pytest.raises(
+        GitHubSourceAcquisitionError, match="github_commit_metadata_duplicate_key"
+    ):
+        acquire_allowlisted_pinned_github_source(
+            _admitted_target(),
+            frozenset({"owner/repo"}),
+            tmp_path / "source",
+        )
+    assert len(calls) == 1
+    assert not (tmp_path / "source").exists()
+
+
 def test_resolver_rejects_wrong_commit_metadata_before_archive_fetch(tmp_path, monkeypatch):
     from shared import github_source_resolver as resolver
 

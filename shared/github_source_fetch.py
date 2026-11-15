@@ -19,6 +19,7 @@ from shared.source_archive import (
     SourceArchiveError,
     SourceArchiveLimits,
     extract_and_verify_pinned_github_source_archive,
+    validate_pinned_commit_metadata,
 )
 
 
@@ -178,8 +179,6 @@ def fetch_and_extract_pinned_github_source(
         raise GitHubSourceFetchError("commit_metadata_invalid") from exc
 
     try:
-        from shared.source_archive import validate_pinned_commit_metadata
-
         validate_pinned_commit_metadata(commit_sha, metadata)
     except SourceArchiveError as exc:
         raise GitHubSourceFetchError(str(exc)) from exc

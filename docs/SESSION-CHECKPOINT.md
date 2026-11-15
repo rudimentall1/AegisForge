@@ -231,3 +231,15 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - PR #196 remains OPEN and DRAFT; current head is this test commit. GitHub Actions run #1660 / ID `43676151759` is running for this exact head; at last inspection its job was in progress during checkout. The new oracle test is **not yet CI-verified**.
 - A documentation-only checkpoint commit `4cb28096b74d835325791ab19468c04c8eaa824c` also triggered run #1659; run #1660 is the relevant code/test validation.
 - Next: inspect run #1660 to completion. If the Git oracle test fails, fix the tree serialization against Git's observed behavior before any network source resolver is implemented. If green, proceed with a separately tested, non-executing bounded source resolver design; do not add target execution.
+
+
+## 20. Git-native source tree oracle CI passed — 2026-11-15
+
+- CI run #1660 / ID `43676151759` completed SUCCESS for test commit `ae8d32c5bb8096690d79f891e73b9a2b3de50581`.
+- Exact pytest result: **1,857 passed, 4 warnings, 30 subtests passed** in 29.99s.
+- The new `test_git_tree_sha_matches_git_for_mixed_names_modes_and_nested_directories` passed. It compared the implementation against Git's own `git write-tree` for nested directories, file/directory ordering, Unicode filenames and executable mode.
+- Bubblewrap fixture acceptance: **PASS**; acceptance JSON artifact uploaded successfully (artifact ID `14146457921`). Compilation, deterministic C++ diagnostic build, source pin comparison, portable evidence assembly/verification, invalid sample-count rejection and Python compilation all passed.
+- Four pytest warnings remain, including intentional duplicate ZIP member names exercised by adversarial evidence-package tests. The workflow also emitted GitHub Actions Node.js 20 deprecation warnings; neither is a test failure, but both should be tracked separately.
+- Code head validated: `ae8d32c5bb8096690d79f891e73b9a2b3de50581`. PR #196 remains DRAFT and must not be merged. Issue #158 remains OPEN.
+- The Git tree hash implementation now has both known-vector coverage and an independent Git CLI oracle test. This is sufficient to move to the next isolated source-acquisition design step; it is not proof of acquisition provenance or execution safety.
+- Next implementation boundary: build a bounded, non-executing GitHub source resolver that accepts only configured repository identities and a full immutable commit SHA; validates commit metadata and root tree; obtains the archive for that exact SHA; enforces HTTPS/redirect policy and streamed byte limits; passes bytes into the existing archive extractor/tree verifier; and removes partial artifacts on all failures. No arbitrary URL fetch, no target code execution, no dependency installation, no submodules/symlinks, and no process launcher.

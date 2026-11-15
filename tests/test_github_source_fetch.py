@@ -1,8 +1,6 @@
-import gzip
 import io
 import json
 import tarfile
-from pathlib import Path
 
 import pytest
 
@@ -145,5 +143,61 @@ def test_rejects_redirect_outside_github_allowlist():
 
 def test_rejects_oversized_response_body():
     response = FakeResponse(b"x" * 20)
+    with pytest.raises(fetch.GitHubSourceFetchError, match="size_out_of_bounds"):
+        fetch._read_bounded(response, 10, "response_size_out_of_bounds")
+
+
+
+def test_rejects_non_finite_or_boolean_fetch_limits_before_network(tmp_path, monkeypatch):
+    def fail_if_network_is_constructed(*_args, **_kwargs):
+        raise AssertionError("network opener must not be constructed")
+
+    monkeypatch.setattr(
+        fetch.urllib.request, "build_opener", fail_if_network_is_constructed
+    )
+    invalid_limits = [
+        fetch.GitHubSourceFetchLimits(timeout_seconds=float("nan")),
+        fetch.GitHubSourceFetchLimits(timeout_seconds=float("inf")),
+        fetch.GitHubSourceFetchLimits(timeout_seconds=True),
+        fetch.GitHubSourceFetchLimits(max_metadata_bytes=True),
+    ]
+    for limits in invalid_limits:
+        with pytest.raises(fetch.GitHubSourceFetchError, match="fetch_limits_invalid"):
+            fetch.fetch_and_extract_pinned_github_source(
+                "owner", "repo", "a" * 40, str(tmp_path / "output"),
+                fetch_limits=limits,
+            )
+
+
+def test_rejects_invalid_archive_limit_before_network(tmp_path, monkeypatch):
+    def fail_if_network_is_constructed(*_args, **_kwargs):
+        raise AssertionError("network opener must not be constructed")
+
+    monkeypatch.setattr(
+        fetch.urllib.request, "build_opener", fail_if_network_is_constructed
+    )
+    from shared.source_archive import SourceArchiveLimits
+
+    with pytest.raises(fetch.GitHubSourceFetchError, match="fetch_limits_invalid"):
+        fetch.fetch_and_extract_pinned_github_source(
+            "owner", "repo", "a" * 40, str(tmp_path / "output"),
+            archive_limits=SourceArchiveLimits(max_archive_bytes=0),
+        )
+
+
+def test_rejects_redirect_with_nonstandard_port_or_userinfo():
+    handler = fetch._AllowlistedHTTPSRedirectHandler({"api.github.com"})
+    for target in (
+        "https://api.github.com:8443/archive",
+        "https://user@api.github.com/archive",
+        "http://api.github.com/archive",
+    ):
+        with pytest.raises(fetch.GitHubSourceFetchError, match="redirect_rejected"):
+            handler.redirect_request(None, None, 302, "Found", {}, target)
+
+
+def test_rejects_oversized_declared_content_length():
+    response = FakeResponse(b"x")
+    response.headers["Content-Length"] = "999"
     with pytest.raises(fetch.GitHubSourceFetchError, match="size_out_of_bounds"):
         fetch._read_bounded(response, 10, "response_size_out_of_bounds")

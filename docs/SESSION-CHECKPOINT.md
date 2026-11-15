@@ -220,3 +220,14 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - PR #196 remains OPEN and DRAFT; latest observed PR head is checkpoint commit `8918d80e3a41e8d24d28d2cddc22664344ae8da3`, and GitHub reports `mergeable: true`. Issue #158 remains OPEN.
 - Next: review source archive and repository-policy boundaries together before adding network acquisition. Any resolver must enforce the server-side repository allowlist, bind requests to the immutable full commit SHA, disable/revalidate redirects, enforce streamed response and extraction limits, verify commit metadata and reconstructed Git tree, and clean up on every failure. Keep acquisition non-executing. Do not launch Foundry/Slither or arbitrary target code until the isolated VM/microVM backend and pinned toolchain are selected.
 - This CI pass does not prove source acquisition, target execution safety, vulnerability reproduction, or full #158 release acceptance.
+
+
+## 19. Git-native tree hash oracle test — 2026-11-15
+
+- Added `test_git_tree_sha_matches_git_for_mixed_names_modes_and_nested_directories` to `tests/test_source_archive.py`.
+- The test creates a controlled source tree containing a nested directory, a filename that exercises Git's file-vs-directory sort ordering (`a.c` vs `a/`), a Unicode filename, and an executable file. It computes the implementation hash, stages an equivalent tree in a separate temporary Git repository, and compares against Git's own `git write-tree` result.
+- The test skips only if the Git executable is unavailable. It executes no target repository code and uses only a temporary test fixture.
+- Commit: `ae8d32c5bb8096690d79f891e73b9a2b3de50581`.
+- PR #196 remains OPEN and DRAFT; current head is this test commit. GitHub Actions run #1660 / ID `43676151759` is running for this exact head; at last inspection its job was in progress during checkout. The new oracle test is **not yet CI-verified**.
+- A documentation-only checkpoint commit `4cb28096b74d835325791ab19468c04c8eaa824c` also triggered run #1659; run #1660 is the relevant code/test validation.
+- Next: inspect run #1660 to completion. If the Git oracle test fails, fix the tree serialization against Git's observed behavior before any network source resolver is implemented. If green, proceed with a separately tested, non-executing bounded source resolver design; do not add target execution.

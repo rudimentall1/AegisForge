@@ -244,3 +244,49 @@ def test_combined_pinned_extraction_rejects_wrong_resolved_commit_before_writing
             commit_metadata={"sha": "c" * 40, "commit": {"tree": {"sha": "b" * 40}}},
         )
     assert not (tmp_path / "rejected").exists()
+
+
+def test_git_tree_sha_matches_git_for_mixed_names_modes_and_nested_directories(tmp_path):
+    """Use Git itself as an oracle for tree ordering and mode serialization."""
+    import shutil
+    import subprocess
+
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git executable is unavailable")
+
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "a").mkdir()
+    (source / "a" / "child.txt").write_text("nested\n", encoding="utf-8")
+    (source / "a.c").write_text("file sorts before directory a/\n", encoding="utf-8")
+    (source / "café.txt").write_text("unicode filename\n", encoding="utf-8")
+    executable = source / "run.sh"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o755)
+
+    expected = compute_git_tree_sha(source)
+
+    oracle = tmp_path / "git-oracle"
+    oracle.mkdir()
+    for child in source.iterdir():
+        target = oracle / child.name
+        if child.is_dir():
+            shutil.copytree(child, target)
+        else:
+            shutil.copy2(child, target)
+
+    subprocess.run([git, "-C", str(oracle), "init", "--quiet"], check=True)
+    subprocess.run(
+        [git, "-C", str(oracle), "config", "core.filemode", "true"],
+        check=True,
+    )
+    subprocess.run([git, "-C", str(oracle), "add", "--all"], check=True)
+    actual = subprocess.run(
+        [git, "-C", str(oracle), "write-tree"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    assert expected == actual

@@ -1,6 +1,7 @@
 import gzip
 import io
 import tarfile
+from dataclasses import replace
 
 import pytest
 
@@ -113,6 +114,31 @@ def test_enforces_compressed_and_uncompressed_budgets(tmp_path):
             tmp_path / "expanded",
             limits=SourceArchiveLimits(max_uncompressed_bytes=100),
         )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "max_archive_bytes",
+        "max_uncompressed_bytes",
+        "max_tar_uncompressed_bytes",
+        "max_files",
+    ],
+)
+@pytest.mark.parametrize(
+    "invalid_value",
+    [True, 0, -1, 1.5, float("nan"), float("inf")],
+)
+def test_rejects_non_positive_or_non_integer_archive_budgets(
+    tmp_path, field, invalid_value
+):
+    archive = make_archive([("root/file", "file", b"x")])
+    limits = replace(SourceArchiveLimits(), **{field: invalid_value})
+    with pytest.raises(SourceArchiveError, match="archive_limits_invalid"):
+        extract_github_source_archive(
+            archive, tmp_path / "source", limits=limits
+        )
+    assert not (tmp_path / "source").exists()
 
 
 def test_rejects_existing_destination(tmp_path):

@@ -110,6 +110,13 @@ def fetch_and_extract_pinned_github_source(
     restricted to GitHub API and codeload hosts, response bodies are bounded,
     and no Authorization header or ambient credential is used.
     """
+    if not isinstance(fetch_limits, GitHubSourceFetchLimits):
+        raise GitHubSourceFetchError("fetch_limits_invalid")
+    try:
+        validate_source_archive_limits(archive_limits)
+    except SourceArchiveError as exc:
+        raise GitHubSourceFetchError("fetch_limits_invalid") from exc
+
     owner = _validate_repo_component(owner)
     repository = _validate_repo_component(repository)
     if (
@@ -125,9 +132,6 @@ def fetch_and_extract_pinned_github_source(
         or isinstance(fetch_limits.max_metadata_bytes, bool)
         or not isinstance(fetch_limits.max_metadata_bytes, int)
         or fetch_limits.max_metadata_bytes <= 0
-        or isinstance(archive_limits.max_archive_bytes, bool)
-        or not isinstance(archive_limits.max_archive_bytes, int)
-        or archive_limits.max_archive_bytes <= 0
     ):
         raise GitHubSourceFetchError("fetch_limits_invalid")
 

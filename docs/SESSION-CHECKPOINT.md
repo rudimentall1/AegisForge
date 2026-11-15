@@ -3,13 +3,13 @@
 **Updated:** 2026-11-15
 **Repository:** https://github.com/rudimentall1/AegisForge  
 **Working branch:** `feat/persist-local-experiment-evidence-main`  
-**Latest implementation commit:** `d571f2911706c98052ed5a686407ed8155a0c7c1`  
+**Latest implementation commit:** `9189d21ae56514ca1757fd4c2f4b4e2097870cc0`  
 **PR:** [#196](https://github.com/rudimentall1/AegisForge/pull/196) — OPEN, DRAFT, not merged  
 **Release gate:** [Issue #158](https://github.com/rudimentall1/AegisForge/issues/158) — OPEN
 
 ## 1. Where we stopped (verified repository state)
 
-- PR #196 currently has 309 commits, 57 changed files, +12,798/-138 lines. Current head: `b4f070b2480bb38327f3e9537cece06456cba90d` (checkpoint-only commit); latest implementation commit: `d571f2911706c98052ed5a686407ed8155a0c7c1`; base: `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
+- PR #196 currently has 318 commits, 57 changed files, +12,905/-138 lines. Current head: `9189d21ae56514ca1757fd4c2f4b4e2097870cc0`; base: `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
 - PR remains OPEN and DRAFT. Latest observed PR metadata reports `mergeable: true`; this is not approval to merge. Keep Draft until release gate #158 is satisfied.
 - Historical CI run #1615 is retained below for chronology; current code verification is CI #1680 / ID `43677460311` (see section 22). The latest checkpoint-only commit `b4f070b...` has no workflow run returned yet.
 - Issue #158 remains open. Its acceptance contract still requires one clean-runner, local-only path from immutable Research Case registration through bounded experiment, evidence export, independent verification, adversarial rejection tests, and honest machine-readable statuses.
@@ -281,4 +281,16 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - PR #196 remains OPEN, DRAFT, not merged; current metadata reports 308 commits, 57 changed files, +12,785/-138, mergeable true. Keep Draft.
 - Issue #158 remains OPEN. The source fetcher remains acquisition-only and is not wired into a runner. GitHub API metadata/archive tree agreement is consistency checking, not independent provenance. No arbitrary target code execution is enabled.
 - Next engineering focus: review the existing admitted-target and immutable source-storage boundaries, then build only the missing local-only acceptance path required by #158. Do not modify protected attestation files, reserved workflows, or Agent B-owned orchestration/CLI paths. Do not add a process launcher before a reviewed VM/microVM isolation contract and pinned toolchain exist.
+
+## 23. Full isolated fixture-to-dossier path and archive budget hardening — 2026-11-15
+
+- Extended `tests/test_bubblewrap_fixture_evidence_e2e.py`: the actual Bubblewrap-isolated control and counter-test now flow through Research Case registration, one bounded runtime round, distinct bound tasks, raw output persistence in Evidence Ledger, individual experiment bundle export/verification, Research Case dossier export/verification, and a combined portable evidence package.
+- The combined package is checked for matching case identity, both task IDs, runtime round and planned round. It explicitly reports unsigned integrity only, no attestation present, no authenticated execution truth, and no confirmed vulnerability.
+- CI run #1683 / ID `43677676345` exposed one incorrect test expectation: the verifier reports `attestation_verification_status=NOT_PRESENT` when no attestation exists. Corrected the expectation; no production-code defect was involved in that failure.
+- Security review found that `SourceArchiveLimits` accepted booleans, floats, NaN and Infinity. In particular, NaN comparisons could bypass the tar expansion and file-count budgets. Added `validate_source_archive_limits()` to require all four resource caps to be strict positive integers (bool excluded), and call it both in the extractor and before the GitHub fetcher opens a network connection.
+- Added adversarial tests for every archive limit with boolean, zero, negative, fractional, NaN and Infinity values, plus fetcher tests proving malformed archive limits are rejected before network opener construction.
+- Latest CI run #1690 / ID `43677792881` completed **SUCCESS** on exact PR head `9189d21ae56514ca1757fd4c2f4b4e2097870cc0`: **1,907 passed, 4 warnings, 30 subtests passed** in 31.85s. Python compilation, whitespace checks, EVM Key Forensics evidence workflow and Bubblewrap fixture acceptance all passed. Bubblewrap acceptance report status: **PASS**.
+- Four pytest warnings remain intentional duplicate ZIP-member warnings from adversarial archive tests. Existing GitHub Actions Node.js deprecation warnings are external to the Python test suite.
+- PR #196 remains OPEN, DRAFT, not merged; GitHub currently reports mergeable true. Issue #158 remains OPEN.
+- Remaining boundary: this proves the fixed repository-owned synthetic fixture path and portable evidence integrity. It does not execute arbitrary target code, prove runner honesty, establish independent provenance, or satisfy all #158 release blockers. Do not turn the fixture backend into a generic command runner. Continue with separately reviewed isolation/toolchain design and the outstanding Agent B-owned case-entrypoint/operator lifecycle blockers without editing their files.
 

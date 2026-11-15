@@ -60,8 +60,15 @@ def test_fetches_exact_commit_and_verifies_archive_tree(tmp_path, monkeypatch):
         "sha": commit_sha,
         "commit": {"tree": {"sha": tree_sha}},
     }).encode()
-    openers = [FakeOpener(metadata), FakeOpener(archive)]
-    monkeypatch.setattr(fetch.urllib.request, "build_opener", lambda *_args: openers.pop(0))
+    payloads = iter([metadata, archive])
+    created = []
+
+    def build_opener(*_args):
+        opener = FakeOpener(next(payloads))
+        created.append(opener)
+        return opener
+
+    monkeypatch.setattr(fetch.urllib.request, "build_opener", build_opener)
 
     extracted, pinned = fetch.fetch_and_extract_pinned_github_source(
         "owner", "repo", commit_sha, str(tmp_path / "output")
@@ -77,15 +84,23 @@ def test_rejects_wrong_resolved_commit_before_archive_request(tmp_path, monkeypa
         "sha": "b" * 40,
         "commit": {"tree": {"sha": "c" * 40}},
     }).encode()
-    openers = [FakeOpener(metadata), FakeOpener(b"unused")]
-    monkeypatch.setattr(fetch.urllib.request, "build_opener", lambda *_args: openers.pop(0))
+    payloads = iter([metadata, b"unused"])
+    created = []
+
+    def build_opener(*_args):
+        opener = FakeOpener(next(payloads))
+        created.append(opener)
+        return opener
+
+    monkeypatch.setattr(fetch.urllib.request, "build_opener", build_opener)
 
     with pytest.raises(fetch.GitHubSourceFetchError, match="resolved_commit_sha_mismatch"):
         fetch.fetch_and_extract_pinned_github_source(
             "owner", "repo", "a" * 40, str(tmp_path / "output")
         )
 
-    assert len(openers) == 1
+    assert len(created) == 2
+    assert created[1].requests == []
     assert not (tmp_path / "output").exists()
 
 
@@ -95,8 +110,14 @@ def test_rejects_duplicate_metadata_keys(tmp_path, monkeypatch):
         b'","sha":"' + b"a" * 40 +
         b'","commit":{"tree":{"sha":"' + b"b" * 40 + b'"}}}'
     )
-    openers = [FakeOpener(metadata)]
-    monkeypatch.setattr(fetch.urllib.request, "build_opener", lambda *_args: openers.pop(0))
+    created = []
+
+    def build_opener(*_args):
+        opener = FakeOpener(metadata)
+        created.append(opener)
+        return opener
+
+    monkeypatch.setattr(fetch.urllib.request, "build_opener", build_opener)
 
     with pytest.raises(fetch.GitHubSourceFetchError, match="duplicate_key"):
         fetch.fetch_and_extract_pinned_github_source(

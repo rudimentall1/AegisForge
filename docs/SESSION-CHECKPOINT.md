@@ -1,15 +1,15 @@
 # Session Checkpoint — AegisForge
 
-**Updated:** 2026-11-14  
+**Updated:** 2026-11-15
 **Repository:** https://github.com/rudimentall1/AegisForge  
 **Working branch:** `feat/persist-local-experiment-evidence-main`  
-**Latest implementation commit:** `020f60323e32202a8eae2357514198ddc057fbba`  
+**Latest implementation commit:** `c23528119c5f0ce3372bc7a2d98b165ec147de12`  
 **PR:** [#196](https://github.com/rudimentall1/AegisForge/pull/196) — OPEN, DRAFT, not merged  
 **Release gate:** [Issue #158](https://github.com/rudimentall1/AegisForge/issues/158) — OPEN
 
 ## 1. Where we stopped (verified repository state)
 
-- PR #196 currently has 239 commits, 45 changed files, +10,012/-138 lines. Current head: `a7c7c318f4d5fe2baf2d80f195c0a8a5608d1f5e`; base is `main` at `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
+- PR #196 currently has 305 commits, 57 changed files, +12711/-138 lines. Current head: `c23528119c5f0ce3372bc7a2d98b165ec147de12`; base is `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
 - PR remains OPEN and DRAFT. Latest observed PR metadata reports `mergeable: true`; this is not approval to merge. Keep Draft until release gate #158 is satisfied.
 - Workflow run #1615 / ID `43597955894` on the previous checkpoint head `33eb493b554752eca43b92f795d3dd980c0dc2ba` completed **SUCCESS**. This supersedes the older observed run #1614 failure for that earlier head, but does not prove the release acceptance contract or close issue #158. The latest docs-only commits still need their own CI result.
 - Issue #158 remains open. Its acceptance contract still requires one clean-runner, local-only path from immutable Research Case registration through bounded experiment, evidence export, independent verification, adversarial rejection tests, and honest machine-readable statuses.
@@ -257,3 +257,15 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - PR #196 remains OPEN and DRAFT; do not merge. Issue #158 remains OPEN.
 - Explicit limitations: resolver is not wired into a worker/executor or persistent immutable source store; no private-repo auth, API rate-limit retry, independent repository provenance, total wall-clock transfer deadline, submodule/symlink support, or target execution. GitHub TLS/API plus Git object consistency is not independent provenance. No source code is executed.
 - Next: add resolver integration only at the existing admitted-target boundary after reviewing the destination ownership/lifecycle and immutable storage contract. Keep it non-executing. Do not implement process launchers or alter Agent B-owned orchestration/CLI paths. Release gate #158 remains blocked by attestation trust, case-binding entrypoints, operator lifecycle, and isolated reproduction requirements.
+
+
+## 7. Update — 2026-11-15: pinned GitHub source acquisition
+
+- CI run #1670 / ID `43676846682` passed on head `c912fdeab3ab8acc16ae10c34cdb2e003032c5bd`: **1,869 tests passed, 4 warnings, 30 subtests passed**. Bubblewrap fixture acceptance passed for both fixed fixture modes. This is not a release-gate pass.
+- Added `shared/github_source_fetch.py` as a separate acquisition-only adapter. It requests commit metadata for a full immutable SHA, validates the resolved commit and root tree SHA, fetches the tarball for that exact SHA, bounds response sizes and timeouts, restricts HTTPS redirects to GitHub API/codeload hosts, and sends no authorization header or ambient credentials.
+- The fetched archive is passed to the existing non-executing extractor and accepted only when the computed Git tree SHA matches the commit API's tree SHA. The adapter does not execute source, install dependencies, or connect to the experiment runner.
+- Added `tests/test_github_source_fetch.py` for successful pinned acquisition, wrong commit rejection before archive download, duplicate JSON key rejection, redirect allowlisting, response-size limits, exact SHA URLs, and absence of Authorization headers.
+- Documented the acquisition boundary in `docs/local-experiment-evidence.md`. The clean-checkout test command now includes source archive and source fetch tests.
+- Current head: `c23528119c5f0ce3372bc7a2d98b165ec147de12`. CI run #1677 / ID `43677232465` is **in progress**; latest observed job ID `132699935186`. Do not claim the new source fetcher is CI-verified until this run completes.
+- PR #196 remains OPEN and DRAFT, not merged. Keep it Draft. Issue #158 remains OPEN.
+- Next: inspect run #1677 and logs. If green, review the source fetcher's redirect/response/error behavior and only then decide whether to expose a CLI or integrate source acquisition into a higher-level workflow. Do not execute downloaded target code. Continue to treat GitHub metadata/archive agreement as consistency, not independent provenance.

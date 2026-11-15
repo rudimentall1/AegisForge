@@ -45,6 +45,22 @@ class ExtractedSource:
     total_bytes: int
 
 
+def validate_source_archive_limits(limits: object) -> SourceArchiveLimits:
+    """Require strict positive integer budgets; bool/float/NaN must not disable caps."""
+    if not isinstance(limits, SourceArchiveLimits):
+        raise SourceArchiveError("archive_limits_invalid")
+    for name in (
+        "max_archive_bytes",
+        "max_uncompressed_bytes",
+        "max_tar_uncompressed_bytes",
+        "max_files",
+    ):
+        value = getattr(limits, name)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise SourceArchiveError("archive_limits_invalid")
+    return limits
+
+
 @contextmanager
 def _open_bounded_tar(archive_bytes: bytes, maximum_uncompressed_bytes: int):
     """Inflate gzip into a bounded temporary file before parsing tar headers."""
@@ -105,12 +121,7 @@ def extract_github_source_archive(
     """
     if not isinstance(archive_bytes, bytes):
         raise SourceArchiveError("archive_bytes_required")
-    if (
-        limits.max_archive_bytes <= 0
-        or limits.max_uncompressed_bytes <= 0
-        or limits.max_files <= 0
-    ):
-        raise SourceArchiveError("archive_limits_invalid")
+    validate_source_archive_limits(limits)
     if len(archive_bytes) == 0 or len(archive_bytes) > limits.max_archive_bytes:
         raise SourceArchiveError("archive_compressed_size_out_of_bounds")
 

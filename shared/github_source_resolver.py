@@ -39,6 +39,15 @@ class GitHubSourceAcquisitionError(ValueError):
     """Pinned source acquisition failed closed."""
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise GitHubSourceAcquisitionError("github_commit_metadata_duplicate_key")
+        result[key] = value
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class AcquiredPinnedSource:
     repository: str
@@ -186,7 +195,10 @@ def acquire_allowlisted_pinned_github_source(
             response, _MAX_METADATA_BYTES, "github_commit_metadata_too_large"
         )
     try:
-        metadata = json.loads(metadata_bytes.decode("utf-8"))
+        metadata = json.loads(
+            metadata_bytes.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise GitHubSourceAcquisitionError("github_commit_metadata_invalid") from exc
 

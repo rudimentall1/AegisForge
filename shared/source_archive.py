@@ -7,12 +7,15 @@ perform network access or execute repository content.
 """
 from __future__ import annotations
 
+import gzip
 import hashlib
 import io
 import os
-import stat
 import shutil
+import stat
 import tarfile
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +34,7 @@ class SourceArchiveError(ValueError):
 class SourceArchiveLimits:
     max_archive_bytes: int = 64 * 1024 * 1024
     max_uncompressed_bytes: int = 256 * 1024 * 1024
+    max_tar_uncompressed_bytes: int = 512 * 1024 * 1024
     max_files: int = 20_000
 
 
@@ -40,6 +44,36 @@ class ExtractedSource:
     file_count: int
     total_bytes: int
 
+
+@contextmanager
+def _open_bounded_tar(archive_bytes: bytes, maximum_uncompressed_bytes: int):
+    """Inflate gzip into a bounded temporary file before parsing tar headers."""
+    if maximum_uncompressed_bytes <= 0:
+        raise SourceArchiveError("archive_tar_limit_invalid")
+    with tempfile.TemporaryFile(mode="w+b") as expanded:
+        total = 0
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(archive_bytes), mode="rb") as stream:
+                while True:
+                    chunk = stream.read(min(1024 * 1024, maximum_uncompressed_bytes + 1 - total))
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > maximum_uncompressed_bytes:
+                        raise SourceArchiveError("archive_tar_uncompressed_size_out_of_bounds")
+                    expanded.write(chunk)
+        except SourceArchiveError:
+            raise
+        except (OSError, EOFError) as exc:
+            raise SourceArchiveError("archive_invalid_or_unreadable") from exc
+        expanded.seek(0)
+        try:
+            with tarfile.open(fileobj=expanded, mode="r:") as archive:
+                yield archive
+        except SourceArchiveError:
+            raise
+        except (tarfile.TarError, OSError, EOFError) as exc:
+            raise SourceArchiveError("archive_invalid_or_unreadable") from exc
 
 def _safe_member_parts(name: str) -> tuple[str, ...]:
     if not isinstance(name, str) or not name or "\x00" in name or "\\" in name:
@@ -86,7 +120,7 @@ def extract_github_source_archive(
 
     target_created = False
     try:
-        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as archive:
+        with _open_bounded_tar(archive_bytes, limits.max_tar_uncompressed_bytes) as archive:
             members = archive.getmembers()
             if not members or len(members) > (limits.max_files * 2) + 1:
                 raise SourceArchiveError("archive_member_count_out_of_bounds")

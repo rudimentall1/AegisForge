@@ -77,6 +77,16 @@ def test_fetches_exact_commit_and_verifies_archive_tree(tmp_path, monkeypatch):
     assert pinned.commit_sha == commit_sha
     assert pinned.tree_sha == tree_sha
     assert (extracted.root / "file.txt").read_bytes() == b"pinned source\n"
+    metadata_request = created[0].requests[0][0]
+    archive_request = created[1].requests[0][0]
+    assert metadata_request.full_url.endswith(f"/commits/{commit_sha}")
+    assert archive_request.full_url.endswith(f"/tarball/{commit_sha}")
+    assert all(
+        key.lower() != "authorization"
+        for request, _timeout in (created[0].requests + created[1].requests)
+        for key, _value in request.header_items()
+    )
+
 
 
 def test_rejects_wrong_resolved_commit_before_archive_request(tmp_path, monkeypatch):

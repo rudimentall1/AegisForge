@@ -9,7 +9,7 @@
 
 ## 1. Where we stopped (verified repository state)
 
-- PR #196 currently has 318 commits, 57 changed files, +12,905/-138 lines. Current head: `9189d21ae56514ca1757fd4c2f4b4e2097870cc0`; base: `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
+- PR #196 currently has 319 commits, 57 changed files; latest PR head: `ba8a145720b5dfd7752ec85b7fac1b3a19fa72bb` (checkpoint-only commit); latest implementation/test head: `9189d21ae56514ca1757fd4c2f4b4e2097870cc0`; base: `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
 - PR remains OPEN and DRAFT. Latest observed PR metadata reports `mergeable: true`; this is not approval to merge. Keep Draft until release gate #158 is satisfied.
 - Historical CI run #1615 is retained below for chronology; current code verification is CI #1680 / ID `43677460311` (see section 22). The latest checkpoint-only commit `b4f070b...` has no workflow run returned yet.
 - Issue #158 remains open. Its acceptance contract still requires one clean-runner, local-only path from immutable Research Case registration through bounded experiment, evidence export, independent verification, adversarial rejection tests, and honest machine-readable statuses.

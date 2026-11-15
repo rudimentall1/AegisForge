@@ -5,7 +5,7 @@ import tarfile
 import pytest
 
 from shared import github_source_fetch as fetch
-from shared.source_archive import compute_git_tree_sha
+from shared.source_archive import SourceArchiveLimits, compute_git_tree_sha
 
 
 class FakeResponse:

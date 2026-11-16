@@ -1,3 +1,5 @@
+import json
+import traceback
 
 SUPPORTED_CHAINS = {
 "1": {"name": "Ethereum", "rpc": "https://eth.llamarpc.com", "chainid": 1},

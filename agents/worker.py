@@ -1040,7 +1040,7 @@ def analyze_contract_for_bounty(contract_source_code: str, token_address: str) -
 
 def send_telegram_alert(report_text: str, target_address: str):
     import os, requests, logging
-    token = os.getenv("8426799102:AAEAMz0lWfvyQrpcE1hkf9uINONt40UTEB0")
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("659223890")
     if not token or not chat_id:
         return
@@ -1118,3 +1118,59 @@ def process_target_contract(target_address: str, contract_source: str):
     # 5. Отправка алерта в Telegram на русском языке
     send_telegram_alert(full_report, target_address)
     logging.info("Alert and PoC results sent to Telegram successfully.")
+
+
+def run_slither_audit(contract_path: str, target_address: str = "Unknown") -> dict:
+    import subprocess, json
+    try:
+        cmd = ["/opt/agent-farm/.venv/bin/slither", contract_path, "--json", "-"]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.stdout:
+            data = json.loads(result.stdout)
+            detectors = data.get("results", {}).get("detectors", [])
+            high_med_findings = [f for f in detectors if f.get("impact") in ["High", "Medium"]]
+            if high_med_findings:
+                report_lines = [f"• *{f.get('check')}* ({f.get('impact')}): {f.get('description', '')[:150]}" for f in high_med_findings]
+                report_text = f"Found {len(high_med_findings)} significant vulnerabilities:\n" + "\n".join(report_lines)
+                send_telegram_alert(report_text, target_address)
+            return {"status": "success", "findings_count": len(detectors), "high_medium": len(high_med_findings)}
+        return {"status": "empty", "error": result.stderr}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+def fetch_and_audit_contract(contract_address: str):
+    import os, requests, json
+    target_dir = f"/opt/agent-farm/contracts/{contract_address}"
+    os.makedirs(target_dir, exist_ok=True)
+    sol_file = f"{target_dir}/Contract.sol"
+    
+    api_key = os.getenv("ETHERSCAN_API_KEY", "YourApiKey")
+    url = f"https://api.arbiscan.io/api?module=contract&action=getsourcecode&address={contract_address}&apikey={api_key}"
+    
+    try:
+        resp = requests.get(url, timeout=15).json()
+        if resp.get("status") == "1" and resp.get("result"):
+            source_code = resp["result"][0].get("SourceCode", "")
+            if source_code:
+                if source_code.startswith("{") and source_code.endswith("}"):
+                    try:
+                        json_data = json.loads(source_code.lstrip("{{").rstrip("}}"))
+                        sources = json_data.get("sources", {})
+                        for path, content_dict in sources.items():
+                            full_path = f"{target_dir}/{path}"
+                            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                            with open(full_path, "w") as f:
+                                f.write(content_dict.get("content", ""))
+                        sol_file = target_dir
+                    except:
+                        with open(sol_file, "w") as f:
+                            f.write(source_code)
+                else:
+                    with open(sol_file, "w") as f:
+                        f.write(source_code)
+                return run_slither_audit(sol_file, contract_address)
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch contract source: {e}")
+    
+    return {"status": "error", "message": "Source code not found or verification failed"}

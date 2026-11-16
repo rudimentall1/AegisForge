@@ -1193,5 +1193,15 @@ def fetch_and_audit_contract(contract_address: str):
                 return run_slither_audit(target_dir, contract_address)
     except Exception as e:
         print(f"[ERROR] Failed to fetch contract source: {e}")
+
+    # Fallback to Arbitrum RPC bytecode if Etherscan failed
+    print("[*] Trying Arbitrum RPC bytecode fallback...")
+    bytecode = fetch_contract_via_rpc(contract_address)
+    if bytecode and bytecode != "0x":
+        bytecode_file = f"{target_dir}/bytecode.hex"
+        with open(bytecode_file, "w") as f:
+            f.write(bytecode)
+        print(f"[*] Saved bytecode fallback ({len(bytecode)} bytes) to {bytecode_file}")
+        return run_slither_audit(target_dir, contract_address)
     
     return {"status": "error", "message": "Source code not found or verification failed"}

@@ -1,3 +1,13 @@
+
+SUPPORTED_CHAINS = {
+"1": {"name": "Ethereum", "rpc": "https://eth.llamarpc.com", "chainid": 1},
+"10": {"name": "Optimism", "rpc": "https://mainnet.optimism.io", "chainid": 10},
+"8453": {"name": "Base", "rpc": "https://mainnet.base.org", "chainid": 8453},
+"42161": {"name": "Arbitrum", "rpc": "https://arb1.arbitrum.io/rpc", "chainid": 42161},
+"arc": {"name": "Arc", "rpc": "https://rpc.arcscan.io", "chainid": 501},
+"robin": {"name": "Robin", "rpc": "https://rpc.robinchain.io", "chainid": 9889}
+}
+
 def fetch_contract_via_rpc(address: str) -> str:
     import requests, os
     print(f"[*] Fallback: Fetching bytecode for {address} via Arbitrum RPC...")
@@ -968,6 +978,7 @@ def main():
 
     role = sys.argv[1].strip().lower()
 
+    if role in [1,2,3,4] or not role: role = security_checker
     worker = Worker(role)
 
     print(

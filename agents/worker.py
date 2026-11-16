@@ -1169,7 +1169,7 @@ def fetch_and_audit_contract(contract_address: str):
                 else:
                     with open(sol_file, "w") as f:
                         f.write(source_code)
-                return run_slither_audit(sol_file, contract_address)
+                return run_slither_audit(target_dir, contract_address)
     except Exception as e:
         print(f"[ERROR] Failed to fetch contract source: {e}")
     

@@ -1,3 +1,24 @@
+def fetch_contract_via_rpc(address: str) -> str:
+    import requests, os
+    print(f"[*] Fallback: Fetching bytecode for {address} via Arbitrum RPC...")
+    rpc_url = os.getenv("ARBITRUM_RPC_URL", "https://arb1.arbitrum.io/rpc")
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "eth_getCode",
+        "params": [address, "latest"],
+        "id": 1
+    }
+    try:
+        res = requests.post(rpc_url, json=payload, timeout=15)
+        data = res.json()
+        code = data.get("result", "0x")
+        if code and code != "0x":
+            print(f"[*] Successfully fetched bytecode via RPC (length: {len(code)})")
+            return code
+    except Exception as e:
+        print(f"[ERROR] RPC fallback failed: {e}")
+    return None
+
 import os
 import socket
 import sys

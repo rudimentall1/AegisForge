@@ -1,5 +1,7 @@
+import os
+import socket
+import sys
 
-<<<<<<< HEAD
 try:
     import resource
 except ImportError:
@@ -912,7 +914,6 @@ class Worker:
             traceback.print_exc()
 
             return False
-=======
 RED_TEAM_SYSTEM_PROMPT = """
 [SYSTEM: STRICT SECURITY RED TEAM MODE ENABLED]
 You are an elite DeFi exploit engineer and smart contract security auditor. Your objective is to find critical financial vulnerabilities, logic flaws, access control bypasses, reentrancy vectors, flash-loan risks, and oracle manipulation vulnerabilities (TWAP/Chainlink) before malicious actors do.
@@ -930,7 +931,6 @@ RULES:
 
 
 # --- TELEGRAM ALERT MODULE ---
->>>>>>> 19a5226 (refactor(agents): update worker daemon, monitor and ownera learning bridge)
 
 
 def main():

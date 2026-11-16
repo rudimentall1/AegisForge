@@ -1,3 +1,4 @@
+from validator import validate_slither_report
 from notify import send_telegram_alert
 import json
 import traceback

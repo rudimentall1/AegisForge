@@ -979,6 +979,8 @@ def main():
     role = sys.argv[1].strip().lower()
 
     if role in [1,2,3,4] or not role: role = security_checker
+    if role in ["1", "2", "3", "4"] or not role:
+        role = "security_checker"
     worker = Worker(role)
 
     print(

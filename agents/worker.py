@@ -1146,7 +1146,7 @@ def fetch_and_audit_contract(contract_address: str):
     sol_file = f"{target_dir}/Contract.sol"
     
     api_key = os.getenv("ETHERSCAN_API_KEY", "YourApiKey")
-    url = f"https://api.arbiscan.io/api?module=contract&action=getsourcecode&address={contract_address}&apikey={api_key}"
+    url = f"https://api.etherscan.io/v2/api?chainid=42161&module=contract&action=getsourcecode&address={contract_address}&apikey={api_key}"
     
     try:
         resp = requests.get(url, timeout=15).json()

@@ -1,0 +1,162 @@
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from types import SimpleNamespace
+
+from shared.capability_grant import (
+    CapabilityGrantError,
+    consume_capability_grant,
+    evidence_hash,
+    intent_hash,
+    issue_capability_grant as _issue_capability_grant,
+)
+from shared.authority_state import AuthorityState
+from shared.capability_policy import ActionIntent
+from shared.agent_identity_signing import AgentIdentitySigner
+from shared.signed_action_intent import ActionIntentSigner
+
+
+def issue_capability_grant(*args, **kwargs):
+    state = kwargs.setdefault("authority_state", AuthorityState.STANDARD)
+    kwargs.setdefault("authority_context", SimpleNamespace(
+        agent_id="test-agent",
+        authority_epoch=1,
+        state=state,
+        policy_version=kwargs.get("policy_version", args[2] if len(args) > 2 else "policy-v1"),
+    ))
+    return _issue_capability_grant(*args, **kwargs)
+
+
+def _intent(**overrides):
+    values = {
+        "role": "developer",
+        "action": "deploy",
+        "target": "staging",
+        "resource": "service",
+        "destination": "staging",
+        "data_scope": "artifact",
+        "read_only": False,
+    }
+    values.update(overrides)
+    return ActionIntent(**values)
+
+
+def test_hashes_are_deterministic():
+    intent = _intent()
+    assert intent_hash(intent) == intent_hash(intent.to_dict())
+    assert evidence_hash(["b", "a"]) == evidence_hash(["a", "b"])
+
+
+def test_issue_binds_intent_and_evidence():
+    intent = _intent()
+    grant = issue_capability_grant("task-1", intent, "policy-v1", ["ev-2", "ev-1"], "staging/service")
+    assert grant.status == "ACTIVE"
+    assert grant.task_id == "task-1"
+    assert grant.evidence_ids == ("ev-1", "ev-2")
+    assert grant.authorized_action == "deploy"
+    assert consume_capability_grant(grant, intent, ["ev-1", "ev-2"])
+
+
+def test_intent_tampering_is_rejected():
+    grant = issue_capability_grant("task-1", _intent(), "policy-v1")
+    with pytest.raises(CapabilityGrantError, match="intent_hash_mismatch"):
+        consume_capability_grant(grant, _intent(target="production"))
+
+
+def test_execution_parameters_are_bound_to_grant():
+    intent = _intent(parameters={"title": "safe", "body": "approved"})
+    grant = issue_capability_grant("task-1", intent, "policy-v1")
+    tampered = _intent(parameters={"title": "safe", "body": "tampered"})
+    with pytest.raises(CapabilityGrantError, match="intent_hash_mismatch"):
+        consume_capability_grant(grant, tampered)
+
+
+def test_evidence_tampering_is_rejected():
+    intent = _intent()
+    grant = issue_capability_grant("task-1", intent, "policy-v1", ["ev-1"])
+    with pytest.raises(CapabilityGrantError, match="evidence_hash_mismatch"):
+        consume_capability_grant(grant, intent, ["ev-2"])
+
+
+def test_expired_grant_is_rejected():
+    intent = _intent()
+    grant = issue_capability_grant("task-1", intent, "policy-v1", ttl_seconds=1)
+    future = datetime.now(timezone.utc) + timedelta(seconds=2)
+    with pytest.raises(CapabilityGrantError, match="grant_expired"):
+        consume_capability_grant(grant, intent, now=future)
+
+
+def test_non_positive_ttl_is_rejected():
+    with pytest.raises(CapabilityGrantError, match="invalid_ttl"):
+        issue_capability_grant("task-1", _intent(), "policy-v1", ttl_seconds=0)
+
+
+def test_probation_cannot_issue_deploy_grant():
+    with pytest.raises(CapabilityGrantError, match="authority_blocked:dynamic_authority_restricted"):
+        issue_capability_grant(
+            "task-probation", _intent(), "policy-v1", authority_state=AuthorityState.PROBATION
+        )
+
+
+def test_suspended_cannot_issue_any_grant():
+    with pytest.raises(CapabilityGrantError, match="authority_blocked:authority_suspended"):
+        issue_capability_grant(
+            "task-suspended", _intent(action="inspect_code", read_only=True),
+            "policy-v1", authority_state=AuthorityState.SUSPENDED
+        )
+
+
+def test_elevated_still_respects_static_policy_evidence_gate():
+    grant = issue_capability_grant(
+        "task-elevated", _intent(), "policy-v1",
+        evidence_ids=["tests", "security", "rollback"],
+        authority_state=AuthorityState.ELEVATED,
+    )
+    assert grant.status == "ACTIVE"
+
+def test_outcome_contract_is_bound_to_grant():
+    intent = _intent(action="delete", resource="staging_filesystem", irreversible=True, requires_filesystem=True)
+    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"}}
+    grant = issue_capability_grant(
+        "task-contract",
+        intent,
+        "policy-v1",
+        outcome_contract={"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"},
+    )
+    assert grant.to_dict()["outcome_contract"]["type"] == "state_match"
+    assert grant.verify_binding(intent, []) is True
+
+
+def test_outcome_contract_mismatch_blocks_consumption():
+    intent = _intent(action="delete", resource="staging_filesystem", irreversible=True, requires_filesystem=True)
+    intent.parameters = {"outcome_contract": {"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "ABSENT"}}
+    with pytest.raises(CapabilityGrantError, match="outcome_contract_mismatch"):
+        issue_capability_grant(
+            "task-contract-mismatch",
+            intent,
+            "policy-v1",
+            outcome_contract={"type": "state_match", "verifier": "filesystem_independent_v1", "expected_state": "PRESENT"},
+        )
+
+
+def test_grant_binds_signed_action_intent():
+    intent = _intent(agent_id="test-agent")
+    identity = AgentIdentitySigner.generate("test-agent", "developer")
+    signed_intent = ActionIntentSigner(identity).sign(intent)
+    grant = issue_capability_grant(
+        "task-signed-intent", intent, "policy-v1", signed_action_intent=signed_intent
+    )
+    assert grant.signed_action_intent["intent_hash"] == signed_intent.intent_hash
+    restored = grant.from_dict(grant.to_dict())
+    assert restored.verify_binding(intent, []) is True
+
+
+def test_grant_rejects_signed_action_intent_for_different_intent():
+    intent = _intent(agent_id="test-agent")
+    identity = AgentIdentitySigner.generate("test-agent", "developer")
+    other_intent = _intent(agent_id="test-agent", target="other-target")
+    signed_intent = ActionIntentSigner(identity).sign(other_intent)
+    with pytest.raises(CapabilityGrantError, match="signed_action_intent_hash_mismatch"):
+        issue_capability_grant(
+            "task-signed-intent-mismatch", intent, "policy-v1", signed_action_intent=signed_intent
+        )

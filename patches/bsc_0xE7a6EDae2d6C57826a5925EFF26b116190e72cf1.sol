@@ -1,0 +1,1 @@
+// [MOCK PATCH] LLM_API_KEY not configured

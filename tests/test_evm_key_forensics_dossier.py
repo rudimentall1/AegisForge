@@ -1,0 +1,238 @@
+from __future__ import annotations
+
+import copy
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from tools.evm_key_forensics.validate_source_dossier import main, validate_dossier
+
+
+DOSSIER = {
+    "schema_version": 1,
+    "dossier_id": "evm-key-forensics-profanity-source-evidence-v1",
+    "status": "SOURCE_REVIEW_ONLY",
+    "artifact_context": "HISTORICAL_SOURCE_REVIEW_BASELINE; branch names are mutable labels, not provenance",
+    "reviewed_upstream": {
+        "repository": "https://github.com/johguse/profanity",
+        "files": [
+            {
+                "role": "pre-disclosure",
+                "commit": "0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6",
+                "path": "Dispatcher.cpp",
+                "url": "https://github.com/johguse/profanity/blob/0b54ffc86aafbb206675b4bfecb2ea09ac7a79f6/Dispatcher.cpp",
+                "git_blob_sha1": "c9226fc02a52633a84664cbf3aaf2b4af8a59b25",
+            },
+            {
+                "role": "post-disclosure-archive",
+                "commit": "186b9b27ab3e24a1899f648adcabcbf0e5f3131e",
+                "path": "Dispatcher.cpp",
+                "url": "https://github.com/johguse/profanity/blob/186b9b27ab3e24a1899f648adcabcbf0e5f3131e/Dispatcher.cpp",
+                "git_blob_sha1": "884ced30ed6e55794ea5bda0451b52e81ddec1dd",
+            },
+        ],
+        "supporting_references": [
+            {
+                "type": "issue",
+                "label": "Original report: Private key safety",
+                "url": "https://github.com/johguse/profanity/issues/61",
+                "evidentiary_role": "Historical report and hypothesis; not an independent reproduction",
+            },
+            {
+                "type": "security_disclosure",
+                "label": "1inch security write-up",
+                "url": "https://blog.1inch.io/a-vulnerability-disclosed-in-profanity-an-ethereum-vanity-address-tool-68ed7455fc8c",
+                "evidentiary_role": "External disclosure context; does not establish this repository's own reproduction",
+            },
+        ],
+    },
+    "claim_register": [
+        {"id": "SRC-001", "claim": "The reviewed function initializes mt19937_64 from one random_device result and derives four distribution outputs from that engine.", "evidence_level": "E0_SOURCE_INSPECTION",
+         "status": "SUPPORTED_BY_PINNED_SOURCE_PATTERN_CHECK", "does_not_establish": ["entropy", "exploitability"]},
+        {"id": "SRC-002", "claim": "The pre-disclosure and post-disclosure pinned Dispatcher.cpp files match the expected Git blob identifiers.", "evidence_level": "SOURCE_IDENTITY",
+         "status": "CHECKED_BY_SOURCE_PATTERN_CLI", "does_not_establish": ["authorship", "binary provenance"]},
+    ],
+    "verification_contract": {
+        "checker": "tools/evm_key_forensics/check_historical_source_pattern.py",
+        "checker_behavior": [
+            "Reads a locally supplied source file with a fixed size bound",
+            "Checks the exact expected Git blob SHA-1 for the selected pinned revision",
+            "Emits SHA-256 for the exact bytes inspected",
+            "Rejects missing, ambiguous, malformed, or mismatched source as INCONCLUSIVE",
+        ],
+        "independent_retrieval_recommended": True,
+        "source_to_binary_provenance": "NOT_ESTABLISHED",
+        "source_review_runner_attestation": "NOT_IMPLEMENTED",
+        "evidence_package_github_attestation": "PUBLISHED_BY_SEPARATE_WORKFLOW; DOES_NOT_AUTHENTICATE_SOURCE_CLAIMS",
+        "signed_dossier": False,
+    },
+    "experiment_state": {
+        "source_review": "COMPLETE",
+        "historical_code_executed": False,
+        "wallet_material_used": False,
+        "historical_vulnerability_reproduced": False,
+        "independent_review": "PENDING",
+        "overall_conclusion": "INCONCLUSIVE",
+    },
+    "promotion_rules": ["Do not infer entropy", "Do not overstate source evidence", "Never include wallet material"],
+}
+
+
+class SourceDossierValidatorTests(unittest.TestCase):
+    def test_valid_dossier_passes(self):
+        self.assertEqual(validate_dossier(copy.deepcopy(DOSSIER)), [])
+
+    def test_checked_in_dossier_passes(self):
+        dossier_path = (
+            Path(__file__).resolve().parents[1]
+            / "docs"
+            / "research"
+            / "evm-key-forensics"
+            / "SOURCE_EVIDENCE_DOSSIER.json"
+        )
+        data = json.loads(dossier_path.read_text(encoding="utf-8"))
+        self.assertEqual(validate_dossier(data), [])
+
+    def test_branch_name_is_not_accepted_as_provenance(self):
+        data = copy.deepcopy(DOSSIER)
+        data.pop("artifact_context")
+        data["generated_for_branch"] = "main"
+        errors = validate_dossier(data)
+        self.assertTrue(any(error.startswith("missing_top_level_fields:") for error in errors))
+        self.assertIn("unexpected_top_level_fields:generated_for_branch", errors)
+
+    def test_artifact_context_cannot_be_rewritten(self):
+        data = copy.deepcopy(DOSSIER)
+        data["artifact_context"] = "generated from trusted branch"
+        self.assertIn(
+            "artifact_context_must_not_claim_branch_provenance",
+            validate_dossier(data),
+        )
+
+    def test_commit_or_blob_mutation_fails_closed(self):
+        data = copy.deepcopy(DOSSIER)
+        data["reviewed_upstream"]["files"][0]["commit"] = "f" * 40
+        data["reviewed_upstream"]["files"][1]["git_blob_sha1"] = "0" * 40
+        errors = validate_dossier(data)
+        self.assertIn("pinned_commit_mismatch:pre-disclosure", errors)
+        self.assertIn("pinned_blob_mismatch:post-disclosure-archive", errors)
+
+    def test_supporting_references_cannot_be_removed_or_rewritten(self):
+        mutations = [
+            ([], "removed"),
+            ([{"type": "issue", "label": "trust me", "url": "https://example.com", "evidentiary_role": "proof"}], "rewritten"),
+        ]
+        for references, label in mutations:
+            with self.subTest(label=label):
+                data = copy.deepcopy(DOSSIER)
+                data["reviewed_upstream"]["supporting_references"] = references
+                self.assertIn("supporting_references_mismatch", validate_dossier(data))
+
+    def test_unknown_nested_fields_are_rejected(self):
+        mutations = [
+            ("reviewed_upstream", lambda data: data["reviewed_upstream"].update({"trusted": True}), "reviewed_upstream"),
+            ("source_entry", lambda data: data["reviewed_upstream"]["files"][0].update({"binary_match": True}), "reviewed_upstream.files"),
+            ("claim", lambda data: data["claim_register"][0].update({"confidence": 1.0}), "claim_register"),
+            ("verification_contract", lambda data: data["verification_contract"].update({"source_verified": True}), "verification_contract"),
+            ("experiment_state", lambda data: data["experiment_state"].update({"verdict": "CONFIRMED"}), "experiment_state"),
+        ]
+        for label, mutate, context in mutations:
+            with self.subTest(label=label):
+                data = copy.deepcopy(DOSSIER)
+                mutate(data)
+                self.assertTrue(
+                    any(error.startswith(f"unexpected_nested_fields:{context}:") for error in validate_dossier(data))
+                )
+
+    def test_source_review_status_is_required_and_fixed(self):
+        mutations = [
+            ("removed", lambda state: state.pop("source_review")),
+            ("rewritten", lambda state: state.update({"source_review": "VERIFIED"})),
+        ]
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                data = copy.deepcopy(DOSSIER)
+                mutate(data["experiment_state"])
+                self.assertIn("source_review_status_mismatch", validate_dossier(data))
+
+    def test_claim_promotion_is_rejected(self):
+        data = copy.deepcopy(DOSSIER)
+        data["experiment_state"]["historical_vulnerability_reproduced"] = True
+        data["experiment_state"]["overall_conclusion"] = "ESTABLISHED"
+        errors = validate_dossier(data)
+        self.assertIn("unsafe_or_unsubstantiated_state:historical_vulnerability_reproduced", errors)
+        self.assertIn("overall_conclusion_must_remain_inconclusive", errors)
+
+    def test_verification_contract_cannot_weaken_checker_guarantees(self):
+        mutations = [
+            ("checker", "tools/other_checker.py", "verification_checker_path_mismatch"),
+            ("checker_behavior", [], "verification_checker_behavior_mismatch"),
+            ("independent_retrieval_recommended", False, "independent_source_retrieval_must_be_recommended"),
+        ]
+        for field, value, expected_error in mutations:
+            with self.subTest(field=field):
+                data = copy.deepcopy(DOSSIER)
+                data["verification_contract"][field] = value
+                self.assertIn(expected_error, validate_dossier(data))
+
+    def test_attestation_or_binary_provenance_cannot_be_claimed(self):
+        data = copy.deepcopy(DOSSIER)
+        data["verification_contract"]["source_to_binary_provenance"] = "VERIFIED"
+        data["verification_contract"]["source_review_runner_attestation"] = "IMPLEMENTED"
+        errors = validate_dossier(data)
+        self.assertIn("source_to_binary_provenance_must_not_be_overstated", errors)
+        self.assertIn("source_review_runner_attestation_must_remain_not_implemented", errors)
+
+    def test_evidence_package_attestation_scope_cannot_be_overstated(self):
+        data = copy.deepcopy(DOSSIER)
+        data["verification_contract"]["evidence_package_github_attestation"] = "VERIFIED"
+        errors = validate_dossier(data)
+        self.assertIn("evidence_package_attestation_scope_must_be_explicit", errors)
+
+    def test_duplicate_claim_ids_fail(self):
+        data = copy.deepcopy(DOSSIER)
+        data["claim_register"][1]["id"] = "SRC-001"
+        self.assertIn("claim_register_ids_mismatch", validate_dossier(data))
+
+    def test_cli_rejects_oversized_dossier(self):
+        from tools.evm_key_forensics.validate_source_dossier import MAX_DOSSIER_BYTES
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "dossier.json"
+            path.write_bytes(b" " * (MAX_DOSSIER_BYTES + 1))
+            self.assertEqual(main([str(path)]), 2)
+
+    def test_cli_rejects_duplicate_json_keys(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "dossier.json"
+            path.write_text('{"schema_version":1,"schema_version":1}', encoding="utf-8")
+            self.assertEqual(main([str(path)]), 2)
+
+
+    def test_unhashable_source_role_returns_validation_error(self):
+        data = copy.deepcopy(DOSSIER)
+        data["reviewed_upstream"]["files"][0]["role"] = ["pre-disclosure"]
+        errors = validate_dossier(data)
+        self.assertIn("unknown_source_role", errors)
+
+    def test_unhashable_claim_id_returns_validation_error(self):
+        data = copy.deepcopy(DOSSIER)
+        data["claim_register"][0]["id"] = {"id": "SRC-001"}
+        errors = validate_dossier(data)
+        self.assertIn("claim_register_ids_mismatch", errors)
+
+    def test_claim_text_cannot_be_changed_while_retaining_known_id(self):
+        data = copy.deepcopy(DOSSIER)
+        data["claim_register"][0]["claim"] = "The historical vulnerability is proven exploitable."
+        errors = validate_dossier(data)
+        self.assertIn("claim_content_mismatch:SRC-001:claim", errors)
+
+    def test_claim_boundary_entries_must_be_nonempty_strings(self):
+        data = copy.deepcopy(DOSSIER)
+        data["claim_register"][0]["does_not_establish"] = [{"entropy": "unknown"}]
+        errors = validate_dossier(data)
+        self.assertIn("claim_boundaries_required:SRC-001", errors)
+
+
+if __name__ == "__main__":
+    unittest.main()

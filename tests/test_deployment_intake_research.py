@@ -219,3 +219,6 @@ def test_deployment_intake_persists_static_analysis_report(tmp_path, monkeypatch
         "finding_count": 1,
         "vulnerabilities_confirmed": False,
     }
+    assert metadata["static_analysis_sha256"] == result.result["evidence_artifact"]["analysis_sha256"]
+    assert metadata["analysis_validation_sha256"] == result.result["evidence_artifact"]["validation_sha256"]
+    assert metadata["analysis_validation_status"] == "VALID"

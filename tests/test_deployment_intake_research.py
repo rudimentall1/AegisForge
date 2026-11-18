@@ -135,7 +135,7 @@ def test_deployment_intake_persists_verified_source_hash(tmp_path, monkeypatch):
 
     result = researcher.run(task)
 
-    assert task.status == "source_researched"
+    assert task.status == "deep_researched"
     assert result["source_verification"]["status"] == "VERIFIED"
     assert result["source_verification"]["source_sha256"] == hashlib.sha256(
         b"contract Vault {}"

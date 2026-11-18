@@ -228,3 +228,31 @@ def test_analyze_source_reports_missing_solidity_compiler(monkeypatch):
 
     assert result["status"] == "COMPILER_UNAVAILABLE"
     assert result["vulnerabilities_confirmed"] is False
+
+
+
+def test_analyze_source_selects_verified_solidity_compiler_without_global_switch(monkeypatch):
+    import agents.deep_researcher.slither_analysis as module
+
+    observed = {}
+    monkeypatch.setattr(module.shutil, "which", lambda binary: "/usr/bin/slither")
+
+    def fake_run(command, **kwargs):
+        observed["solc_version"] = kwargs["env"].get("SOLC_VERSION")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps({"success": True, "results": {"detectors": []}}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = analyze_source(
+        "pragma solidity ^0.8.20; contract Vault {}",
+        compiler_version="v0.8.20+commit.a1b79de6",
+    )
+
+    assert result["status"] == "ANALYZED"
+    assert result["compiler_version"] == "0.8.20"
+    assert observed["solc_version"] == "0.8.20"

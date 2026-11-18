@@ -178,6 +178,7 @@ def test_deployment_intake_persists_verified_source_hash(tmp_path, monkeypatch):
 
     assert task.status == "deep_researched"
     assert result.result["source_verification"]["status"] == "VERIFIED"
+    assert result.result["source_verification"]["runtime_bytecode_match"] == "NOT_CHECKED"
     assert result.result["source_verification"]["source_sha256"] == hashlib.sha256(
         b"contract Vault {}"
     ).hexdigest()
@@ -319,6 +320,7 @@ def test_sourcify_supplies_verified_source_without_etherscan_key_and_caches_it(
     assert first.result["source_verification"]["status"] == "VERIFIED"
     assert first.result["source_verification"]["provider"] == "sourcify_v2"
     assert first.result["source_verification"]["match_quality"] == "exact_match"
+    assert first.result["source_verification"]["runtime_bytecode_match"] == "MATCHED_AT_OBSERVED_BLOCK"
     assert first.result["source_verification"]["compiler_version"] == "v0.8.20+commit.a1b79de6"
     assert first.result["source_verification"]["source_integrity"]["verified_files"] == 1
     assert first.result["source_verification"]["cache_hit"] is False

@@ -138,20 +138,16 @@ def test_analyze_source_supports_etherscan_multifile_standard_json(monkeypatch):
             "remappings": ["@openzeppelin/=lib/openzeppelin-contracts/"]
         },
     }
-    observed = {}
+    observed = []
     monkeypatch.setattr(module.shutil, "which", lambda binary: "/usr/bin/slither")
 
     def fake_run(command, **kwargs):
-        observed["command"] = command
-        target = command[1]
-        observed["is_directory"] = __import__("os").path.isdir(target)
-        observed["files"] = sorted(
-            path.relative_to(target).as_posix()
-            for path in __import__("pathlib").Path(target).rglob("*.sol")
-        )
-        observed["vault_source"] = (
-            __import__("pathlib").Path(target) / "contracts/Vault.sol"
-        ).read_text(encoding="utf-8")
+        source_path = __import__("pathlib").Path(command[1])
+        observed.append({
+            "source": source_path.read_text(encoding="utf-8"),
+            "relative_path": source_path.relative_to(kwargs["cwd"]).as_posix(),
+            "command": command,
+        })
         return subprocess.CompletedProcess(
             command,
             0,
@@ -167,11 +163,17 @@ def test_analyze_source_supports_etherscan_multifile_standard_json(monkeypatch):
     assert result["status"] == "ANALYZED"
     assert result["source_mode"] == "multi_file"
     assert result["source_file_count"] == 2
-    assert observed["is_directory"] is True
-    assert observed["files"] == ["contracts/Guard.sol", "contracts/Vault.sol"]
-    assert "import './Guard.sol';" in observed["vault_source"]
-    assert "--solc-remaps" in observed["command"]
-    assert "@openzeppelin/=lib/openzeppelin-contracts/" in observed["command"]
+    assert result["analysis_entrypoints_count"] == 2
+    assert sorted(item["relative_path"] for item in observed) == [
+        "contracts/Guard.sol",
+        "contracts/Vault.sol",
+    ]
+    assert any("import './Guard.sol';" in item["source"] for item in observed)
+    assert all("--solc-remaps" in item["command"] for item in observed)
+    assert all(
+        "@openzeppelin/=lib/openzeppelin-contracts/" in item["command"]
+        for item in observed
+    )
 
 
 def test_analyze_source_rejects_multifile_path_traversal(monkeypatch):

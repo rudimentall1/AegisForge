@@ -103,3 +103,19 @@ def test_report_rejects_bounty_rate_outside_negotiation_range(tmp_path):
             owner_authorized=True,
             bounty_rate=0.15,
         )
+
+
+def test_report_rejects_truthy_string_authority_flags(tmp_path):
+    with pytest.raises(ValueError, match="rescue_and_bounty_flags_must_be_boolean"):
+        generate_whitehat_report(
+            "incident-6",
+            "base",
+            "0x1234567890abcdef1234567890abcdef12345678",
+            "access_control",
+            "critical",
+            1000,
+            TX_HASH,
+            reports_dir=tmp_path,
+            rescue_receipt_verified="true",
+            owner_authorized="true",
+        )

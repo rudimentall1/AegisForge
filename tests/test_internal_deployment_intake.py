@@ -116,7 +116,7 @@ def test_trace_fetch_does_not_retry_after_provider_failure():
 
     import pytest
 
-    with pytest.raises(TraceRequestError, match="trace_rpc_request_failed"):
+    with pytest.raises(TraceRequestError, match="trace_rpc_error"):
         _fetch_block_traces(w3, 123)
     assert w3.provider.calls == [("trace_block", ["0x7b"])]
 

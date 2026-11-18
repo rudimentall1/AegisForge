@@ -33,6 +33,17 @@ class FakeWeb3:
         return True
 
 
+class FakeSourceNotFound:
+    status_code = 404
+    headers = {}
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {}
+
+
 class MemoryStub:
     def save_task(self, task):
         return None
@@ -59,6 +70,7 @@ def test_discovery_to_deep_research_completes_through_real_worker_loop(
         chain_ids={"base": 8453},
         evidence_dir=tmp_path / "evidence",
         web3_factory=lambda endpoint: fake_web3,
+        http_get=lambda *args, **kwargs: FakeSourceNotFound(),
     )
 
     transaction = {

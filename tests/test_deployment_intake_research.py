@@ -84,14 +84,14 @@ def test_deployment_intake_fetches_runtime_code_at_observed_block(tmp_path, monk
 
     assert task.status == "deep_researched"
     assert fake_web3.eth.requested_block == 12345
-    assert result["discovery_evidence"]["chain_id"] == 8453
-    assert result["discovery_evidence"]["runtime_bytecode_size_bytes"] == 4
-    assert result["discovery_evidence"]["runtime_bytecode_keccak256"] == Web3.keccak(
+    assert result.result["discovery_evidence"]["chain_id"] == 8453
+    assert result.result["discovery_evidence"]["runtime_bytecode_size_bytes"] == 4
+    assert result.result["discovery_evidence"]["runtime_bytecode_keccak256"] == Web3.keccak(
         b"\x60\x01\x60\x00"
     ).hex()
-    assert result["source_verification"]["status"] == "NOT_CONFIGURED"
-    artifact = tmp_path / result["evidence_artifact"]["metadata_path"]
-    bytecode = tmp_path / result["evidence_artifact"]["bytecode_path"]
+    assert result.result["source_verification"]["status"] == "NOT_CONFIGURED"
+    artifact = tmp_path / result.result["evidence_artifact"]["metadata_path"]
+    bytecode = tmp_path / result.result["evidence_artifact"]["bytecode_path"]
     assert artifact.is_file()
     assert bytecode.read_bytes() == b"\x60\x01\x60\x00"
 
@@ -99,7 +99,7 @@ def test_deployment_intake_fetches_runtime_code_at_observed_block(tmp_path, monk
 def test_deployment_intake_fails_closed_on_rpc_chain_mismatch(tmp_path, monkeypatch):
     monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
     fake_web3 = FakeWeb3(chain_id=1)
-    researcher = DeploymentIntakeResearcher(
+    researcher = DeepResearcher(
         rpc_endpoints={"base": "https://rpc.example"},
         chain_ids={"base": 8453},
         evidence_dir=tmp_path,
@@ -123,7 +123,7 @@ def test_deployment_intake_persists_verified_source_hash(tmp_path, monkeypatch):
         calls.append((url, params, timeout))
         return FakeResponse()
 
-    researcher = DeploymentIntakeResearcher(
+    researcher = DeepResearcher(
         rpc_endpoints={"base": "https://rpc.example"},
         chain_ids={"base": 8453},
         explorer_urls={"base": "https://basescan.org"},
@@ -136,15 +136,15 @@ def test_deployment_intake_persists_verified_source_hash(tmp_path, monkeypatch):
     result = researcher.run(task)
 
     assert task.status == "deep_researched"
-    assert result["source_verification"]["status"] == "VERIFIED"
-    assert result["source_verification"]["source_sha256"] == hashlib.sha256(
+    assert result.result["source_verification"]["status"] == "VERIFIED"
+    assert result.result["source_verification"]["source_sha256"] == hashlib.sha256(
         b"contract Vault {}"
     ).hexdigest()
-    assert result["source_verification"]["explorer_url"] == (
+    assert result.result["source_verification"]["explorer_url"] == (
         f"https://basescan.org/address/{ADDRESS}#code"
     )
     assert len(calls) == 1
-    source_path = tmp_path / result["source_verification"]["source_path"]
+    source_path = tmp_path / result.result["source_verification"]["source_path"]
     assert source_path.read_text(encoding="utf-8") == "contract Vault {}"
 
 
@@ -153,7 +153,7 @@ def test_deployment_intake_rejects_tampered_finding_fingerprint(tmp_path):
     payload = json.loads(task.description)
     payload["discovery_finding"]["fingerprint"] = "0" * 64
     task.description = json.dumps(payload)
-    researcher = DeploymentIntakeResearcher(
+    researcher = DeepResearcher(
         rpc_endpoints={"base": "https://rpc.example"},
         chain_ids={"base": 8453},
         evidence_dir=tmp_path,

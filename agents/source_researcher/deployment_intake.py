@@ -13,6 +13,7 @@ import requests
 from web3 import Web3
 
 from agents.config import CHAIN_IDS, EXPLORER_URLS, RPC_ENDPOINTS
+from agents.deep_researcher.slither_analysis import analyze_source
 from shared.discovery import FINDING_SCHEMA
 
 
@@ -262,6 +263,39 @@ class DeploymentIntakeResearcher:
                 address,
                 contract_dir,
             )
+            source_analysis = {
+                "schema": "aegisforge.slither_analysis.v1",
+                "status": "NOT_RUN",
+                "findings": [],
+                "finding_count": 0,
+                "vulnerabilities_confirmed": False,
+                "reason": "verified_source_unavailable",
+            }
+            if source_verification["status"] == "VERIFIED":
+                try:
+                    verified_source = Path(source_verification["source_path"]).read_text(
+                        encoding="utf-8"
+                    )
+                    source_analysis = analyze_source(verified_source)
+                except (OSError, UnicodeError):
+                    source_analysis = {
+                        "schema": "aegisforge.slither_analysis.v1",
+                        "status": "SOURCE_READ_FAILED",
+                        "findings": [],
+                        "finding_count": 0,
+                        "vulnerabilities_confirmed": False,
+                        "error": "verified_source_read_failed",
+                    }
+
+            analysis_bytes = json.dumps(
+                source_analysis,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+            analysis_path = contract_dir / "slither-analysis.json"
+            _atomic_write(analysis_path, analysis_bytes)
+
             endpoint_host = urlsplit(endpoint).hostname or "configured_rpc"
             metadata = {
                 "schema": "aegisforge.deployment_evidence.v1",
@@ -278,6 +312,11 @@ class DeploymentIntakeResearcher:
                 "runtime_bytecode_sha256": bytecode_sha256,
                 "runtime_bytecode_keccak256": bytecode_keccak256,
                 "source_verification": source_verification,
+                "static_analysis": {
+                    "status": source_analysis["status"],
+                    "finding_count": source_analysis.get("finding_count", 0),
+                    "vulnerabilities_confirmed": False,
+                },
                 "vulnerability_confirmed": False,
                 "transactions_sent": False,
             }
@@ -301,6 +340,8 @@ class DeploymentIntakeResearcher:
                 "runtime_bytecode_keccak256": bytecode_keccak256,
                 "source_verification_status": source_verification["status"],
                 "source_sha256": source_verification["source_sha256"],
+                "static_analysis_status": source_analysis["status"],
+                "static_analysis_finding_count": source_analysis.get("finding_count", 0),
                 "metadata_sha256": _sha256(metadata_bytes),
             }
             task.result = {
@@ -311,11 +352,14 @@ class DeploymentIntakeResearcher:
                 "discovery_finding": finding,
                 "discovery_evidence": evidence_summary,
                 "source_verification": source_verification,
+                "static_analysis": source_analysis,
                 "evidence_artifact": {
                     "metadata_path": str(metadata_path.relative_to(self.evidence_dir)),
                     "bytecode_path": str(bytecode_path.relative_to(self.evidence_dir)),
+                    "analysis_path": str(analysis_path.relative_to(self.evidence_dir)),
                     "metadata_sha256": _sha256(metadata_bytes),
                     "bytecode_sha256": bytecode_sha256,
+                    "analysis_sha256": _sha256(analysis_bytes),
                 },
                 "scope_guards": {
                     "read_only_rpc": True,

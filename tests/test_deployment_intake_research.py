@@ -364,3 +364,84 @@ def test_sourcify_source_hash_mismatch_is_rejected(tmp_path, monkeypatch):
     assert result.result["source_verification"]["status"] == "SOURCE_INTEGRITY_MISMATCH"
     assert result.result["source_verification"]["source_path"] is None
     assert result.result["source_verification"]["error"] == "sourcify_source_keccak_mismatch"
+
+
+
+def test_etherscan_missing_source_falls_back_to_sourcify(tmp_path, monkeypatch):
+    monkeypatch.setenv("ETHERSCAN_API_KEY", "test-key")
+    source = "pragma solidity ^0.8.20; contract Vault {}"
+    payload = {
+        "chainId": "8453",
+        "address": Web3.to_checksum_address(ADDRESS),
+        "match": "match",
+        "matchId": "123457",
+        "sources": {"contracts/Vault.sol": {"content": source}},
+        "compilation": {
+            "language": "Solidity",
+            "compilerVersion": "v0.8.20+commit.a1b79de6",
+            "compilerSettings": {},
+            "name": "Vault",
+        },
+        "metadata": {
+            "sources": {
+                "contracts/Vault.sol": {
+                    "keccak256": Web3.keccak(text=source).hex()
+                }
+            }
+        },
+    }
+    calls = []
+
+    class UnverifiedEtherscanResponse(FakeResponse):
+        def json(self):
+            return {"status": "0", "result": [{"SourceCode": ""}]}
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        if "etherscan.io" in url:
+            return UnverifiedEtherscanResponse()
+        return FakeSourcifyResponse(payload)
+
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=fake_get,
+    )
+
+    result = researcher.run(make_task())
+
+    verification = result.result["source_verification"]
+    assert verification["status"] == "VERIFIED"
+    assert verification["provider"] == "sourcify_v2"
+    assert verification["match_quality"] == "match"
+    assert verification["provider_attempts"] == ["etherscan_v2", "sourcify_v2"]
+    assert verification["etherscan_fallback_status"] == "NOT_VERIFIED"
+    assert len(calls) == 2
+
+
+def test_sourcify_rate_limit_is_reported_without_retrying(tmp_path, monkeypatch):
+    monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
+
+    class RateLimitedResponse:
+        status_code = 429
+        headers = {"Retry-After": "45"}
+
+        def raise_for_status(self):
+            raise AssertionError("429 must be handled before raise_for_status")
+
+    calls = []
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=lambda *args, **kwargs: (calls.append(args[0]) or RateLimitedResponse()),
+    )
+
+    result = researcher.run(make_task())
+
+    assert result.result["source_verification"]["status"] == "RATE_LIMITED"
+    assert result.result["source_verification"]["retry_after"] == "45"
+    assert len(calls) == 1

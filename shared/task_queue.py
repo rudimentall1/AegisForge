@@ -672,6 +672,7 @@ class TaskQueue:
         research_case_id=None,
         round_id=None,
         contract_address=None,
+        fingerprint=None,
     ):
         task_id = str(uuid.uuid4())
         parent_row = None
@@ -758,9 +759,10 @@ class TaskQueue:
                 evaluation_id,
                 research_case_id,
                 round_id,
-                contract_address
+                contract_address,
+                fingerprint
             )
-            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task_id,
@@ -775,6 +777,7 @@ class TaskQueue:
                 research_case_id,
                 round_id,
                 contract_address,
+                fingerprint,
             ),
         )
         self.db.commit()

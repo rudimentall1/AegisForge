@@ -71,3 +71,21 @@ def test_failed_contract_creation_without_address_is_ignored(tmp_path):
         assert queue.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 0
     finally:
         queue.db.close()
+
+
+def test_failed_contract_creation_with_derived_address_is_ignored(tmp_path):
+    queue = TaskQueue(tmp_path / "agent_farm.db")
+    transaction = {
+        "hash": FakeHex(bytes.fromhex("44" * 32)),
+        "from": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    }
+    receipt = {
+        "contractAddress": "0x1234567890abcdef1234567890abcdef12345678",
+        "status": 0,
+    }
+
+    try:
+        assert record_contract_deployment(queue, "base", 12345, transaction, receipt) is None
+        assert queue.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 0
+    finally:
+        queue.db.close()

@@ -326,7 +326,7 @@ def test_analyze_source_rejects_untrusted_compiler_version(monkeypatch):
 def test_analyze_source_can_install_exact_compiler_without_global_switch(monkeypatch):
     import agents.deep_researcher.slither_analysis as module
 
-    observed = {"install_commands": []}
+    observed = {"install_commands": [], "installed": False}
     monkeypatch.setenv("AEGISFORGE_AUTO_INSTALL_SOLC", "1")
     monkeypatch.setattr(
         module.shutil,
@@ -339,18 +339,19 @@ def test_analyze_source_can_install_exact_compiler_without_global_switch(monkeyp
     )
 
     def fake_run(command, **kwargs):
-        if command[0] == "/usr/bin/solc-select":
-            if command[1] == "versions":
-                return subprocess.CompletedProcess(
-                    command, 1, stdout="", stderr="No solc version set"
-                )
-            observed["install_commands"].append(command)
-            return subprocess.CompletedProcess(command, 0, stdout="installed", stderr="")
         if command[0] == "/usr/bin/solc":
             assert kwargs["env"]["SOLC_VERSION"] == "0.8.20"
+            if not observed["installed"]:
+                return subprocess.CompletedProcess(
+                    command, 1, stdout="", stderr="requested solc version not installed"
+                )
             return subprocess.CompletedProcess(
                 command, 0, stdout="Version: 0.8.20+commit.a1b79de6", stderr=""
             )
+        if command[0] == "/usr/bin/solc-select":
+            observed["install_commands"].append(command)
+            observed["installed"] = True
+            return subprocess.CompletedProcess(command, 0, stdout="installed", stderr="")
         return subprocess.CompletedProcess(
             command,
             0,
@@ -385,13 +386,18 @@ def test_analyze_source_does_not_install_compiler_without_opt_in(monkeypatch):
             "slither": "/usr/bin/slither",
         }.get(binary),
     )
-    monkeypatch.setattr(
-        module.subprocess,
-        "run",
-        lambda command, **kwargs: subprocess.CompletedProcess(
-            command, 0, stdout="Installed versions:\n0.8.19\n", stderr=""
-        ),
-    )
+    observed = {"install_called": False}
+
+    def fake_run(command, **kwargs):
+        if command[0] == "/usr/bin/solc":
+            return subprocess.CompletedProcess(
+                command, 1, stdout="", stderr="requested solc version not installed"
+            )
+        if command[0] == "/usr/bin/solc-select":
+            observed["install_called"] = True
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
 
     result = analyze_source(
         "pragma solidity ^0.8.20; contract Vault {}",
@@ -399,4 +405,6 @@ def test_analyze_source_does_not_install_compiler_without_opt_in(monkeypatch):
     )
 
     assert result["status"] == "COMPILER_UNAVAILABLE"
+    assert observed["install_called"] is False
     assert result["vulnerabilities_confirmed"] is False
+

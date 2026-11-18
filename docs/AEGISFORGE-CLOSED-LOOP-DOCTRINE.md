@@ -1,40 +1,54 @@
-# AEGISFORGE / OWNERA: CLOSED-LOOP ACTIVE WHITE-HAT DOCTRINE
+# AEGISFORGE / OWNERA — CANONICAL SIX-PHASE OPERATING DOCTRINE
 
-> **Статус документа:** Production Protocol  
-> **Целевая среда:** `/opt/agent-farm` (Gensyn2 Linux Cluster)  
-> **Режим работы:** Полная автономность в рамках White-Hat / Secure Rescue (Adversarial Emulation).
+> **Document status:** Owner-approved product doctrine; implementation status must be reported separately.  
+> **Primary deployment target:** `/opt/agent-farm`  
+> **Product objective:** Detect, verify, contain, disclose, remediate, and close smart-contract security incidents through one auditable white-hat response loop.
 
----
+This document is the canonical product specification for AegisForge. Agents and contributors must read it before changing monitoring, discovery, analysis, rescue, reporting, recovery, or incident-state behavior. A code change does not make a capability implemented: use the implementation-status vocabulary in this document and attach test or deployment evidence.
 
-## 1. Концепция и цель
-Автономная агентная ферма **AegisForge / OWNERA** работает в режиме активного предотвращения угроз (Active White-Hat / Secure Rescue): выявляет критические уязвимости до их эксплуатации злоумышленниками, верифицирует векторы в изолированной среде, координирует безопасное спасение ликвидности в эскроу и обеспечивает прозрачный возврат активов после патча за согласованную баунти-награду.
+## 1. Mission and operating principles
 
----
+AegisForge is an active EVM threat-intelligence, exploit-validation, emergency-response, and recovery system. It must identify vulnerable deployments before exploitation where possible, detect already active incidents, and continue watching vulnerable contracts even when they currently hold no assets.
 
-## 2. Мультичейн-инфраструктура сканирования
-Ферма круглосуточно мониторит поддерживаемые сети через RPC-узлы и модули `watcher.py`:
-- **Ethereum Mainnet**
-- **Arbitrum One**
-- **Base**
-- **Optimism**
-- **BNB Smart Chain (BSC)**
+The five product pillars, in priority order, are:
 
-### Объекты сканирования:
-1. **Новые деплои (New Contracts):** Свежие пулы ликвидности, обменники, фармилки и лендинговые протоколы.
-2. **Подозрительные контракты:** Протоколы с аномальным поведением и логическими уязвимостями (`logic flaw`, `unprotected initialize`, `reentrancy`).
-3. **Область исключения:** Проверенные контракты без изменений кода (кроме случаев появления новых векторов атак).
+1. **Threat Intelligence** — discover deployments, suspicious activity, vulnerable code, and attacker behavior.
+2. **Exploit Intelligence** — independently investigate and reproduce concrete exploit paths.
+3. **Emergency Response** — initiate the fastest appropriate protective response when a critical threat is confirmed.
+4. **Recovery Infrastructure** — coordinate evidence-backed, authorized asset protection and return.
+5. **Commercial Layer** — deliver owner-facing reports, remediation support, transparent bounty accounting, and a sustainable service.
 
----
+A critical finding must trigger parallel workstreams, not a slow serial queue: preserve evidence, notify the owner, prepare remediation, monitor assets and transactions, and assess the authorized emergency-response path.
 
-## 3. Полный замкнутый цикл работы (10 Фаз)
+Detection and analysis should be thorough and adversarial. Live actions must remain within an established authority basis. A fork simulation proves behavior in the simulated state; it does not, by itself, authorize moving third-party assets. The configured recovery destination is the intended escrow destination, not proof of authority over any particular contract or token.
 
-1. **Мониторинг:** 24/7 отслеживание поддерживаемых блокчейнов, контрактов, мемпула и транзакций.
-2. **Обнаружение угроз:** Выявление уязвимостей и подозрительной активности с помощью статического и динамического анализа (`slither`, `dynamic_exploits`).
-3. **Приоритизация:** Оценка критичности угрозы, потенциального финансового ущерба и срочности реакции.
-4. **Расследование:** Запуск специализированных AI-агентов для независимого глубокого анализа кода.
-5. **Воспроизведение (Песочница):** Проверка найденных векторов в изолированной среде **Anvil Fork** (локальный форк мейннета) для подтверждения сценария.
-6. **Подтверждение:** Независимый модуль `Security Checker` проверяет доказательства, исключая ложные срабатывания.
-7. **Экстренное реагирование (`rescue.py`):** Оперативная эвакуация активов (нативные монеты + ERC-20: USDC, USDT, WETH и др.) с уязвимого контракта **на защищенный мультисиг-адрес эскроу** для предотвращения кражи.
-8. **Генерация отчета и PoC (`reporter.py`):** Автоматическое создание детализированного технического advisory и Proof of Concept для разработчиков с расчетом законной **White-Hat баунти-награды (5–10%, базово — 7.5%)**.
-9. **Устранение и Патч:** Ожидание деплоя исправленного контракта разработчиками и проверка безопасности патча.
-10. **Возврат и Саморазвитие:** Возврат основной части средств (92.5%) на новый адрес контракта после верификации, удержание баунти-награды, закрытие инцидента в `tasks.db` (`REWARD_PAID_AND_RETURNED`) и сохранение опыта для улучшения эвристик.
+## 2. Supported network scope
+
+The target monitoring set is:
+
+- Ethereum
+- Arbitrum
+- Base
+- Optimism
+- BNB Smart Chain (BSC)
+- Robin
+- Arc
+
+Each network must have an explicit, validated network profile: canonical name, chain ID, RPC configuration, explorer/source adapter where available, native asset metadata, finality/reorg policy, and operational health. **Robin is a user-specified network label and must not be treated as production-ready until its canonical chain identity and RPC are confirmed.** Do not silently substitute another network. Arc must likewise be configured and health-checked before its monitor is marked operational.
+
+The network list is the target scope, not a claim that all seven monitors are currently deployed or healthy.
+
+## 3. The Canonical Six-Phase Operational Lifecycle
+
+1. **Phase 1: Multi-Chain Surveillance (`watcher.py`)**  
+   Continuous 24/7 monitoring across all 7 networks with automatic RPC pool rotation, failover handling, and mempool/new deployment inspection.
+2. **Phase 2: Vulnerability Analysis & Discovery**  
+   Running static and dynamic analysis tools (`slither-analyzer`, custom AST parsers) against newly deployed and active contracts without artificial censorship or stop-words.
+3. **Phase 3: Exploit Reproduction & Simulation (`rescue.py` / Anvil Fork)**  
+   Isolating vectors and running local fork simulations in Anvil sandbox environments to mathematically prove exploitability and expected asset flows.
+4. **Phase 4: Emergency Containment & Secure Rescue**  
+   Executing authorized asset protection workflows (`rescue.py`) to evacuate vulnerable liquidity to the designated secure escrow / multisig address ahead of malicious actors.
+5. **Phase 5: Advisory Generation & Reporting (`reporter.py`)**  
+   Compiling technical PoC reports, cryptographic attestation proofs, and transparent bounty/recovery terms (5–10% standard white-hat fee) for protocol owners.
+6. **Phase 6: Remediation, Verification & Closure**  
+   Verifying developer patches on new contract deployments, executing asset return (92.5%+), logging state transitions in SQLite (`shared/tasks.db`), and closing incidents with audit trails.

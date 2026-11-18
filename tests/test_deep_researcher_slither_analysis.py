@@ -256,3 +256,23 @@ def test_analyze_source_selects_verified_solidity_compiler_without_global_switch
     assert result["status"] == "ANALYZED"
     assert result["compiler_version"] == "0.8.20"
     assert observed["solc_version"] == "0.8.20"
+
+
+
+def test_analyze_source_rejects_untrusted_compiler_version(monkeypatch):
+    import agents.deep_researcher.slither_analysis as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda binary: "/usr/bin/slither")
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not execute")),
+    )
+
+    result = analyze_source(
+        "pragma solidity ^0.8.20; contract Vault {}",
+        compiler_version="0.8.20; echo unsafe",
+    )
+
+    assert result["status"] == "INVALID_CONFIGURATION"
+    assert result["vulnerabilities_confirmed"] is False

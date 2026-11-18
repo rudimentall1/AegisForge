@@ -326,3 +326,39 @@ def test_sourcify_supplies_verified_source_without_etherscan_key_and_caches_it(
     source_path = tmp_path / first.result["source_verification"]["source_path"]
     normalized = json.loads(source_path.read_text(encoding="utf-8"))
     assert normalized["sources"]["contracts/Vault.sol"]["content"] == source
+
+
+
+def test_sourcify_source_hash_mismatch_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
+    source = "pragma solidity ^0.8.20; contract Vault {}"
+    payload = {
+        "chainId": "8453",
+        "address": Web3.to_checksum_address(ADDRESS),
+        "match": "exact_match",
+        "sources": {"contracts/Vault.sol": {"content": source}},
+        "compilation": {
+            "language": "Solidity",
+            "compilerVersion": "v0.8.20+commit.a1b79de6",
+            "compilerSettings": {},
+            "name": "Vault",
+        },
+        "metadata": {
+            "sources": {
+                "contracts/Vault.sol": {"keccak256": "0x" + "00" * 32}
+            }
+        },
+    }
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=lambda *args, **kwargs: FakeSourcifyResponse(payload),
+    )
+
+    result = researcher.run(make_task())
+
+    assert result.result["source_verification"]["status"] == "SOURCE_INTEGRITY_MISMATCH"
+    assert result.result["source_verification"]["source_path"] is None
+    assert result.result["source_verification"]["error"] == "sourcify_source_keccak_mismatch"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import subprocess
 import tempfile
@@ -239,7 +240,7 @@ def analyze_source(
                         cwd=temp_dir,
                         capture_output=True,
                         text=True,
-                        timeout=max(1, int(remaining)),
+                        timeout=max(1, math.ceil(remaining)),
                         check=False,
                     )
                 except subprocess.TimeoutExpired:

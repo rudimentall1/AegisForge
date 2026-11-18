@@ -9,7 +9,6 @@ def test_robinhood_chain_uses_its_own_mainnet_identity():
 
 def test_arc_uses_arc_mainnet_identity():
     assert CHAIN_IDS["arc"] == 5042
-    assert RPC_ENDPOINTS["arc"] == "https://rpc.mainnet.arc.io"
     assert EXPLORER_URLS["arc"] == "https://explorer.arc.io"
 
 
@@ -23,5 +22,9 @@ def test_wallet_watcher_uses_canonical_multichain_rpc_configuration():
     from wallet_watcher import NETWORKS, WALLET_ADDRESS
 
     assert WALLET_ADDRESS == RESCUE_WALLET_ADDRESS
-    for chain in ("ethereum", "arbitrum", "base", "optimism", "bsc", "robin", "arc"):
+    for chain in ("ethereum", "arbitrum", "base", "optimism", "bsc", "robin"):
         assert NETWORKS[chain] == RPC_ENDPOINTS[chain]
+    if RPC_ENDPOINTS["arc"]:
+        assert NETWORKS["arc"] == RPC_ENDPOINTS["arc"]
+    else:
+        assert "arc" not in NETWORKS

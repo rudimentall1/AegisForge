@@ -55,10 +55,12 @@ def verify_analysis_evidence(
         payload = None
 
     report_is_object = isinstance(payload, dict)
+    analysis_status = payload.get("status") if report_is_object else None
     schema_valid = (
         report_is_object
         and payload.get("schema") == "aegisforge.slither_analysis.v1"
-        and payload.get("status") in _ALLOWED_ANALYSIS_STATUSES
+        and isinstance(analysis_status, str)
+        and analysis_status in _ALLOWED_ANALYSIS_STATUSES
         and payload.get("vulnerabilities_confirmed") is False
     )
 
@@ -67,6 +69,7 @@ def verify_analysis_evidence(
     finding_count = payload.get("finding_count") if report_is_object else None
     finding_count_matches = (
         findings_are_list
+        and len(findings) <= 500
         and isinstance(finding_count, int)
         and not isinstance(finding_count, bool)
         and finding_count == len(findings)
@@ -85,10 +88,16 @@ def verify_analysis_evidence(
             if (
                 not isinstance(finding.get("detector"), str)
                 or not finding["detector"]
+                or not isinstance(finding.get("impact"), str)
                 or finding.get("impact") not in _ALLOWED_IMPACTS
+                or not isinstance(finding.get("confidence"), str)
                 or finding.get("confidence") not in _ALLOWED_CONFIDENCE
                 or not isinstance(finding.get("description"), str)
+                or len(finding.get("description", "")) > 16_000
                 or not isinstance(finding.get("elements"), list)
+                or len(finding.get("elements", [])) > 50
+                or any(not isinstance(element, dict) for element in finding.get("elements", []))
+                or len(finding.get("detector", "")) > 256
                 or finding.get("status") != "UNVERIFIED_POTENTIAL"
             ):
                 finding_shapes_valid = False

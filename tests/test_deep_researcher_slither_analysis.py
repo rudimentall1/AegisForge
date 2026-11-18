@@ -342,7 +342,7 @@ def test_analyze_source_can_install_exact_compiler_without_global_switch(monkeyp
         if command[0] == "/usr/bin/solc-select":
             if command[1] == "versions":
                 return subprocess.CompletedProcess(
-                    command, 0, stdout="Installed versions:\n0.8.19\n", stderr=""
+                    command, 1, stdout="", stderr="No solc version set"
                 )
             observed["install_commands"].append(command)
             return subprocess.CompletedProcess(command, 0, stdout="installed", stderr="")

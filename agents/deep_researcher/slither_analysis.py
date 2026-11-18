@@ -214,59 +214,16 @@ def analyze_source(
     compiler_env = os.environ.copy()
     compiler_installed = False
     if normalized_compiler_version:
-        solc_select = shutil.which("solc-select")
-        if solc_select:
-            try:
-                versions_result = subprocess.run(
-                    [solc_select, "versions"],
-                    capture_output=True,
-                    text=True,
-                    timeout=min(timeout, 10),
-                    check=False,
-                )
-            except (OSError, subprocess.TimeoutExpired):
-                return _empty_result("COMPILER_UNAVAILABLE", "solc_select_versions_failed")
-            auto_install = os.getenv("AEGISFORGE_AUTO_INSTALL_SOLC", "0").strip().lower()
-            installed_versions = set()
-            if versions_result.returncode == 0:
-                installed_versions = set(
-                    re.findall(
-                        r"(?<![0-9.])\d+\.\d+\.\d+(?![0-9.])",
-                        versions_result.stdout or "",
-                    )
-                )
-            if normalized_compiler_version not in installed_versions:
-                if auto_install not in {"1", "true", "yes"}:
-                    return _empty_result(
-                        "COMPILER_UNAVAILABLE",
-                        "required_solidity_compiler_not_installed",
-                    )
-                try:
-                    install_result = subprocess.run(
-                        [solc_select, "install", normalized_compiler_version],
-                        capture_output=True,
-                        text=True,
-                        timeout=180,
-                        check=False,
-                    )
-                except (OSError, subprocess.TimeoutExpired):
-                    return _empty_result(
-                        "COMPILER_UNAVAILABLE",
-                        "solidity_compiler_install_failed",
-                    )
-                if install_result.returncode != 0:
-                    return _empty_result(
-                        "COMPILER_UNAVAILABLE",
-                        "solidity_compiler_install_failed",
-                    )
-                compiler_installed = True
-
         compiler_path = shutil.which("solc")
         if not compiler_path:
             return _empty_result("COMPILER_UNAVAILABLE", "solidity_compiler_not_found")
         compiler_env["SOLC_VERSION"] = normalized_compiler_version
-        try:
-            compiler_probe = subprocess.run(
+        solc_select = shutil.which("solc-select")
+        auto_install = os.getenv("AEGISFORGE_AUTO_INSTALL_SOLC", "0").strip().lower()
+        auto_install_enabled = auto_install in {"1", "true", "yes"}
+
+        def probe_compiler():
+            return subprocess.run(
                 [compiler_path, "--version"],
                 capture_output=True,
                 text=True,
@@ -274,16 +231,68 @@ def analyze_source(
                 check=False,
                 env=compiler_env,
             )
+
+        try:
+            compiler_probe = probe_compiler()
         except (OSError, subprocess.TimeoutExpired):
             return _empty_result("COMPILER_UNAVAILABLE", "solidity_compiler_probe_failed")
+
         compiler_output = (compiler_probe.stdout or "") + (compiler_probe.stderr or "")
-        if compiler_probe.returncode != 0:
-            return _empty_result("COMPILER_UNAVAILABLE", "solidity_compiler_version_unavailable")
-        version_match = re.search(r"Version:\s*(\d+\.\d+\.\d+)", compiler_output)
-        if not version_match:
-            return _empty_result("COMPILER_UNAVAILABLE", "solidity_compiler_version_unreadable")
-        if version_match.group(1) != normalized_compiler_version:
-            return _empty_result("COMPILER_VERSION_MISMATCH", "solidity_compiler_version_mismatch")
+        version_match = re.search(r"Version:\\s*(\\d+\\.\\d+\\.\\d+)", compiler_output)
+        compiler_matches = (
+            compiler_probe.returncode == 0
+            and version_match is not None
+            and version_match.group(1) == normalized_compiler_version
+        )
+
+        if not compiler_matches and auto_install_enabled and solc_select:
+            try:
+                install_result = subprocess.run(
+                    [solc_select, "install", normalized_compiler_version],
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return _empty_result(
+                    "COMPILER_UNAVAILABLE",
+                    "solidity_compiler_install_failed",
+                )
+            if install_result.returncode != 0:
+                return _empty_result(
+                    "COMPILER_UNAVAILABLE",
+                    "solidity_compiler_install_failed",
+                )
+            compiler_installed = True
+            try:
+                compiler_probe = probe_compiler()
+            except (OSError, subprocess.TimeoutExpired):
+                return _empty_result(
+                    "COMPILER_UNAVAILABLE",
+                    "solidity_compiler_probe_failed_after_install",
+                )
+            compiler_output = (compiler_probe.stdout or "") + (compiler_probe.stderr or "")
+            version_match = re.search(
+                r"Version:\\s*(\\d+\\.\\d+\\.\\d+)",
+                compiler_output,
+            )
+            compiler_matches = (
+                compiler_probe.returncode == 0
+                and version_match is not None
+                and version_match.group(1) == normalized_compiler_version
+            )
+
+        if not compiler_matches:
+            if compiler_probe.returncode == 0 and version_match is not None:
+                return _empty_result(
+                    "COMPILER_VERSION_MISMATCH",
+                    "solidity_compiler_version_mismatch",
+                )
+            return _empty_result(
+                "COMPILER_UNAVAILABLE",
+                "required_solidity_compiler_not_available",
+            )
 
     try:
         with tempfile.TemporaryDirectory(prefix="aegisforge-slither-") as temp_dir:

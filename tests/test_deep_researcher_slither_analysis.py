@@ -238,7 +238,12 @@ def test_analyze_source_selects_verified_solidity_compiler_without_global_switch
     monkeypatch.setattr(
         module.shutil,
         "which",
-        lambda binary: "/usr/bin/solc" if binary == "solc" else "/usr/bin/slither",
+        lambda binary: (
+            "/usr/bin/solc"
+            if binary == "solc"
+            else None if binary == "solc-select"
+            else "/usr/bin/slither"
+        ),
     )
 
     def fake_run(command, **kwargs):
@@ -309,4 +314,84 @@ def test_analyze_source_rejects_untrusted_compiler_version(monkeypatch):
     )
 
     assert result["status"] == "INVALID_CONFIGURATION"
+    assert result["vulnerabilities_confirmed"] is False
+
+
+
+def test_analyze_source_can_install_exact_compiler_without_global_switch(monkeypatch):
+    import agents.deep_researcher.slither_analysis as module
+
+    observed = {"install_commands": []}
+    monkeypatch.setenv("AEGISFORGE_AUTO_INSTALL_SOLC", "1")
+    monkeypatch.setattr(
+        module.shutil,
+        "which",
+        lambda binary: {
+            "solc-select": "/usr/bin/solc-select",
+            "solc": "/usr/bin/solc",
+            "slither": "/usr/bin/slither",
+        }.get(binary),
+    )
+
+    def fake_run(command, **kwargs):
+        if command[0] == "/usr/bin/solc-select":
+            if command[1] == "versions":
+                return subprocess.CompletedProcess(
+                    command, 0, stdout="Installed versions:\n0.8.19\n", stderr=""
+                )
+            observed["install_commands"].append(command)
+            return subprocess.CompletedProcess(command, 0, stdout="installed", stderr="")
+        if command[0] == "/usr/bin/solc":
+            assert kwargs["env"]["SOLC_VERSION"] == "0.8.20"
+            return subprocess.CompletedProcess(
+                command, 0, stdout="Version: 0.8.20+commit.a1b79de6", stderr=""
+            )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps({"success": True, "results": {"detectors": []}}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = analyze_source(
+        "pragma solidity ^0.8.20; contract Vault {}",
+        compiler_version="v0.8.20+commit.a1b79de6",
+    )
+
+    assert result["status"] == "ANALYZED"
+    assert result["compiler_installed"] is True
+    assert observed["install_commands"] == [
+        ["/usr/bin/solc-select", "install", "0.8.20"]
+    ]
+
+
+def test_analyze_source_does_not_install_compiler_without_opt_in(monkeypatch):
+    import agents.deep_researcher.slither_analysis as module
+
+    monkeypatch.setenv("AEGISFORGE_AUTO_INSTALL_SOLC", "0")
+    monkeypatch.setattr(
+        module.shutil,
+        "which",
+        lambda binary: {
+            "solc-select": "/usr/bin/solc-select",
+            "solc": "/usr/bin/solc",
+            "slither": "/usr/bin/slither",
+        }.get(binary),
+    )
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 0, stdout="Installed versions:\n0.8.19\n", stderr=""
+        ),
+    )
+
+    result = analyze_source(
+        "pragma solidity ^0.8.20; contract Vault {}",
+        compiler_version="v0.8.20+commit.a1b79de6",
+    )
+
+    assert result["status"] == "COMPILER_UNAVAILABLE"
     assert result["vulnerabilities_confirmed"] is False

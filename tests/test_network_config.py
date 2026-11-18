@@ -16,3 +16,12 @@ def test_arc_uses_arc_mainnet_identity():
 def test_bnb_smart_chain_is_configured():
     assert CHAIN_IDS["bsc"] == 56
     assert RPC_ENDPOINTS["bsc"]
+
+
+def test_wallet_watcher_uses_canonical_multichain_rpc_configuration():
+    from agents.config import RESCUE_WALLET_ADDRESS
+    from wallet_watcher import NETWORKS, WALLET_ADDRESS
+
+    assert WALLET_ADDRESS == RESCUE_WALLET_ADDRESS
+    for chain in ("ethereum", "arbitrum", "base", "optimism", "bsc", "robin", "arc"):
+        assert NETWORKS[chain] == RPC_ENDPOINTS[chain]

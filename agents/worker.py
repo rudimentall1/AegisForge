@@ -991,6 +991,13 @@ RULES:
 # --- TELEGRAM ALERT MODULE ---
 
 
+def normalize_worker_role(value):
+    role = str(value or "").strip().lower()
+    if role in {"", "1", "2", "3", "4"}:
+        return "security_checker"
+    return role
+
+
 def main():
     if len(sys.argv) != 2:
         print(
@@ -1003,11 +1010,7 @@ def main():
         )
         sys.exit(1)
 
-    role = sys.argv[1].strip().lower()
-
-    if role in [1,2,3,4] or not role: role = security_checker
-    if role in ["1", "2", "3", "4"] or not role:
-        role = "security_checker"
+    role = normalize_worker_role(sys.argv[1])
     worker = Worker(role)
 
     print(

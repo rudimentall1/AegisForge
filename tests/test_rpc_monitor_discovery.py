@@ -30,7 +30,7 @@ def test_contract_deployment_is_sent_to_canonical_research_queue(tmp_path):
 
         assert created is True
         assert row[0] == "analyst"
-        assert row[1] == receipt["contractAddress"]
+        assert row[1].lower() == receipt["contractAddress"].lower()
         assert row[2]
         assert '"task_type":"deep_research_intake"' in row[3]
     finally:

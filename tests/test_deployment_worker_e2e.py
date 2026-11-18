@@ -125,7 +125,8 @@ def test_discovery_to_deep_research_completes_through_real_worker_loop(
             assert result["agent"] == "deep_researcher"
             assert result["discovery_evidence"]["chain_id"] == 8453
             assert result["discovery_evidence"]["observed_block"] == 12345
-            assert result["source_verification"]["status"] == "NOT_CONFIGURED"
+            assert result["source_verification"]["status"] == "NOT_VERIFIED"
+            assert result["source_verification"]["provider"] == "sourcify_v2"
 
             artifact = tmp_path / "evidence" / result["evidence_artifact"]["metadata_path"]
             bytecode = tmp_path / "evidence" / result["evidence_artifact"]["bytecode_path"]

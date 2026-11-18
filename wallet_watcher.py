@@ -5,7 +5,7 @@ import json
 import logging
 import requests
 
-from agents.config import RESCUE_WALLET_ADDRESS, RPC_ENDPOINTS
+from agents.config import CHAIN_IDS, RESCUE_WALLET_ADDRESS, RPC_ENDPOINTS
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(levelname)s] %(message)s")
 
@@ -76,6 +76,24 @@ def check_balances():
     low_balance_warnings = []
     for chain, rpc in NETWORKS.items():
         try:
+            chain_response = requests.post(
+                rpc,
+                json={"jsonrpc": "2.0", "method": "eth_chainId", "params": [], "id": 1},
+                timeout=5,
+            )
+            chain_response.raise_for_status()
+            chain_result = chain_response.json().get("result")
+            actual_chain_id = int(chain_result, 16) if isinstance(chain_result, str) else None
+            expected_chain_id = CHAIN_IDS.get(chain)
+            if expected_chain_id is not None and actual_chain_id != int(expected_chain_id):
+                logging.error(
+                    "[%s] RPC chain identity mismatch: expected=%s actual=%s",
+                    chain.upper(),
+                    expected_chain_id,
+                    actual_chain_id,
+                )
+                continue
+
             payload = {
                 "jsonrpc": "2.0",
                 "method": "eth_getBalance",

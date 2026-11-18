@@ -15,6 +15,7 @@ DB_PATH = "shared/tasks.db"
 NETWORKS = {
     chain: RPC_ENDPOINTS[chain]
     for chain in ("ethereum", "arbitrum", "base", "optimism", "bsc", "robin", "arc")
+    if RPC_ENDPOINTS.get(chain)
 }
 
 MIN_BALANCES = {

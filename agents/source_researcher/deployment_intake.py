@@ -345,6 +345,9 @@ class DeploymentIntakeResearcher:
                     "finding_count": source_analysis.get("finding_count", 0),
                     "vulnerabilities_confirmed": False,
                 },
+                "static_analysis_sha256": _sha256(analysis_bytes),
+                "analysis_validation_sha256": _sha256(validation_bytes),
+                "analysis_validation_status": analysis_validation["status"],
                 "analysis_validation": {
                     "status": analysis_validation["status"],
                     "validation_scope": "artifact_integrity_only",

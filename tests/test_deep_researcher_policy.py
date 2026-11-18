@@ -1,5 +1,5 @@
 from agents.deep_researcher.agent import DeepResearcher
-from agents.worker import AGENTS
+from agents.worker import AGENTS, normalize_worker_role
 from shared.action_intent import build_action_intent
 from shared.capability_policy import CapabilityDecision, CapabilityPolicy
 from shared.research_case import validate_worker_case_binding
@@ -19,3 +19,6 @@ def test_deep_researcher_is_read_only_and_allowed_without_case_binding():
     assert validate_worker_case_binding("deep_researcher", None, None) is None
     assert DeepResearcher.name == "deep_researcher"
     assert AGENTS["deep_researcher"] is DeepResearcher
+    assert normalize_worker_role("deep_researcher") == "deep_researcher"
+    assert normalize_worker_role("1") == "security_checker"
+    assert normalize_worker_role("") == "security_checker"

@@ -123,6 +123,7 @@ def _source_project(source_code: str) -> dict:
         relative = PurePosixPath(name)
         if (
             relative.is_absolute()
+            or not relative.parts
             or any(part in ("", ".", "..") for part in relative.parts)
             or ":" in relative.parts[0]
             or relative.suffix.lower() != ".sol"

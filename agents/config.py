@@ -3,7 +3,7 @@ import os
 
 RESCUE_WALLET_ADDRESS = os.getenv(
     "RESCUE_WALLET_ADDRESS",
-    "0x1429906b663608DB6aDeAb8F975B47aFbbe8c68C",
+    "0xF462A261266C543A31Ef43A94bb48d7575299B97",
 )
 # Private key material is never stored in source control or given a default.
 RESCUE_PRIVATE_KEY = os.getenv("RESCUE_PRIVATE_KEY", "")

@@ -6,10 +6,6 @@ AegisForge is an early-stage security research toolkit for turning authorized vu
 
 It is not an autonomous exploit bot, a scanner that promises findings, or a report generator that treats model output as proof. Its purpose is to reduce the work required to investigate, reproduce, challenge, and document a security claim — including a clear rejected or inconclusive result.
 
-## Operating doctrine
-
-The canonical AegisForge / OWNERA six-phase operating doctrine, including the target network scope, persistent watch registry, emergency-response workflow, disclosure, patch verification, and recovery lifecycle, is documented in [`docs/AEGISFORGE-CLOSED-LOOP-DOCTRINE.md`](docs/AEGISFORGE-CLOSED-LOOP-DOCTRINE.md).
-
 ## Why it exists
 
 Security research often leaves evidence scattered across source links, repository revisions, test scripts, traces, environment assumptions, and reports. Reviewers then have to reconstruct the work before they can evaluate the conclusion. LLMs can accelerate navigation and hypothesis generation, but plausible reasoning is not proof.

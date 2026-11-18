@@ -152,3 +152,19 @@ def test_parity_creation_under_reverted_parent_is_not_reported():
     findings = extract_internal_creations(response)
 
     assert [item["contract_address"] for item in findings] == [ADDRESS_B]
+
+
+def test_malformed_parity_trace_paths_are_ignored_without_crashing():
+    response = {
+        "result": [
+            {
+                "type": "create",
+                "transactionHash": TX_HASH,
+                "traceAddress": [{"not": "an-index"}],
+                "action": {"from": CREATOR, "creationMethod": "create"},
+                "result": {"address": ADDRESS_A},
+            }
+        ]
+    }
+
+    assert extract_internal_creations(response) == []

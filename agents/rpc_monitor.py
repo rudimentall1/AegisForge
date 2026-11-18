@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import datetime, timezone
 
 from web3 import Web3
 
@@ -15,6 +16,66 @@ logger = logging.getLogger("RpcMonitor")
 
 POLL_INTERVAL_SECONDS = 5
 RPC_TIMEOUT_SECONDS = 5
+
+
+def _ensure_cursor_table(queue):
+    queue.db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rpc_monitor_cursors (
+            chain TEXT PRIMARY KEY,
+            last_processed_block INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    queue.db.commit()
+
+
+def load_or_initialize_cursor(queue, chain, latest_block):
+    """Resume the last durable block, or initialize at the current tip."""
+    _ensure_cursor_table(queue)
+    row = queue.db.execute(
+        "SELECT last_processed_block FROM rpc_monitor_cursors WHERE chain = ?",
+        (str(chain),),
+    ).fetchone()
+    if row is not None:
+        return int(row[0])
+
+    # First run starts at the current tip; historical backfill is explicit.
+    initial_block = max(int(latest_block) - 1, 0)
+    queue.db.execute(
+        """
+        INSERT OR IGNORE INTO rpc_monitor_cursors
+            (chain, last_processed_block, updated_at)
+        VALUES (?, ?, ?)
+        """,
+        (str(chain), initial_block, datetime.now(timezone.utc).isoformat()),
+    )
+    queue.db.commit()
+    row = queue.db.execute(
+        "SELECT last_processed_block FROM rpc_monitor_cursors WHERE chain = ?",
+        (str(chain),),
+    ).fetchone()
+    return int(row[0])
+
+
+def save_cursor(queue, chain, block_number):
+    queue.db.execute(
+        """
+        INSERT INTO rpc_monitor_cursors
+            (chain, last_processed_block, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(chain) DO UPDATE SET
+            last_processed_block = excluded.last_processed_block,
+            updated_at = excluded.updated_at
+        """,
+        (
+            str(chain),
+            int(block_number),
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    queue.db.commit()
 
 
 def _hex_value(value):
@@ -70,10 +131,10 @@ def record_contract_deployment(queue, chain, block_number, transaction, receipt)
 
 def scan_networks_for_deploys():
     queue = TaskQueue()
+    _ensure_cursor_table(queue)
     logger.info(
         "Starting multi-chain deployment discovery; intake DB is the canonical TaskQueue DB."
     )
-    last_blocks = {chain: 0 for chain in RPC_ENDPOINTS}
 
     while True:
         for chain, rpc_url in RPC_ENDPOINTS.items():
@@ -102,68 +163,83 @@ def scan_networks_for_deploys():
                     )
                     continue
 
-                latest_block = w3.eth.block_number
-                if last_blocks[chain] == 0:
-                    # Start at the current tip. Historical backfill is a separate,
-                    # explicitly bounded operation; do not silently enqueue a backlog.
-                    last_blocks[chain] = latest_block - 1
+                latest_block = int(w3.eth.block_number)
+                last_processed_block = load_or_initialize_cursor(
+                    queue,
+                    chain,
+                    latest_block,
+                )
+                if latest_block <= last_processed_block:
+                    continue
 
-                for block_number in range(last_blocks[chain] + 1, latest_block + 1):
+                for block_number in range(last_processed_block + 1, latest_block + 1):
+                    block_ok = True
                     try:
                         block = w3.eth.get_block(
                             block_number,
                             full_transactions=True,
                         )
-                        for transaction in block.get("transactions", []):
-                            if transaction.get("to") is not None:
-                                continue
-
-                            tx_hash = _hex_value(transaction.get("hash"))
-                            if not tx_hash:
-                                logger.warning(
-                                    "Skipping contract creation without tx hash on %s block %s",
-                                    chain,
-                                    block_number,
-                                )
-                                continue
-
-                            try:
-                                receipt = w3.eth.get_transaction_receipt(tx_hash)
-                                result = record_contract_deployment(
-                                    queue,
-                                    chain,
-                                    block_number,
-                                    transaction,
-                                    receipt,
-                                )
-                                if result is None:
-                                    logger.info(
-                                        "Contract creation was unsuccessful or had no deployed address: %s",
-                                        tx_hash,
-                                    )
-                                else:
-                                    task_id, created = result
-                                    logger.info(
-                                        "Deployment discovery %s: chain=%s contract=%s task=%s",
-                                        "enqueued" if created else "deduplicated",
-                                        chain,
-                                        receipt.get("contractAddress"),
-                                        task_id,
-                                    )
-                            except Exception:
-                                logger.exception(
-                                    "Failed to ingest deployment %s on %s",
-                                    tx_hash,
-                                    chain,
-                                )
                     except Exception:
-                        logger.exception(
-                            "Error reading block %s on %s",
-                            block_number,
-                            chain,
-                        )
+                        logger.exception("Error reading block %s on %s", block_number, chain)
+                        break
 
-                last_blocks[chain] = latest_block
+                    for transaction in block.get("transactions", []):
+                        if transaction.get("to") is not None:
+                            continue
+
+                        tx_hash = _hex_value(transaction.get("hash"))
+                        if not tx_hash:
+                            logger.error(
+                                "Contract creation has no transaction hash: chain=%s block=%s",
+                                chain,
+                                block_number,
+                            )
+                            block_ok = False
+                            continue
+
+                        try:
+                            receipt = w3.eth.get_transaction_receipt(tx_hash)
+                            result = record_contract_deployment(
+                                queue,
+                                chain,
+                                block_number,
+                                transaction,
+                                receipt,
+                            )
+                            if result is None:
+                                logger.info(
+                                    "No successful deployment to enqueue: chain=%s tx=%s",
+                                    chain,
+                                    tx_hash,
+                                )
+                            else:
+                                task_id, created = result
+                                logger.info(
+                                    "Deployment discovery %s: chain=%s contract=%s task=%s",
+                                    "enqueued" if created else "deduplicated",
+                                    chain,
+                                    receipt.get("contractAddress"),
+                                    task_id,
+                                )
+                        except Exception:
+                            block_ok = False
+                            logger.exception(
+                                "Failed to ingest deployment %s on %s block %s",
+                                tx_hash,
+                                chain,
+                                block_number,
+                            )
+
+                    if not block_ok:
+                        logger.warning(
+                            "Cursor not advanced for %s block %s; retrying block",
+                            chain,
+                            block_number,
+                        )
+                        break
+
+                    save_cursor(queue, chain, block_number)
+
             except Exception:
                 logger.exception("Error scanning network %s", chain)
 

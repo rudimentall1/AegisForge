@@ -1,4 +1,3 @@
-from agents.worker import analyze_contract_for_bounty
 
 # Пример простой уязвимости (Reentrancy / Внешний вызов до обновления баланса)
 mock_vulnerable_solidity = """
@@ -25,6 +24,8 @@ contract VulnerableVault {
 """
 
 if __name__ == "__main__":
+    # Manual smoke script: keep runtime-only worker imports out of pytest collection.
+    from agents.worker import analyze_contract_for_bounty
     print("[*] Запуск локального теста Red Team агента...")
     token_addr = "0xMockVulnerableVault123456789"
     

@@ -1,6 +1,5 @@
 import os
 from dotenv import load_dotenv
-from agents.worker import analyze_contract_for_bounty
 
 # Загружаем переменные из .env (включая OPENROUTER_API_KEY и TELEGRAM_TOKENS)
 load_dotenv()
@@ -30,6 +29,8 @@ contract ReentrancyBank {
 """
 
 if __name__ == "__main__":
+    # Manual smoke script: keep runtime-only worker imports out of pytest collection.
+    from agents.worker import analyze_contract_for_bounty
     print("[*] Инициализация боевого теста OpenRouter API (Claude 3.5 Sonnet)...")
     target_address = "0xLiveTestReentrancyBank999"
     

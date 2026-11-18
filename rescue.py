@@ -1,56 +1,46 @@
-import os
-import json
-from web3 import Web3
-from eth_account import Account
+import logging
+import re
 
-class WhiteHatRescuer:
-    def __init__(self, rpc_url: str, private_key: str, safe_multisig: str):
-        self.rpc_url = rpc_url
-        self.w3 = Web3(Web3.HTTPProvider(rpc_url))
-        self.account = Account.from_key(private_key)
-        self.safe_multisig = safe_multisig
+from agents.config import RESCUE_WALLET_ADDRESS, RPC_ENDPOINTS
 
-    def simulate_and_rescue(self, target_contract: str, exploit_payload: dict) -> dict:
-        print(f"[*] Инициализация песочницы Anvil для контракта: {target_contract}")
-        fork_w3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545"))
-        
-        if not fork_w3.is_connected():
-            return {
-                "success": False,
-                "error": "Anvil sandbox node is not running on port 8545"
-            }
 
-        try:
-            nonce = fork_w3.eth.get_transaction_count(self.account.address)
-            tx = {
-                'to': Web3.to_checksum_address(target_contract),
-                'value': 0,
-                'gas': 500000,
-                'gasPrice': fork_w3.eth.gas_price,
-                'nonce': nonce,
-                'chainId': fork_w3.eth.chain_id,
-                'data': exploit_payload.get("calldata", "0x")
-            }
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [RESCUE] %(message)s",
+)
 
-            signed_tx = fork_w3.eth.account.sign_transaction(tx, self.account.key)
-            tx_hash = fork_w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-            receipt = fork_w3.eth.wait_for_transaction_receipt(tx_hash)
+RECIPIENT = RESCUE_WALLET_ADDRESS
+NETWORKS = dict(RPC_ENDPOINTS)
+_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
-            if receipt['status'] == 1:
-                print(f"[+] Песочница: Эвакуация успешна! TxHash: {receipt['transactionHash'].hex()}")
-                return {
-                    "success": True,
-                    "tx_hash": receipt['transactionHash'].hex(),
-                    "gas_used": receipt['gasUsed'],
-                    "rescued_to": self.safe_multisig
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": "Transaction reverted in sandbox EVM"
-                }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
+
+def execute_rescue(chain: str, target_contract: str) -> bool:
+    """Fail closed until a protocol-specific, owner-authorized rescue adapter exists.
+
+    The previous implementation ignored target_contract and swept the EOA
+    derived from a source-controlled fallback private key. That operation did
+    not rescue assets from the target contract and is intentionally disabled.
+    """
+    chain_key = str(chain or "").strip().lower()
+    if chain_key not in NETWORKS:
+        logging.error("Rescue blocked: unsupported network %s", chain_key or "<empty>")
+        return False
+    if not isinstance(target_contract, str) or not _ADDRESS_RE.fullmatch(target_contract):
+        logging.error("Rescue blocked: invalid target contract address")
+        return False
+
+    logging.critical(
+        "Rescue blocked for %s on %s: protocol-specific owner authorization "
+        "and a verified rescue adapter are required. No transaction was sent.",
+        target_contract,
+        chain_key,
+    )
+    return False
+
+
+if __name__ == "__main__":
+    import sys
+
+    chain_arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    contract_arg = sys.argv[2] if len(sys.argv) > 2 else ""
+    execute_rescue(chain_arg, contract_arg)

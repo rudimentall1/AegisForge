@@ -26,6 +26,32 @@ def _reject_nonstandard_constant(value):
     raise ValueError(f"nonstandard_json_constant:{value}")
 
 
+MAX_JSON_NESTING = 128
+
+
+def _check_json_nesting_depth(text: str, error_code: str) -> None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "[{":
+            depth += 1
+            if depth > MAX_JSON_NESTING:
+                raise ValueError(error_code)
+        elif char in "]}":
+            depth = max(0, depth - 1)
+
+
 def _is_finite_nonnegative_number(value) -> bool:
     if type(value) not in (int, float) or value < 0:
         return False
@@ -67,6 +93,7 @@ def _load_strict_json(path: Path):
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("json_file_invalid_utf8") from exc
+    _check_json_nesting_depth(text, "json_nesting_limit_exceeded")
     try:
         value = json.loads(
             text,

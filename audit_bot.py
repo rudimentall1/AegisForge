@@ -5,15 +5,20 @@ from agents.rescue import check_contract_balance
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("AuditBot")
 
-TOKEN = "8426799102:AAEAMz0lWfvyQrpcE1hkf9uINONt40UTEB0"
 
 def send(chat_id, text):
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    if not token:
+        logger.warning("Telegram bot token is not configured")
+        return False
     try:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
         # Отправляем чистый текст без parse_mode, чтобы исключить любые ошибки парсинга
         resp = requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=5)
         if not resp.json().get("ok"):
             logger.error(f"Telegram API Error: {resp.text}")
+            return False
+        return True
     except Exception as e:
         logger.error(f"Send exception: {e}")
 
@@ -29,11 +34,15 @@ def audit_task(chat_id, addr, chain, user):
         send(chat_id, f"❌ Ошибка выполнения: {e}")
 
 def main():
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    if not token:
+        logger.error("Telegram bot token is not configured; polling will not start")
+        return
     logger.info("Bot started polling...")
     offset = 0
     while True:
         try:
-            r = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset={offset}&timeout=30", timeout=35).json()
+            r = requests.get(f"https://api.telegram.org/bot{token}/getUpdates?offset={offset}&timeout=30", timeout=35).json()
             if not r.get("ok"):
                 time.sleep(3)
                 continue

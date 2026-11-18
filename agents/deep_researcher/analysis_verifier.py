@@ -8,6 +8,7 @@ import re
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ALLOWED_ANALYSIS_STATUSES = {
     "ANALYZED",
+    "PARTIAL_ANALYSIS",
     "NOT_RUN",
     "SOURCE_EMPTY",
     "SOURCE_TOO_LARGE",

@@ -1,75 +1,156 @@
-import os
-import time
 import logging
+import time
+
 import requests
 from web3 import Web3
+
 from agents.config import RPC_ENDPOINTS
+from shared.discovery import DiscoveryFinding, enqueue_discovery_finding
 from shared.task_queue import TaskQueue
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 logger = logging.getLogger("RpcMonitor")
 
-TELEGRAM_TOKEN = "8426799102:AAEAMz0lWfvyQrpcE1hkf9uINONt40UTEB0"
-CHAT_ID = "659223890"
+POLL_INTERVAL_SECONDS = 5
+RPC_TIMEOUT_SECONDS = 5
 
-def send_telegram_alert(message: str):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": CHAT_ID, "text": f"🚨 **AegisForge Deploy Watcher**\n\n{message}", "parse_mode": "Markdown"}
-        requests.post(url, json=payload, timeout=5)
-    except Exception as e:
-        logger.error(f"Failed to send Telegram alert: {e}")
+
+def _hex_value(value):
+    if value is None:
+        return None
+    if hasattr(value, "hex"):
+        rendered = value.hex()
+        return rendered if rendered.startswith("0x") else "0x" + rendered
+    rendered = str(value)
+    return rendered if rendered.startswith("0x") else rendered
+
+
+def record_contract_deployment(queue, chain, block_number, transaction, receipt):
+    """Convert a successful contract creation receipt into canonical discovery intake."""
+    contract_address = receipt.get("contractAddress")
+    if not contract_address:
+        return None
+
+    tx_hash = _hex_value(transaction.get("hash"))
+    if not tx_hash:
+        return None
+
+    sender = transaction.get("from")
+    finding = DiscoveryFinding(
+        chain=str(chain),
+        contract_address=Web3.to_checksum_address(contract_address),
+        finding_type="contract_deployment",
+        severity="info",
+        title=f"New contract deployment detected on {chain}",
+        description=(
+            "A contract creation transaction was observed. Deep Research must "
+            "retrieve and inspect deployed runtime bytecode and verified source "
+            "when available; deployment alone is not a vulnerability finding."
+        ),
+        evidence={
+            "transaction_hash": tx_hash,
+            "deployer": sender,
+            "receipt_status": receipt.get("status"),
+            "block_number": int(block_number),
+            "contract_address": Web3.to_checksum_address(contract_address),
+        },
+        observed_block=int(block_number),
+        source="rpc_deployment_monitor",
+        transaction_hash=tx_hash,
+    )
+    return enqueue_discovery_finding(queue, finding)
+
 
 def scan_networks_for_deploys():
     queue = TaskQueue()
-    logger.info("[MONITOR] Starting block and contract deploy scan across all chains...")
-    
-    last_blocks = {chain: 0 for chain in RPC_ENDPOINTS.keys()}
+    logger.info(
+        "Starting multi-chain deployment discovery; intake DB is the canonical TaskQueue DB."
+    )
+    last_blocks = {chain: 0 for chain in RPC_ENDPOINTS}
 
     while True:
         for chain, rpc_url in RPC_ENDPOINTS.items():
             try:
-                w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 5}))
+                w3 = Web3(
+                    Web3.HTTPProvider(
+                        rpc_url,
+                        request_kwargs={"timeout": RPC_TIMEOUT_SECONDS},
+                    )
+                )
                 if not w3.is_connected():
-                    logger.warning(f"RPC for network *{chain}* is disconnected!")
+                    logger.warning("RPC disconnected for %s", chain)
                     continue
-                
+
                 latest_block = w3.eth.block_number
                 if last_blocks[chain] == 0:
+                    # Start at the current tip. Historical backfill is a separate,
+                    # explicitly bounded operation; do not silently enqueue a backlog.
                     last_blocks[chain] = latest_block - 1
-                
-                if latest_block > last_blocks[chain]:
-                    for block_num in range(last_blocks[chain] + 1, latest_block + 1):
-                        try:
-                            block = w3.eth.get_block(block_num, full_transactions=True)
-                            if not block or "transactions" not in block:
+
+                for block_number in range(last_blocks[chain] + 1, latest_block + 1):
+                    try:
+                        block = w3.eth.get_block(
+                            block_number,
+                            full_transactions=True,
+                        )
+                        for transaction in block.get("transactions", []):
+                            if transaction.get("to") is not None:
                                 continue
-                            
-                            for tx in block["transactions"]:
-                                if tx.get("to") is None:
-                                    contract_addr = tx.get("creates")
-                                    tx_hash = tx.get("hash").hex() if hasattr(tx.get("hash"), "hex") else str(tx.get("hash"))
-                                    sender = tx.get("from")
-                                    
-                                    logger.info(f"[DEPLOY FOUND] Chain: {chain} | Tx: {tx_hash}")
-                                    
-                                    cursor = queue.db.cursor()
-                                    cursor.execute(
-                                        "INSERT INTO queue (description, research_case_id, status, created_at) VALUES (?, ?, 'pending', CURRENT_TIMESTAMP)",
-                                        (f"Audit new deploy on {chain}: tx {tx_hash}", f"{chain}:{contract_addr or 'unknown'}")
+
+                            tx_hash = _hex_value(transaction.get("hash"))
+                            if not tx_hash:
+                                logger.warning(
+                                    "Skipping contract creation without tx hash on %s block %s",
+                                    chain,
+                                    block_number,
+                                )
+                                continue
+
+                            try:
+                                receipt = w3.eth.get_transaction_receipt(tx_hash)
+                                result = record_contract_deployment(
+                                    queue,
+                                    chain,
+                                    block_number,
+                                    transaction,
+                                    receipt,
+                                )
+                                if result is None:
+                                    logger.info(
+                                        "Contract creation had no deployed address: %s",
+                                        tx_hash,
                                     )
-                                    queue.db.commit()
-                                    cursor.close()
-                                    
-                                    # Telegram alert on every deploy disabled to avoid spam.
-                        except Exception as block_err:
-                            logger.error(f"Error reading block {block_num} on {chain}: {block_err}")
-                            
-                    last_blocks[chain] = latest_block
-            except Exception as e:
-                logger.error(f"Error scanning network {chain}: {e}")
-                
-        time.sleep(5)
+                                else:
+                                    task_id, created = result
+                                    logger.info(
+                                        "Deployment discovery %s: chain=%s contract=%s task=%s",
+                                        "enqueued" if created else "deduplicated",
+                                        chain,
+                                        receipt.get("contractAddress"),
+                                        task_id,
+                                    )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to ingest deployment %s on %s",
+                                    tx_hash,
+                                    chain,
+                                )
+                    except Exception:
+                        logger.exception(
+                            "Error reading block %s on %s",
+                            block_number,
+                            chain,
+                        )
+
+                last_blocks[chain] = latest_block
+            except Exception:
+                logger.exception("Error scanning network %s", chain)
+
+        time.sleep(POLL_INTERVAL_SECONDS)
+
 
 if __name__ == "__main__":
     scan_networks_for_deploys()

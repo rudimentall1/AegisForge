@@ -16,6 +16,13 @@ def _valid_tx_hash(value):
     return isinstance(value, str) and _TX_HASH_RE.fullmatch(value) is not None
 
 
+def _valid_trace_path(value):
+    return (
+        isinstance(value, list)
+        and all(type(index) is int and index >= 0 for index in value)
+    )
+
+
 def _parity_creations(traces):
     findings = []
     seen = set()
@@ -24,7 +31,7 @@ def _parity_creations(traces):
         for trace in traces
         if isinstance(trace, dict)
         and trace.get("error")
-        and isinstance(trace.get("traceAddress"), list)
+        and _valid_trace_path(trace.get("traceAddress"))
     }
     for trace in traces:
         if not isinstance(trace, dict) or str(trace.get("type", "")).lower() != "create":
@@ -33,7 +40,7 @@ def _parity_creations(traces):
         action = trace.get("action")
         result = trace.get("result")
         tx_hash = trace.get("transactionHash") or trace.get("txHash")
-        if not isinstance(trace_address, list) or not trace_address:
+        if not _valid_trace_path(trace_address) or not trace_address:
             continue
         if any(
             tuple(trace_address[:depth]) in failed_paths

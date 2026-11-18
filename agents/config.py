@@ -9,6 +9,11 @@ RESCUE_WALLET_ADDRESS = os.getenv(
 RESCUE_PRIVATE_KEY = os.getenv("RESCUE_PRIVATE_KEY", "")
 DEFAULT_CHAIN = os.getenv("DEFAULT_CHAIN", "arbitrum").strip().lower()
 
+_arc_rpc_url = os.getenv("ARC_RPC_URL", "").strip()
+_alchemy_api_key = os.getenv("ALCHEMY_API_KEY", "").strip()
+if not _arc_rpc_url and _alchemy_api_key:
+    _arc_rpc_url = f"https://arc-mainnet.g.alchemy.com/v2/{_alchemy_api_key}"
+
 
 RPC_ENDPOINTS = {
     "ethereum": os.getenv("ETHEREUM_RPC_URL", "https://cloudflare-eth.com").strip(),
@@ -20,7 +25,7 @@ RPC_ENDPOINTS = {
         "ROBIN_RPC_URL",
         "https://rpc.mainnet.chain.robinhood.com",
     ).strip(),
-    "arc": os.getenv("ARC_RPC_URL", "https://rpc.mainnet.arc.io").strip(),
+    "arc": _arc_rpc_url,
     # Retained for compatibility with existing installations and historical tasks.
     "ronin": os.getenv("RONIN_RPC_URL", "https://api.roninchain.com/rpc").strip(),
 }

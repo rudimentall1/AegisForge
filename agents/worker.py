@@ -940,6 +940,7 @@ class Worker:
             traceback.print_exc()
 
             return False
+from agents.worker_roles import normalize_worker_role
 from agents.worker_roles import resolve_worker_role as _resolve_worker_role
 
 

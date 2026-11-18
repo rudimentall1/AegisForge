@@ -282,6 +282,7 @@ def test_sourcify_supplies_verified_source_without_etherscan_key_and_caches_it(
         "address": Web3.to_checksum_address(ADDRESS),
         "match": "exact_match",
         "matchId": "123456",
+        "runtimeBytecode": {"onchainBytecode": "0x60016000"},
         "sources": {"contracts/Vault.sol": {"content": source}},
         "compilation": {
             "language": "Solidity",
@@ -323,7 +324,7 @@ def test_sourcify_supplies_verified_source_without_etherscan_key_and_caches_it(
     assert first.result["source_verification"]["cache_hit"] is False
     assert second.result["source_verification"]["cache_hit"] is True
     assert len(calls) == 1
-    assert calls[0][1]["fields"] == "sources,compilation,metadata,match,matchId,creationMatch,runtimeMatch"
+    assert calls[0][1]["fields"] == "sources,compilation,metadata,match,matchId,creationMatch,runtimeMatch,runtimeBytecode"
     assert "AegisForge" in calls[0][3]["User-Agent"]
     source_path = tmp_path / first.result["source_verification"]["source_path"]
     normalized = json.loads(source_path.read_text(encoding="utf-8"))
@@ -338,6 +339,7 @@ def test_sourcify_source_hash_mismatch_is_rejected(tmp_path, monkeypatch):
         "chainId": "8453",
         "address": Web3.to_checksum_address(ADDRESS),
         "match": "exact_match",
+        "runtimeBytecode": {"onchainBytecode": "0x60016000"},
         "sources": {"contracts/Vault.sol": {"content": source}},
         "compilation": {
             "language": "Solidity",
@@ -375,6 +377,7 @@ def test_etherscan_missing_source_falls_back_to_sourcify(tmp_path, monkeypatch):
         "address": Web3.to_checksum_address(ADDRESS),
         "match": "match",
         "matchId": "123457",
+        "runtimeBytecode": {"onchainBytecode": "0x60016000"},
         "sources": {"contracts/Vault.sol": {"content": source}},
         "compilation": {
             "language": "Solidity",
@@ -445,3 +448,45 @@ def test_sourcify_rate_limit_is_reported_without_retrying(tmp_path, monkeypatch)
     assert result.result["source_verification"]["status"] == "RATE_LIMITED"
     assert result.result["source_verification"]["retry_after"] == "45"
     assert len(calls) == 1
+
+
+
+def test_sourcify_source_is_rejected_when_runtime_bytecode_differs_from_observed_block(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
+    source = "pragma solidity ^0.8.20; contract Vault {}"
+    payload = {
+        "chainId": "8453",
+        "address": Web3.to_checksum_address(ADDRESS),
+        "match": "exact_match",
+        "runtimeBytecode": {"onchainBytecode": "0x60026000"},
+        "sources": {"contracts/Vault.sol": {"content": source}},
+        "compilation": {
+            "language": "Solidity",
+            "compilerVersion": "v0.8.20+commit.a1b79de6",
+            "compilerSettings": {},
+            "name": "Vault",
+        },
+        "metadata": {
+            "sources": {
+                "contracts/Vault.sol": {
+                    "keccak256": Web3.keccak(text=source).hex()
+                }
+            }
+        },
+    }
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=lambda *args, **kwargs: FakeSourcifyResponse(payload),
+    )
+
+    result = researcher.run(make_task())
+
+    verification = result.result["source_verification"]
+    assert verification["status"] == "SOURCE_BYTECODE_MISMATCH"
+    assert verification["source_path"] is None
+    assert verification["runtime_bytecode_match"] == "MISMATCH"

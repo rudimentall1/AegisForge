@@ -674,9 +674,10 @@ class TaskQueue:
         contract_address=None,
     ):
         task_id = str(uuid.uuid4())
+        parent_row = None
         if parent_task_id:
             parent_row = self.db.execute(
-                "SELECT research_case_id, round_id FROM queue WHERE id = ?",
+                "SELECT research_case_id, round_id, role, result, status FROM queue WHERE id = ?",
                 (parent_task_id,),
             ).fetchone()
             parent_case_id = parent_row[0] if parent_row is not None else None
@@ -696,6 +697,30 @@ class TaskQueue:
                     round_id is not None or parent_round_id is not None
                 ):
                     raise ValueError("research_case_round_parent_mismatch")
+        # SecurityChecker must consume a completed Developer handoff.
+        # This queue-level invariant also covers shadow-evaluation tasks.
+        if role == "security_checker":
+            if not parent_task_id or parent_row is None:
+                raise ValueError("security_checker_parent_task_required")
+            parent_role = parent_row[2]
+            parent_result = decode(parent_row[3])
+            parent_status = parent_row[4]
+            technical_review = (
+                parent_result.get("technical_review")
+                if isinstance(parent_result, dict)
+                else None
+            )
+            if (
+                parent_role != "developer"
+                or parent_status != "completed"
+                or not isinstance(technical_review, list)
+                or not technical_review
+                or any(not isinstance(item, dict) for item in technical_review)
+            ):
+                raise ValueError(
+                    "security_checker_requires_completed_developer_technical_review"
+                )
+
         if role in CASE_REQUIRED_ROLES and not research_case_id:
             raise ValueError(f"research_case_id_required_for_role:{role}")
         if research_case_id is not None:

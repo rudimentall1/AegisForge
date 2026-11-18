@@ -279,7 +279,12 @@ def test_analyze_source_rejects_mismatched_solidity_compiler(monkeypatch):
     monkeypatch.setattr(
         module.shutil,
         "which",
-        lambda binary: "/usr/bin/solc" if binary == "solc" else "/usr/bin/slither",
+        lambda binary: (
+            "/usr/bin/solc"
+            if binary == "solc"
+            else None if binary == "solc-select"
+            else "/usr/bin/slither"
+        ),
     )
 
     def fake_run(command, **kwargs):

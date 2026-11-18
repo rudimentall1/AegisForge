@@ -115,3 +115,18 @@ def test_trace_fetch_does_not_retry_after_provider_failure():
 
     assert _fetch_block_traces(w3, 123) is None
     assert w3.provider.calls == [("trace_block", ["0x7b"])]
+
+
+def test_unsupported_trace_methods_are_cached_per_rpc_endpoint():
+    w3 = FakeWeb3({
+        "trace_block": {"error": {"code": -32601, "message": "method not found"}},
+        "debug_traceBlockByNumber": {"error": {"code": -32601, "message": "method not found"}},
+    })
+    w3.provider.endpoint_uri = "https://trace-unsupported-cache-test.example"
+
+    assert _fetch_block_traces(w3, 123) is None
+    first_call_count = len(w3.provider.calls)
+    assert first_call_count == 2
+
+    assert _fetch_block_traces(w3, 124) is None
+    assert len(w3.provider.calls) == first_call_count

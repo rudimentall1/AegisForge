@@ -126,3 +126,29 @@ def test_failed_or_malformed_trace_nodes_are_ignored():
 def test_rpc_error_and_non_trace_payload_return_empty_list():
     assert extract_internal_creations({"error": {"code": -32601}}) == []
     assert extract_internal_creations({"result": {"not": "a trace list"}}) == []
+
+
+def test_parity_creation_under_reverted_parent_is_not_reported():
+    response = {
+        "result": [
+            {"type": "call", "traceAddress": [0], "error": "Reverted"},
+            {
+                "type": "create",
+                "transactionHash": TX_HASH,
+                "traceAddress": [0, 0],
+                "action": {"from": CREATOR, "creationMethod": "create2"},
+                "result": {"address": ADDRESS_A},
+            },
+            {
+                "type": "create",
+                "transactionHash": TX_HASH,
+                "traceAddress": [1],
+                "action": {"from": CREATOR, "creationMethod": "create"},
+                "result": {"address": ADDRESS_B},
+            },
+        ]
+    }
+
+    findings = extract_internal_creations(response)
+
+    assert [item["contract_address"] for item in findings] == [ADDRESS_B]

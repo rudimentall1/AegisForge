@@ -164,3 +164,54 @@ def test_deployment_intake_rejects_tampered_finding_fingerprint(tmp_path):
 
     assert task.status == "source_research_failed"
     assert result.result["error"] == "discovery_fingerprint_mismatch"
+
+
+
+def test_deployment_intake_persists_static_analysis_report(tmp_path, monkeypatch):
+    import agents.source_researcher.deployment_intake as intake_module
+
+    monkeypatch.setenv("ETHERSCAN_API_KEY", "test-key")
+    expected_analysis = {
+        "schema": "aegisforge.slither_analysis.v1",
+        "status": "ANALYZED",
+        "findings": [
+            {
+                "detector": "reentrancy-eth",
+                "impact": "HIGH",
+                "confidence": "MEDIUM",
+                "description": "Potential reentrancy.",
+                "elements": [],
+                "status": "UNVERIFIED_POTENTIAL",
+            }
+        ],
+        "finding_count": 1,
+        "vulnerabilities_confirmed": False,
+    }
+    observed_source = []
+
+    def fake_analysis(source_code):
+        observed_source.append(source_code)
+        return expected_analysis
+
+    monkeypatch.setattr(intake_module, "analyze_source", fake_analysis)
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=lambda *args, **kwargs: FakeResponse(),
+    )
+    result = researcher.run(make_task())
+
+    assert result.status == "deep_researched"
+    assert observed_source == ["contract Vault {}"]
+    assert result.result["static_analysis"] == expected_analysis
+    analysis_path = tmp_path / result.result["evidence_artifact"]["analysis_path"]
+    assert json.loads(analysis_path.read_text(encoding="utf-8")) == expected_analysis
+    metadata_path = tmp_path / result.result["evidence_artifact"]["metadata_path"]
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["static_analysis"] == {
+        "status": "ANALYZED",
+        "finding_count": 1,
+        "vulnerabilities_confirmed": False,
+    }

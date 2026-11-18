@@ -10,6 +10,7 @@ __pycache__/
 data/*.db
 data/*.db-*
 data/*.json
+data/evidence/
 data/*.sqlite
 data/*.sqlite3
 

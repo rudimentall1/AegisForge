@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 
 
@@ -163,16 +164,20 @@ def _source_project(source_code: str) -> dict:
     }
 
 
+MAX_ANALYSIS_ENTRYPOINTS = 100
+
+
 def analyze_source(
     source_code: str,
     *,
     slither_executable: str = "slither",
     timeout: int = 90,
 ) -> dict:
-    """Run Slither on flattened or Etherscan standard-JSON verified source.
+    """Run bounded Slither analyses over flattened or standard-JSON source.
 
-    Multi-file source is extracted into a bounded temporary project. Paths are
-    validated before writing. Detector output remains unverified potential
+    Multi-file projects are analyzed through individual Solidity entrypoints.
+    This preserves nested import paths and avoids relying on directory globbing
+    to discover nested source files. Findings remain unverified potential
     evidence; this function never confirms a vulnerability.
     """
     if not isinstance(source_code, str) or not source_code.strip():
@@ -204,52 +209,128 @@ def analyze_source(
                 target.write_text(content, encoding="utf-8")
                 written_paths.append(target)
 
-            target_arg = str(written_paths[0]) if project["mode"] == "single_file" else str(root)
-            command = [executable, target_arg]
-            if project["remappings"]:
-                command.extend(["--solc-remaps", " ".join(project["remappings"])])
-            command.extend(["--json", "-"])
+            selected_paths = written_paths[:MAX_ANALYSIS_ENTRYPOINTS]
+            truncated = len(selected_paths) < len(written_paths)
+            deadline = time.monotonic() + timeout
+            findings_by_key = {}
+            errors = []
+            exit_codes = []
+            successful_entrypoints = 0
+            detectors_truncated = False
 
-            try:
-                completed = subprocess.run(
-                    command,
-                    cwd=temp_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    check=False,
+            for source_path in selected_paths:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    errors.append({
+                        "file": source_path.relative_to(root).as_posix(),
+                        "status": "TIMEOUT",
+                        "error": "analysis_time_budget_exhausted",
+                    })
+                    break
+
+                command = [executable, str(source_path)]
+                if project["remappings"]:
+                    command.extend(["--solc-remaps", " ".join(project["remappings"])])
+                command.extend(["--json", "-"])
+
+                try:
+                    completed = subprocess.run(
+                        command,
+                        cwd=temp_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=max(1, int(remaining)),
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired:
+                    errors.append({
+                        "file": source_path.relative_to(root).as_posix(),
+                        "status": "TIMEOUT",
+                        "error": "slither_execution_timed_out",
+                    })
+                    break
+                except FileNotFoundError:
+                    return _empty_result("TOOL_UNAVAILABLE", "slither_executable_not_found")
+                except OSError as exc:
+                    errors.append({
+                        "file": source_path.relative_to(root).as_posix(),
+                        "status": "EXECUTION_FAILED",
+                        "error": f"slither_execution_failed:{type(exc).__name__}",
+                    })
+                    continue
+
+                if completed.stdout and len(completed.stdout.encode("utf-8")) > MAX_REPORT_BYTES:
+                    errors.append({
+                        "file": source_path.relative_to(root).as_posix(),
+                        "status": "REPORT_TOO_LARGE",
+                        "error": "slither_report_exceeds_size_limit",
+                    })
+                    continue
+
+                parsed = parse_slither_json(completed.stdout or "")
+                if parsed["status"] != "ANALYZED":
+                    compiler_error = "solc" in (completed.stderr or "").lower()
+                    errors.append({
+                        "file": source_path.relative_to(root).as_posix(),
+                        "status": (
+                            "COMPILER_UNAVAILABLE" if compiler_error else "EXECUTION_FAILED"
+                        ),
+                        "error": (
+                            "solidity_compiler_unavailable"
+                            if compiler_error
+                            else "slither_did_not_return_valid_json"
+                        ),
+                    })
+                    continue
+
+                successful_entrypoints += 1
+                exit_codes.append(completed.returncode)
+                detectors_truncated = detectors_truncated or parsed.get(
+                    "detectors_truncated", False
                 )
-            except subprocess.TimeoutExpired:
-                return _empty_result("TIMEOUT", "slither_execution_timed_out")
-            except FileNotFoundError:
-                return _empty_result("TOOL_UNAVAILABLE", "slither_executable_not_found")
-            except OSError as exc:
-                return _empty_result(
-                    "EXECUTION_FAILED",
-                    f"slither_execution_failed:{type(exc).__name__}",
-                )
+                for finding in parsed["findings"]:
+                    key = json.dumps(finding, sort_keys=True, separators=(",", ":"))
+                    findings_by_key[key] = finding
 
-        if completed.stdout and len(completed.stdout.encode("utf-8")) > MAX_REPORT_BYTES:
-            return _empty_result("REPORT_TOO_LARGE", "slither_report_exceeds_size_limit")
+            if truncated:
+                errors.append({
+                    "file": None,
+                    "status": "PARTIAL_ANALYSIS",
+                    "error": "source_entrypoint_limit_exceeded",
+                })
 
-        parsed = parse_slither_json(completed.stdout or "")
-        if parsed["status"] != "ANALYZED":
-            if "solc" in (completed.stderr or "").lower():
-                parsed = _empty_result("COMPILER_UNAVAILABLE", "solidity_compiler_unavailable")
+        if successful_entrypoints == 0:
+            statuses = {item["status"] for item in errors}
+            if statuses and statuses == {"COMPILER_UNAVAILABLE"}:
+                failure_status = "COMPILER_UNAVAILABLE"
+            elif "TIMEOUT" in statuses:
+                failure_status = "TIMEOUT"
             else:
-                parsed = _empty_result(
-                    "EXECUTION_FAILED",
-                    "slither_did_not_return_valid_json",
-                )
+                failure_status = "EXECUTION_FAILED"
+            result = _empty_result(failure_status, "no_slither_entrypoint_completed")
+        else:
+            result = {
+                "schema": "aegisforge.slither_analysis.v1",
+                "status": (
+                    "PARTIAL_ANALYSIS"
+                    if errors or truncated
+                    else "ANALYZED"
+                ),
+                "findings": list(findings_by_key.values()),
+                "finding_count": len(findings_by_key),
+                "detectors_truncated": detectors_truncated,
+                "vulnerabilities_confirmed": False,
+            }
 
-        parsed["tool"] = "slither"
-        parsed["source_mode"] = project["mode"]
-        parsed["source_file_count"] = len(project["files"])
-        parsed["tool_exit_code"] = completed.returncode
-        stderr = (completed.stderr or "").strip()
-        if stderr:
-            parsed["stderr_excerpt"] = stderr[:2000]
-        return parsed
+        result["tool"] = "slither"
+        result["source_mode"] = project["mode"]
+        result["source_file_count"] = len(project["files"])
+        result["analysis_entrypoints_count"] = len(selected_paths)
+        result["analysis_entrypoints_completed"] = successful_entrypoints
+        result["tool_exit_codes"] = exit_codes
+        if errors:
+            result["analysis_errors"] = errors[:100]
+        return result
     except Exception as exc:
         return _empty_result(
             "EXECUTION_FAILED",

@@ -21,6 +21,10 @@ RPC_TIMEOUT_SECONDS = 5
 _TRACE_CAPABILITY_CACHE = {}
 
 
+class TraceRequestError(RuntimeError):
+    """A transient or malformed trace RPC response that must not advance the cursor."""
+
+
 def _ensure_cursor_table(queue):
     queue.db.execute(
         """
@@ -186,6 +190,8 @@ def _fetch_block_traces(web3, block_number):
 
     Provider capability is cached by endpoint so unsupported trace methods are
     not retried for every block on chains whose RPC does not expose tracing.
+    Transient and malformed responses raise TraceRequestError so the block
+    cursor is not advanced past incomplete trace data.
     """
     provider = getattr(web3, "provider", None)
     make_request = getattr(provider, "make_request", None)
@@ -211,27 +217,28 @@ def _fetch_block_traces(web3, block_number):
             if item[0] != cached_method
         )
 
-    unsupported = True
     for method, params in methods:
         try:
             response = make_request(method, params)
-        except Exception:
-            return None
+        except Exception as exc:
+            raise TraceRequestError(
+                f"trace_rpc_request_failed:{method}:{type(exc).__name__}"
+            ) from exc
         if not isinstance(response, dict):
-            return None
+            raise TraceRequestError(f"trace_rpc_response_invalid:{method}")
         if response.get("error") is None:
             if isinstance(response.get("result"), list):
                 if endpoint:
                     _TRACE_CAPABILITY_CACHE[endpoint] = method
                 return response
-            continue
+            raise TraceRequestError(f"trace_rpc_result_invalid:{method}")
+
         error = response.get("error")
         if isinstance(error, dict) and error.get("code") == -32601:
             continue
-        unsupported = False
-        return None
+        raise TraceRequestError(f"trace_rpc_error:{method}")
 
-    if endpoint and unsupported:
+    if endpoint:
         _TRACE_CAPABILITY_CACHE[endpoint] = False
     return None
 
@@ -338,30 +345,39 @@ def scan_networks_for_deploys():
                             )
 
                     if block_ok:
-                        trace_response = _fetch_block_traces(w3, block_number)
-                        if trace_response is not None:
-                            try:
-                                internal_results = record_internal_contract_deployments(
-                                    queue,
-                                    chain,
-                                    block_number,
-                                    trace_response,
-                                    w3.eth.get_transaction_receipt,
-                                )
-                                for task_id, created in internal_results:
-                                    logger.info(
-                                        "Internal deployment discovery %s: chain=%s task=%s",
-                                        "enqueued" if created else "deduplicated",
+                        try:
+                            trace_response = _fetch_block_traces(w3, block_number)
+                        except TraceRequestError:
+                            block_ok = False
+                            logger.exception(
+                                "Failed to fetch internal deployment traces on %s block %s",
+                                chain,
+                                block_number,
+                            )
+                        else:
+                            if trace_response is not None:
+                                try:
+                                    internal_results = record_internal_contract_deployments(
+                                        queue,
                                         chain,
-                                        task_id,
+                                        block_number,
+                                        trace_response,
+                                        w3.eth.get_transaction_receipt,
                                     )
-                            except Exception:
-                                block_ok = False
-                                logger.exception(
-                                    "Failed to ingest internal deployments on %s block %s",
-                                    chain,
-                                    block_number,
-                                )
+                                    for task_id, created in internal_results:
+                                        logger.info(
+                                            "Internal deployment discovery %s: chain=%s task=%s",
+                                            "enqueued" if created else "deduplicated",
+                                            chain,
+                                            task_id,
+                                        )
+                                except Exception:
+                                    block_ok = False
+                                    logger.exception(
+                                        "Failed to ingest internal deployments on %s block %s",
+                                        chain,
+                                        block_number,
+                                    )
 
                     if not block_ok:
                         logger.warning(

@@ -211,6 +211,32 @@ def analyze_source(
     if not executable:
         return _empty_result("TOOL_UNAVAILABLE", "slither_executable_not_found")
 
+    compiler_env = os.environ.copy()
+    if normalized_compiler_version:
+        compiler_path = shutil.which("solc")
+        if not compiler_path:
+            return _empty_result("COMPILER_UNAVAILABLE", "solidity_compiler_not_found")
+        compiler_env["SOLC_VERSION"] = normalized_compiler_version
+        try:
+            compiler_probe = subprocess.run(
+                [compiler_path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=min(timeout, 10),
+                check=False,
+                env=compiler_env,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return _empty_result("COMPILER_UNAVAILABLE", "solidity_compiler_probe_failed")
+        compiler_output = (compiler_probe.stdout or "") + (compiler_probe.stderr or "")
+        if compiler_probe.returncode != 0:
+            return _empty_result("COMPILER_UNAVAILABLE", "solidity_compiler_version_unavailable")
+        version_match = re.search(r"Version:\\s*(\\d+\\.\\d+\\.\\d+)", compiler_output)
+        if not version_match:
+            return _empty_result("COMPILER_UNAVAILABLE", "solidity_compiler_version_unreadable")
+        if version_match.group(1) != normalized_compiler_version:
+            return _empty_result("COMPILER_VERSION_MISMATCH", "solidity_compiler_version_mismatch")
+
     try:
         with tempfile.TemporaryDirectory(prefix="aegisforge-slither-") as temp_dir:
             root = Path(temp_dir).resolve()
@@ -249,9 +275,7 @@ def analyze_source(
                     command.extend(["--solc-remaps", " ".join(project["remappings"])])
                 command.extend(["--json", "-"])
 
-                process_env = os.environ.copy()
-                if normalized_compiler_version:
-                    process_env["SOLC_VERSION"] = normalized_compiler_version
+                process_env = compiler_env.copy()
                 try:
                     completed = subprocess.run(
                         command,

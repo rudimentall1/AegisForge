@@ -998,19 +998,26 @@ def normalize_worker_role(value):
     return role
 
 
+def resolve_worker_role(arguments):
+    if not arguments:
+        return "security_checker"
+    if len(arguments) != 1:
+        raise ValueError("exactly one worker role may be supplied")
+    role = normalize_worker_role(arguments[0])
+    if role not in AGENTS:
+        raise ValueError(f"unsupported worker role: {role}")
+    return role
+
+
 def main():
-    if len(sys.argv) != 2:
-        print(
-            "Usage: python -m agents.worker "
-            "<role>"
-        )
-        print(
-            "Roles:",
-            ", ".join(AGENTS),
-        )
+    try:
+        role = resolve_worker_role(sys.argv[1:])
+    except ValueError as exc:
+        print(str(exc))
+        print("Usage: python -m agents.worker [role]")
+        print("Roles:", ", ".join(AGENTS))
         sys.exit(1)
 
-    role = normalize_worker_role(sys.argv[1])
     worker = Worker(role)
 
     print(

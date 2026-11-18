@@ -72,7 +72,7 @@ def make_task(**overrides):
 def test_deployment_intake_fetches_runtime_code_at_observed_block(tmp_path, monkeypatch):
     monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
     fake_web3 = FakeWeb3()
-    researcher = DeploymentIntakeResearcher(
+    researcher = DeepResearcher(
         rpc_endpoints={"base": "https://rpc.example"},
         chain_ids={"base": 8453},
         evidence_dir=tmp_path,

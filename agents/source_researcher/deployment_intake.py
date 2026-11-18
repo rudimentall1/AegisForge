@@ -178,11 +178,26 @@ class DeploymentIntakeResearcher:
             }
 
         entries = payload.get("result") if isinstance(payload, dict) else None
-        source_code = (
-            entries[0].get("SourceCode")
+        source_entry = (
+            entries[0]
             if isinstance(entries, list) and entries and isinstance(entries[0], dict)
+            else {}
+        )
+        source_code = source_entry.get("SourceCode")
+        compiler_version_value = source_entry.get("CompilerVersion")
+        compiler_version = (
+            compiler_version_value[:128]
+            if isinstance(compiler_version_value, str)
             else None
         )
+        compiler_metadata = {
+            "contract_name": source_entry.get("ContractName"),
+            "compiler_version": compiler_version,
+            "optimization_used": source_entry.get("OptimizationUsed"),
+            "runs": source_entry.get("Runs"),
+            "evm_version": source_entry.get("EVMVersion"),
+            "license_type": source_entry.get("LicenseType"),
+        }
         if not isinstance(source_code, str) or not source_code.strip():
             return {
                 "status": "NOT_VERIFIED",
@@ -190,6 +205,7 @@ class DeploymentIntakeResearcher:
                 "explorer_url": explorer_url,
                 "source_sha256": None,
                 "source_path": None,
+                **compiler_metadata,
                 "error": "verified_source_not_available",
             }
 
@@ -201,6 +217,7 @@ class DeploymentIntakeResearcher:
                 "explorer_url": explorer_url,
                 "source_sha256": _sha256(source_bytes),
                 "source_path": None,
+                **compiler_metadata,
                 "error": "verified_source_exceeds_size_limit",
             }
 
@@ -212,6 +229,7 @@ class DeploymentIntakeResearcher:
             "explorer_url": explorer_url,
             "source_sha256": _sha256(source_bytes),
             "source_path": str(source_path),
+            **compiler_metadata,
             "error": None,
         }
 
@@ -278,7 +296,10 @@ class DeploymentIntakeResearcher:
                     verified_source = Path(source_verification["source_path"]).read_text(
                         encoding="utf-8"
                     )
-                    source_analysis = analyze_source(verified_source)
+                    source_analysis = analyze_source(
+                        verified_source,
+                        compiler_version=source_verification.get("compiler_version"),
+                    )
                 except (OSError, UnicodeError):
                     source_analysis = {
                         "schema": "aegisforge.slither_analysis.v1",

@@ -13,11 +13,11 @@
 
 ## 2. Мультичейн-инфраструктура сканирования
 Ферма круглосуточно мониторит поддерживаемые сети через RPC-узлы и модули `watcher.py`:
-* **Ethereum Mainnet**
-* **Arbitrum One**
-* **Base**
-* **Optimism**
-* **BNB Smart Chain (BSC)**
+- **Ethereum Mainnet**
+- **Arbitrum One**
+- **Base**
+- **Optimism**
+- **BNB Smart Chain (BSC)**
 
 ### Объекты сканирования:
 1. **Новые деплои (New Contracts):** Свежие пулы ликвидности, обменники, фармилки и лендинговые протоколы.

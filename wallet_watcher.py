@@ -5,19 +5,16 @@ import json
 import logging
 import requests
 
+from agents.config import RESCUE_WALLET_ADDRESS, RPC_ENDPOINTS
+
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(levelname)s] %(message)s")
 
-WALLET_ADDRESS = "0xF462A261266C543A31Ef43A94bb48d7575299B97"
+WALLET_ADDRESS = RESCUE_WALLET_ADDRESS
 DB_PATH = "shared/tasks.db"
 
 NETWORKS = {
-    "base": "https://mainnet.base.org",
-    "arbitrum": "https://arb1.arbitrum.io/rpc",
-    "optimism": "https://mainnet.optimism.io",
-    "bsc": "https://bsc-dataseed.binance.org/",
-    "ethereum": "https://eth.llamarpc.com",
-    "arc": "https://rpc.arcscan.io",
-    "robin": "https://rpc.robinchain.io"
+    chain: RPC_ENDPOINTS[chain]
+    for chain in ("ethereum", "arbitrum", "base", "optimism", "bsc", "robin", "arc")
 }
 
 MIN_BALANCES = {

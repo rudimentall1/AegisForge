@@ -116,7 +116,7 @@ def enqueue_discovery_finding(queue, finding: DiscoveryFinding) -> tuple[str, bo
 
         task_id = queue.add(
             description=finding.to_task_description(),
-            role="analyst",
+            role="source_researcher",
             contract_address=finding.contract_address,
             fingerprint=finding.fingerprint,
         )

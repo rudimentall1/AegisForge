@@ -86,9 +86,9 @@ def test_deployment_intake_fetches_runtime_code_at_observed_block(tmp_path, monk
     assert fake_web3.eth.requested_block == 12345
     assert result.result["discovery_evidence"]["chain_id"] == 8453
     assert result.result["discovery_evidence"]["runtime_bytecode_size_bytes"] == 4
-    assert result.result["discovery_evidence"]["runtime_bytecode_keccak256"] == Web3.keccak(
+    assert result.result["discovery_evidence"]["runtime_bytecode_keccak256"].removeprefix("0x") == Web3.keccak(
         b"\x60\x01\x60\x00"
-    ).hex()
+    ).hex().removeprefix("0x")
     assert result.result["source_verification"]["status"] == "NOT_CONFIGURED"
     artifact = tmp_path / result.result["evidence_artifact"]["metadata_path"]
     bytecode = tmp_path / result.result["evidence_artifact"]["bytecode_path"]
@@ -110,7 +110,7 @@ def test_deployment_intake_fails_closed_on_rpc_chain_mismatch(tmp_path, monkeypa
     result = researcher.run(task)
 
     assert task.status == "source_research_failed"
-    assert result["error"] == "rpc_chain_id_mismatch"
+    assert result.result["error"] == "rpc_chain_id_mismatch"
     assert fake_web3.eth.requested_block is None
     assert list(tmp_path.rglob("*")) == []
 
@@ -141,7 +141,7 @@ def test_deployment_intake_persists_verified_source_hash(tmp_path, monkeypatch):
         b"contract Vault {}"
     ).hexdigest()
     assert result.result["source_verification"]["explorer_url"] == (
-        f"https://basescan.org/address/{ADDRESS}#code"
+        f"https://basescan.org/address/{Web3.to_checksum_address(ADDRESS)}#code"
     )
     assert len(calls) == 1
     source_path = tmp_path / result.result["source_verification"]["source_path"]
@@ -163,4 +163,4 @@ def test_deployment_intake_rejects_tampered_finding_fingerprint(tmp_path):
     result = researcher.run(task)
 
     assert task.status == "source_research_failed"
-    assert result["error"] == "discovery_fingerprint_mismatch"
+    assert result.result["error"] == "discovery_fingerprint_mismatch"

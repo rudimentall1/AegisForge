@@ -1,7 +1,6 @@
 import logging
 import time
 
-import requests
 from web3 import Web3
 
 from agents.config import RPC_ENDPOINTS
@@ -30,6 +29,11 @@ def _hex_value(value):
 
 def record_contract_deployment(queue, chain, block_number, transaction, receipt):
     """Convert a successful contract creation receipt into canonical discovery intake."""
+    # Clients may derive contractAddress even for reverted CREATE transactions.
+    # A deployment is recorded only when the receipt explicitly reports success.
+    if receipt.get("status") != 1:
+        return None
+
     contract_address = receipt.get("contractAddress")
     if not contract_address:
         return None
@@ -120,7 +124,7 @@ def scan_networks_for_deploys():
                                 )
                                 if result is None:
                                     logger.info(
-                                        "Contract creation had no deployed address: %s",
+                                        "Contract creation was unsuccessful or had no deployed address: %s",
                                         tx_hash,
                                     )
                                 else:

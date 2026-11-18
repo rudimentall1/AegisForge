@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from pathlib import PurePosixPath
 
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -32,6 +33,115 @@ _ALLOWED_IMPACTS = {
     "OPTIMIZATION",
 }
 _ALLOWED_CONFIDENCE = {"HIGH", "MEDIUM", "LOW"}
+
+
+def _verified_source_files(source_bytes: bytes) -> dict:
+    try:
+        source_text = source_bytes.decode("utf-8")
+    except (AttributeError, UnicodeDecodeError):
+        return {}
+
+    stripped = source_text.strip()
+    json_text = stripped[1:-1] if stripped.startswith("{{") and stripped.endswith("}}") else stripped
+    if stripped.startswith("{"):
+        try:
+            payload = json.loads(json_text)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        sources = payload.get("sources") if isinstance(payload, dict) else None
+        if not isinstance(sources, dict):
+            return {}
+        files = {}
+        for name, entry in sources.items():
+            content = entry.get("content") if isinstance(entry, dict) else None
+            if isinstance(name, str) and isinstance(content, str):
+                files[name] = content
+        return files
+
+    return {"Contract.sol": source_text}
+
+
+def _verify_source_mappings(source_bytes: bytes, findings: list) -> dict:
+    source_files = _verified_source_files(source_bytes)
+    mapped = 0
+    dependency = 0
+    missing = 0
+    invalid = False
+    total = 0
+
+    for finding in findings:
+        elements = finding.get("elements", []) if isinstance(finding, dict) else []
+        if not isinstance(elements, list):
+            invalid = True
+            continue
+        for element in elements:
+            total += 1
+            mapping = element.get("source_mapping") if isinstance(element, dict) else None
+            if not isinstance(mapping, dict):
+                missing += 1
+                continue
+            if mapping.get("is_dependency") is True:
+                dependency += 1
+                continue
+
+            filename = (
+                mapping.get("filename_relative")
+                or mapping.get("filename_used")
+                or mapping.get("filename_short")
+            )
+            if not isinstance(filename, str) or not filename or "\\\\" in filename:
+                invalid = True
+                continue
+            relative = PurePosixPath(filename)
+            if relative.is_absolute() or not relative.parts or any(
+                part in ("", ".", "..") for part in relative.parts
+            ):
+                invalid = True
+                continue
+            source_text = source_files.get(relative.as_posix())
+            if not isinstance(source_text, str):
+                invalid = True
+                continue
+
+            lines = mapping.get("lines")
+            if (
+                not isinstance(lines, list)
+                or not lines
+                or any(
+                    not isinstance(line, int)
+                    or isinstance(line, bool)
+                    or line < 1
+                    or line > len(source_text.splitlines())
+                    for line in lines
+                )
+            ):
+                invalid = True
+                continue
+
+            start = mapping.get("start")
+            length = mapping.get("length")
+            source_length = len(source_text.encode("utf-8"))
+            if (
+                not isinstance(start, int)
+                or isinstance(start, bool)
+                or not isinstance(length, int)
+                or isinstance(length, bool)
+                or start < 0
+                or length < 0
+                or start + length > source_length
+            ):
+                invalid = True
+                continue
+            mapped += 1
+
+    return {
+        "valid": not invalid,
+        "total_elements": total,
+        "mapped_elements": mapped,
+        "dependency_elements": dependency,
+        "unmapped_elements": missing,
+        "coverage": (mapped + dependency) / total if total else 1.0,
+    }
 
 
 def verify_analysis_evidence(
@@ -106,7 +216,12 @@ def verify_analysis_evidence(
             if finding.get("status") != "UNVERIFIED_POTENTIAL":
                 findings_unconfirmed = False
 
+    source_mapping_coverage = _verify_source_mappings(
+        source_bytes if isinstance(source_bytes, bytes) else b"",
+        findings if findings_are_list else [],
+    )
     checks = {
+        "source_mappings_valid": bool(source_mapping_coverage["valid"]),
         "source_sha256_matches": (
             isinstance(expected_source_sha256, str)
             and bool(_SHA256_RE.fullmatch(expected_source_sha256))
@@ -130,5 +245,10 @@ def verify_analysis_evidence(
         "source_sha256": source_hash,
         "analysis_sha256": analysis_hash,
         "finding_count": len(findings) if findings_are_list else 0,
+        "source_mapping_coverage": {
+            key: value
+            for key, value in source_mapping_coverage.items()
+            if key != "valid"
+        },
         "vulnerabilities_confirmed": False,
     }

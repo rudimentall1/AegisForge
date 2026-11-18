@@ -6,6 +6,7 @@ from shared.task_queue import TaskQueue
 
 
 ADDRESS = "0x1234567890abcdef1234567890abcdef12345678"
+FACTORY = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
 
 
 class FakeHex(bytes):
@@ -62,7 +63,7 @@ def test_discovery_to_deep_research_completes_through_real_worker_loop(
 
     transaction = {
         "hash": FakeHex(bytes.fromhex("11" * 32)),
-        "from": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+        "from": "0xdddddddddddddddddddddddddddddddddddddddd",
     }
     receipt = {
         "contractAddress": ADDRESS,
@@ -81,10 +82,10 @@ def test_discovery_to_deep_research_completes_through_real_worker_loop(
             {
                 "result": [{
                     "type": "create",
-                    "transactionHash": "0x" + "22" * 32,
+                    "transactionHash": "0x" + "11" * 32,
                     "traceAddress": [0],
                     "action": {
-                        "from": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                        "from": FACTORY,
                         "creationMethod": "create2",
                     },
                     "result": {

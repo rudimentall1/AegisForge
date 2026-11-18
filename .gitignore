@@ -53,3 +53,4 @@ shared/mcp_executor.py
 shared/result.py
 .dispatch_ssv_*.py
 aegisforge.py.backup_cli_tasks_*
+shared/tasks.db

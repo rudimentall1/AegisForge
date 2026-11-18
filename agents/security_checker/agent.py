@@ -534,6 +534,7 @@ class SecurityChecker:
 
         source_text = "\n".join(source_text_parts)
         support_text = "\n".join(support_text_parts)
+        materialized_source_files = []
         analysis_tool_status = {
             "pattern_scan": "COMPLETED",
             "slither": "DISABLED",
@@ -574,12 +575,14 @@ class SecurityChecker:
                     continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
+                if relative_name in source_contents:
+                    materialized_source_files.append(relative_name)
 
             slither_enabled = os.getenv(
                 "AEGISFORGE_ENABLE_REPOSITORY_SLITHER", "0"
             ).strip().lower() in {"1", "true", "yes"}
             if slither_enabled:
-                if shutil.which("slither") and source_files_read:
+                if shutil.which("slither") and materialized_source_files:
                     findings.extend(self._run_slither_analysis(str(root)))
                     analysis_tool_status["slither"] = "COMPLETED"
                 else:
@@ -592,8 +595,8 @@ class SecurityChecker:
                 "AEGISFORGE_ENABLE_MYTHRIL", "0"
             ).strip().lower() in {"1", "true", "yes"}
             if mythril_enabled:
-                if shutil.which("myth") and source_files_read:
-                    for source_path in source_files_read[:3]:
+                if shutil.which("myth") and materialized_source_files:
+                    for source_path in materialized_source_files[:3]:
                         relative_path = PurePosixPath(source_path)
                         if (
                             relative_path.is_absolute()
@@ -659,7 +662,7 @@ class SecurityChecker:
                 "smart_contract_project", False
             ),
             "solidity_files_total": len(solidity_files),
-            "solidity_files_read": len(source_files_read),
+            "solidity_files_read": len(materialized_source_files),
             "files_read_errors": file_errors,
             "tree_truncated": bool(tree.get("truncated")),
             "security_posture": posture,

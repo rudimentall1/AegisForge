@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from scripts import migrate_round_transparency_composite_key as migration
-from shared import queue
+import shared.task_queue as queue
 from scripts.migrate_round_transparency_composite_key import migrate, primary_key_columns
 
 

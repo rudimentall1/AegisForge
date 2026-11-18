@@ -1,6 +1,6 @@
 import threading
 
-import shared.task_queue as queue_mod as queue_module
+import shared.task_queue as queue_module
 from shared.task_queue import TaskQueue
 
 
@@ -24,7 +24,7 @@ def test_has_tasks_detects_live_work(tmp_path, monkeypatch):
     q.db.close()
 
 def test_repair_active_orphans_removes_pending_subtree(tmp_path, monkeypatch):
-    import shared.task_queue as queue_mod as queue_module
+    import shared.task_queue as queue_module
     monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
     q = queue_module.TaskQueue()
     root = q.add("missing-parent-child", role="researcher", parent_task_id="missing")

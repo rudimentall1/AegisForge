@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-import shared.task_queue as queue_mod as queue_module
+import shared.task_queue as queue_module
 from shared.task_queue import TaskQueue
 from shared.case_rounds import CaseRoundError, start_case_round, diagnose_case_state
 from shared.research_case import CaseStatus, ExecutionMode, ResearchCase

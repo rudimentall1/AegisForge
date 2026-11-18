@@ -53,7 +53,7 @@ def test_developer_core_api_fallback_uses_canonical_files(monkeypatch):
 
 
 def test_planner_applies_live_queue_backpressure(tmp_path, monkeypatch):
-    import shared.task_queue as queue_mod as queue_module
+    import shared.task_queue as queue_module
     from orchestrator.master import MAX_LIVE_TASKS, AutonomousPlanner
 
     monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
@@ -183,7 +183,7 @@ def test_contextual_action_history_detects_diminishing_returns():
 
 
 def test_contextual_action_history_falls_back_to_same_parent_role(tmp_path, monkeypatch):
-    import shared.task_queue as queue_mod as queue_module
+    import shared.task_queue as queue_module
 
     monkeypatch.setattr(queue_module, "DB_PATH", tmp_path / "queue.db")
     queue = queue_module.TaskQueue()

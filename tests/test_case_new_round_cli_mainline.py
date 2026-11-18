@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-import shared.task_queue as queue_mod as queue_module
+import shared.task_queue as queue_module
 from aegisforge import task_main
 from shared.task_queue import TaskQueue
 from shared.research_case import CaseStatus, ExecutionMode, ResearchCase

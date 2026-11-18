@@ -1,7 +1,7 @@
 from shared.trust_evaluation import TrustDecision
 import json
 
-from shared import queue as queue_module
+import shared.task_queue as queue_module
 from shared import memory as memory_module
 from shared.capability_policy import CapabilityDecision
 from shared.task_queue import TaskQueue

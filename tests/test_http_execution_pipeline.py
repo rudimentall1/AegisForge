@@ -3,7 +3,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from shared import memory as memory_module
-from shared import queue as queue_module
+import shared.task_queue as queue_module
 from shared.task_queue import TaskQueue
 from agents.worker import Worker
 

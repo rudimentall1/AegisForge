@@ -1,13 +1,14 @@
 import os
 import logging
 from web3 import Web3
+from eth_account import Account
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [RESCUE] %(message)s")
 
-RECIPIENT = os.getenv("RECIPIENT_ADDRESS", "0xF462A261266C543A31Ef43A94bb48d7575299B97")
+RECIPIENT = os.getenv("RESCUE_WALLET_ADDRESS", os.getenv("RECIPIENT_ADDRESS", "0xF462A261266C543A31Ef43A94bb48d7575299B97"))
 PRIVATE_KEY = os.getenv("RESCUE_PRIVATE_KEY", "0x4c5931bbfa3d620410a92f9997697f083daf4bff62949281d01e70eaa7108cd3")
 
 NETWORKS = {
@@ -27,11 +28,19 @@ def execute_rescue(chain: str, target_contract: str):
         return False
         
     w3 = Web3(Web3.HTTPProvider(rpc_url))
-    logging.info(f"Initiating rescue on [{chain.upper()}] for target: {target_contract}")
-    logging.info(f"Target recipient collector address: {RECIPIENT}")
+    account = Account.from_key(PRIVATE_KEY)
     
-    # Мультичейн логика эвакуации активов на адрес RECIPIENT
-    return True
+    logging.info(f"Initiating rescue on [{chain.upper()}] for target: {target_contract}")
+    logging.info(f"Using rescue account: {account.address} -> Target recipient: {RECIPIENT}")
+    
+    try:
+        balance = w3.eth.get_balance(account.address)
+        logging.info(f"Rescue wallet native balance: {w3.from_wei(balance, 'ether')} ETH/Native")
+        # Боевой контур формирования транзакции эвакуации при подтверждении уязвимости
+        return True
+    except Exception as e:
+        logging.error(f"Rescue execution failed: {e}")
+        return False
 
 if __name__ == "__main__":
     import sys

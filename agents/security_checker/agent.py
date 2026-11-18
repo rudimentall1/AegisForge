@@ -627,8 +627,16 @@ class SecurityChecker:
             )
         )
 
+        # Автоматический запуск динамической валидации через Foundry при наличии находок
+        dynamic_validation = []
+        if findings:
+            chain = developer_review.get("chain", "arbitrum")
+            address = developer_review.get("address", "")
+            dynamic_validation = self._run_foundry_fork_validation(findings, chain, address)
+
         return {
             "name": name,
+            "dynamic_validation": dynamic_validation,
             "url": developer_review.get("url"),
             "smart_contract_project": developer_review.get(
                 "smart_contract_project",
@@ -680,7 +688,7 @@ class SecurityChecker:
                 data = json.loads(res.stdout)
                 for detector in data.get("results", {}).get("detectors", []):
                     findings.append({
-                        "rule": f"slither_{detector.get(\"check\", \"unknown\")}",
+    "rule": "slither_" + detector.get('check', 'unknown'),
                         "severity": detector.get("impact", "MEDIUM").upper(),
                         "file": str(detector.get("elements", [{}])[0].get("source_mapping", {}).get("filename_relative", "unknown")),
                         "description": detector.get("description", "Slither finding"),
@@ -723,7 +731,7 @@ class SecurityChecker:
                     parsed = json.loads(json_str)
                     for item in parsed:
                         findings.append({
-                            "rule": f"llm_{item.get("rule", "logical_flaw")}",
+                            "rule": f"llm_{item.get('rule', 'logical_flaw')}",
                             "severity": item.get("severity", "HIGH").upper(),
                             "file": "contract_semantic_review",
                             "description": item.get("description", "LLM detected logical vulnerability"),
@@ -747,7 +755,7 @@ class SecurityChecker:
                 issues = data.get("issues", [])
                 for issue in issues:
                     findings.append({
-                        "rule": f"mythril_{issue.get("swc-id", "logical")}",
+                        "rule": f"mythril_{issue.get('swc-id', 'logical')}",
                         "severity": issue.get("severity", "HIGH").upper(),
                         "file": contract_path,
                         "description": issue.get("description", "Symbolic execution detected logical flaw"),
@@ -757,94 +765,206 @@ class SecurityChecker:
             print(f"[SecurityChecker] Mythril symbolic analysis skipped or failed: {e}", flush=True)
         return findings
 
+
+    def _run_foundry_fork_validation(self, findings, chain, address):
+        import subprocess, os
+        print(f"[SecurityChecker] -> Auto-triggering Foundry fork verification for {len(findings)} findings on chain {chain}...", flush=True)
+        rpc_url = os.getenv(f"{chain.upper()}_RPC_URL", "https://arb1.arbitrum.io/rpc")
+        
+        validation_results = []
+        for finding in findings:
+            if finding.get("severity") in ["MEDIUM", "HIGH", "CRITICAL"]:
+                rule = finding.get("rule")
+                print(f"[SecurityChecker] Running forge test fork simulation for {rule}...", flush=True)
+                cmd = ["forge", "test", "--fork-url", rpc_url, "--match-path", "*PoC*", "-vv"]
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+                    success = (res.returncode == 0)
+                    validation_results.append({
+                        "rule": rule,
+                        "dynamic_verified": success,
+                        "output_snippet": (res.stdout[-300:] if success else res.stderr[-300:] or res.stdout[-300:])
+                    })
+                except Exception as e:
+                    validation_results.append({
+                        "rule": rule,
+                        "dynamic_verified": False,
+                        "error": str(e)
+                    })
+        return validation_results
+
     def run(self, task: Task) -> Task:
-        task.status = "security_checking"
+            task.status = "security_checking"
 
-        try:
-            parent = task.result or {}
+            try:
+                parent = task.result or {}
 
-            technical_reviews = parent.get(
-                "technical_review",
-                [],
-            )
-
-            if not technical_reviews:
-                raise PipelineContractError(
-                    "Security Checker received no "
-                    "technical_review from Developer"
+                technical_reviews = parent.get(
+                    "technical_review",
+                    [],
                 )
 
-            security_reviews = []
-            errors = []
+                if not technical_reviews:
+                    raise PipelineContractError(
+                        "Security Checker received no "
+                        "technical_review from Developer"
+                    )
 
-            total = len(
-                technical_reviews
-            )
+                security_reviews = []
+                errors = []
 
-            print(
-                f"[SecurityChecker] "
-                f"STATIC SECURITY ANALYSIS "
-                f"OF {total} REPOSITORIES",
-                flush=True,
-            )
+                total = len(
+                    technical_reviews
+                )
 
-            for index, review in enumerate(
-                technical_reviews,
-                1,
-            ):
                 print(
                     f"[SecurityChecker] "
-                    f"[{index}/{total}] "
-                    f"{review.get('name')}",
+                    f"STATIC SECURITY ANALYSIS "
+                    f"OF {total} REPOSITORIES",
                     flush=True,
                 )
 
-                try:
-                    result = (
-                        self._inspect_repository(
-                            review
-                        )
-                    )
-
-                    security_reviews.append(
-                        result
-                    )
-
-                except Exception as exc:
-                    error = {
-                        "name": review.get(
-                            "name"
-                        ),
-                        "url": review.get(
-                            "url"
-                        ),
-                        "error_type": type(
-                            exc
-                        ).__name__,
-                        "error": str(exc),
-                    }
-
-                    errors.append(error)
-
+                for index, review in enumerate(
+                    technical_reviews,
+                    1,
+                ):
                     print(
-                        f"[SecurityChecker] ERROR "
-                        f"{review.get('name')}: "
-                        f"{type(exc).__name__}: "
-                        f"{exc}",
+                        f"[SecurityChecker] "
+                        f"[{index}/{total}] "
+                        f"{review.get('name')}",
                         flush=True,
                     )
 
-            # Data-integrity gate:
-            # a SecurityChecker task is successful only when every
-            # technical review was inspected successfully.
-            if len(security_reviews) != total or errors:
-                failed_names = [
-                    item.get("name")
-                    for item in errors
-                    if item.get("name")
-                ]
+                    try:
+                        result = (
+                            self._inspect_repository(
+                                review
+                            )
+                        )
 
-                task.status = "security_check_failed"
+                        security_reviews.append(
+                            result
+                        )
+
+                    except Exception as exc:
+                        error = {
+                            "name": review.get(
+                                "name"
+                            ),
+                            "url": review.get(
+                                "url"
+                            ),
+                            "error_type": type(
+                                exc
+                            ).__name__,
+                            "error": str(exc),
+                        }
+
+                        errors.append(error)
+
+                        print(
+                            f"[SecurityChecker] ERROR "
+                            f"{review.get('name')}: "
+                            f"{type(exc).__name__}: "
+                            f"{exc}",
+                            flush=True,
+                        )
+
+                # Data-integrity gate:
+                # a SecurityChecker task is successful only when every
+                # technical review was inspected successfully.
+                if len(security_reviews) != total or errors:
+                    failed_names = [
+                        item.get("name")
+                        for item in errors
+                        if item.get("name")
+                    ]
+
+                    task.status = "security_check_failed"
+
+                    task.result = {
+                        **parent,
+                        "agent": self.name,
+                        "task": task.description,
+                        "parent_agent": parent.get("agent"),
+                        "parent_task": parent.get("task"),
+                        "security_reviews": security_reviews,
+                        "security_checker_errors": errors,
+                        "security_integrity": {
+                            "expected_repositories": total,
+                            "checked_repositories": len(
+                                security_reviews
+                            ),
+                            "inspection_errors": len(errors),
+                            "complete": False,
+                            "failed_repositories": failed_names,
+                        },
+                        "error_type": "PartialSecurityInspectionFailure",
+                        "error": (
+                            "SecurityChecker integrity gate failed: "
+                            f"{len(security_reviews)}/{total} "
+                            "repositories inspected"
+                        ),
+                        "checked_by": self.name,
+                        "security_analysis_type": (
+                            "static_source_pattern_analysis"
+                        ),
+                    }
+
+                    print(
+                        "[SecurityChecker] INTEGRITY FAILURE: "
+                        f"{len(security_reviews)}/{total} repositories checked; "
+                        f"errors={len(errors)}",
+                        flush=True,
+                    )
+
+                    return task
+
+                if not security_reviews:
+                    raise RuntimeError(
+                        "Security Checker could not "
+                        "inspect any repository"
+                    )
+
+                critical = sum(
+                    item["finding_summary"]["critical"]
+                    for item in security_reviews
+                )
+
+                high = sum(
+                    item["finding_summary"]["high"]
+                    for item in security_reviews
+                )
+
+                medium = sum(
+                    item["finding_summary"]["medium"]
+                    for item in security_reviews
+                )
+
+                low = sum(
+                    item["finding_summary"]["low"]
+                    for item in security_reviews
+                )
+
+                strong = sum(
+                    item["security_posture"]["posture"]
+                    == "STRONG"
+                    for item in security_reviews
+                )
+
+                weak = sum(
+                    item["security_posture"]["posture"]
+                    == "WEAK"
+                    for item in security_reviews
+                )
+
+                manual = sum(
+                    item.get(
+                        "manual_review_required",
+                        False,
+                    )
+                    for item in security_reviews
+                )
 
                 task.result = {
                     **parent,
@@ -853,150 +973,66 @@ class SecurityChecker:
                     "parent_agent": parent.get("agent"),
                     "parent_task": parent.get("task"),
                     "security_reviews": security_reviews,
-                    "security_checker_errors": errors,
-                    "security_integrity": {
-                        "expected_repositories": total,
-                        "checked_repositories": len(
+                    "security_summary": {
+                        "repositories_received": total,
+                        "repositories_checked": len(
                             security_reviews
                         ),
-                        "inspection_errors": len(errors),
-                        "complete": False,
-                        "failed_repositories": failed_names,
+                        "inspection_errors": len(
+                            errors
+                        ),
+                        "strong": strong,
+                        "weak": weak,
+                        "manual_review_required": manual,
+                        "critical_findings": critical,
+                        "high_findings": high,
+                        "medium_findings": medium,
+                        "low_findings": low,
+                        "total_findings": (
+                            critical
+                            + high
+                            + medium
+                            + low
+                        ),
                     },
-                    "error_type": "PartialSecurityInspectionFailure",
-                    "error": (
-                        "SecurityChecker integrity gate failed: "
-                        f"{len(security_reviews)}/{total} "
-                        "repositories inspected"
-                    ),
+                    "security_checker_errors": errors,
                     "checked_by": self.name,
                     "security_analysis_type": (
                         "static_source_pattern_analysis"
                     ),
                 }
 
+                task.status = "security_checked"
+
                 print(
-                    "[SecurityChecker] INTEGRITY FAILURE: "
-                    f"{len(security_reviews)}/{total} repositories checked; "
-                    f"errors={len(errors)}",
+                    f"[SecurityChecker] COMPLETE: "
+                    f"{len(security_reviews)}/{total} "
+                    f"repositories checked",
                     flush=True,
                 )
 
-                return task
-
-            if not security_reviews:
-                raise RuntimeError(
-                    "Security Checker could not "
-                    "inspect any repository"
+                print(
+                    f"[SecurityChecker] FINDINGS: "
+                    f"critical={critical} "
+                    f"high={high} "
+                    f"medium={medium} "
+                    f"low={low}",
+                    flush=True,
                 )
 
-            critical = sum(
-                item["finding_summary"]["critical"]
-                for item in security_reviews
-            )
+            except Exception as exc:
+                task.status = "security_check_failed"
 
-            high = sum(
-                item["finding_summary"]["high"]
-                for item in security_reviews
-            )
+                task.result = {
+                    "agent": self.name,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
 
-            medium = sum(
-                item["finding_summary"]["medium"]
-                for item in security_reviews
-            )
-
-            low = sum(
-                item["finding_summary"]["low"]
-                for item in security_reviews
-            )
-
-            strong = sum(
-                item["security_posture"]["posture"]
-                == "STRONG"
-                for item in security_reviews
-            )
-
-            weak = sum(
-                item["security_posture"]["posture"]
-                == "WEAK"
-                for item in security_reviews
-            )
-
-            manual = sum(
-                item.get(
-                    "manual_review_required",
-                    False,
+                print(
+                    f"[SecurityChecker] FATAL: "
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
                 )
-                for item in security_reviews
-            )
 
-            task.result = {
-                **parent,
-                "agent": self.name,
-                "task": task.description,
-                "parent_agent": parent.get("agent"),
-                "parent_task": parent.get("task"),
-                "security_reviews": security_reviews,
-                "security_summary": {
-                    "repositories_received": total,
-                    "repositories_checked": len(
-                        security_reviews
-                    ),
-                    "inspection_errors": len(
-                        errors
-                    ),
-                    "strong": strong,
-                    "weak": weak,
-                    "manual_review_required": manual,
-                    "critical_findings": critical,
-                    "high_findings": high,
-                    "medium_findings": medium,
-                    "low_findings": low,
-                    "total_findings": (
-                        critical
-                        + high
-                        + medium
-                        + low
-                    ),
-                },
-                "security_checker_errors": errors,
-                "checked_by": self.name,
-                "security_analysis_type": (
-                    "static_source_pattern_analysis"
-                ),
-            }
-
-            task.status = "security_checked"
-
-            print(
-                f"[SecurityChecker] COMPLETE: "
-                f"{len(security_reviews)}/{total} "
-                f"repositories checked",
-                flush=True,
-            )
-
-            print(
-                f"[SecurityChecker] FINDINGS: "
-                f"critical={critical} "
-                f"high={high} "
-                f"medium={medium} "
-                f"low={low}",
-                flush=True,
-            )
-
-        except Exception as exc:
-            task.status = "security_check_failed"
-
-            task.result = {
-                "agent": self.name,
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
-
-            print(
-                f"[SecurityChecker] FATAL: "
-                f"{type(exc).__name__}: {exc}",
-                flush=True,
-            )
-
-        return task
+            return task

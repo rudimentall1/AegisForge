@@ -13,7 +13,7 @@ LEGACY_INSTANCE_ROLES = {
 def normalize_worker_role(value):
     role = str(value or "").strip().lower()
     if not role:
-        raise ValueError("worker_role_required")
+        return DEFAULT_WORKER_ROLE
     return LEGACY_INSTANCE_ROLES.get(role, role)
 
 

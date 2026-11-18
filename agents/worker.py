@@ -891,6 +891,26 @@ class Worker:
             task.result = result_value
             task.status = SUCCESS_STATUSES[self.role]
 
+            discovery_evidence = (
+                result_value.get("discovery_evidence")
+                if isinstance(result_value, dict)
+                else None
+            )
+            if discovery_evidence is not None:
+                if self.evidence_ledger is None:
+                    raise RuntimeError("deployment_evidence_ledger_unavailable")
+                evidence_atom = "evm_deployment_research:" + json.dumps(
+                    discovery_evidence,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+                self.evidence_ledger.record_observation(
+                    task_id,
+                    self.role,
+                    evidence_atom,
+                )
+
             execution_task_id = self._enqueue_execution_handoff(
                 task_id,
                 result_value,

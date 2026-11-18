@@ -5,7 +5,7 @@ import base64
 
 logger = logging.getLogger("GitHubPR")
 
-GITHUB_TOKEN = "os.getenv("GITHUB_TOKEN")"
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 DEFAULT_REPO = "rudimentall1/AegisForge"
 
 def create_security_pull_request(repo_full_name: str, patch_path: str, vuln_type: str) -> str:

@@ -8,7 +8,6 @@ from pathlib import Path
 from shared.github_client import GitHubClient
 from shared.public_source import fetch_public_source
 from shared.task import Task
-from agents.source_researcher.deployment_intake import DeploymentIntakeResearcher
 from shared.research_case import research_case_binding, validate_task_binding
 from tools.evm_key_forensics.solidity_source_pattern import (
     PINNED_COMMIT,
@@ -82,10 +81,9 @@ class SourceResearcher:
     MIN_DIRECT_RELEVANCE_SIGNALS = 1
     MIN_CONTEXT_RELEVANCE_SIGNALS = 2
 
-    def __init__(self, github=None, fetcher=fetch_public_source, deployment_intake=None):
+    def __init__(self, github=None, fetcher=fetch_public_source):
         self.github = github or GitHubClient()
         self.fetcher = fetcher
-        self.deployment_intake = deployment_intake or DeploymentIntakeResearcher()
 
     @staticmethod
     def source_id(url):
@@ -573,16 +571,6 @@ class SourceResearcher:
         return task
 
     def run(self, task: Task) -> Task:
-        try:
-            intake_envelope = json.loads(task.description)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            intake_envelope = {}
-        if (
-            isinstance(intake_envelope, dict)
-            and intake_envelope.get("task_type") == "deep_research_intake"
-        ):
-            return self.deployment_intake.run(task)
-
         task.status = "researching_sources"
         parent = dict(task.result or {})
         payload = task.payload if isinstance(task.payload, dict) else {}

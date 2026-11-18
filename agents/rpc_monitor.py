@@ -18,6 +18,8 @@ logger = logging.getLogger("RpcMonitor")
 POLL_INTERVAL_SECONDS = 5
 RPC_TIMEOUT_SECONDS = 5
 
+_TRACE_CAPABILITY_CACHE = {}
+
 
 def _ensure_cursor_table(queue):
     queue.db.execute(
@@ -180,18 +182,37 @@ def record_internal_contract_deployments(
 
 
 def _fetch_block_traces(web3, block_number):
-    """Try parity trace_block, then Geth callTracer when the method is unsupported."""
+    """Try parity trace_block, then Geth callTracer when the method is unsupported.
+
+    Provider capability is cached by endpoint so unsupported trace methods are
+    not retried for every block on chains whose RPC does not expose tracing.
+    """
     provider = getattr(web3, "provider", None)
     make_request = getattr(provider, "make_request", None)
     if not callable(make_request):
         return None
 
+    endpoint = getattr(provider, "endpoint_uri", None)
+    if endpoint and _TRACE_CAPABILITY_CACHE.get(endpoint) is False:
+        return None
+
     block_tag = hex(int(block_number))
-    requests = (
+    methods = (
         ("trace_block", [block_tag]),
         ("debug_traceBlockByNumber", [block_tag, {"tracer": "callTracer"}]),
     )
-    for method, params in requests:
+    cached_method = _TRACE_CAPABILITY_CACHE.get(endpoint) if endpoint else None
+    if cached_method in {"trace_block", "debug_traceBlockByNumber"}:
+        methods = tuple(
+            item for item in methods
+            if item[0] == cached_method
+        ) + tuple(
+            item for item in methods
+            if item[0] != cached_method
+        )
+
+    unsupported = True
+    for method, params in methods:
         try:
             response = make_request(method, params)
         except Exception:
@@ -200,12 +221,18 @@ def _fetch_block_traces(web3, block_number):
             return None
         if response.get("error") is None:
             if isinstance(response.get("result"), list):
+                if endpoint:
+                    _TRACE_CAPABILITY_CACHE[endpoint] = method
                 return response
             continue
         error = response.get("error")
         if isinstance(error, dict) and error.get("code") == -32601:
             continue
+        unsupported = False
         return None
+
+    if endpoint and unsupported:
+        _TRACE_CAPABILITY_CACHE[endpoint] = False
     return None
 
 

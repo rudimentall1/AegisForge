@@ -29,9 +29,13 @@ def test_named_role_is_preserved(role):
 
 
 @pytest.mark.parametrize("instance", ["1", "2", "3", "4"])
-def test_numeric_systemd_instance_fails_instead_of_collapsing_to_one_role(instance):
-    with pytest.raises(ValueError, match="numeric_worker_instance_requires_named_role"):
-        resolve_worker_role([instance], VALID_ROLES)
+def test_numeric_systemd_instances_remain_legacy_security_checker_pool(instance):
+    assert resolve_worker_role([instance], VALID_ROLES) == "security_checker"
+
+
+def test_unknown_numeric_systemd_instance_is_rejected():
+    with pytest.raises(ValueError, match="unsupported worker role"):
+        resolve_worker_role(["5"], VALID_ROLES)
 
 
 def test_role_is_normalized():

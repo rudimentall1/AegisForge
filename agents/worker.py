@@ -1154,7 +1154,7 @@ def process_target_contract(target_address: str, contract_source: str):
     )
     
     # 5. Отправка алерта в Telegram на русском языке
-    send_telegram_alert(full_report, target_address)
+    send_telegram_alert(\n        full_report,\n        severity="HIGH",\n        contract=target_address,\n        finding_type="red_team_report",\n    )
     logging.info("Alert and PoC results sent to Telegram successfully.")
 
 

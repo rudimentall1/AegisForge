@@ -637,6 +637,9 @@ class SecurityChecker:
         return {
             "name": name,
             "dynamic_validation": dynamic_validation,
+            "dynamic_validation_status": (
+                "ISOLATED_RUNNER_REQUIRED" if findings else "NOT_REQUIRED"
+            ),
             "url": developer_review.get("url"),
             "smart_contract_project": developer_review.get(
                 "smart_contract_project",
@@ -767,31 +770,24 @@ class SecurityChecker:
 
 
     def _run_foundry_fork_validation(self, findings, chain, address):
-        import subprocess, os
-        print(f"[SecurityChecker] -> Auto-triggering Foundry fork verification for {len(findings)} findings on chain {chain}...", flush=True)
-        rpc_url = os.getenv(f"{chain.upper()}_RPC_URL", "https://arb1.arbitrum.io/rpc")
-        
+        """Return explicit skips until an isolated Anvil/Foundry runner is configured.
+
+        Never execute repository-controlled Foundry tests in the worker process.
+        A passing generic forge test is not evidence that a specific finding is exploitable.
+        """
         validation_results = []
         for finding in findings:
-            if finding.get("severity") in ["MEDIUM", "HIGH", "CRITICAL"]:
-                rule = finding.get("rule")
-                print(f"[SecurityChecker] Running forge test fork simulation for {rule}...", flush=True)
-                cmd = ["forge", "test", "--fork-url", rpc_url, "--match-path", "*PoC*", "-vv"]
-                try:
-                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
-                    success = (res.returncode == 0)
-                    validation_results.append({
-                        "rule": rule,
-                        "dynamic_verified": success,
-                        "output_snippet": (res.stdout[-300:] if success else res.stderr[-300:] or res.stdout[-300:])
-                    })
-                except Exception as e:
-                    validation_results.append({
-                        "rule": rule,
-                        "dynamic_verified": False,
-                        "error": str(e)
-                    })
+            if finding.get("severity") in {"MEDIUM", "HIGH", "CRITICAL"}:
+                validation_results.append({
+                    "rule": finding.get("rule"),
+                    "dynamic_verified": False,
+                    "confirmed": False,
+                    "status": "SKIPPED",
+                    "reason": "isolated_fork_runner_not_configured",
+                    "required_next_step": "isolated_anvil_fork_runner",
+                })
         return validation_results
+
 
     def run(self, task: Task) -> Task:
             task.status = "security_checking"

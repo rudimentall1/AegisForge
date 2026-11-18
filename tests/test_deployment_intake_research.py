@@ -77,7 +77,9 @@ class FakeSourcifyResponse:
 
     def json(self):
         return self.payload
-\n\ndef make_task(**overrides):
+
+
+def make_task(**overrides):
     values = {
         "chain": "base",
         "contract_address": ADDRESS,

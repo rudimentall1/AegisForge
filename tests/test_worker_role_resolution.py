@@ -23,6 +23,10 @@ def test_no_argument_keeps_legacy_default():
     assert resolve_worker_role([], VALID_ROLES) == "security_checker"
 
 
+def test_blank_argument_keeps_legacy_default():
+    assert resolve_worker_role([""], VALID_ROLES) == "security_checker"
+
+
 @pytest.mark.parametrize("role", sorted(VALID_ROLES))
 def test_named_role_is_preserved(role):
     assert resolve_worker_role([role], VALID_ROLES) == role

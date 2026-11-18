@@ -190,3 +190,39 @@ def test_analyze_source_rejects_multifile_path_traversal(monkeypatch):
     assert result["status"] == "INVALID_SOURCE_PROJECT"
     assert result["findings"] == []
     assert result["vulnerabilities_confirmed"] is False
+
+
+
+def test_analyze_source_rejects_empty_normalized_project_path(monkeypatch):
+    import agents.deep_researcher.slither_analysis as module
+
+    project = {
+        "language": "Solidity",
+        "sources": {
+            ".": {"content": "pragma solidity ^0.8.20; contract Invalid {}"}
+        },
+    }
+    monkeypatch.setattr(module.shutil, "which", lambda binary: "/usr/bin/slither")
+
+    result = analyze_source("{" + json.dumps(project) + "}")
+
+    assert result["status"] == "INVALID_SOURCE_PROJECT"
+    assert result["vulnerabilities_confirmed"] is False
+
+
+def test_analyze_source_reports_missing_solidity_compiler(monkeypatch):
+    import agents.deep_researcher.slither_analysis as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda binary: "/usr/bin/slither")
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 1, stdout="", stderr="solc executable not found"
+        ),
+    )
+
+    result = analyze_source("pragma solidity ^0.8.20; contract Vault {}")
+
+    assert result["status"] == "COMPILER_UNAVAILABLE"
+    assert result["vulnerabilities_confirmed"] is False

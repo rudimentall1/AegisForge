@@ -77,6 +77,9 @@ def scan_networks_for_deploys():
 
     while True:
         for chain, rpc_url in RPC_ENDPOINTS.items():
+            if not rpc_url:
+                logger.warning("RPC endpoint is not configured for %s; skipping", chain)
+                continue
             try:
                 w3 = Web3(
                     Web3.HTTPProvider(

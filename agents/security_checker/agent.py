@@ -472,126 +472,149 @@ class SecurityChecker:
         self,
         developer_review,
     ):
+        import os
+        import shutil
+        import tempfile
+        from pathlib import Path, PurePosixPath
+
         name = developer_review.get("name")
-
         owner, repo = self._repo_parts(name)
-
         if not owner:
-            raise RuntimeError(
-                f"Invalid repository name: {name}"
-            )
+            raise RuntimeError(f"Invalid repository name: {name}")
 
-        print(
-            f"[SecurityChecker] INSPECT: {name}",
-            flush=True,
-        )
-
-        metadata_url = (
-            f"{self.github.BASE_URL}/repos/"
-            f"{owner}/{repo}"
-        )
-
-        metadata = self._get(
-            metadata_url
-        ) or {}
-
+        print(f"[SecurityChecker] INSPECT: {name}", flush=True)
+        metadata_url = f"{self.github.BASE_URL}/repos/{owner}/{repo}"
+        metadata = self._get(metadata_url) or {}
         branch = (
             metadata.get("default_branch")
-            or developer_review.get(
-                "default_branch"
-            )
+            or developer_review.get("default_branch")
             or "main"
         )
-
-        tree = self._get_tree(
-            owner,
-            repo,
-            branch,
-        )
-
+        tree = self._get_tree(owner, repo, branch)
         if not tree:
-            raise RuntimeError(
-                "Git tree unavailable"
-            )
+            raise RuntimeError("Git tree unavailable")
 
-        entries = tree.get(
-            "tree",
-            [],
-        )
-
+        entries = tree.get("tree", [])
         paths = [
             entry.get("path")
             for entry in entries
-            if entry.get("type") == "blob"
-            and entry.get("path")
+            if entry.get("type") == "blob" and entry.get("path")
         ]
-
         solidity_files = [
-            path
-            for path in paths
-            if path.lower().endswith(".sol")
+            path for path in paths if path.lower().endswith(".sol")
         ]
-
-        selected_solidity = (
-            self._select_solidity_files(paths)
-        )
-
-        supporting_files = (
-            self._select_supporting_files(paths)
-        )
+        selected_solidity = self._select_solidity_files(paths)
+        supporting_files = self._select_supporting_files(paths)
 
         findings = []
         file_errors = []
-
         source_files_read = []
-
         source_text_parts = []
         support_text_parts = []
+        source_contents = {}
+        supporting_contents = {}
 
         for path in selected_solidity:
-            content = self._get_file(
-                owner,
-                repo,
-                path,
-            )
-
+            content = self._get_file(owner, repo, path)
             if content is None:
                 file_errors.append(path)
                 continue
-
             source_files_read.append(path)
             source_text_parts.append(content)
-
-            findings.extend(self._run_slither_analysis(repo_path) if "repo_path" in locals() else [])
-        findings.extend(self._run_llm_analysis(source_text) if "source_text" in locals() and source_text else [])
-        findings.extend(self._run_mythril_analysis(repo_path) if "repo_path" in locals() else [])
-        findings.extend(
-                self._scan_source(
-                    path,
-                    content,
-                )
-            )
+            source_contents[path] = content
+            findings.extend(self._scan_source(path, content))
 
         for path in supporting_files:
-            content = self._get_file(
-                owner,
-                repo,
-                path,
-            )
-
+            content = self._get_file(owner, repo, path)
             if content is None:
                 file_errors.append(path)
                 continue
-
             support_text_parts.append(content)
+            supporting_contents[path] = content
 
-        source_text = "\n".join(
-            source_text_parts
-        )
+        source_text = "\n".join(source_text_parts)
+        support_text = "\n".join(support_text_parts)
+        analysis_tool_status = {
+            "pattern_scan": "COMPLETED",
+            "slither": "DISABLED",
+            "mythril": "DISABLED",
+            "local_llm": "DISABLED",
+        }
 
-        support_text = "\n".join(
-            support_text_parts
-        )
+        with tempfile.TemporaryDirectory(
+            prefix="aegisforge-security-checker-"
+        ) as temporary_root:
+            root = Path(temporary_root).resolve()
+            for relative_name, content in {
+                **supporting_contents,
+                **source_contents,
+            }.items():
+                if (
+                    not isinstance(relative_name, str)
+                    or not relative_name
+                    or "\\" in relative_name
+                    or "\x00" in relative_name
+                ):
+                    file_errors.append(relative_name)
+                    continue
+                relative_path = PurePosixPath(relative_name)
+                if (
+                    relative_path.is_absolute()
+                    or not relative_path.parts
+                    or any(part in ("", ".", "..") for part in relative_path.parts)
+                    or ":" in relative_path.parts[0]
+                ):
+                    file_errors.append(relative_name)
+                    continue
+                target = root.joinpath(*relative_path.parts)
+                try:
+                    target.resolve().relative_to(root)
+                except ValueError:
+                    file_errors.append(relative_name)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+
+            slither_enabled = os.getenv(
+                "AEGISFORGE_ENABLE_REPOSITORY_SLITHER", "0"
+            ).strip().lower() in {"1", "true", "yes"}
+            if slither_enabled:
+                if shutil.which("slither") and source_files_read:
+                    findings.extend(self._run_slither_analysis(str(root)))
+                    analysis_tool_status["slither"] = "COMPLETED"
+                else:
+                    analysis_tool_status["slither"] = (
+                        "TOOL_UNAVAILABLE" if not shutil.which("slither")
+                        else "NO_SOURCE_FILES"
+                    )
+
+            mythril_enabled = os.getenv(
+                "AEGISFORGE_ENABLE_MYTHRIL", "0"
+            ).strip().lower() in {"1", "true", "yes"}
+            if mythril_enabled:
+                if shutil.which("myth") and source_files_read:
+                    for source_path in source_files_read[:3]:
+                        relative_path = PurePosixPath(source_path)
+                        if (
+                            relative_path.is_absolute()
+                            or any(part in ("", ".", "..") for part in relative_path.parts)
+                        ):
+                            continue
+                        target = root.joinpath(*relative_path.parts)
+                        findings.extend(self._run_mythril_analysis(str(target)))
+                    analysis_tool_status["mythril"] = "COMPLETED"
+                else:
+                    analysis_tool_status["mythril"] = (
+                        "TOOL_UNAVAILABLE" if not shutil.which("myth")
+                        else "NO_SOURCE_FILES"
+                    )
+
+        local_llm_enabled = os.getenv(
+            "AEGISFORGE_ENABLE_LOCAL_LLM_REVIEW", "0"
+        ).strip().lower() in {"1", "true", "yes"}
+        if local_llm_enabled and source_text:
+            findings.extend(self._run_llm_analysis(source_text))
+            analysis_tool_status["local_llm"] = "COMPLETED"
 
         posture = self._security_posture(
             developer_review=developer_review,
@@ -599,40 +622,30 @@ class SecurityChecker:
             support_text=support_text,
             findings=findings,
         )
-
-        critical = sum(
-            f["severity"] == "CRITICAL"
-            for f in findings
-        )
-
-        high = sum(
-            f["severity"] == "HIGH"
-            for f in findings
-        )
-
-        medium = sum(
-            f["severity"] == "MEDIUM"
-            for f in findings
-        )
-
-        low = sum(
-            f["severity"] == "LOW"
-            for f in findings
-        )
-
+        critical = sum(f.get("severity") == "CRITICAL" for f in findings)
+        high = sum(f.get("severity") == "HIGH" for f in findings)
+        medium = sum(f.get("severity") == "MEDIUM" for f in findings)
+        low = sum(f.get("severity") == "LOW" for f in findings)
         manual_review_required = bool(
-            findings
-            or developer_review.get(
-                "risk_flags"
-            )
+            findings or developer_review.get("risk_flags")
         )
 
-        # Автоматический запуск динамической валидации через Foundry при наличии находок
-        dynamic_validation = []
-        if findings:
-            chain = developer_review.get("chain", "arbitrum")
-            address = developer_review.get("address", "")
-            dynamic_validation = self._run_foundry_fork_validation(findings, chain, address)
+        dynamic_validation = (
+            self._run_foundry_fork_validation(
+                findings,
+                developer_review.get("chain", "arbitrum"),
+                developer_review.get("address", ""),
+            )
+            if findings
+            else []
+        )
+        analysis_scope = (
+            "pattern_scan_and_slither_static_analysis"
+            if analysis_tool_status["slither"] == "COMPLETED"
+            else "static_source_pattern_analysis"
+        )
+        if analysis_tool_status["mythril"] == "COMPLETED":
+            analysis_scope += "_and_mythril_symbolic_analysis"
 
         return {
             "name": name,
@@ -640,21 +653,15 @@ class SecurityChecker:
             "dynamic_validation_status": (
                 "ISOLATED_RUNNER_REQUIRED" if findings else "NOT_REQUIRED"
             ),
+            "analysis_tool_status": analysis_tool_status,
             "url": developer_review.get("url"),
             "smart_contract_project": developer_review.get(
-                "smart_contract_project",
-                False,
+                "smart_contract_project", False
             ),
-            "solidity_files_total": len(
-                solidity_files
-            ),
-            "solidity_files_read": len(
-                source_files_read
-            ),
+            "solidity_files_total": len(solidity_files),
+            "solidity_files_read": len(source_files_read),
             "files_read_errors": file_errors,
-            "tree_truncated": bool(
-                tree.get("truncated")
-            ),
+            "tree_truncated": bool(tree.get("truncated")),
             "security_posture": posture,
             "findings": findings,
             "finding_summary": {
@@ -664,14 +671,9 @@ class SecurityChecker:
                 "low": low,
                 "total": len(findings),
             },
-            "developer_risk_flags": developer_review.get(
-                "risk_flags",
-                [],
-            ),
+            "developer_risk_flags": developer_review.get("risk_flags", []),
             "manual_review_required": manual_review_required,
-            "analysis_scope": (
-                "static_source_pattern_analysis"
-            ),
+            "analysis_scope": analysis_scope,
             "not_a_confirmed_exploit": True,
         }
 

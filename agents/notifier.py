@@ -6,8 +6,6 @@ import requests
 
 logger = logging.getLogger("Notifier")
 
-TELEGRAM_BOT_TOKEN = "8426799102:AAEAMz0lWfvyQrpcE1hkf9uINONt40UTEB0"
-TELEGRAM_CHAT_ID = "659223890"
 DB_PATH = "shared/tasks.db"
 
 def is_duplicate_alert(contract: str, finding_type: str) -> bool:
@@ -45,6 +43,12 @@ def is_duplicate_alert(contract: str, finding_type: str) -> bool:
         return False
 
 def send_telegram_alert(chain: str, contract: str, vuln_type: str, patch_filename: str):
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        logger.warning("[NOTIFIER] Telegram credentials are not configured")
+        return False
+
     # Prevent duplicate alerts for the same contract & vulnerability type within 1 hour
     if contract and is_duplicate_alert(contract, vuln_type):
         logger.info(f"[NOTIFIER] Skipped duplicate alert for {contract} [{vuln_type}]")
@@ -59,9 +63,9 @@ def send_telegram_alert(chain: str, contract: str, vuln_type: str, patch_filenam
         f"Status: Remediated automatically by AegisForge autonomous worker."
     )
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": message,
         "parse_mode": "Markdown"
     }
@@ -79,8 +83,8 @@ def send_telegram_alert(chain: str, contract: str, vuln_type: str, patch_filenam
         return False
 
 def send_telegram_document(file_path, caption=""):
-    token = os.getenv("TELEGRAM_BOT_TOKEN", TELEGRAM_BOT_TOKEN)
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", TELEGRAM_CHAT_ID)
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     if not token or not chat_id:
         return
     url = f"https://api.telegram.org/bot{token}/sendDocument"

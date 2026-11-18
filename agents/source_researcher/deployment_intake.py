@@ -6,7 +6,7 @@ import os
 import re
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 import requests
@@ -23,6 +23,9 @@ _TX_HASH_RE = re.compile(r"^0x[a-fA-F0-9]{64}$")
 MAX_DISCOVERY_DESCRIPTION_BYTES = 64 * 1024
 MAX_VERIFIED_SOURCE_BYTES = 4 * 1024 * 1024
 ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api"
+SOURCIFY_V2_API = "https://sourcify.dev/server/v2/contract"
+SOURCIFY_FIELDS = "sources,compilation,metadata,match,matchId,creationMatch,runtimeMatch"
+SOURCIFY_USER_AGENT = "AegisForge/0.1 (+https://github.com/rudimentall1/AegisForge)"
 
 
 class DeploymentResearchError(ValueError):
@@ -135,7 +138,335 @@ class DeploymentIntakeResearcher:
             raise DeploymentResearchError("discovery_fingerprint_mismatch")
         return finding
 
-    def _lookup_verified_source(self, chain: str, chain_id: int, address: str, directory: Path) -> dict:
+    def _lookup_sourcify_source(
+        self,
+        chain_id: int,
+        address: str,
+        directory: Path,
+        explorer_url: str | None,
+    ) -> dict:
+        cache_path = (
+            self.evidence_dir
+            / "_cache"
+            / "sourcify_v2"
+            / str(chain_id)
+            / address.lower()
+            / "contract.json"
+        )
+        cache_hit = False
+        payload = None
+        if cache_path.is_file():
+            try:
+                cache_bytes = cache_path.read_bytes()
+                if len(cache_bytes) <= MAX_VERIFIED_SOURCE_BYTES * 3:
+                    cached = json.loads(cache_bytes)
+                    if isinstance(cached, dict) and isinstance(cached.get("payload"), dict):
+                        payload = cached["payload"]
+                        cache_hit = True
+            except (OSError, ValueError, json.JSONDecodeError):
+                payload = None
+                cache_hit = False
+
+        if payload is None:
+            url = f"{SOURCIFY_V2_API}/{chain_id}/{address}"
+            try:
+                response = self.http_get(
+                    url,
+                    params={"fields": SOURCIFY_FIELDS},
+                    headers={"User-Agent": SOURCIFY_USER_AGENT},
+                    timeout=15,
+                )
+                status_code = getattr(response, "status_code", 200)
+                if status_code == 404:
+                    return {
+                        "status": "NOT_VERIFIED",
+                        "provider": "sourcify_v2",
+                        "explorer_url": explorer_url,
+                        "source_sha256": None,
+                        "source_path": None,
+                        "cache_hit": False,
+                        "error": "sourcify_contract_not_found",
+                    }
+                if status_code == 429:
+                    headers = getattr(response, "headers", {}) or {}
+                    return {
+                        "status": "RATE_LIMITED",
+                        "provider": "sourcify_v2",
+                        "explorer_url": explorer_url,
+                        "source_sha256": None,
+                        "source_path": None,
+                        "retry_after": headers.get("Retry-After"),
+                        "error": "sourcify_rate_limited",
+                    }
+                response.raise_for_status()
+                payload = response.json()
+            except Exception as exc:
+                return {
+                    "status": "LOOKUP_FAILED",
+                    "provider": "sourcify_v2",
+                    "explorer_url": explorer_url,
+                    "source_sha256": None,
+                    "source_path": None,
+                    "cache_hit": False,
+                    "error": f"sourcify_request_failed:{type(exc).__name__}",
+                }
+
+        if not isinstance(payload, dict):
+            return {
+                "status": "LOOKUP_FAILED",
+                "provider": "sourcify_v2",
+                "explorer_url": explorer_url,
+                "source_sha256": None,
+                "source_path": None,
+                "cache_hit": cache_hit,
+                "error": "sourcify_response_invalid",
+            }
+
+        if (
+            str(payload.get("chainId", "")) != str(chain_id)
+            or str(payload.get("address", "")).lower() != address.lower()
+        ):
+            return {
+                "status": "SOURCE_IDENTITY_MISMATCH",
+                "provider": "sourcify_v2",
+                "explorer_url": explorer_url,
+                "source_sha256": None,
+                "source_path": None,
+                "cache_hit": cache_hit,
+                "error": "sourcify_chain_or_address_mismatch",
+            }
+
+        match_quality = payload.get("match")
+        if match_quality not in {"exact_match", "match"}:
+            return {
+                "status": "NOT_VERIFIED",
+                "provider": "sourcify_v2",
+                "explorer_url": explorer_url,
+                "source_sha256": None,
+                "source_path": None,
+                "match_quality": match_quality,
+                "cache_hit": cache_hit,
+                "error": "sourcify_match_not_available",
+            }
+
+        compilation = payload.get("compilation")
+        if not isinstance(compilation, dict):
+            compilation = {}
+        language = compilation.get("language", "Solidity")
+        if language != "Solidity":
+            return {
+                "status": "UNSUPPORTED_LANGUAGE",
+                "provider": "sourcify_v2",
+                "explorer_url": explorer_url,
+                "source_sha256": None,
+                "source_path": None,
+                "language": language,
+                "cache_hit": cache_hit,
+                "error": "verified_source_language_unsupported",
+            }
+
+        sources = payload.get("sources")
+        if not isinstance(sources, dict) or not sources or len(sources) > 1000:
+            return {
+                "status": "SOURCE_INVALID",
+                "provider": "sourcify_v2",
+                "explorer_url": explorer_url,
+                "source_sha256": None,
+                "source_path": None,
+                "cache_hit": cache_hit,
+                "error": "sourcify_sources_invalid",
+            }
+
+        metadata = payload.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata_sources = metadata.get("sources")
+        if not isinstance(metadata_sources, dict):
+            metadata_sources = {}
+
+        normalized_sources = {}
+        total_source_bytes = 0
+        verified_hashes = 0
+        unavailable_hashes = 0
+        for source_name, source_entry in sources.items():
+            if (
+                not isinstance(source_name, str)
+                or not source_name
+                or "\\" in source_name
+            ):
+                return {
+                    "status": "SOURCE_INVALID",
+                    "provider": "sourcify_v2",
+                    "explorer_url": explorer_url,
+                    "source_sha256": None,
+                    "source_path": None,
+                    "cache_hit": cache_hit,
+                    "error": "sourcify_source_path_invalid",
+                }
+            relative = PurePosixPath(source_name)
+            if (
+                relative.is_absolute()
+                or not relative.parts
+                or any(part in ("", ".", "..") for part in relative.parts)
+                or ":" in relative.parts[0]
+                or relative.suffix.lower() != ".sol"
+                or relative.as_posix() in normalized_sources
+            ):
+                return {
+                    "status": "SOURCE_INVALID",
+                    "provider": "sourcify_v2",
+                    "explorer_url": explorer_url,
+                    "source_sha256": None,
+                    "source_path": None,
+                    "cache_hit": cache_hit,
+                    "error": "sourcify_source_path_invalid",
+                }
+
+            content = source_entry.get("content") if isinstance(source_entry, dict) else None
+            if not isinstance(content, str):
+                return {
+                    "status": "SOURCE_INVALID",
+                    "provider": "sourcify_v2",
+                    "explorer_url": explorer_url,
+                    "source_sha256": None,
+                    "source_path": None,
+                    "cache_hit": cache_hit,
+                    "error": "sourcify_source_content_missing",
+                }
+
+            content_bytes = content.encode("utf-8")
+            total_source_bytes += len(content_bytes)
+            if total_source_bytes > MAX_VERIFIED_SOURCE_BYTES:
+                return {
+                    "status": "SOURCE_TOO_LARGE",
+                    "provider": "sourcify_v2",
+                    "explorer_url": explorer_url,
+                    "source_sha256": None,
+                    "source_path": None,
+                    "cache_hit": cache_hit,
+                    "error": "verified_source_exceeds_size_limit",
+                }
+
+            metadata_entry = metadata_sources.get(source_name)
+            expected_keccak = (
+                metadata_entry.get("keccak256")
+                if isinstance(metadata_entry, dict)
+                else None
+            )
+            if isinstance(expected_keccak, str) and expected_keccak:
+                actual_keccak = Web3.keccak(text=content).hex().lower().removeprefix("0x")
+                if actual_keccak != expected_keccak.lower().removeprefix("0x"):
+                    return {
+                        "status": "SOURCE_INTEGRITY_MISMATCH",
+                        "provider": "sourcify_v2",
+                        "explorer_url": explorer_url,
+                        "source_sha256": None,
+                        "source_path": None,
+                        "cache_hit": cache_hit,
+                        "error": "sourcify_source_keccak_mismatch",
+                    }
+                verified_hashes += 1
+            else:
+                unavailable_hashes += 1
+
+            normalized_sources[relative.as_posix()] = {"content": content}
+
+        compiler_settings = compilation.get("compilerSettings")
+        if not isinstance(compiler_settings, dict):
+            compiler_settings = {}
+        source_payload = {
+            "language": "Solidity",
+            "sources": normalized_sources,
+            "settings": compiler_settings,
+        }
+        source_bytes = json.dumps(
+            source_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        if len(source_bytes) > MAX_VERIFIED_SOURCE_BYTES:
+            return {
+                "status": "SOURCE_TOO_LARGE",
+                "provider": "sourcify_v2",
+                "explorer_url": explorer_url,
+                "source_sha256": _sha256(source_bytes),
+                "source_path": None,
+                "cache_hit": cache_hit,
+                "error": "verified_source_exceeds_size_limit",
+            }
+
+        source_path = directory / "verified-source.json"
+        _atomic_write(source_path, source_bytes)
+        metadata_bytes = json.dumps(
+            metadata,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        metadata_path = directory / "sourcify-metadata.json"
+        _atomic_write(metadata_path, metadata_bytes)
+
+        if not cache_hit:
+            cache_payload = {
+                "payload": payload,
+                "cached_at": datetime.now(timezone.utc).isoformat(),
+            }
+            cache_bytes = json.dumps(
+                cache_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+            if len(cache_bytes) <= MAX_VERIFIED_SOURCE_BYTES * 3:
+                _atomic_write(cache_path, cache_bytes)
+
+        optimizer = compiler_settings.get("optimizer")
+        if not isinstance(optimizer, dict):
+            optimizer = {}
+        compiler_version_value = compilation.get("compilerVersion")
+        compiler_version = (
+            compiler_version_value[:128]
+            if isinstance(compiler_version_value, str)
+            else None
+        )
+        return {
+            "status": "VERIFIED",
+            "provider": "sourcify_v2",
+            "explorer_url": explorer_url,
+            "match_quality": match_quality,
+            "match_id": payload.get("matchId"),
+            "source_files_count": len(normalized_sources),
+            "source_integrity": {
+                "verified_files": verified_hashes,
+                "hashes_unavailable": unavailable_hashes,
+            },
+            "source_sha256": _sha256(source_bytes),
+            "source_path": str(source_path),
+            "metadata_path": str(metadata_path),
+            "metadata_sha256": _sha256(metadata_bytes),
+            "contract_name": compilation.get("name"),
+            "compiler_version": compiler_version,
+            "optimization_used": optimizer.get("enabled"),
+            "runs": optimizer.get("runs"),
+            "evm_version": compiler_settings.get("evmVersion"),
+            "license_type": None,
+            "cache_hit": cache_hit,
+            "error": None,
+        }
+
+    def _lookup_verified_source(
+        self,
+        chain: str,
+        chain_id: int,
+        address: str,
+        directory: Path,
+    ) -> dict:
         explorer_base = self.explorer_urls.get(chain)
         explorer_url = (
             f"{explorer_base.rstrip('/')}/address/{address}#code"
@@ -143,95 +474,78 @@ class DeploymentIntakeResearcher:
             else None
         )
         api_key = os.getenv("ETHERSCAN_API_KEY", "").strip()
-        if not api_key:
-            return {
-                "status": "NOT_CONFIGURED",
-                "provider": "etherscan_v2",
-                "explorer_url": explorer_url,
-                "source_sha256": None,
-                "source_path": None,
-                "error": "etherscan_api_key_not_configured",
-            }
+        etherscan_status = "NOT_CONFIGURED"
+        if api_key:
+            try:
+                response = self.http_get(
+                    ETHERSCAN_V2_API,
+                    params={
+                        "chainid": chain_id,
+                        "module": "contract",
+                        "action": "getsourcecode",
+                        "address": address,
+                        "apikey": api_key,
+                    },
+                    timeout=15,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                entries = payload.get("result") if isinstance(payload, dict) else None
+                source_entry = (
+                    entries[0]
+                    if isinstance(entries, list) and entries and isinstance(entries[0], dict)
+                    else {}
+                )
+                source_code = source_entry.get("SourceCode")
+                compiler_version_value = source_entry.get("CompilerVersion")
+                compiler_version = (
+                    compiler_version_value[:128]
+                    if isinstance(compiler_version_value, str)
+                    else None
+                )
+                compiler_metadata = {
+                    "contract_name": source_entry.get("ContractName"),
+                    "compiler_version": compiler_version,
+                    "optimization_used": source_entry.get("OptimizationUsed"),
+                    "runs": source_entry.get("Runs"),
+                    "evm_version": source_entry.get("EVMVersion"),
+                    "license_type": source_entry.get("LicenseType"),
+                }
+                if isinstance(source_code, str) and source_code.strip():
+                    source_bytes = source_code.encode("utf-8")
+                    if len(source_bytes) <= MAX_VERIFIED_SOURCE_BYTES:
+                        source_path = directory / "verified-source.txt"
+                        _atomic_write(source_path, source_bytes)
+                        return {
+                            "status": "VERIFIED",
+                            "provider": "etherscan_v2",
+                            "explorer_url": explorer_url,
+                            "match_quality": "explorer_verified",
+                            "source_sha256": _sha256(source_bytes),
+                            "source_path": str(source_path),
+                            "source_files_count": 1,
+                            "cache_hit": False,
+                            **compiler_metadata,
+                            "error": None,
+                        }
+                    etherscan_status = "SOURCE_TOO_LARGE"
+                else:
+                    etherscan_status = "NOT_VERIFIED"
+            except Exception as exc:
+                etherscan_status = f"LOOKUP_FAILED:{type(exc).__name__}"
 
-        try:
-            response = self.http_get(
-                ETHERSCAN_V2_API,
-                params={
-                    "chainid": chain_id,
-                    "module": "contract",
-                    "action": "getsourcecode",
-                    "address": address,
-                    "apikey": api_key,
-                },
-                timeout=15,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except Exception as exc:
-            return {
-                "status": "LOOKUP_FAILED",
-                "provider": "etherscan_v2",
-                "explorer_url": explorer_url,
-                "source_sha256": None,
-                "source_path": None,
-                "error": f"explorer_request_failed:{type(exc).__name__}",
-            }
-
-        entries = payload.get("result") if isinstance(payload, dict) else None
-        source_entry = (
-            entries[0]
-            if isinstance(entries, list) and entries and isinstance(entries[0], dict)
-            else {}
+        sourcify_result = self._lookup_sourcify_source(
+            chain_id,
+            address,
+            directory,
+            explorer_url,
         )
-        source_code = source_entry.get("SourceCode")
-        compiler_version_value = source_entry.get("CompilerVersion")
-        compiler_version = (
-            compiler_version_value[:128]
-            if isinstance(compiler_version_value, str)
-            else None
+        sourcify_result["provider_attempts"] = (
+            ["etherscan_v2", "sourcify_v2"] if api_key else ["sourcify_v2"]
         )
-        compiler_metadata = {
-            "contract_name": source_entry.get("ContractName"),
-            "compiler_version": compiler_version,
-            "optimization_used": source_entry.get("OptimizationUsed"),
-            "runs": source_entry.get("Runs"),
-            "evm_version": source_entry.get("EVMVersion"),
-            "license_type": source_entry.get("LicenseType"),
-        }
-        if not isinstance(source_code, str) or not source_code.strip():
-            return {
-                "status": "NOT_VERIFIED",
-                "provider": "etherscan_v2",
-                "explorer_url": explorer_url,
-                "source_sha256": None,
-                "source_path": None,
-                **compiler_metadata,
-                "error": "verified_source_not_available",
-            }
-
-        source_bytes = source_code.encode("utf-8")
-        if len(source_bytes) > MAX_VERIFIED_SOURCE_BYTES:
-            return {
-                "status": "SOURCE_TOO_LARGE",
-                "provider": "etherscan_v2",
-                "explorer_url": explorer_url,
-                "source_sha256": _sha256(source_bytes),
-                "source_path": None,
-                **compiler_metadata,
-                "error": "verified_source_exceeds_size_limit",
-            }
-
-        source_path = directory / "verified-source.txt"
-        _atomic_write(source_path, source_bytes)
-        return {
-            "status": "VERIFIED",
-            "provider": "etherscan_v2",
-            "explorer_url": explorer_url,
-            "source_sha256": _sha256(source_bytes),
-            "source_path": str(source_path),
-            **compiler_metadata,
-            "error": None,
-        }
+        if api_key:
+            sourcify_result["etherscan_fallback_status"] = etherscan_status
+        return sourcify_result
 
     def run(self, task):
         try:

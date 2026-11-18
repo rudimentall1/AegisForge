@@ -82,7 +82,7 @@ def test_deployment_intake_fetches_runtime_code_at_observed_block(tmp_path, monk
 
     result = researcher.run(task)
 
-    assert task.status == "source_researched"
+    assert task.status == "deep_researched"
     assert fake_web3.eth.requested_block == 12345
     assert result["discovery_evidence"]["chain_id"] == 8453
     assert result["discovery_evidence"]["runtime_bytecode_size_bytes"] == 4

@@ -81,7 +81,7 @@ def test_enqueue_uses_canonical_queue_and_deduplicates(tmp_path):
             "SELECT role, contract_address, fingerprint, description FROM queue WHERE id = ?",
             (first_id,),
         ).fetchone()
-        assert row[:3] == ("source_researcher", item.contract_address, item.fingerprint)
+        assert row[:3] == ("deep_researcher", item.contract_address, item.fingerprint)
         payload = json.loads(row[3])
         assert payload["task_type"] == "deep_research_intake"
         assert payload["discovery_finding"]["schema"] == FINDING_SCHEMA

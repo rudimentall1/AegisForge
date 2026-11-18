@@ -1,5 +1,3 @@
-import json
-
 from agents import worker as worker_module
 from agents.deep_researcher.agent import DeepResearcher
 from agents.rpc_monitor import record_contract_deployment
@@ -86,7 +84,7 @@ def test_discovery_to_deep_research_completes_through_real_worker_loop(
         assert row is not None
         assert row[0] == "completed"
 
-        result = json.loads(row[1])
+        result = queue.get_result(task_id)
         assert result["agent"] == "deep_researcher"
         assert result["discovery_evidence"]["chain_id"] == 8453
         assert result["discovery_evidence"]["observed_block"] == 12345

@@ -1,4 +1,5 @@
 from agents.rpc_monitor import (
+    TraceRequestError,
     _fetch_block_traces,
     record_internal_contract_deployments,
 )
@@ -113,7 +114,10 @@ def test_trace_fetch_does_not_retry_after_provider_failure():
         "trace_block": {"error": {"code": -32000, "message": "timeout"}},
     })
 
-    assert _fetch_block_traces(w3, 123) is None
+    import pytest
+
+    with pytest.raises(TraceRequestError, match="trace_rpc_request_failed"):
+        _fetch_block_traces(w3, 123)
     assert w3.provider.calls == [("trace_block", ["0x7b"])]
 
 

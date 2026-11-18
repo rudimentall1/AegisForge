@@ -2,15 +2,19 @@
 
 
 DEFAULT_WORKER_ROLE = "security_checker"
+LEGACY_INSTANCE_ROLES = {
+    "1": "security_checker",
+    "2": "security_checker",
+    "3": "security_checker",
+    "4": "security_checker",
+}
 
 
 def normalize_worker_role(value):
     role = str(value or "").strip().lower()
     if not role:
         raise ValueError("worker_role_required")
-    if role.isdecimal():
-        raise ValueError("numeric_worker_instance_requires_named_role")
-    return role
+    return LEGACY_INSTANCE_ROLES.get(role, role)
 
 
 def resolve_worker_role(arguments, available_roles):

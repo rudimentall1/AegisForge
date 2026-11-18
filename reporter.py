@@ -47,6 +47,11 @@ def generate_whitehat_report(
         raise ValueError("rescued_amount_invalid")
     if not rate.is_finite() or rate < _MIN_BOUNTY_RATE or rate > _MAX_BOUNTY_RATE:
         raise ValueError("bounty_rate_out_of_range")
+    if not all(
+        isinstance(flag, bool)
+        for flag in (rescue_receipt_verified, owner_authorized, bounty_agreed)
+    ):
+        raise ValueError("rescue_and_bounty_flags_must_be_boolean")
 
     verified_tx = isinstance(tx_hash, str) and _TX_HASH_RE.fullmatch(tx_hash)
     rescue_confirmed = bool(

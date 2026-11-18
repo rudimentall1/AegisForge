@@ -24,7 +24,7 @@ MAX_DISCOVERY_DESCRIPTION_BYTES = 64 * 1024
 MAX_VERIFIED_SOURCE_BYTES = 4 * 1024 * 1024
 ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api"
 SOURCIFY_V2_API = "https://sourcify.dev/server/v2/contract"
-SOURCIFY_FIELDS = "sources,compilation,metadata,match,matchId,creationMatch,runtimeMatch"
+SOURCIFY_FIELDS = "sources,compilation,metadata,match,matchId,creationMatch,runtimeMatch,runtimeBytecode"
 SOURCIFY_USER_AGENT = "AegisForge/0.1 (+https://github.com/rudimentall1/AegisForge)"
 
 
@@ -144,13 +144,27 @@ class DeploymentIntakeResearcher:
         address: str,
         directory: Path,
         explorer_url: str | None,
+        runtime_bytecode_keccak256: str,
     ) -> dict:
+        if not isinstance(runtime_bytecode_keccak256, str) or not _TX_HASH_RE.fullmatch(
+            runtime_bytecode_keccak256
+        ):
+            return {
+                "status": "SOURCE_BYTECODE_UNVERIFIABLE",
+                "provider": "sourcify_v2",
+                "explorer_url": explorer_url,
+                "source_sha256": None,
+                "source_path": None,
+                "runtime_bytecode_match": "UNVERIFIABLE",
+                "error": "observed_runtime_bytecode_hash_invalid",
+            }
         cache_path = (
             self.evidence_dir
             / "_cache"
             / "sourcify_v2"
             / str(chain_id)
             / address.lower()
+            / runtime_bytecode_keccak256.removeprefix("0x").lower()
             / "contract.json"
         )
         cache_hit = False
@@ -234,6 +248,57 @@ class DeploymentIntakeResearcher:
                 "source_path": None,
                 "cache_hit": cache_hit,
                 "error": "sourcify_chain_or_address_mismatch",
+            }
+
+        runtime_bytecode = payload.get("runtimeBytecode")
+        onchain_bytecode = (
+            runtime_bytecode.get("onchainBytecode")
+            if isinstance(runtime_bytecode, dict)
+            else None
+        )
+        if not isinstance(onchain_bytecode, str) or not onchain_bytecode.strip():
+            return {
+                "status": "SOURCE_BYTECODE_UNVERIFIABLE",
+                "provider": "sourcify_v2",
+                "explorer_url": explorer_url,
+                "source_sha256": None,
+                "source_path": None,
+                "runtime_bytecode_match": "UNVERIFIABLE",
+                "observed_runtime_bytecode_keccak256": runtime_bytecode_keccak256,
+                "cache_hit": cache_hit,
+                "error": "sourcify_runtime_bytecode_missing",
+            }
+        try:
+            onchain_bytes = bytes.fromhex(onchain_bytecode.removeprefix("0x"))
+        except ValueError:
+            onchain_bytes = None
+        if onchain_bytes is None:
+            return {
+                "status": "SOURCE_BYTECODE_UNVERIFIABLE",
+                "provider": "sourcify_v2",
+                "explorer_url": explorer_url,
+                "source_sha256": None,
+                "source_path": None,
+                "runtime_bytecode_match": "UNVERIFIABLE",
+                "observed_runtime_bytecode_keccak256": runtime_bytecode_keccak256,
+                "cache_hit": cache_hit,
+                "error": "sourcify_runtime_bytecode_invalid",
+            }
+        sourcify_bytecode_hash = Web3.keccak(onchain_bytes).hex().lower()
+        if not sourcify_bytecode_hash.startswith("0x"):
+            sourcify_bytecode_hash = "0x" + sourcify_bytecode_hash
+        if sourcify_bytecode_hash != runtime_bytecode_keccak256.lower():
+            return {
+                "status": "SOURCE_BYTECODE_MISMATCH",
+                "provider": "sourcify_v2",
+                "explorer_url": explorer_url,
+                "source_sha256": None,
+                "source_path": None,
+                "runtime_bytecode_match": "MISMATCH",
+                "observed_runtime_bytecode_keccak256": runtime_bytecode_keccak256,
+                "sourcify_runtime_bytecode_keccak256": sourcify_bytecode_hash,
+                "cache_hit": cache_hit,
+                "error": "sourcify_runtime_bytecode_does_not_match_observed_block",
             }
 
         match_quality = payload.get("match")
@@ -441,6 +506,8 @@ class DeploymentIntakeResearcher:
             "explorer_url": explorer_url,
             "match_quality": match_quality,
             "match_id": payload.get("matchId"),
+            "runtime_bytecode_match": "MATCHED_AT_OBSERVED_BLOCK",
+            "observed_runtime_bytecode_keccak256": runtime_bytecode_keccak256,
             "source_files_count": len(normalized_sources),
             "source_integrity": {
                 "verified_files": verified_hashes,
@@ -466,6 +533,7 @@ class DeploymentIntakeResearcher:
         chain_id: int,
         address: str,
         directory: Path,
+        runtime_bytecode_keccak256: str,
     ) -> dict:
         explorer_base = self.explorer_urls.get(chain)
         explorer_url = (
@@ -521,6 +589,8 @@ class DeploymentIntakeResearcher:
                             "provider": "etherscan_v2",
                             "explorer_url": explorer_url,
                             "match_quality": "explorer_verified",
+                            "runtime_bytecode_match": "NOT_CHECKED",
+                            "observed_runtime_bytecode_keccak256": runtime_bytecode_keccak256,
                             "source_sha256": _sha256(source_bytes),
                             "source_path": str(source_path),
                             "source_files_count": 1,
@@ -539,6 +609,7 @@ class DeploymentIntakeResearcher:
             address,
             directory,
             explorer_url,
+            runtime_bytecode_keccak256,
         )
         sourcify_result["provider_attempts"] = (
             ["etherscan_v2", "sourcify_v2"] if api_key else ["sourcify_v2"]
@@ -595,6 +666,7 @@ class DeploymentIntakeResearcher:
                 chain_id,
                 address,
                 contract_dir,
+                bytecode_keccak256,
             )
             verified_source = None
             source_analysis = {

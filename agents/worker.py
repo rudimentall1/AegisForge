@@ -84,6 +84,7 @@ from agents.opportunity_hunter.agent import OpportunityHunter
 from agents.validator.agent import Validator
 from model_research.agent import ModelResearcher
 from agents.source_researcher.agent import SourceResearcher
+from agents.deep_researcher.agent import DeepResearcher
 from agents.crypto_analyst.agent import CryptoAnalyst
 from agents.lab_runner.agent import LabRunner
 from shared.techniques.registry import TechniqueRegistry
@@ -100,6 +101,7 @@ AGENTS = {
     "validator": Validator,
     "model_researcher": ModelResearcher,
     "source_researcher": SourceResearcher,
+    "deep_researcher": DeepResearcher,
     "crypto_analyst": CryptoAnalyst,
     "lab_runner": LabRunner,
     "executor": None,
@@ -114,6 +116,7 @@ SUCCESS_STATUSES = {
     "validator": "validated",
     "model_researcher": "model_researched",
     "source_researcher": "source_researched",
+    "deep_researcher": "deep_researched",
     "crypto_analyst": "crypto_analyzed",
     "lab_runner": "lab_completed",
     "executor": "executed",

@@ -83,3 +83,17 @@ def test_verifier_rejects_finding_count_mismatch():
 
     assert result["status"] == "INVALID"
     assert result["checks"]["finding_count_matches"] is False
+
+
+
+def test_verifier_rejects_unhashable_status_and_finding_fields():
+    invalid_status = dict(ANALYSIS, status=[])
+    status_result = verify(payload=invalid_status)
+    assert status_result["status"] == "INVALID"
+
+    invalid_finding = dict(ANALYSIS)
+    invalid_finding["findings"] = [
+        dict(ANALYSIS["findings"][0], impact=[], confidence={})
+    ]
+    finding_result = verify(payload=invalid_finding)
+    assert finding_result["status"] == "INVALID"

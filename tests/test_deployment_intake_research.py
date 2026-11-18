@@ -208,6 +208,10 @@ def test_deployment_intake_persists_static_analysis_report(tmp_path, monkeypatch
     assert result.result["static_analysis"] == expected_analysis
     analysis_path = tmp_path / result.result["evidence_artifact"]["analysis_path"]
     assert json.loads(analysis_path.read_text(encoding="utf-8")) == expected_analysis
+    assert result.result["analysis_validation"]["status"] == "VALID"
+    assert result.result["analysis_validation"]["validation_scope"] == "artifact_integrity_only"
+    validation_path = tmp_path / result.result["evidence_artifact"]["validation_path"]
+    assert json.loads(validation_path.read_text(encoding="utf-8")) == result.result["analysis_validation"]
     metadata_path = tmp_path / result.result["evidence_artifact"]["metadata_path"]
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert metadata["static_analysis"] == {

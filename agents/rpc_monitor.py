@@ -3,7 +3,7 @@ import time
 
 from web3 import Web3
 
-from agents.config import RPC_ENDPOINTS
+from agents.config import CHAIN_IDS, RPC_ENDPOINTS
 from shared.discovery import DiscoveryFinding, enqueue_discovery_finding
 from shared.task_queue import TaskQueue
 
@@ -89,6 +89,17 @@ def scan_networks_for_deploys():
                 )
                 if not w3.is_connected():
                     logger.warning("RPC disconnected for %s", chain)
+                    continue
+
+                actual_chain_id = int(w3.eth.chain_id)
+                expected_chain_id = CHAIN_IDS.get(chain)
+                if expected_chain_id is not None and actual_chain_id != int(expected_chain_id):
+                    logger.error(
+                        "RPC chain identity mismatch for %s: expected=%s actual=%s",
+                        chain,
+                        expected_chain_id,
+                        actual_chain_id,
+                    )
                     continue
 
                 latest_block = w3.eth.block_number

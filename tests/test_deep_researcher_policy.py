@@ -1,4 +1,5 @@
 from agents.deep_researcher.agent import DeepResearcher
+from agents.worker import AGENTS
 from shared.action_intent import build_action_intent
 from shared.capability_policy import CapabilityDecision, CapabilityPolicy
 from shared.research_case import validate_worker_case_binding
@@ -17,3 +18,4 @@ def test_deep_researcher_is_read_only_and_allowed_without_case_binding():
     assert intent.financial is False
     assert validate_worker_case_binding("deep_researcher", None, None) is None
     assert DeepResearcher.name == "deep_researcher"
+    assert AGENTS["deep_researcher"] is DeepResearcher

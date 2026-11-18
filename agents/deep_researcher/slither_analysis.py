@@ -196,7 +196,7 @@ def analyze_source(
         if not isinstance(compiler_version, str):
             return _empty_result("INVALID_CONFIGURATION", "compiler_version_invalid")
         match = re.fullmatch(
-            r"v?(\\d+\\.\\d+\\.\\d+)(?:\\+.*)?",
+            r"v?(\d+\.\d+\.\d+)(?:\+.*)?",
             compiler_version.strip(),
         )
         if not match:

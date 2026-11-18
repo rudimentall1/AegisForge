@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -173,6 +175,7 @@ def analyze_source(
     *,
     slither_executable: str = "slither",
     timeout: int = 90,
+    compiler_version: str | None = None,
 ) -> dict:
     """Run bounded Slither analyses over flattened or standard-JSON source.
 
@@ -187,6 +190,18 @@ def analyze_source(
         return _empty_result("SOURCE_TOO_LARGE", "verified_source_exceeds_size_limit")
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout < 1:
         return _empty_result("INVALID_CONFIGURATION", "slither_timeout_invalid")
+
+    normalized_compiler_version = None
+    if compiler_version is not None:
+        if not isinstance(compiler_version, str):
+            return _empty_result("INVALID_CONFIGURATION", "compiler_version_invalid")
+        match = re.fullmatch(
+            r"v?(\\d+\\.\\d+\\.\\d+)(?:\\+.*)?",
+            compiler_version.strip(),
+        )
+        if not match:
+            return _empty_result("INVALID_CONFIGURATION", "compiler_version_invalid")
+        normalized_compiler_version = match.group(1)
 
     project = _source_project(source_code)
     if project["status"] != "OK":
@@ -234,6 +249,9 @@ def analyze_source(
                     command.extend(["--solc-remaps", " ".join(project["remappings"])])
                 command.extend(["--json", "-"])
 
+                process_env = os.environ.copy()
+                if normalized_compiler_version:
+                    process_env["SOLC_VERSION"] = normalized_compiler_version
                 try:
                     completed = subprocess.run(
                         command,
@@ -242,6 +260,7 @@ def analyze_source(
                         text=True,
                         timeout=max(1, math.ceil(remaining)),
                         check=False,
+                        env=process_env,
                     )
                 except subprocess.TimeoutExpired:
                     errors.append({
@@ -324,6 +343,8 @@ def analyze_source(
             }
 
         result["tool"] = "slither"
+        if normalized_compiler_version:
+            result["compiler_version"] = normalized_compiler_version
         result["source_mode"] = project["mode"]
         result["source_file_count"] = len(project["files"])
         result["analysis_entrypoints_count"] = len(selected_paths)

@@ -679,28 +679,67 @@ class SecurityChecker:
 
 
     def _run_slither_analysis(self, repo_path):
-        import subprocess, json
+        import json
+        import subprocess
+
         findings = []
         try:
-            res = subprocess.run(
+            result = subprocess.run(
                 ["slither", ".", "--json", "-"],
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
-                timeout=45
+                timeout=45,
+                check=False,
+                shell=False,
             )
-            if res.stdout:
-                data = json.loads(res.stdout)
-                for detector in data.get("results", {}).get("detectors", []):
+            if result.stdout:
+                payload = json.loads(result.stdout)
+                detectors = payload.get("results", {}).get("detectors", [])
+                severity_map = {
+                    "CRITICAL": "CRITICAL",
+                    "HIGH": "HIGH",
+                    "MEDIUM": "MEDIUM",
+                    "LOW": "LOW",
+                    "INFORMATIONAL": "LOW",
+                    "OPTIMIZATION": "LOW",
+                }
+                for detector in detectors[:100]:
+                    if not isinstance(detector, dict):
+                        continue
+                    elements = detector.get("elements")
+                    first_element = (
+                        elements[0]
+                        if isinstance(elements, list)
+                        and elements
+                        and isinstance(elements[0], dict)
+                        else {}
+                    )
+                    source_mapping = first_element.get("source_mapping")
+                    if not isinstance(source_mapping, dict):
+                        source_mapping = {}
+                    detector_id = str(detector.get("check") or "unknown")
+                    impact = str(detector.get("impact") or "MEDIUM").upper()
                     findings.append({
-    "rule": "slither_" + detector.get('check', 'unknown'),
-                        "severity": detector.get("impact", "MEDIUM").upper(),
-                        "file": str(detector.get("elements", [{}])[0].get("source_mapping", {}).get("filename_relative", "unknown")),
-                        "description": detector.get("description", "Slither finding"),
-                        "status": "POTENTIAL_RISK"
+                        "rule": "slither_" + detector_id[:128],
+                        "severity": severity_map.get(impact, "MEDIUM"),
+                        "file": str(
+                            source_mapping.get("filename_relative") or "unknown"
+                        )[:512],
+                        "description": str(
+                            detector.get("description") or "Slither finding"
+                        )[:4000],
+                        "confidence": str(
+                            detector.get("confidence") or "UNKNOWN"
+                        ).upper(),
+                        "status": "POTENTIAL_RISK",
+                        "not_a_confirmed_exploit": True,
                     })
-        except Exception as e:
-            print(f"[SecurityChecker] Slither execution skipped or failed: {e}", flush=True)
+        except Exception as exc:
+            print(
+                f"[SecurityChecker] Slither execution skipped or failed: {type(exc).__name__}",
+                flush=True,
+            )
         return findings
 
 
@@ -764,7 +803,8 @@ class SecurityChecker:
                         "severity": issue.get("severity", "HIGH").upper(),
                         "file": contract_path,
                         "description": issue.get("description", "Symbolic execution detected logical flaw"),
-                        "status": "CRITICAL_RISK"
+                        "status": "POTENTIAL_RISK",
+                        "not_a_confirmed_exploit": True,
                     })
         except Exception as e:
             print(f"[SecurityChecker] Mythril symbolic analysis skipped or failed: {e}", flush=True)

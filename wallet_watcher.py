@@ -9,8 +9,6 @@ logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(levelname)s] %(
 
 WALLET_ADDRESS = "0xF462A261266C543A31Ef43A94bb48d7575299B97"
 DB_PATH = "shared/tasks.db"
-TELEGRAM_BOT_TOKEN = "8426799102:AAEAMz0lWfvyQrpcE1hkf9uINONt40UTEB0"
-TELEGRAM_CHAT_ID = "659223890"
 
 NETWORKS = {
     "base": "https://mainnet.base.org",
@@ -58,16 +56,23 @@ def can_send_daily_alert() -> bool:
         return True
 
 def send_alert(message: str):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        logging.warning("[TELEGRAM] Wallet alert credentials are not configured")
+        return False
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": f"⚠️ **AegisForge Wallet Warning** ⚠️\n\n{message}",
         "parse_mode": "Markdown"
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, timeout=10)
+        return response.status_code == 200
     except Exception as e:
         logging.error(f"[TELEGRAM ERROR] {e}")
+        return False
 
 def check_balances():
     low_balance_warnings = []

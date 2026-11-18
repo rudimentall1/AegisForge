@@ -14,6 +14,7 @@ from web3 import Web3
 
 from agents.config import CHAIN_IDS, EXPLORER_URLS, RPC_ENDPOINTS
 from agents.deep_researcher.slither_analysis import analyze_source
+from agents.deep_researcher.analysis_verifier import verify_analysis_evidence
 from shared.discovery import FINDING_SCHEMA
 
 
@@ -263,6 +264,7 @@ class DeploymentIntakeResearcher:
                 address,
                 contract_dir,
             )
+            verified_source = None
             source_analysis = {
                 "schema": "aegisforge.slither_analysis.v1",
                 "status": "NOT_RUN",
@@ -296,6 +298,32 @@ class DeploymentIntakeResearcher:
             analysis_path = contract_dir / "slither-analysis.json"
             _atomic_write(analysis_path, analysis_bytes)
 
+            if verified_source is not None:
+                analysis_validation = verify_analysis_evidence(
+                    source_bytes=verified_source.encode("utf-8"),
+                    analysis_bytes=analysis_path.read_bytes(),
+                    expected_source_sha256=source_verification["source_sha256"],
+                    expected_analysis_sha256=_sha256(analysis_bytes),
+                )
+            else:
+                analysis_validation = {
+                    "schema": "aegisforge.analysis_validation.v1",
+                    "status": "NOT_APPLICABLE",
+                    "validation_scope": "artifact_integrity_only",
+                    "reason": "verified_source_unavailable",
+                    "checks": {},
+                    "vulnerabilities_confirmed": False,
+                }
+
+            validation_bytes = json.dumps(
+                analysis_validation,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+            validation_path = contract_dir / "analysis-validation.json"
+            _atomic_write(validation_path, validation_bytes)
+
             endpoint_host = urlsplit(endpoint).hostname or "configured_rpc"
             metadata = {
                 "schema": "aegisforge.deployment_evidence.v1",
@@ -315,6 +343,11 @@ class DeploymentIntakeResearcher:
                 "static_analysis": {
                     "status": source_analysis["status"],
                     "finding_count": source_analysis.get("finding_count", 0),
+                    "vulnerabilities_confirmed": False,
+                },
+                "analysis_validation": {
+                    "status": analysis_validation["status"],
+                    "validation_scope": "artifact_integrity_only",
                     "vulnerabilities_confirmed": False,
                 },
                 "vulnerability_confirmed": False,
@@ -342,6 +375,7 @@ class DeploymentIntakeResearcher:
                 "source_sha256": source_verification["source_sha256"],
                 "static_analysis_status": source_analysis["status"],
                 "static_analysis_finding_count": source_analysis.get("finding_count", 0),
+                "analysis_validation_status": analysis_validation["status"],
                 "metadata_sha256": _sha256(metadata_bytes),
             }
             task.result = {
@@ -353,13 +387,16 @@ class DeploymentIntakeResearcher:
                 "discovery_evidence": evidence_summary,
                 "source_verification": source_verification,
                 "static_analysis": source_analysis,
+                "analysis_validation": analysis_validation,
                 "evidence_artifact": {
                     "metadata_path": str(metadata_path.relative_to(self.evidence_dir)),
                     "bytecode_path": str(bytecode_path.relative_to(self.evidence_dir)),
                     "analysis_path": str(analysis_path.relative_to(self.evidence_dir)),
+                    "validation_path": str(validation_path.relative_to(self.evidence_dir)),
                     "metadata_sha256": _sha256(metadata_bytes),
                     "bytecode_sha256": bytecode_sha256,
                     "analysis_sha256": _sha256(analysis_bytes),
+                    "validation_sha256": _sha256(validation_bytes),
                 },
                 "scope_guards": {
                     "read_only_rpc": True,

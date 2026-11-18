@@ -991,22 +991,12 @@ RULES:
 # --- TELEGRAM ALERT MODULE ---
 
 
-def normalize_worker_role(value):
-    role = str(value or "").strip().lower()
-    if role in {"", "1", "2", "3", "4"}:
-        return "security_checker"
-    return role
+from agents.worker_roles import normalize_worker_role
+from agents.worker_roles import resolve_worker_role as _resolve_worker_role
 
 
 def resolve_worker_role(arguments):
-    if not arguments:
-        return "security_checker"
-    if len(arguments) != 1:
-        raise ValueError("exactly one worker role may be supplied")
-    role = normalize_worker_role(arguments[0])
-    if role not in AGENTS:
-        raise ValueError(f"unsupported worker role: {role}")
-    return role
+    return _resolve_worker_role(arguments, AGENTS)
 
 
 def main():

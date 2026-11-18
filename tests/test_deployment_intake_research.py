@@ -3,7 +3,7 @@ import json
 
 from web3 import Web3
 
-from agents.source_researcher.deployment_intake import DeploymentIntakeResearcher
+from agents.deep_researcher.agent import DeepResearcher
 from shared.discovery import FINDING_SCHEMA
 from shared.task import Task
 

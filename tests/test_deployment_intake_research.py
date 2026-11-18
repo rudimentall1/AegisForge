@@ -37,7 +37,18 @@ class FakeResponse:
         return None
 
     def json(self):
-        return {"status": "1", "result": [{"SourceCode": "contract Vault {}"}]}
+        return {
+            "status": "1",
+            "result": [{
+                "SourceCode": "contract Vault {}",
+                "ContractName": "Vault",
+                "CompilerVersion": "v0.8.20+commit.a1b79de6",
+                "OptimizationUsed": "1",
+                "Runs": "200",
+                "EVMVersion": "paris",
+                "LicenseType": "MIT",
+            }],
+        }
 
 
 def make_task(**overrides):
@@ -188,9 +199,11 @@ def test_deployment_intake_persists_static_analysis_report(tmp_path, monkeypatch
         "vulnerabilities_confirmed": False,
     }
     observed_source = []
+    observed_compiler_versions = []
 
-    def fake_analysis(source_code):
+    def fake_analysis(source_code, compiler_version=None):
         observed_source.append(source_code)
+        observed_compiler_versions.append(compiler_version)
         return expected_analysis
 
     monkeypatch.setattr(intake_module, "analyze_source", fake_analysis)
@@ -205,6 +218,9 @@ def test_deployment_intake_persists_static_analysis_report(tmp_path, monkeypatch
 
     assert result.status == "deep_researched"
     assert observed_source == ["contract Vault {}"]
+    assert observed_compiler_versions == ["v0.8.20+commit.a1b79de6"]
+    assert result.result["source_verification"]["compiler_version"] == "v0.8.20+commit.a1b79de6"
+    assert result.result["source_verification"]["contract_name"] == "Vault"
     assert result.result["static_analysis"] == expected_analysis
     analysis_path = tmp_path / result.result["evidence_artifact"]["analysis_path"]
     assert json.loads(analysis_path.read_text(encoding="utf-8")) == expected_analysis

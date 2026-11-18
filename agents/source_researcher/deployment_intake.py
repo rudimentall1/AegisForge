@@ -111,6 +111,8 @@ class DeploymentIntakeResearcher:
             raise DeploymentResearchError("discovery_contract_address_invalid")
         if not isinstance(finding_type, str) or not finding_type.strip():
             raise DeploymentResearchError("discovery_finding_type_invalid")
+        if not isinstance(finding.get("evidence"), dict):
+            raise DeploymentResearchError("discovery_evidence_invalid")
         if not isinstance(block_number, int) or isinstance(block_number, bool) or block_number < 0:
             raise DeploymentResearchError("discovery_observed_block_invalid")
 

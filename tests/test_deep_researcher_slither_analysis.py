@@ -118,3 +118,75 @@ def test_analyze_source_reports_timeout(monkeypatch):
     assert result["status"] == "TIMEOUT"
     assert result["findings"] == []
     assert result["vulnerabilities_confirmed"] is False
+
+
+
+def test_analyze_source_supports_etherscan_multifile_standard_json(monkeypatch):
+    import agents.deep_researcher.slither_analysis as module
+
+    project = {
+        "language": "Solidity",
+        "sources": {
+            "contracts/Vault.sol": {
+                "content": "pragma solidity ^0.8.20; import './Guard.sol'; contract Vault is Guard {}"
+            },
+            "contracts/Guard.sol": {
+                "content": "pragma solidity ^0.8.20; contract Guard {}"
+            },
+        },
+        "settings": {
+            "remappings": ["@openzeppelin/=lib/openzeppelin-contracts/"]
+        },
+    }
+    observed = {}
+    monkeypatch.setattr(module.shutil, "which", lambda binary: "/usr/bin/slither")
+
+    def fake_run(command, **kwargs):
+        observed["command"] = command
+        target = command[1]
+        observed["is_directory"] = __import__("os").path.isdir(target)
+        observed["files"] = sorted(
+            path.relative_to(target).as_posix()
+            for path in __import__("pathlib").Path(target).rglob("*.sol")
+        )
+        observed["vault_source"] = (
+            __import__("pathlib").Path(target) / "contracts/Vault.sol"
+        ).read_text(encoding="utf-8")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps({"success": True, "results": {"detectors": []}}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    etherscan_source = "{" + json.dumps(project) + "}"
+
+    result = analyze_source(etherscan_source)
+
+    assert result["status"] == "ANALYZED"
+    assert result["source_mode"] == "multi_file"
+    assert result["source_file_count"] == 2
+    assert observed["is_directory"] is True
+    assert observed["files"] == ["contracts/Guard.sol", "contracts/Vault.sol"]
+    assert "import './Guard.sol';" in observed["vault_source"]
+    assert "--solc-remaps" in observed["command"]
+    assert "@openzeppelin/=lib/openzeppelin-contracts/" in observed["command"]
+
+
+def test_analyze_source_rejects_multifile_path_traversal(monkeypatch):
+    import agents.deep_researcher.slither_analysis as module
+
+    project = {
+        "language": "Solidity",
+        "sources": {
+            "../outside.sol": {"content": "pragma solidity ^0.8.20; contract Outside {}"}
+        },
+    }
+    monkeypatch.setattr(module.shutil, "which", lambda binary: "/usr/bin/slither")
+
+    result = analyze_source("{" + json.dumps(project) + "}")
+
+    assert result["status"] == "INVALID_SOURCE_PROJECT"
+    assert result["findings"] == []
+    assert result["vulnerabilities_confirmed"] is False

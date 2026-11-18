@@ -97,3 +97,71 @@ def test_verifier_rejects_unhashable_status_and_finding_fields():
     ]
     finding_result = verify(payload=invalid_finding)
     assert finding_result["status"] == "INVALID"
+
+
+
+def test_verifier_checks_slither_source_mapping_against_verified_source():
+    source = (
+        b"pragma solidity ^0.8.20;\n"
+        b"contract Vault {\n"
+        b"    function withdraw() external {}\n"
+        b"}\n"
+    )
+    mapped = b"function withdraw() external {}"
+    start = source.index(mapped)
+    payload = dict(ANALYSIS)
+    payload["findings"] = [
+        dict(
+            ANALYSIS["findings"][0],
+            elements=[
+                {
+                    "type": "function",
+                    "name": "withdraw",
+                    "source_mapping": {
+                        "start": start,
+                        "length": len(mapped),
+                        "filename_relative": "Contract.sol",
+                        "lines": [3],
+                        "is_dependency": False,
+                    },
+                }
+            ],
+        )
+    ]
+    analysis_bytes = encoded_analysis(payload)
+    result = verify_analysis_evidence(
+        source_bytes=source,
+        analysis_bytes=analysis_bytes,
+        expected_source_sha256=hashlib.sha256(source).hexdigest(),
+        expected_analysis_sha256=hashlib.sha256(analysis_bytes).hexdigest(),
+    )
+
+    assert result["status"] == "VALID"
+    assert result["checks"]["source_mappings_valid"] is True
+    assert result["source_mapping_coverage"]["mapped_elements"] == 1
+
+
+def test_verifier_rejects_slither_mapping_to_missing_source_file():
+    payload = dict(ANALYSIS)
+    payload["findings"] = [
+        dict(
+            ANALYSIS["findings"][0],
+            elements=[
+                {
+                    "type": "function",
+                    "name": "withdraw",
+                    "source_mapping": {
+                        "start": 0,
+                        "length": 4,
+                        "filename_relative": "missing.sol",
+                        "lines": [1],
+                        "is_dependency": False,
+                    },
+                }
+            ],
+        )
+    ]
+    result = verify(payload=payload)
+
+    assert result["status"] == "INVALID"
+    assert result["checks"]["source_mappings_valid"] is False

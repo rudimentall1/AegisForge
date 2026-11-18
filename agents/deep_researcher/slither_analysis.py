@@ -226,17 +226,16 @@ def analyze_source(
                 )
             except (OSError, subprocess.TimeoutExpired):
                 return _empty_result("COMPILER_UNAVAILABLE", "solc_select_versions_failed")
-            if versions_result.returncode != 0:
-                return _empty_result("COMPILER_UNAVAILABLE", "solc_select_versions_failed")
-
-            installed_versions = set(
-                re.findall(
-                    r"(?<![0-9.])\d+\.\d+\.\d+(?![0-9.])",
-                    versions_result.stdout or "",
+            auto_install = os.getenv("AEGISFORGE_AUTO_INSTALL_SOLC", "0").strip().lower()
+            installed_versions = set()
+            if versions_result.returncode == 0:
+                installed_versions = set(
+                    re.findall(
+                        r"(?<![0-9.])\d+\.\d+\.\d+(?![0-9.])",
+                        versions_result.stdout or "",
+                    )
                 )
-            )
             if normalized_compiler_version not in installed_versions:
-                auto_install = os.getenv("AEGISFORGE_AUTO_INSTALL_SOLC", "0").strip().lower()
                 if auto_install not in {"1", "true", "yes"}:
                     return _empty_result(
                         "COMPILER_UNAVAILABLE",

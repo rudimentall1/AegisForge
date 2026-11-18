@@ -235,10 +235,19 @@ def test_analyze_source_selects_verified_solidity_compiler_without_global_switch
     import agents.deep_researcher.slither_analysis as module
 
     observed = {}
-    monkeypatch.setattr(module.shutil, "which", lambda binary: "/usr/bin/slither")
+    monkeypatch.setattr(
+        module.shutil,
+        "which",
+        lambda binary: "/usr/bin/solc" if binary == "solc" else "/usr/bin/slither",
+    )
 
     def fake_run(command, **kwargs):
-        observed["solc_version"] = kwargs["env"].get("SOLC_VERSION")
+        if command[0] == "/usr/bin/solc":
+            observed["compiler_env"] = kwargs["env"].get("SOLC_VERSION")
+            return subprocess.CompletedProcess(
+                command, 0, stdout="Version: 0.8.20+commit.a1b79de6", stderr=""
+            )
+        observed["slither_env"] = kwargs["env"].get("SOLC_VERSION")
         return subprocess.CompletedProcess(
             command,
             0,
@@ -255,8 +264,33 @@ def test_analyze_source_selects_verified_solidity_compiler_without_global_switch
 
     assert result["status"] == "ANALYZED"
     assert result["compiler_version"] == "0.8.20"
-    assert observed["solc_version"] == "0.8.20"
+    assert observed["compiler_env"] == "0.8.20"
+    assert observed["slither_env"] == "0.8.20"
 
+
+def test_analyze_source_rejects_mismatched_solidity_compiler(monkeypatch):
+    import agents.deep_researcher.slither_analysis as module
+
+    monkeypatch.setattr(
+        module.shutil,
+        "which",
+        lambda binary: "/usr/bin/solc" if binary == "solc" else "/usr/bin/slither",
+    )
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command, 0, stdout="Version: 0.8.19+commit.7dd6d404", stderr=""
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = analyze_source(
+        "pragma solidity ^0.8.20; contract Vault {}",
+        compiler_version="v0.8.20+commit.a1b79de6",
+    )
+
+    assert result["status"] == "COMPILER_VERSION_MISMATCH"
+    assert result["vulnerabilities_confirmed"] is False
 
 
 def test_analyze_source_rejects_untrusted_compiler_version(monkeypatch):

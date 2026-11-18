@@ -51,7 +51,33 @@ class FakeResponse:
         }
 
 
-def make_task(**overrides):
+
+
+
+class FakeNotFoundResponse:
+    status_code = 404
+    headers = {}
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {}
+
+
+class FakeSourcifyResponse:
+    status_code = 200
+    headers = {}
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+\n\ndef make_task(**overrides):
     values = {
         "chain": "base",
         "contract_address": ADDRESS,
@@ -88,6 +114,7 @@ def test_deployment_intake_fetches_runtime_code_at_observed_block(tmp_path, monk
         chain_ids={"base": 8453},
         evidence_dir=tmp_path,
         web3_factory=lambda endpoint: fake_web3,
+        http_get=lambda *args, **kwargs: FakeNotFoundResponse(),
     )
     task = make_task()
 
@@ -100,7 +127,8 @@ def test_deployment_intake_fetches_runtime_code_at_observed_block(tmp_path, monk
     assert result.result["discovery_evidence"]["runtime_bytecode_keccak256"].removeprefix("0x") == Web3.keccak(
         b"\x60\x01\x60\x00"
     ).hex().removeprefix("0x")
-    assert result.result["source_verification"]["status"] == "NOT_CONFIGURED"
+    assert result.result["source_verification"]["status"] == "NOT_VERIFIED"
+    assert result.result["source_verification"]["provider"] == "sourcify_v2"
     artifact = tmp_path / result.result["evidence_artifact"]["metadata_path"]
     bytecode = tmp_path / result.result["evidence_artifact"]["bytecode_path"]
     assert artifact.is_file()
@@ -238,3 +266,63 @@ def test_deployment_intake_persists_static_analysis_report(tmp_path, monkeypatch
     assert metadata["static_analysis_sha256"] == result.result["evidence_artifact"]["analysis_sha256"]
     assert metadata["analysis_validation_sha256"] == result.result["evidence_artifact"]["validation_sha256"]
     assert metadata["analysis_validation_status"] == "VALID"
+
+
+
+def test_sourcify_supplies_verified_source_without_etherscan_key_and_caches_it(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
+    source = "pragma solidity ^0.8.20; contract Vault {}"
+    source_hash = Web3.keccak(text=source).hex()
+    payload = {
+        "chainId": "8453",
+        "address": Web3.to_checksum_address(ADDRESS),
+        "match": "exact_match",
+        "matchId": "123456",
+        "sources": {"contracts/Vault.sol": {"content": source}},
+        "compilation": {
+            "language": "Solidity",
+            "compilerVersion": "v0.8.20+commit.a1b79de6",
+            "compilerSettings": {
+                "optimizer": {"enabled": True, "runs": 200},
+                "evmVersion": "paris",
+            },
+            "name": "Vault",
+        },
+        "metadata": {
+            "sources": {
+                "contracts/Vault.sol": {"keccak256": source_hash}
+            }
+        },
+    }
+    calls = []
+
+    def fake_get(url, params, timeout, headers):
+        calls.append((url, params, timeout, headers))
+        return FakeSourcifyResponse(payload)
+
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=fake_get,
+    )
+
+    first = researcher.run(make_task(observed_block=12345))
+    second = researcher.run(make_task(observed_block=12346))
+
+    assert first.result["source_verification"]["status"] == "VERIFIED"
+    assert first.result["source_verification"]["provider"] == "sourcify_v2"
+    assert first.result["source_verification"]["match_quality"] == "exact_match"
+    assert first.result["source_verification"]["compiler_version"] == "v0.8.20+commit.a1b79de6"
+    assert first.result["source_verification"]["source_integrity"]["verified_files"] == 1
+    assert first.result["source_verification"]["cache_hit"] is False
+    assert second.result["source_verification"]["cache_hit"] is True
+    assert len(calls) == 1
+    assert calls[0][1]["fields"] == "sources,compilation,metadata,match,matchId,creationMatch,runtimeMatch"
+    assert "AegisForge" in calls[0][3]["User-Agent"]
+    source_path = tmp_path / first.result["source_verification"]["source_path"]
+    normalized = json.loads(source_path.read_text(encoding="utf-8"))
+    assert normalized["sources"]["contracts/Vault.sol"]["content"] == source

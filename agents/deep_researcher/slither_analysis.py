@@ -238,7 +238,7 @@ def analyze_source(
             return _empty_result("COMPILER_UNAVAILABLE", "solidity_compiler_probe_failed")
 
         compiler_output = (compiler_probe.stdout or "") + (compiler_probe.stderr or "")
-        version_match = re.search(r"Version:\\s*(\\d+\\.\\d+\\.\\d+)", compiler_output)
+        version_match = re.search(r"Version:\s*(\d+\.\d+\.\d+)", compiler_output)
         compiler_matches = (
             compiler_probe.returncode == 0
             and version_match is not None
@@ -274,7 +274,7 @@ def analyze_source(
                 )
             compiler_output = (compiler_probe.stdout or "") + (compiler_probe.stderr or "")
             version_match = re.search(
-                r"Version:\\s*(\\d+\\.\\d+\\.\\d+)",
+                r"Version:\s*(\d+\.\d+\.\d+)",
                 compiler_output,
             )
             compiler_matches = (

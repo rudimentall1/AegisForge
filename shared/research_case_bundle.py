@@ -380,13 +380,17 @@ def export_research_case_bundle(
         task_round_ids = {task["id"]: task.get("round_id") for task in tasks}
         task_roles = {task["id"]: task.get("role") for task in tasks}
         declared_round_ids = {round.round_id for round in case.rounds}
-        # Legacy/minimal cases may intentionally omit a round plan. Enforce
-        # membership only when the case declares one; otherwise preserve
-        # task/evidence round equality without inventing a plan.
+        # Legacy/minimal cases may intentionally omit a round plan. Once a
+        # case declares bounded rounds, every task in its exported research
+        # graph must identify one of those rounds. Allowing a missing round_id
+        # here would let an unbounded task graph pass export while appearing to
+        # belong to a planned investigation.
         if declared_round_ids:
             for task in tasks:
                 round_id = task.get("round_id")
-                if round_id is not None and round_id not in declared_round_ids:
+                if not isinstance(round_id, str) or not round_id.strip():
+                    raise ResearchCaseBundleError("task_round_identity_required")
+                if round_id not in declared_round_ids:
                     raise ResearchCaseBundleError("task_round_not_declared_in_case")
         for observation in evidence:
             task_id = observation.get("task_id")

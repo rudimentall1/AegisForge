@@ -106,3 +106,28 @@ def test_accepts_valid_bounded_json_rpc_response():
     )
 
     assert result["result"] == "0x1"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"jsonrpc":"2.0","method":"eth_chainId","params":[]}',
+        b'{"jsonrpc":"2.0","id":1,"id":2,"method":"eth_chainId","params":[]}',
+    ],
+)
+def test_rejects_missing_or_duplicate_request_id(body):
+    with pytest.raises(RpcGatewayError):
+        parse_rpc_request(body)
+
+
+def test_rejects_oversized_request_and_response():
+    with pytest.raises(RpcGatewayError, match="request_body_size_invalid"):
+        parse_rpc_request(b" " * (1_048_576 + 1))
+
+    with pytest.raises(RpcGatewayError, match="upstream_response_size_invalid"):
+        validate_rpc_response(
+            status_code=200,
+            body=b'{"jsonrpc":"2.0","id":1,"result":"' + b"x" * 64 + b'"}',
+            expected_id=1,
+            max_response_bytes=32,
+        )

@@ -8,7 +8,7 @@ from agents.security_checker.fork_engine import (
 )
 
 
-def test_builds_immutable_fork_snapshot_from_verified_chain_and_runtime():
+def test_builds_normalized_fork_snapshot_from_verified_chain_and_runtime():
     runtime_bytecode = "0x6001600055"
     snapshot = build_fork_snapshot(
         chain_id=42161,

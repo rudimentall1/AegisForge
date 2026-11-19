@@ -64,6 +64,10 @@ def _verified_source_files(source_bytes: bytes) -> dict:
 
 def _verify_source_mappings(source_bytes: bytes, findings: list) -> dict:
     source_files = _verified_source_files(source_bytes)
+    source_metadata = {
+        name: (len(content.splitlines()), len(content.encode("utf-8")))
+        for name, content in source_files.items()
+    }
     mapped = 0
     dependency = 0
     missing = 0
@@ -80,6 +84,7 @@ def _verify_source_mappings(source_bytes: bytes, findings: list) -> dict:
             mapping = element.get("source_mapping") if isinstance(element, dict) else None
             if not isinstance(mapping, dict):
                 missing += 1
+                invalid = True
                 continue
             if mapping.get("is_dependency") is True:
                 dependency += 1
@@ -99,10 +104,11 @@ def _verify_source_mappings(source_bytes: bytes, findings: list) -> dict:
             ):
                 invalid = True
                 continue
-            source_text = source_files.get(relative.as_posix())
-            if not isinstance(source_text, str):
+            source_dimensions = source_metadata.get(relative.as_posix())
+            if source_dimensions is None:
                 invalid = True
                 continue
+            source_line_count, source_length = source_dimensions
 
             lines = mapping.get("lines")
             if (
@@ -112,7 +118,7 @@ def _verify_source_mappings(source_bytes: bytes, findings: list) -> dict:
                     not isinstance(line, int)
                     or isinstance(line, bool)
                     or line < 1
-                    or line > len(source_text.splitlines())
+                    or line > source_line_count
                     for line in lines
                 )
             ):
@@ -121,7 +127,6 @@ def _verify_source_mappings(source_bytes: bytes, findings: list) -> dict:
 
             start = mapping.get("start")
             length = mapping.get("length")
-            source_length = len(source_text.encode("utf-8"))
             if (
                 not isinstance(start, int)
                 or isinstance(start, bool)

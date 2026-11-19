@@ -223,9 +223,11 @@ def test_collects_historical_snapshot_through_read_only_gateway(monkeypatch):
         "eth_chainId",
         "eth_getBlockByNumber",
         "eth_getCode",
+        "eth_getBlockByNumber",
     ]
     assert observed_requests[1]["params"] == ["0xfa", False]
     assert observed_requests[2]["params"] == [address, "0xfa"]
+    assert observed_requests[3]["params"] == ["0xfa", False]
 
 
 def test_collect_snapshot_rejects_wrong_chain_identity(monkeypatch):
@@ -252,4 +254,84 @@ def test_collect_snapshot_rejects_wrong_chain_identity(monkeypatch):
             expected_chain_id=42161,
             block_number=250,
             contract_address="0x" + "cd" * 20,
+        )
+
+
+
+def test_collect_snapshot_rejects_reorg_between_block_and_code_reads(monkeypatch):
+    import agents.security_checker.fork_engine as engine
+
+    original_hash = "0x" + "ab" * 32
+    replacement_hash = "0x" + "ef" * 32
+    address = "0x" + "cd" * 20
+    block_reads = 0
+
+    def fake_forward(url, allowed_hosts, body):
+        nonlocal block_reads
+        request = json.loads(body)
+        if request["method"] == "eth_getBlockByNumber":
+            block_reads += 1
+            block_hash = original_hash if block_reads == 1 else replacement_hash
+            result = {"number": "0xfa", "hash": block_hash}
+        elif request["method"] == "eth_chainId":
+            result = "0xa4b1"
+        else:
+            result = "0x6001600055"
+        return {"jsonrpc": "2.0", "id": request["id"], "result": result}
+
+    monkeypatch.setattr(engine, "forward_rpc_request", fake_forward)
+
+    with pytest.raises(
+        ForkSnapshotError,
+        match="fork_block_changed_during_collection",
+    ):
+        collect_fork_snapshot(
+            upstream_url="https://rpc.example.test/",
+            allowed_hosts={"rpc.example.test"},
+            expected_chain_id=42161,
+            block_number=250,
+            contract_address=address,
+        )
+
+    assert block_reads == 2
+
+
+@pytest.mark.parametrize(
+    ("confirmation", "expected_error"),
+    [
+        ({"jsonrpc": "2.0", "id": "wrong-id", "result": {"number": "0xfa", "hash": "0x" + "ab" * 32}},
+         "block_confirmation_response_invalid"),
+        ({"jsonrpc": "2.0", "id": "aegisforge-block-confirmation", "result": None},
+         "fork_block_confirmation_invalid"),
+    ],
+)
+def test_collect_snapshot_fails_closed_on_invalid_block_confirmation(
+    monkeypatch, confirmation, expected_error
+):
+    import agents.security_checker.fork_engine as engine
+
+    block_hash = "0x" + "ab" * 32
+    address = "0x" + "cd" * 20
+
+    def fake_forward(url, allowed_hosts, body):
+        request = json.loads(body)
+        if request["method"] == "eth_getBlockByNumber":
+            if request["id"] == "aegisforge-block-confirmation":
+                return confirmation
+            result = {"number": "0xfa", "hash": block_hash}
+        elif request["method"] == "eth_chainId":
+            result = "0xa4b1"
+        else:
+            result = "0x6001600055"
+        return {"jsonrpc": "2.0", "id": request["id"], "result": result}
+
+    monkeypatch.setattr(engine, "forward_rpc_request", fake_forward)
+
+    with pytest.raises(ForkSnapshotError, match=expected_error):
+        collect_fork_snapshot(
+            upstream_url="https://rpc.example.test/",
+            allowed_hosts={"rpc.example.test"},
+            expected_chain_id=42161,
+            block_number=250,
+            contract_address=address,
         )

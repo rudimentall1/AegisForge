@@ -118,7 +118,7 @@ def test_foundry_runner_executes_only_generated_project_in_container(monkeypatch
         observed["files"] = {
             path.relative_to(source_root).as_posix(): path.read_text(encoding="utf-8")
             for path in source_root.rglob("*")
-            if path.is_file()
+            if path.is_file() and path.name != "solc"
         }
         return sandbox_result()
 

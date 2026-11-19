@@ -382,7 +382,8 @@ def test_foundry_runner_installs_compiler_only_with_explicit_opt_in(
 ):
     import agents.security_checker.foundry_runner as runner
 
-    compiler = tmp_path / "solc"
+    compiler = tmp_path / "installed" / "solc"
+    compiler.parent.mkdir()
     compiler.write_bytes(b"installed-solc")
     compiler.chmod(0o555)
     observed = {"install_commands": []}

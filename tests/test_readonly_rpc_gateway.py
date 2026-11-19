@@ -276,3 +276,20 @@ def test_fork_anchor_fails_closed_on_chain_height_or_hash_mismatch(
             expected_block_number=42,
             expected_block_hash="0x" + "a" * 64,
         )
+
+
+def test_fork_anchor_rejects_unvalidated_response_envelopes():
+    from agents.security_checker.rpc_gateway import validate_fork_anchor
+
+    with pytest.raises(RpcGatewayError, match="fork_chain_identity_invalid"):
+        validate_fork_anchor(
+            chain_response={"jsonrpc": "1.0", "id": 1, "result": "0x1"},
+            block_response={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {"number": "0x2a", "hash": "0x" + "a" * 64},
+            },
+            expected_chain_id=1,
+            expected_block_number=42,
+            expected_block_hash="0x" + "a" * 64,
+        )

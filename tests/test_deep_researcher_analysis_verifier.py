@@ -165,3 +165,18 @@ def test_verifier_rejects_slither_mapping_to_missing_source_file():
 
     assert result["status"] == "INVALID"
     assert result["checks"]["source_mappings_valid"] is False
+
+
+def test_verifier_rejects_finding_elements_without_source_mappings():
+    payload = dict(ANALYSIS)
+    payload["findings"] = [
+        dict(
+            ANALYSIS["findings"][0],
+            elements=[{"type": "function", "name": "withdraw"}],
+        )
+    ]
+    result = verify(payload=payload)
+
+    assert result["status"] == "INVALID"
+    assert result["checks"]["source_mappings_valid"] is False
+    assert result["source_mapping_coverage"]["unmapped_elements"] == 1

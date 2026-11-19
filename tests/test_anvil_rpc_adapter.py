@@ -142,7 +142,10 @@ def test_adapter_server_injects_gateway_auth_and_returns_validated_response():
             "POST",
             "/rpc",
             body=json.dumps(request).encode(),
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer attacker-controlled",
+            },
         )
         response = connection.getresponse()
         payload = json.loads(response.read())

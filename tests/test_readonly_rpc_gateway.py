@@ -131,3 +131,91 @@ def test_rejects_oversized_request_and_response():
             expected_id=1,
             max_response_bytes=32,
         )
+
+
+class FakeResponse:
+    def __init__(self, status_code, chunks):
+        self.status_code = status_code
+        self._chunks = chunks
+        self.closed = False
+
+    def iter_content(self, chunk_size):
+        assert chunk_size == 65536
+        yield from self._chunks
+
+    def close(self):
+        self.closed = True
+
+
+def test_gateway_forwards_only_normalized_read_request_without_redirects():
+    from agents.security_checker.rpc_gateway import forward_rpc_request
+
+    observed = {}
+    response = FakeResponse(
+        200,
+        [b'{"jsonrpc":"2.0","id":4,"result":"0x1"}'],
+    )
+
+    def transport(url, **kwargs):
+        observed["url"] = url
+        observed.update(kwargs)
+        return response
+
+    result = forward_rpc_request(
+        "https://rpc.example.test/",
+        {"rpc.example.test"},
+        b'{"jsonrpc":"2.0","id":4,"method":"eth_chainId","params":[]}',
+        transport=transport,
+    )
+
+    assert result["result"] == "0x1"
+    assert observed["url"] == "https://rpc.example.test/"
+    assert observed["allow_redirects"] is False
+    assert observed["stream"] is True
+    assert observed["timeout"] == (3.0, 15.0)
+    assert observed["headers"] == {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    assert json.loads(observed["data"])["method"] == "eth_chainId"
+    assert response.closed is True
+
+
+def test_gateway_closes_response_and_rejects_oversized_upstream_body():
+    from agents.security_checker.rpc_gateway import forward_rpc_request
+
+    response = FakeResponse(200, [b"x" * 20])
+
+    def transport(url, **kwargs):
+        return response
+
+    with pytest.raises(RpcGatewayError, match="upstream_response_size_invalid"):
+        forward_rpc_request(
+            "https://rpc.example.test/",
+            {"rpc.example.test"},
+            b'{"jsonrpc":"2.0","id":4,"method":"eth_chainId","params":[]}',
+            transport=transport,
+            max_response_bytes=10,
+        )
+
+    assert response.closed is True
+
+
+def test_gateway_never_follows_upstream_redirects():
+    from agents.security_checker.rpc_gateway import forward_rpc_request
+
+    response = FakeResponse(307, [])
+
+    def transport(url, **kwargs):
+        assert kwargs["allow_redirects"] is False
+        return response
+
+    with pytest.raises(RpcGatewayError, match="upstream_http_status_rejected"):
+        forward_rpc_request(
+            "https://rpc.example.test/",
+            {"rpc.example.test"},
+            b'{"jsonrpc":"2.0","id":4,"method":"eth_chainId","params":[]}',
+            transport=transport,
+        )
+
+    assert response.closed is True

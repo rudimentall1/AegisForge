@@ -259,6 +259,8 @@ def run_foundry_test(
         "/work/.aegisforge/solc",
         "--match-path",
         _TEST_PATH,
+        "--match-test",
+        "test*",
         "--json",
         "--out",
         "/tmp/aegisforge-out",

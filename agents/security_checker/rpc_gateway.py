@@ -85,7 +85,9 @@ def parse_rpc_request(
         raise RpcGatewayError("request_fields_invalid")
     if payload.get("jsonrpc") != "2.0":
         raise RpcGatewayError("jsonrpc_version_invalid")
-    request_id = payload.get("id")
+    if "id" not in payload:
+        raise RpcGatewayError("request_id_invalid")
+    request_id = payload["id"]
     if isinstance(request_id, bool) or not (
         request_id is None
         or isinstance(request_id, int)
@@ -181,6 +183,7 @@ def validate_rpc_response(
     if (
         not isinstance(payload, dict)
         or payload.get("jsonrpc") != "2.0"
+        or "id" not in payload
         or set(payload) - {"jsonrpc", "id", "result", "error"}
         or ("result" in payload) == ("error" in payload)
     ):

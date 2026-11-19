@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -17,7 +18,7 @@ def test_real_anvil_forks_exact_local_block_and_foundry_reads_contract_state():
         timeout_seconds=240,
     )
 
-    assert result["status"] == "EXECUTED_PASS", result
+    assert result["status"] == "EXECUTED_PASS", json.dumps(result, indent=2)
     assert result["validation_scope"] == "synthetic_local_anvil_fork_smoke_test"
     assert result["synthetic_only"] is True
     assert result["fork_anchor"]["block_hash_match_verified"] is True

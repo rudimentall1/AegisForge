@@ -222,8 +222,11 @@ def forward_rpc_request(
         allowed_hosts=allowed_hosts,
     )
     request = parse_rpc_request(body)
+    session = None
     if transport is None:
-        transport = requests.post
+        session = requests.Session()
+        session.trust_env = False
+        transport = session.post
     if (
         isinstance(max_response_bytes, bool)
         or not isinstance(max_response_bytes, int)
@@ -279,6 +282,8 @@ def forward_rpc_request(
     finally:
         if response is not None:
             response.close()
+        if session is not None:
+            session.close()
 
 
 def validate_fork_anchor(

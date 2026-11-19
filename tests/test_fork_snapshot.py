@@ -198,6 +198,10 @@ def test_collects_historical_snapshot_through_read_only_gateway(monkeypatch):
                 "hash": block_hash,
             },
             "aegisforge-code": "0x6001600055",
+            "aegisforge-block-confirmation": {
+                "number": "0xfa",
+                "hash": block_hash,
+            },
         }
         return {
             "jsonrpc": "2.0",

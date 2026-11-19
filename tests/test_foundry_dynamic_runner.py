@@ -80,10 +80,11 @@ def test_foundry_runner_executes_only_generated_project_in_container(monkeypatch
 
     observed = {}
 
-    def fake_run_in_container(command, limits, source_root, *, image):
+    def fake_run_in_container(command, limits, source_root, *, image, entrypoint):
         observed["command"] = command
         observed["limits"] = limits
         observed["image"] = image
+        observed["entrypoint"] = entrypoint
         observed["root_mode"] = source_root.stat().st_mode & 0o777
         observed["source_mode"] = (source_root / "src" / "Vault.sol").stat().st_mode & 0o777
         observed["files"] = {
@@ -106,9 +107,10 @@ def test_foundry_runner_executes_only_generated_project_in_container(monkeypatch
     assert result["dynamic_verified"] is False
     assert result["confirmed"] is False
     assert observed["image"] == IMAGE
+    assert observed["entrypoint"] == "forge"
     assert observed["root_mode"] == 0o755
     assert observed["source_mode"] & 0o444 == 0o444
-    assert observed["command"][:4] == ["forge", "test", "--root", "/work"]
+    assert observed["command"][:4] == ["test", "--root", "/work", "--offline"]
     assert "--offline" in observed["command"]
     assert "--match-path" in observed["command"]
     assert "--json" in observed["command"]

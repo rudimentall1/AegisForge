@@ -91,10 +91,10 @@ def run_foundry_test(
     if not configured_image:
         return _result("NOT_CONFIGURED", "foundry_container_image_not_configured")
     if not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9./:_-]*@sha256:[0-9a-f]{64}",
+        r"ghcr\\.io/foundry-rs/foundry@sha256:[0-9a-f]{64}",
         configured_image,
     ):
-        return _result("INVALID_CONFIGURATION", "foundry_image_must_be_digest_pinned")
+        return _result("INVALID_CONFIGURATION", "official_foundry_image_digest_required")
     if (
         not isinstance(compiler_version, str)
         or not re.fullmatch(r"\d+\.\d+\.\d+", compiler_version)
@@ -179,6 +179,7 @@ def run_foundry_test(
                 ),
                 root,
                 image=configured_image,
+                entrypoint="forge",
             )
     except SandboxError as exc:
         reason = str(exc)
@@ -204,6 +205,7 @@ def run_foundry_test(
         "exit_code": observation.exit_code,
         "duration_seconds": observation.duration_seconds,
         "container_image": configured_image,
+        "container_image_provenance_verified": False,
         "container_isolation": observation.isolation,
         "compiler_version": compiler_version,
         "source_tree_sha256": source_digest.hexdigest(),

@@ -156,6 +156,8 @@ def test_container_runner_uses_hardened_offline_docker_defaults(monkeypatch, tmp
     assert "--cap-drop=ALL" in command
     assert "--security-opt=no-new-privileges" in command
     assert "--pids-limit=64" in command
+    assert "--memory-swap=1024m" in command
+    assert "--init" in command
     assert "--pull=never" in command
     assert f"type=bind,src={tmp_path.resolve()},dst=/work,readonly" in command
     assert command[-4:] == [image, "forge", "test", "--offline"]
@@ -172,3 +174,36 @@ def test_container_runner_rejects_invalid_image_digest(monkeypatch, tmp_path):
             tmp_path,
             image="ghcr.io/foundry-rs/foundry@sha256:short",
         )
+
+
+
+def test_container_runner_kills_container_after_timeout(monkeypatch, tmp_path):
+    import shared.sandbox as sandbox
+
+    image = "ghcr.io/foundry-rs/foundry@sha256:" + ("c" * 64)
+    cleanup_commands = []
+
+    def timeout(*args, **kwargs):
+        raise SandboxError("execution_timeout")
+
+    def fake_subprocess_run(command, **kwargs):
+        cleanup_commands.append(command)
+        return sandbox.subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(sandbox.shutil, "which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(sandbox, "_bounded_run", timeout)
+    monkeypatch.setattr(sandbox.subprocess, "run", fake_subprocess_run)
+
+    with pytest.raises(SandboxError, match="execution_timeout"):
+        sandbox.run_in_container(
+            ["test"],
+            SandboxLimits(timeout_seconds=1),
+            tmp_path,
+            image=image,
+            entrypoint="forge",
+        )
+
+    assert len(cleanup_commands) == 2
+    assert cleanup_commands[0][:2] == ["/usr/bin/docker", "kill"]
+    assert cleanup_commands[1][:3] == ["/usr/bin/docker", "rm", "-f"]
+    assert cleanup_commands[0][2] == cleanup_commands[1][3]

@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path, PurePosixPath
 
@@ -16,6 +18,39 @@ MAX_TEST_BYTES = 256 * 1024
 MAX_OUTPUT_BYTES = 512 * 1024
 MAX_TIMEOUT_SECONDS = 300
 _TEST_PATH = "test/AegisForgeValidation.t.sol"
+
+
+def _resolve_solc_binary(version: str) -> Path | None:
+    try:
+        from solc_select.solc_select import artifact_path
+
+        path = Path(artifact_path(version)).expanduser()
+    except (ImportError, OSError, ValueError):
+        return None
+    if not path.is_file() or not os.access(path, os.X_OK):
+        return None
+    return path
+
+
+def _probe_solc_binary(path: Path, expected_version: str) -> str:
+    try:
+        completed = subprocess.run(
+            [str(path), "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            shell=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "COMPILER_UNAVAILABLE"
+    output = (completed.stdout or "") + (completed.stderr or "")
+    match = re.search(r"Version:\\s*(\\d+\\.\\d+\\.\\d+)", output)
+    if completed.returncode != 0 or match is None:
+        return "COMPILER_UNAVAILABLE"
+    if match.group(1) != expected_version:
+        return "COMPILER_VERSION_MISMATCH"
+    return "OK"
 
 
 def _sha256(value: bytes) -> str:
@@ -163,6 +198,38 @@ def run_foundry_test(
         source_digest.update(b"\x00")
         source_digest.update(content.encode("utf-8"))
         source_digest.update(b"\x00")
+    compiler_path = _resolve_solc_binary(compiler_version)
+    if compiler_path is None:
+        auto_install = os.getenv("AEGISFORGE_AUTO_INSTALL_SOLC", "0").strip().lower()
+        if auto_install in {"1", "true", "yes"}:
+            solc_select = shutil.which("solc-select")
+            if not solc_select:
+                return _result("COMPILER_UNAVAILABLE", "solc_select_not_available")
+            try:
+                install = subprocess.run(
+                    [solc_select, "install", compiler_version],
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                    check=False,
+                    shell=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return _result("COMPILER_UNAVAILABLE", "solc_install_failed")
+            if install.returncode != 0:
+                return _result("COMPILER_UNAVAILABLE", "solc_install_failed")
+            compiler_path = _resolve_solc_binary(compiler_version)
+    if compiler_path is None:
+        return _result("COMPILER_UNAVAILABLE", "required_solc_binary_not_installed")
+
+    compiler_status = _probe_solc_binary(compiler_path, compiler_version)
+    if compiler_status != "OK":
+        return _result(compiler_status, "required_solc_binary_probe_failed")
+    try:
+        compiler_bytes = compiler_path.read_bytes()
+    except OSError:
+        return _result("COMPILER_UNAVAILABLE", "required_solc_binary_unreadable")
+    compiler_digest = _sha256(compiler_bytes)
     test_digest = _sha256(test_bytes)
 
     foundry_config = (
@@ -182,6 +249,8 @@ def run_foundry_test(
         "--root",
         "/work",
         "--offline",
+        "--use",
+        "/work/.aegisforge/solc",
         "--match-path",
         _TEST_PATH,
         "--json",
@@ -196,6 +265,11 @@ def run_foundry_test(
             root = Path(temporary)
             (root / "src").mkdir()
             (root / "test").mkdir()
+            compiler_dir = root / ".aegisforge"
+            compiler_dir.mkdir()
+            compiler_copy = compiler_dir / "solc"
+            shutil.copyfile(compiler_path, compiler_copy)
+            compiler_copy.chmod(0o555)
             for relative_name, content in normalized_sources.items():
                 destination = root / "src" / PurePosixPath(relative_name)
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -274,6 +348,7 @@ def run_foundry_test(
         "container_image_provenance_verified": False,
         "container_isolation": observation.isolation,
         "compiler_version": compiler_version,
+        "compiler_binary_sha256": compiler_digest,
         "source_tree_sha256": source_digest.hexdigest(),
         "test_harness_sha256": test_digest,
         "stdout_sha256": observation.stdout_sha256,

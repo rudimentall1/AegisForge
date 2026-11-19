@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 
 from agents.security_checker.fork_engine import (
@@ -7,12 +9,13 @@ from agents.security_checker.fork_engine import (
 
 
 def test_builds_immutable_fork_snapshot_from_verified_chain_and_runtime():
+    runtime_bytecode = "0x6001600055"
     snapshot = build_fork_snapshot(
         chain_id=42161,
         block_number=250,
         block_hash="0x" + "ab" * 32,
         contract_address="0x" + "CD" * 20,
-        runtime_bytecode="0x6001600055",
+        runtime_bytecode=runtime_bytecode,
     )
 
     assert snapshot == {
@@ -21,8 +24,8 @@ def test_builds_immutable_fork_snapshot_from_verified_chain_and_runtime():
         "block_number": 250,
         "block_hash": "0x" + "ab" * 32,
         "contract_address": "0x" + "cd" * 20,
-        "runtime_bytecode": "0x6001600055",
-        "runtime_bytecode_sha256": "5b5a5f4f5e7c1b2a",
+        "runtime_bytecode": runtime_bytecode,
+        "runtime_bytecode_sha256": hashlib.sha256(bytes.fromhex("6001600055")).hexdigest(),
     }
 
 

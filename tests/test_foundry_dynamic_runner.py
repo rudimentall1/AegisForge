@@ -84,6 +84,8 @@ def test_foundry_runner_executes_only_generated_project_in_container(monkeypatch
         observed["command"] = command
         observed["limits"] = limits
         observed["image"] = image
+        observed["root_mode"] = source_root.stat().st_mode & 0o777
+        observed["source_mode"] = (source_root / "src" / "Vault.sol").stat().st_mode & 0o777
         observed["files"] = {
             path.relative_to(source_root).as_posix(): path.read_text(encoding="utf-8")
             for path in source_root.rglob("*")
@@ -104,6 +106,8 @@ def test_foundry_runner_executes_only_generated_project_in_container(monkeypatch
     assert result["dynamic_verified"] is False
     assert result["confirmed"] is False
     assert observed["image"] == IMAGE
+    assert observed["root_mode"] == 0o755
+    assert observed["source_mode"] & 0o444 == 0o444
     assert observed["command"][:4] == ["forge", "test", "--root", "/work"]
     assert "--offline" in observed["command"]
     assert "--match-path" in observed["command"]

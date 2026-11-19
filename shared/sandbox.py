@@ -178,6 +178,7 @@ def run_in_container(
     source_root: Path,
     *,
     image: str,
+    entrypoint: str | None = None,
 ) -> SandboxResult:
     """Run a command in a digest-pinned, networkless Docker container.
 
@@ -205,6 +206,12 @@ def run_in_container(
     if not root.is_dir():
         raise SandboxError("source_root_not_directory")
 
+    if entrypoint is not None and (
+        not isinstance(entrypoint, str)
+        or not re.fullmatch(r"[A-Za-z0-9_./-]+", entrypoint)
+    ):
+        raise SandboxError("container_entrypoint_invalid")
+
     docker_command = [
         docker,
         "run",
@@ -217,6 +224,7 @@ def run_in_container(
         "--pids-limit=64",
         "--user=65532:65532",
         f"--memory={limits.memory_mb}m",
+        f"--memory-swap={limits.memory_mb}m",
         f"--cpus={limits.cpu_cores}",
         "--ulimit", "nofile=256:256",
         "--ulimit", "nproc=64:64",
@@ -224,9 +232,10 @@ def run_in_container(
         "--env=HOME=/tmp",
         "--mount", f"type=bind,src={root},dst=/work,readonly",
         "--workdir=/work",
-        image,
-        *argv,
     ]
+    if entrypoint is not None:
+        docker_command.append(f"--entrypoint={entrypoint}")
+    docker_command.extend([image, *argv])
     return _bounded_run(
         docker_command,
         cwd=root,

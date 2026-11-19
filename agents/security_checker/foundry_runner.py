@@ -164,6 +164,9 @@ def run_foundry_test(
                 destination.write_text(content, encoding="utf-8")
             (root / _TEST_PATH).write_text(test_source, encoding="utf-8")
             (root / "foundry.toml").write_text(foundry_config, encoding="utf-8")
+            # Docker runs as UID/GID 65532; TemporaryDirectory defaults to 0700.
+            # Make only this disposable project readable before mounting it read-only.
+            root.chmod(0o755)
 
             observation = run_in_container(
                 command,

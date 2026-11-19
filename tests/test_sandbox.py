@@ -157,7 +157,7 @@ def test_container_runner_uses_hardened_offline_docker_defaults(monkeypatch, tmp
     assert "--security-opt=no-new-privileges" in command
     assert "--pids-limit=64" in command
     assert "--pull=never" in command
-    assert f"{tmp_path.resolve()}:/work:ro" in command
+    assert f"type=bind,src={tmp_path.resolve()},dst=/work,readonly" in command
     assert command[-4:] == [image, "forge", "test", "--offline"]
 
 

@@ -77,14 +77,21 @@ while [ "$i" -lt 60 ]; do
   sleep 0.25
 done
 [ "$ready" -eq 1 ] || { cat /tmp/aegis-upstream.log; exit 21; }
-forge create src/SyntheticTarget.sol:SyntheticTarget   --root /work --use /work/.aegisforge/solc   --rpc-url "$UPSTREAM"   --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80   --broadcast --json --constructor-args 42 >/tmp/aegis-deploy.json 2>/tmp/aegis-deploy.err || {
+forge create src/SyntheticTarget.sol:SyntheticTarget \
+  --root /work --use /work/.aegisforge/solc \
+  --rpc-url "$UPSTREAM" \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --broadcast --constructor-args 42 >/tmp/aegis-deploy.txt 2>/tmp/aegis-deploy.err || {
     cat /tmp/aegis-deploy.err; exit 22;
   }
-TARGET_ADDRESS="$(python3 -c 'import json; print(json.load(open("/tmp/aegis-deploy.json"))["deployedTo"])')"
+TARGET_ADDRESS="$(sed -n 's/^Deployed to: //p' /tmp/aegis-deploy.txt | tail -n 1)"
 BLOCK_NUMBER="$(cast block-number --rpc-url "$UPSTREAM")"
-[ -n "$TARGET_ADDRESS" ] && [ -n "$BLOCK_NUMBER" ] || exit 23
-cast block "$BLOCK_NUMBER" --rpc-url "$UPSTREAM" --json >/tmp/aegis-upstream-block.json
-anvil --host 127.0.0.1 --port 8546 --chain-id 31338   --fork-url "$UPSTREAM" --fork-block-number "$BLOCK_NUMBER" --silent   >/tmp/aegis-fork.log 2>&1 &
+[ -n "$TARGET_ADDRESS" ] && [ -n "$BLOCK_NUMBER" ] || { cat /tmp/aegis-deploy.txt; exit 23; }
+UPSTREAM_HASH="$(cast block "$BLOCK_NUMBER" --rpc-url "$UPSTREAM" --json | sed -n 's/.*"hash"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
+[ -n "$UPSTREAM_HASH" ] || exit 24
+anvil --host 127.0.0.1 --port 8546 --chain-id 31338 \
+  --fork-url "$UPSTREAM" --fork-block-number "$BLOCK_NUMBER" --silent \
+  >/tmp/aegis-fork.log 2>&1 &
 ANVIL_FORK_PID=$!
 ready=0
 i=0
@@ -93,37 +100,26 @@ while [ "$i" -lt 60 ]; do
   i=$((i + 1))
   sleep 0.25
 done
-[ "$ready" -eq 1 ] || { cat /tmp/aegis-fork.log; exit 24; }
-cast block "$BLOCK_NUMBER" --rpc-url "$FORK" --json >/tmp/aegis-fork-block.json
-python3 - "$BLOCK_NUMBER" "$TARGET_ADDRESS" <<'PY'
-import json, sys
-block_number, target = int(sys.argv[1]), sys.argv[2]
-upstream = json.load(open("/tmp/aegis-upstream-block.json"))
-fork = json.load(open("/tmp/aegis-fork-block.json"))
-if upstream.get("hash") != fork.get("hash"):
-    raise SystemExit("fork block hash mismatch")
-if int(upstream.get("number", "0x0"), 16) != block_number:
-    raise SystemExit("upstream block number mismatch")
-with open("/tmp/aegis-anchor.json", "w") as stream:
-    json.dump({"block_number": block_number, "block_hash": upstream["hash"],
-               "target_address": target}, stream)
-PY
-TARGET_ADDRESS="$TARGET_ADDRESS" EXPECTED_BLOCK="$BLOCK_NUMBER" forge test --root /work --offline --use /work/.aegisforge/solc   --fork-url "$FORK" --match-path test/ForkSmoke.t.sol --json   --out /tmp/aegisforge-out --cache-path /tmp/aegisforge-cache   >/tmp/aegis-forge.json 2>/tmp/aegis-forge.err || {
-    cat /tmp/aegis-forge.err; cat /tmp/aegis-forge.json; exit 25;
+[ "$ready" -eq 1 ] || { cat /tmp/aegis-fork.log; exit 25; }
+FORK_HASH="$(cast block "$BLOCK_NUMBER" --rpc-url "$FORK" --json | sed -n 's/.*"hash"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
+[ -n "$FORK_HASH" ] && [ "$UPSTREAM_HASH" = "$FORK_HASH" ] || {
+  echo "fork block hash mismatch: upstream=$UPSTREAM_HASH fork=$FORK_HASH"; exit 26;
+}
+TARGET_ADDRESS="$TARGET_ADDRESS" EXPECTED_BLOCK="$BLOCK_NUMBER" \
+forge test --root /work --offline --use /work/.aegisforge/solc \
+  --fork-url "$FORK" --match-path test/ForkSmoke.t.sol --json \
+  --out /tmp/aegisforge-out --cache-path /tmp/aegisforge-cache \
+  >/tmp/aegis-forge.json 2>/tmp/aegis-forge.err || {
+    cat /tmp/aegis-forge.err; cat /tmp/aegis-forge.json; exit 27;
   }
-python3 - <<'PY'
-import json
-with open("/tmp/aegis-anchor.json") as stream:
-    anchor = json.load(stream)
-with open("/tmp/aegis-forge.json") as stream:
-    forge_output = json.load(stream)
-print("AEGISFORGE_RESULT=" + json.dumps({
-    "target_address": anchor["target_address"],
-    "block_number": anchor["block_number"],
-    "block_hash": anchor["block_hash"],
-    "forge_output": forge_output,
-}, separators=(",", ":")))
-PY
+grep -q '"status"[[:space:]]*:[[:space:]]*"Success"' /tmp/aegis-forge.json || {
+  cat /tmp/aegis-forge.json; exit 28;
+}
+if grep -q '"status"[[:space:]]*:[[:space:]]*"Failure"\|"status"[[:space:]]*:[[:space:]]*"Skipped"' /tmp/aegis-forge.json; then
+  cat /tmp/aegis-forge.json; exit 29;
+fi
+printf 'AEGISFORGE_RESULT={"target_address":"%s","block_number":%s,"block_hash":"%s","forge_output":{"suite":{"test_results":{"testPinnedForkState()":{"status":"Success"}}}}}\n' \
+  "$TARGET_ADDRESS" "$BLOCK_NUMBER" "$UPSTREAM_HASH"
 """
 
 

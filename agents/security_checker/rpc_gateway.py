@@ -90,8 +90,7 @@ def parse_rpc_request(
         raise RpcGatewayError("request_id_invalid")
     request_id = payload["id"]
     if isinstance(request_id, bool) or not (
-        request_id is None
-        or isinstance(request_id, int)
+        isinstance(request_id, int)
         or isinstance(request_id, str)
     ):
         raise RpcGatewayError("request_id_invalid")
@@ -418,6 +417,10 @@ def create_rpc_gateway_server(
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(10)
         server_version = "AegisForgeRPC"
         sys_version = ""
 

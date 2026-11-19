@@ -103,3 +103,72 @@ def test_empty_command_is_rejected(tmp_path):
 def test_limits_reject_invalid_values(kwargs):
     with pytest.raises(SandboxError):
         SandboxLimits(**kwargs)
+
+
+def test_container_runner_requires_a_digest_pinned_image(tmp_path):
+    from shared.sandbox import run_in_container
+
+    with pytest.raises(SandboxError, match="container_image_must_be_digest_pinned"):
+        run_in_container(
+            ["forge", "test"],
+            SandboxLimits(),
+            tmp_path,
+            image="ghcr.io/foundry-rs/foundry:stable",
+        )
+
+
+def test_container_runner_uses_hardened_offline_docker_defaults(monkeypatch, tmp_path):
+    import shared.sandbox as sandbox
+
+    observed = {}
+    image = "ghcr.io/foundry-rs/foundry@sha256:" + ("a" * 64)
+
+    def fake_bounded_run(command, **kwargs):
+        observed["command"] = command
+        observed["kwargs"] = kwargs
+        return sandbox.SandboxResult(
+            exit_code=0,
+            stdout_sha256=hashlib.sha256(b"ok").hexdigest(),
+            stderr_sha256=hashlib.sha256(b"").hexdigest(),
+            stdout_truncated=False,
+            stderr_truncated=False,
+            duration_seconds=0.1,
+            isolation="container",
+            stdout="ok",
+            stderr="",
+        )
+
+    monkeypatch.setattr(sandbox.shutil, "which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(sandbox, "_bounded_run", fake_bounded_run)
+
+    result = sandbox.run_in_container(
+        ["forge", "test", "--offline"],
+        SandboxLimits(timeout_seconds=30, memory_mb=1024, cpu_cores=2),
+        tmp_path,
+        image=image,
+    )
+
+    command = observed["command"]
+    assert result.stdout == "ok"
+    assert observed["kwargs"]["isolation"] == "container"
+    assert "--network=none" in command
+    assert "--read-only" in command
+    assert "--cap-drop=ALL" in command
+    assert "--security-opt=no-new-privileges" in command
+    assert "--pids-limit=64" in command
+    assert "--pull=never" in command
+    assert f"{tmp_path.resolve()}:/work:ro" in command
+    assert command[-4:] == [image, "forge", "test", "--offline"]
+
+
+def test_container_runner_rejects_invalid_image_digest(monkeypatch, tmp_path):
+    from shared.sandbox import run_in_container
+
+    monkeypatch.setattr("shared.sandbox.shutil.which", lambda name: "/usr/bin/docker")
+    with pytest.raises(SandboxError, match="container_image_must_be_digest_pinned"):
+        run_in_container(
+            ["forge", "test"],
+            SandboxLimits(),
+            tmp_path,
+            image="ghcr.io/foundry-rs/foundry@sha256:short",
+        )

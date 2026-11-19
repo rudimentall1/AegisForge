@@ -398,6 +398,9 @@ def create_rpc_gateway_server(
     ):
         raise RpcGatewayError("gateway_listener_configuration_invalid")
 
+    if not isinstance(allowed_hosts, set):
+        raise RpcGatewayError("upstream_configuration_invalid")
+    allowed_hosts = set(allowed_hosts)
     validate_upstream_url(upstream_url, allowed_hosts=allowed_hosts)
     slots = threading.BoundedSemaphore(max_concurrent_requests)
     rate_lock = threading.Lock()
@@ -516,6 +519,9 @@ def create_rpc_gateway_server(
             raw_length = self.headers.get("Content-Length")
             if raw_length is None or not raw_length.isascii() or not raw_length.isdecimal():
                 self._reply(411, {"error": "content_length_required"})
+                return
+            if len(raw_length) > 10:
+                self._reply(413, {"error": "request_body_size_invalid"})
                 return
             length = int(raw_length)
             if length < 1 or length > MAX_REQUEST_BYTES:

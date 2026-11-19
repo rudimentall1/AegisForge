@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import tempfile
@@ -19,6 +20,42 @@ _TEST_PATH = "test/AegisForgeValidation.t.sol"
 
 def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _summarize_foundry_output(stdout: str) -> dict:
+    try:
+        payload = json.loads(stdout)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {"valid": False, "total": 0, "passed": 0, "failed": 0, "skipped": 0}
+    if not isinstance(payload, dict):
+        return {"valid": False, "total": 0, "passed": 0, "failed": 0, "skipped": 0}
+
+    counts = {"valid": True, "total": 0, "passed": 0, "failed": 0, "skipped": 0}
+    for suite in payload.values():
+        if not isinstance(suite, dict):
+            continue
+        tests = suite.get("test_results")
+        if tests is None:
+            continue
+        if not isinstance(tests, dict):
+            counts["valid"] = False
+            continue
+        for test_result in tests.values():
+            if not isinstance(test_result, dict):
+                counts["valid"] = False
+                continue
+            status = test_result.get("status")
+            if status not in {"Success", "Failure", "Skipped"}:
+                counts["valid"] = False
+                continue
+            counts["total"] += 1
+            if status == "Success":
+                counts["passed"] += 1
+            elif status == "Failure":
+                counts["failed"] += 1
+            else:
+                counts["skipped"] += 1
+    return counts
 
 
 def _result(status: str, error: str | None = None) -> dict:
@@ -193,6 +230,7 @@ def run_foundry_test(
     except OSError:
         return _result("EXECUTION_FAILED", "temporary_project_io_failed")
 
+    test_counts = _summarize_foundry_output(observation.stdout)
     if observation.exit_code == 125:
         status = "RUNNER_UNAVAILABLE"
         error = "container_start_failed"
@@ -202,11 +240,29 @@ def run_foundry_test(
     elif observation.stdout_truncated or observation.stderr_truncated:
         status = "OUTPUT_TRUNCATED"
         error = None
-    elif observation.exit_code == 0:
-        status = "EXECUTED_PASS"
-        error = None
-    else:
+    elif not test_counts["valid"]:
+        status = "INVALID_OUTPUT"
+        error = "foundry_json_output_invalid"
+    elif test_counts["total"] == 0:
+        status = "NO_TESTS"
+        error = "no_foundry_tests_executed"
+    elif test_counts["failed"] > 0:
         status = "EXECUTED_FAIL"
+        error = None
+    elif test_counts["skipped"] > 0 and test_counts["passed"] > 0:
+        status = "PARTIAL_EXECUTION"
+        error = "some_foundry_tests_were_skipped"
+    elif test_counts["skipped"] > 0:
+        status = "SKIPPED"
+        error = "foundry_tests_were_skipped"
+    elif observation.exit_code != 0:
+        status = "EXECUTION_FAILED"
+        error = "foundry_exit_code_nonzero_without_failed_test_record"
+    elif test_counts["passed"] == 0:
+        status = "NO_TESTS"
+        error = "no_passing_foundry_tests"
+    else:
+        status = "EXECUTED_PASS"
         error = None
 
     result = _result(status, error)
@@ -225,7 +281,17 @@ def run_foundry_test(
         "stderr_truncated": observation.stderr_truncated,
         "stdout_excerpt": observation.stdout[:16_384],
         "stderr_excerpt": observation.stderr[:16_384],
-        "test_passed": observation.exit_code == 0 and status == "EXECUTED_PASS",
+        "test_counts": {
+            "total": test_counts["total"],
+            "passed": test_counts["passed"],
+            "failed": test_counts["failed"],
+            "skipped": test_counts["skipped"],
+        },
+        "test_passed": (
+            observation.exit_code == 0
+            and status == "EXECUTED_PASS"
+            and test_counts["passed"] > 0
+        ),
         "required_next_step": "independent_review_of_harness_and_observed_behavior",
     })
     return result

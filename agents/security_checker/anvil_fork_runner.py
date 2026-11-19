@@ -77,7 +77,7 @@ while [ "$i" -lt 60 ]; do
   sleep 0.25
 done
 [ "$ready" -eq 1 ] || { cat /tmp/aegis-upstream.log; exit 21; }
-forge create src/SyntheticTarget.sol:SyntheticTarget   --root /work --use /work/.aegisforge/solc   --rpc-url "$UPSTREAM"   --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80   --constructor-args 42 --broadcast --json >/tmp/aegis-deploy.json 2>/tmp/aegis-deploy.err || {
+forge create src/SyntheticTarget.sol:SyntheticTarget   --root /work --use /work/.aegisforge/solc   --rpc-url "$UPSTREAM"   --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80   --broadcast --json --constructor-args 42 >/tmp/aegis-deploy.json 2>/tmp/aegis-deploy.err || {
     cat /tmp/aegis-deploy.err; exit 22;
   }
 TARGET_ADDRESS="$(python3 -c 'import json; print(json.load(open("/tmp/aegis-deploy.json"))["deployedTo"])')"

@@ -65,6 +65,14 @@ ROLE_DEFAULT_INTENTS = {
         "requires_network": True,
         "read_only": True,
     },
+    "deep_researcher": {
+        "action": "research",
+        "resource": "public_sources",
+        "destination": "public_web",
+        "data_scope": "public",
+        "requires_network": True,
+        "read_only": True,
+    },
     "crypto_analyst": {
         "action": "analyze",
         "resource": "research_evidence",

@@ -1,0 +1,64 @@
+name: Foundry runner integration
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - "agents/security_checker/foundry_runner.py"
+      - "shared/sandbox.py"
+      - "tests/test_foundry_dynamic_runner_integration.py"
+      - ".github/workflows/foundry-runner-integration.yml"
+  push:
+    branches:
+      - main
+      - master
+      - feat/aegisforge-working-state-2026-11-18
+    paths:
+      - "agents/security_checker/foundry_runner.py"
+      - "shared/sandbox.py"
+      - "tests/test_foundry_dynamic_runner_integration.py"
+      - ".github/workflows/foundry-runner-integration.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-foundry:
+    name: Real networkless Foundry container
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest solc-select==1.2.0
+
+      - name: Pull official Foundry image and capture immutable digest
+        run: |
+          set -euo pipefail
+          image_tag="ghcr.io/foundry-rs/foundry:latest"
+          docker pull "$image_tag"
+          image_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image_tag")"
+          case "$image_digest" in
+            ghcr.io/foundry-rs/foundry@sha256:*) ;;
+            *) echo "Unexpected Foundry image digest: $image_digest" >&2; exit 1 ;;
+          esac
+          echo "AEGISFORGE_FOUNDRY_IMAGE=$image_digest" >> "$GITHUB_ENV"
+          echo "AEGISFORGE_AUTO_INSTALL_SOLC=1" >> "$GITHUB_ENV"
+          echo "AEGISFORGE_FOUNDRY_INTEGRATION=1" >> "$GITHUB_ENV"
+          echo "Foundry image pinned for this run: $image_digest"
+
+      - name: Execute real Solidity test in isolated container
+        run: |
+          python -m pytest -q tests/test_foundry_dynamic_runner_integration.py

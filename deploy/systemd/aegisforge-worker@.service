@@ -1,0 +1,19 @@
+[Unit]
+Description=AegisForge worker instance (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/agent-farm
+EnvironmentFile=-/opt/agent-farm/.env
+ExecStart=/opt/agent-farm/.venv/bin/python -m agents.worker %i
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

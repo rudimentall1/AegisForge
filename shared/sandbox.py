@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import selectors
+import shutil
 import signal
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -53,6 +56,8 @@ class SandboxResult:
     stderr_truncated: bool
     duration_seconds: float
     isolation: str
+    stdout: str = ""
+    stderr: str = ""
 
 
 def _validate_command(command: object) -> list[str]:
@@ -163,7 +168,106 @@ def _bounded_run(
         stderr_truncated=truncated["stderr"],
         duration_seconds=max(0.0, time.monotonic() - started),
         isolation=isolation,
+        stdout=bytes(buffers["stdout"]).decode("utf-8", errors="replace"),
+        stderr=bytes(buffers["stderr"]).decode("utf-8", errors="replace"),
     )
+
+
+def run_in_container(
+    command: list[str],
+    limits: SandboxLimits,
+    source_root: Path,
+    *,
+    image: str,
+    entrypoint: str | None = None,
+) -> SandboxResult:
+    """Run a command in a digest-pinned, networkless Docker container.
+
+    Docker's default seccomp profile remains enabled. This is a container
+    boundary, not a claim of resistance to kernel or Docker-runtime escapes.
+    """
+    argv = _validate_command(command)
+    if not isinstance(limits, SandboxLimits):
+        raise SandboxError("limits_invalid")
+    if (
+        not isinstance(image, str)
+        or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9./:_-]*@sha256:[0-9a-f]{64}",
+            image,
+        )
+    ):
+        raise SandboxError("container_image_must_be_digest_pinned")
+    docker = shutil.which("docker")
+    if not docker:
+        raise SandboxError("docker_not_available")
+    try:
+        root = Path(source_root).resolve(strict=True)
+    except (OSError, TypeError, ValueError) as exc:
+        raise SandboxError("source_root_invalid") from exc
+    if not root.is_dir():
+        raise SandboxError("source_root_not_directory")
+
+    if entrypoint is not None and (
+        not isinstance(entrypoint, str)
+        or not re.fullmatch(r"[A-Za-z0-9_./-]+", entrypoint)
+    ):
+        raise SandboxError("container_entrypoint_invalid")
+
+    container_name = f"aegisforge-foundry-{uuid.uuid4().hex}"
+    docker_command = [
+        docker,
+        "run",
+        "--rm",
+        "--init",
+        "--name",
+        container_name,
+        "--pull=never",
+        "--network=none",
+        "--read-only",
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
+        "--pids-limit=64",
+        "--user=65532:65532",
+        f"--memory={limits.memory_mb}m",
+        f"--memory-swap={limits.memory_mb}m",
+        f"--cpus={limits.cpu_cores}",
+        "--ulimit", "nofile=256:256",
+        "--ulimit", "nproc=64:64",
+        "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=128m",
+        "--env=HOME=/tmp",
+        "--mount", f"type=bind,src={root},dst=/work,readonly",
+        "--workdir=/work",
+    ]
+    if entrypoint is not None:
+        docker_command.append(f"--entrypoint={entrypoint}")
+    docker_command.extend([image, *argv])
+    try:
+        return _bounded_run(
+            docker_command,
+            cwd=root,
+            timeout_seconds=limits.timeout_seconds,
+            max_output_bytes=limits.max_output_bytes,
+            isolation="container",
+        )
+    except SandboxError as exc:
+        if str(exc) == "execution_timeout":
+            for cleanup_command in (
+                [docker, "kill", container_name],
+                [docker, "rm", "-f", container_name],
+            ):
+                try:
+                    subprocess.run(
+                        cleanup_command,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                        check=False,
+                        shell=False,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+        raise
 
 
 def run_in_sandbox(

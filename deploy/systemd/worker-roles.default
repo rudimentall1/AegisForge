@@ -1,0 +1,13 @@
+# Default long-running research workers.
+# executor is intentionally excluded; enable it only after explicit review.
+researcher
+analyst
+developer
+security_checker
+opportunity_hunter
+validator
+model_researcher
+source_researcher
+deep_researcher
+crypto_analyst
+lab_runner

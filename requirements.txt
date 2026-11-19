@@ -4,3 +4,4 @@ cryptography==46.0.2
 pydantic==2.11.7
 web3>=7.10.0
 slither-analyzer==0.11.6
+solc-select==1.2.0

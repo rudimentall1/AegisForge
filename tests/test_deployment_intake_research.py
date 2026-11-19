@@ -1,0 +1,494 @@
+import hashlib
+import json
+
+from web3 import Web3
+
+from agents.deep_researcher.agent import DeepResearcher
+from shared.discovery import FINDING_SCHEMA
+from shared.task import Task
+
+
+ADDRESS = "0x1234567890abcdef1234567890abcdef12345678"
+
+
+class FakeEth:
+    def __init__(self, chain_id=8453, code=b"\x60\x01\x60\x00"):
+        self.chain_id = chain_id
+        self.code = code
+        self.requested_block = None
+
+    def get_code(self, address, block_identifier):
+        self.requested_block = block_identifier
+        return self.code
+
+
+class FakeWeb3:
+    def __init__(self, chain_id=8453, code=b"\x60\x01\x60\x00"):
+        self.eth = FakeEth(chain_id=chain_id, code=code)
+
+    def is_connected(self):
+        return True
+
+
+class FakeResponse:
+    status_code = 200
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {
+            "status": "1",
+            "result": [{
+                "SourceCode": "contract Vault {}",
+                "ContractName": "Vault",
+                "CompilerVersion": "v0.8.20+commit.a1b79de6",
+                "OptimizationUsed": "1",
+                "Runs": "200",
+                "EVMVersion": "paris",
+                "LicenseType": "MIT",
+            }],
+        }
+
+
+
+
+
+class FakeNotFoundResponse:
+    status_code = 404
+    headers = {}
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {}
+
+
+class FakeSourcifyResponse:
+    status_code = 200
+    headers = {}
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+def make_task(**overrides):
+    values = {
+        "chain": "base",
+        "contract_address": ADDRESS,
+        "finding_type": "contract_deployment",
+        "severity": "info",
+        "title": "New contract deployment detected",
+        "description": "Read-only deployment discovery.",
+        "evidence": {"transaction_hash": "0x" + "11" * 32},
+        "observed_block": 12345,
+        "source": "rpc_deployment_monitor",
+        "transaction_hash": "0x" + "11" * 32,
+    }
+    values.update(overrides)
+    identity = {
+        "chain": values["chain"].lower(),
+        "contract_address": values["contract_address"].lower(),
+        "finding_type": values["finding_type"].lower(),
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    finding = {"schema": FINDING_SCHEMA, **values, "fingerprint": fingerprint}
+    description = json.dumps(
+        {"task_type": "deep_research_intake", "discovery_finding": finding}
+    )
+    return Task(task_id="research-task-1", description=description)
+
+
+def test_deployment_intake_fetches_runtime_code_at_observed_block(tmp_path, monkeypatch):
+    monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
+    fake_web3 = FakeWeb3()
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: fake_web3,
+        http_get=lambda *args, **kwargs: FakeNotFoundResponse(),
+    )
+    task = make_task()
+
+    result = researcher.run(task)
+
+    assert task.status == "deep_researched"
+    assert fake_web3.eth.requested_block == 12345
+    assert result.result["discovery_evidence"]["chain_id"] == 8453
+    assert result.result["discovery_evidence"]["runtime_bytecode_size_bytes"] == 4
+    assert result.result["discovery_evidence"]["runtime_bytecode_keccak256"].removeprefix("0x") == Web3.keccak(
+        b"\x60\x01\x60\x00"
+    ).hex().removeprefix("0x")
+    assert result.result["source_verification"]["status"] == "NOT_VERIFIED"
+    assert result.result["source_verification"]["provider"] == "sourcify_v2"
+    artifact = tmp_path / result.result["evidence_artifact"]["metadata_path"]
+    bytecode = tmp_path / result.result["evidence_artifact"]["bytecode_path"]
+    assert artifact.is_file()
+    assert bytecode.read_bytes() == b"\x60\x01\x60\x00"
+
+
+def test_deployment_intake_fails_closed_on_rpc_chain_mismatch(tmp_path, monkeypatch):
+    monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
+    fake_web3 = FakeWeb3(chain_id=1)
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: fake_web3,
+    )
+    task = make_task()
+
+    result = researcher.run(task)
+
+    assert task.status == "source_research_failed"
+    assert result.result["error"] == "rpc_chain_id_mismatch"
+    assert fake_web3.eth.requested_block is None
+    assert list(tmp_path.rglob("*")) == []
+
+
+def test_deployment_intake_persists_verified_source_hash(tmp_path, monkeypatch):
+    monkeypatch.setenv("ETHERSCAN_API_KEY", "test-key")
+    calls = []
+
+    def fake_get(url, params, timeout):
+        calls.append((url, params, timeout))
+        return FakeResponse()
+
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        explorer_urls={"base": "https://basescan.org"},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=fake_get,
+    )
+    task = make_task()
+
+    result = researcher.run(task)
+
+    assert task.status == "deep_researched"
+    assert result.result["source_verification"]["status"] == "VERIFIED"
+    assert result.result["source_verification"]["runtime_bytecode_match"] == "NOT_CHECKED"
+    assert result.result["source_verification"]["source_sha256"] == hashlib.sha256(
+        b"contract Vault {}"
+    ).hexdigest()
+    assert result.result["source_verification"]["explorer_url"] == (
+        f"https://basescan.org/address/{Web3.to_checksum_address(ADDRESS)}#code"
+    )
+    assert len(calls) == 1
+    source_path = tmp_path / result.result["source_verification"]["source_path"]
+    assert source_path.read_text(encoding="utf-8") == "contract Vault {}"
+
+
+def test_deployment_intake_rejects_tampered_finding_fingerprint(tmp_path):
+    task = make_task()
+    payload = json.loads(task.description)
+    payload["discovery_finding"]["fingerprint"] = "0" * 64
+    task.description = json.dumps(payload)
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+    )
+
+    result = researcher.run(task)
+
+    assert task.status == "source_research_failed"
+    assert result.result["error"] == "discovery_fingerprint_mismatch"
+
+
+
+def test_deployment_intake_persists_static_analysis_report(tmp_path, monkeypatch):
+    import agents.source_researcher.deployment_intake as intake_module
+
+    monkeypatch.setenv("ETHERSCAN_API_KEY", "test-key")
+    expected_analysis = {
+        "schema": "aegisforge.slither_analysis.v1",
+        "status": "ANALYZED",
+        "findings": [
+            {
+                "detector": "reentrancy-eth",
+                "impact": "HIGH",
+                "confidence": "MEDIUM",
+                "description": "Potential reentrancy.",
+                "elements": [],
+                "status": "UNVERIFIED_POTENTIAL",
+            }
+        ],
+        "finding_count": 1,
+        "vulnerabilities_confirmed": False,
+    }
+    observed_source = []
+    observed_compiler_versions = []
+
+    def fake_analysis(source_code, compiler_version=None):
+        observed_source.append(source_code)
+        observed_compiler_versions.append(compiler_version)
+        return expected_analysis
+
+    monkeypatch.setattr(intake_module, "analyze_source", fake_analysis)
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=lambda *args, **kwargs: FakeResponse(),
+    )
+    result = researcher.run(make_task())
+
+    assert result.status == "deep_researched"
+    assert observed_source == ["contract Vault {}"]
+    assert observed_compiler_versions == ["v0.8.20+commit.a1b79de6"]
+    assert result.result["source_verification"]["compiler_version"] == "v0.8.20+commit.a1b79de6"
+    assert result.result["source_verification"]["contract_name"] == "Vault"
+    assert result.result["static_analysis"] == expected_analysis
+    analysis_path = tmp_path / result.result["evidence_artifact"]["analysis_path"]
+    assert json.loads(analysis_path.read_text(encoding="utf-8")) == expected_analysis
+    assert result.result["analysis_validation"]["status"] == "VALID"
+    assert result.result["analysis_validation"]["validation_scope"] == "artifact_integrity_only"
+    validation_path = tmp_path / result.result["evidence_artifact"]["validation_path"]
+    assert json.loads(validation_path.read_text(encoding="utf-8")) == result.result["analysis_validation"]
+    metadata_path = tmp_path / result.result["evidence_artifact"]["metadata_path"]
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["static_analysis"] == {
+        "status": "ANALYZED",
+        "finding_count": 1,
+        "vulnerabilities_confirmed": False,
+    }
+    assert metadata["static_analysis_sha256"] == result.result["evidence_artifact"]["analysis_sha256"]
+    assert metadata["analysis_validation_sha256"] == result.result["evidence_artifact"]["validation_sha256"]
+    assert metadata["analysis_validation_status"] == "VALID"
+
+
+
+def test_sourcify_supplies_verified_source_without_etherscan_key_and_caches_it(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
+    source = "pragma solidity ^0.8.20; contract Vault {}"
+    source_hash = Web3.keccak(text=source).hex()
+    payload = {
+        "chainId": "8453",
+        "address": Web3.to_checksum_address(ADDRESS),
+        "match": "exact_match",
+        "matchId": "123456",
+        "runtimeBytecode": {"onchainBytecode": "0x60016000"},
+        "sources": {"contracts/Vault.sol": {"content": source}},
+        "compilation": {
+            "language": "Solidity",
+            "compilerVersion": "v0.8.20+commit.a1b79de6",
+            "compilerSettings": {
+                "optimizer": {"enabled": True, "runs": 200},
+                "evmVersion": "paris",
+            },
+            "name": "Vault",
+        },
+        "metadata": {
+            "sources": {
+                "contracts/Vault.sol": {"keccak256": source_hash}
+            }
+        },
+    }
+    calls = []
+
+    def fake_get(url, params, timeout, headers):
+        calls.append((url, params, timeout, headers))
+        return FakeSourcifyResponse(payload)
+
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=fake_get,
+    )
+
+    first = researcher.run(make_task(observed_block=12345))
+    second = researcher.run(make_task(observed_block=12346))
+
+    assert first.result["source_verification"]["status"] == "VERIFIED"
+    assert first.result["source_verification"]["provider"] == "sourcify_v2"
+    assert first.result["source_verification"]["match_quality"] == "exact_match"
+    assert first.result["source_verification"]["runtime_bytecode_match"] == "MATCHED_AT_OBSERVED_BLOCK"
+    assert first.result["source_verification"]["compiler_version"] == "v0.8.20+commit.a1b79de6"
+    assert first.result["source_verification"]["source_integrity"]["verified_files"] == 1
+    assert first.result["source_verification"]["cache_hit"] is False
+    assert second.result["source_verification"]["cache_hit"] is True
+    assert len(calls) == 1
+    assert calls[0][1]["fields"] == "sources,compilation,metadata,match,matchId,creationMatch,runtimeMatch,runtimeBytecode"
+    assert "AegisForge" in calls[0][3]["User-Agent"]
+    source_path = tmp_path / first.result["source_verification"]["source_path"]
+    normalized = json.loads(source_path.read_text(encoding="utf-8"))
+    assert normalized["sources"]["contracts/Vault.sol"]["content"] == source
+
+
+
+def test_sourcify_source_hash_mismatch_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
+    source = "pragma solidity ^0.8.20; contract Vault {}"
+    payload = {
+        "chainId": "8453",
+        "address": Web3.to_checksum_address(ADDRESS),
+        "match": "exact_match",
+        "runtimeBytecode": {"onchainBytecode": "0x60016000"},
+        "sources": {"contracts/Vault.sol": {"content": source}},
+        "compilation": {
+            "language": "Solidity",
+            "compilerVersion": "v0.8.20+commit.a1b79de6",
+            "compilerSettings": {},
+            "name": "Vault",
+        },
+        "metadata": {
+            "sources": {
+                "contracts/Vault.sol": {"keccak256": "0x" + "00" * 32}
+            }
+        },
+    }
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=lambda *args, **kwargs: FakeSourcifyResponse(payload),
+    )
+
+    result = researcher.run(make_task())
+
+    assert result.result["source_verification"]["status"] == "SOURCE_INTEGRITY_MISMATCH"
+    assert result.result["source_verification"]["source_path"] is None
+    assert result.result["source_verification"]["error"] == "sourcify_source_keccak_mismatch"
+
+
+
+def test_etherscan_missing_source_falls_back_to_sourcify(tmp_path, monkeypatch):
+    monkeypatch.setenv("ETHERSCAN_API_KEY", "test-key")
+    source = "pragma solidity ^0.8.20; contract Vault {}"
+    payload = {
+        "chainId": "8453",
+        "address": Web3.to_checksum_address(ADDRESS),
+        "match": "match",
+        "matchId": "123457",
+        "runtimeBytecode": {"onchainBytecode": "0x60016000"},
+        "sources": {"contracts/Vault.sol": {"content": source}},
+        "compilation": {
+            "language": "Solidity",
+            "compilerVersion": "v0.8.20+commit.a1b79de6",
+            "compilerSettings": {},
+            "name": "Vault",
+        },
+        "metadata": {
+            "sources": {
+                "contracts/Vault.sol": {
+                    "keccak256": Web3.keccak(text=source).hex()
+                }
+            }
+        },
+    }
+    calls = []
+
+    class UnverifiedEtherscanResponse(FakeResponse):
+        def json(self):
+            return {"status": "0", "result": [{"SourceCode": ""}]}
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        if "etherscan.io" in url:
+            return UnverifiedEtherscanResponse()
+        return FakeSourcifyResponse(payload)
+
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=fake_get,
+    )
+
+    result = researcher.run(make_task())
+
+    verification = result.result["source_verification"]
+    assert verification["status"] == "VERIFIED"
+    assert verification["provider"] == "sourcify_v2"
+    assert verification["match_quality"] == "match"
+    assert verification["provider_attempts"] == ["etherscan_v2", "sourcify_v2"]
+    assert verification["etherscan_fallback_status"] == "NOT_VERIFIED"
+    assert len(calls) == 2
+
+
+def test_sourcify_rate_limit_is_reported_without_retrying(tmp_path, monkeypatch):
+    monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
+
+    class RateLimitedResponse:
+        status_code = 429
+        headers = {"Retry-After": "45"}
+
+        def raise_for_status(self):
+            raise AssertionError("429 must be handled before raise_for_status")
+
+    calls = []
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=lambda *args, **kwargs: (calls.append(args[0]) or RateLimitedResponse()),
+    )
+
+    result = researcher.run(make_task())
+
+    assert result.result["source_verification"]["status"] == "RATE_LIMITED"
+    assert result.result["source_verification"]["retry_after"] == "45"
+    assert len(calls) == 1
+
+
+
+def test_sourcify_source_is_rejected_when_runtime_bytecode_differs_from_observed_block(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
+    source = "pragma solidity ^0.8.20; contract Vault {}"
+    payload = {
+        "chainId": "8453",
+        "address": Web3.to_checksum_address(ADDRESS),
+        "match": "exact_match",
+        "runtimeBytecode": {"onchainBytecode": "0x60026000"},
+        "sources": {"contracts/Vault.sol": {"content": source}},
+        "compilation": {
+            "language": "Solidity",
+            "compilerVersion": "v0.8.20+commit.a1b79de6",
+            "compilerSettings": {},
+            "name": "Vault",
+        },
+        "metadata": {
+            "sources": {
+                "contracts/Vault.sol": {
+                    "keccak256": Web3.keccak(text=source).hex()
+                }
+            }
+        },
+    }
+    researcher = DeepResearcher(
+        rpc_endpoints={"base": "https://rpc.example"},
+        chain_ids={"base": 8453},
+        evidence_dir=tmp_path,
+        web3_factory=lambda endpoint: FakeWeb3(),
+        http_get=lambda *args, **kwargs: FakeSourcifyResponse(payload),
+    )
+
+    result = researcher.run(make_task())
+
+    verification = result.result["source_verification"]
+    assert verification["status"] == "SOURCE_BYTECODE_MISMATCH"
+    assert verification["source_path"] is None
+    assert verification["runtime_bytecode_match"] == "MISMATCH"

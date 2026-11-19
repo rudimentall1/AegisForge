@@ -6,9 +6,12 @@ upstream. This module does not create or enforce those network policies.
 """
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import re
+import socket
+import ssl
 from urllib.parse import urlsplit
 
 
@@ -204,6 +207,166 @@ def validate_rpc_response(
     return payload
 
 
+def _resolve_public_upstream_address(hostname: str, port: int):
+    """Resolve once, reject any non-global answer, and return one pinned socket address."""
+    try:
+        records = socket.getaddrinfo(
+            hostname,
+            port,
+            type=socket.SOCK_STREAM,
+        )
+    except OSError as exc:
+        raise RpcGatewayError("upstream_dns_resolution_failed") from exc
+    if not records:
+        raise RpcGatewayError("upstream_dns_resolution_failed")
+
+    public_records = []
+    for family, socktype, protocol, canonical_name, sockaddr in records:
+        if family not in (socket.AF_INET, socket.AF_INET6):
+            continue
+        try:
+            address = ipaddress.ip_address(sockaddr[0])
+        except (ValueError, TypeError, IndexError) as exc:
+            raise RpcGatewayError("upstream_dns_resolution_invalid") from exc
+        if (
+            not address.is_global
+            or address.is_multicast
+            or address.is_reserved
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_private
+            or address.is_unspecified
+        ):
+            raise RpcGatewayError("upstream_ip_not_public")
+        public_records.append((family, sockaddr))
+
+    if not public_records:
+        raise RpcGatewayError("upstream_dns_resolution_invalid")
+    family, sockaddr = public_records[0]
+    return sockaddr, family
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS connection pinned to a validated IP while preserving TLS hostname checks."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        address,
+        family: int,
+        *,
+        connect_timeout: float,
+        read_timeout: float,
+    ):
+        self._pinned_address = address
+        self._address_family = family
+        self._connect_timeout = connect_timeout
+        self._read_timeout = read_timeout
+        super().__init__(
+            host,
+            port,
+            timeout=read_timeout,
+            context=ssl.create_default_context(),
+        )
+
+    def connect(self):
+        sock = socket.socket(self._address_family, socket.SOCK_STREAM)
+        try:
+            sock.settimeout(self._connect_timeout)
+            sock.connect(self._pinned_address)
+            sock.settimeout(self._read_timeout)
+            self.sock = self._context.wrap_socket(
+                sock,
+                server_hostname=self.host,
+            )
+        except (OSError, ssl.SSLError):
+            sock.close()
+            raise
+
+
+class _PinnedHTTPResponse:
+    def __init__(self, response, connection):
+        self._response = response
+        self._connection = connection
+        self.status_code = response.status
+        self.closed = False
+
+    def iter_content(self, chunk_size: int):
+        if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size < 1:
+            raise RpcGatewayError("response_chunk_size_invalid")
+        while True:
+            chunk = self._response.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self._response.close()
+        finally:
+            self._connection.close()
+
+
+def _pinned_https_post(
+    url: str,
+    *,
+    data: bytes,
+    headers: dict[str, str],
+    timeout: tuple[float, float],
+    allow_redirects: bool,
+    stream: bool,
+):
+    """POST using one validated DNS answer, TLS hostname verification, and no proxy."""
+    if (
+        not isinstance(timeout, tuple)
+        or len(timeout) != 2
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or value <= 0
+            for value in timeout
+        )
+        or allow_redirects is not False
+        or stream is not True
+    ):
+        raise RpcGatewayError("upstream_transport_configuration_invalid")
+
+    parsed = urlsplit(url)
+    hostname = parsed.hostname
+    port = parsed.port or 443
+    if not hostname:
+        raise RpcGatewayError("upstream_url_invalid")
+    address, family = _resolve_public_upstream_address(hostname, port)
+    target = parsed.path or "/"
+    if parsed.query:
+        target += "?" + parsed.query
+
+    connection = _PinnedHTTPSConnection(
+        hostname,
+        port,
+        address,
+        family,
+        connect_timeout=float(timeout[0]),
+        read_timeout=float(timeout[1]),
+    )
+    try:
+        connection.request(
+            "POST",
+            target,
+            body=data,
+            headers=headers,
+        )
+        response = connection.getresponse()
+        return _PinnedHTTPResponse(response, connection)
+    except (OSError, ssl.SSLError, http.client.HTTPException):
+        connection.close()
+        raise
+
+
 def forward_rpc_request(
     upstream_url: str,
     allowed_hosts: set[str],
@@ -218,18 +381,13 @@ def forward_rpc_request(
     separately isolated listener. No caller-supplied headers or URL are passed
     through from the untrusted RPC request.
     """
-    import requests
-
     validated_url = validate_upstream_url(
         upstream_url,
         allowed_hosts=allowed_hosts,
     )
     request = parse_rpc_request(body)
-    session = None
     if transport is None:
-        session = requests.Session()
-        session.trust_env = False
-        transport = session.post
+        transport = _pinned_https_post
     if (
         isinstance(max_response_bytes, bool)
         or not isinstance(max_response_bytes, int)
@@ -280,13 +438,11 @@ def forward_rpc_request(
             expected_id=request["id"],
             max_response_bytes=max_response_bytes,
         )
-    except requests.RequestException as exc:
+    except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
         raise RpcGatewayError("upstream_transport_failed") from exc
     finally:
         if response is not None:
             response.close()
-        if session is not None:
-            session.close()
 
 
 def validate_fork_anchor(

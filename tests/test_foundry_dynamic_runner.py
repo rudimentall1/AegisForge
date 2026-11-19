@@ -140,6 +140,12 @@ def test_foundry_runner_executes_only_generated_project_in_container(monkeypatch
     assert observed["source_mode"] & 0o444 == 0o444
     assert observed["compiler_bytes"] == b"synthetic-solidity-compiler-binary"
     assert observed["compiler_mode"] == 0o555
+    assert result["compiler_binary_sha256"] == hashlib.sha256(
+        b"synthetic-solidity-compiler-binary"
+    ).hexdigest()
+    assert result["compiler_installed"] is False
+    assert result["compiler_selection_mode"] == "explicit_binary_path_no_global_switch"
+    assert result["compiler_binary_provenance_verified"] is False
     assert observed["command"][:4] == ["test", "--root", "/work", "--offline"]
     assert observed["command"][observed["command"].index("--use") + 1] == "/work/.aegisforge/solc"
     assert "--offline" in observed["command"]
@@ -408,6 +414,7 @@ def test_foundry_runner_installs_compiler_only_with_explicit_opt_in(
     )
 
     assert result["status"] == "EXECUTED_PASS"
+    assert result["compiler_installed"] is True
     assert observed["install_commands"] == [
         ["/usr/bin/solc-select", "install", "0.8.20"]
     ]

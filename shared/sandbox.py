@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -212,10 +213,14 @@ def run_in_container(
     ):
         raise SandboxError("container_entrypoint_invalid")
 
+    container_name = f"aegisforge-foundry-{uuid.uuid4().hex}"
     docker_command = [
         docker,
         "run",
         "--rm",
+        "--init",
+        "--name",
+        container_name,
         "--pull=never",
         "--network=none",
         "--read-only",
@@ -236,13 +241,33 @@ def run_in_container(
     if entrypoint is not None:
         docker_command.append(f"--entrypoint={entrypoint}")
     docker_command.extend([image, *argv])
-    return _bounded_run(
-        docker_command,
-        cwd=root,
-        timeout_seconds=limits.timeout_seconds,
-        max_output_bytes=limits.max_output_bytes,
-        isolation="container",
-    )
+    try:
+        return _bounded_run(
+            docker_command,
+            cwd=root,
+            timeout_seconds=limits.timeout_seconds,
+            max_output_bytes=limits.max_output_bytes,
+            isolation="container",
+        )
+    except SandboxError as exc:
+        if str(exc) == "execution_timeout":
+            for cleanup_command in (
+                [docker, "kill", container_name],
+                [docker, "rm", "-f", container_name],
+            ):
+                try:
+                    subprocess.run(
+                        cleanup_command,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                        check=False,
+                        shell=False,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+        raise
 
 
 def run_in_sandbox(

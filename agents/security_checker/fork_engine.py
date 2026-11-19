@@ -1,18 +1,23 @@
 """Deterministic, hash-pinned inputs for isolated EVM fork research.
 
-This module deliberately does not start Anvil or contact an RPC provider. It
-validates and fingerprints observations obtained through the read-only RPC
-gateway so later fork orchestration can consume a stable snapshot contract.
+This module validates observations obtained through the read-only RPC gateway.
+It does not start Anvil, contact an RPC provider, or execute transactions.
 """
 from __future__ import annotations
 
 import hashlib
 import re
 
+from agents.security_checker.rpc_gateway import (
+    RpcGatewayError,
+    validate_fork_anchor,
+)
+
 
 _ADDRESS_RE = re.compile(r"0x[0-9a-fA-F]{40}")
 _HASH_RE = re.compile(r"0x[0-9a-fA-F]{64}")
 _BYTECODE_RE = re.compile(r"0x(?:[0-9a-fA-F]{2})+")
+_QUANTITY_RE = re.compile(r"0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)")
 
 MAX_RUNTIME_BYTECODE_BYTES = 24_576
 
@@ -29,11 +34,7 @@ def build_fork_snapshot(
     contract_address: str,
     runtime_bytecode: str,
 ) -> dict:
-    """Validate and normalize the chain/block/contract execution snapshot.
-
-    The digest is SHA-256 over decoded runtime bytecode bytes, not over its
-    textual hex representation. This makes equivalent hex casing identical.
-    """
+    """Validate and normalize a chain/block/contract execution snapshot."""
     if (
         isinstance(chain_id, bool)
         or not isinstance(chain_id, int)
@@ -75,3 +76,106 @@ def build_fork_snapshot(
         "runtime_bytecode": "0x" + runtime_bytecode[2:].lower(),
         "runtime_bytecode_sha256": hashlib.sha256(code_bytes).hexdigest(),
     }
+
+
+def _response_id(response: object, expected_id: object, label: str) -> None:
+    if (
+        not isinstance(response, dict)
+        or response.get("jsonrpc") != "2.0"
+        or "error" in response
+        or response.get("id") != expected_id
+        or isinstance(response.get("id"), bool)
+        or "result" not in response
+    ):
+        raise ForkSnapshotError(f"{label}_response_invalid")
+
+
+def build_fork_snapshot_from_rpc(
+    *,
+    chain_response: dict,
+    block_response: dict,
+    code_response: dict,
+    code_request: dict,
+    expected_chain_id: int,
+    expected_block_number: int,
+    expected_block_hash: str,
+    contract_address: str,
+    expected_response_ids: tuple,
+) -> dict:
+    """Build a snapshot only from matching response IDs and pinned code request.
+
+    The caller passes the normalized eth_getCode request sent through the
+    read-only gateway. This prevents labeling latest-state code as historical.
+    """
+    if (
+        not isinstance(expected_response_ids, tuple)
+        or len(expected_response_ids) != 3
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, str))
+            or (isinstance(value, str) and (not value or len(value) > 128))
+            for value in expected_response_ids
+        )
+        or len(set(expected_response_ids)) != 3
+    ):
+        raise ForkSnapshotError("rpc_response_ids_invalid")
+
+    chain_id_response_id, block_response_id, code_response_id = expected_response_ids
+    _response_id(chain_response, chain_id_response_id, "chain")
+    _response_id(block_response, block_response_id, "block")
+    _response_id(code_response, code_response_id, "code")
+
+    if (
+        not isinstance(code_request, dict)
+        or set(code_request) != {"jsonrpc", "id", "method", "params"}
+        or code_request.get("jsonrpc") != "2.0"
+        or code_request.get("id") != code_response_id
+        or isinstance(code_request.get("id"), bool)
+        or code_request.get("method") != "eth_getCode"
+    ):
+        raise ForkSnapshotError("code_request_invalid")
+
+    params = code_request.get("params")
+    if (
+        not isinstance(params, list)
+        or len(params) != 2
+        or not isinstance(params[0], str)
+        or not _ADDRESS_RE.fullmatch(params[0])
+        or not isinstance(params[1], str)
+        or not _QUANTITY_RE.fullmatch(params[1])
+    ):
+        raise ForkSnapshotError("code_request_invalid")
+
+    if (
+        not isinstance(contract_address, str)
+        or not _ADDRESS_RE.fullmatch(contract_address)
+        or params[0].lower() != contract_address.lower()
+    ):
+        raise ForkSnapshotError("code_request_address_mismatch")
+
+    expected_tag = hex(expected_block_number) if (
+        isinstance(expected_block_number, int)
+        and not isinstance(expected_block_number, bool)
+        and expected_block_number >= 0
+    ) else None
+    if params[1].lower() != expected_tag:
+        raise ForkSnapshotError("code_request_block_mismatch")
+
+    try:
+        anchor = validate_fork_anchor(
+            chain_response=chain_response,
+            block_response=block_response,
+            expected_chain_id=expected_chain_id,
+            expected_block_number=expected_block_number,
+            expected_block_hash=expected_block_hash,
+        )
+    except RpcGatewayError as exc:
+        raise ForkSnapshotError(str(exc)) from exc
+
+    return build_fork_snapshot(
+        chain_id=anchor["chain_id"],
+        block_number=anchor["block_number"],
+        block_hash=anchor["block_hash"],
+        contract_address=contract_address,
+        runtime_bytecode=code_response["result"],
+    )

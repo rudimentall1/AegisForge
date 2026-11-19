@@ -193,14 +193,23 @@ def run_foundry_test(
     except OSError:
         return _result("EXECUTION_FAILED", "temporary_project_io_failed")
 
-    if observation.stdout_truncated or observation.stderr_truncated:
+    if observation.exit_code == 125:
+        status = "RUNNER_UNAVAILABLE"
+        error = "container_start_failed"
+    elif observation.exit_code in {126, 127}:
+        status = "TOOL_UNAVAILABLE"
+        error = "foundry_executable_unavailable"
+    elif observation.stdout_truncated or observation.stderr_truncated:
         status = "OUTPUT_TRUNCATED"
+        error = None
     elif observation.exit_code == 0:
         status = "EXECUTED_PASS"
+        error = None
     else:
         status = "EXECUTED_FAIL"
+        error = None
 
-    result = _result(status)
+    result = _result(status, error)
     result.update({
         "exit_code": observation.exit_code,
         "duration_seconds": observation.duration_seconds,

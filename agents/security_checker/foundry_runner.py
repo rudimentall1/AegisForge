@@ -54,11 +54,12 @@ def _validated_sources(source_files: object) -> tuple[dict[str, str] | None, str
             or not isinstance(content, str)
         ):
             return None, "source_path_invalid"
+        path_parts = name.split("/")
         relative = PurePosixPath(name)
         if (
             relative.is_absolute()
             or not relative.parts
-            or any(part in ("", ".", "..") for part in relative.parts)
+            or any(part in ("", ".", "..") for part in path_parts)
             or ":" in relative.parts[0]
             or relative.suffix.lower() != ".sol"
         ):
@@ -91,7 +92,7 @@ def run_foundry_test(
     if not configured_image:
         return _result("NOT_CONFIGURED", "foundry_container_image_not_configured")
     if not re.fullmatch(
-        r"ghcr\\.io/foundry-rs/foundry@sha256:[0-9a-f]{64}",
+        r"ghcr\.io/foundry-rs/foundry@sha256:[0-9a-f]{64}",
         configured_image,
     ):
         return _result("INVALID_CONFIGURATION", "official_foundry_image_digest_required")
@@ -139,7 +140,6 @@ def run_foundry_test(
         f'solc_version = "{compiler_version}"\n'
     )
     command = [
-        "forge",
         "test",
         "--root",
         "/work",

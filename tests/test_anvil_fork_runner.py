@@ -113,7 +113,7 @@ def test_synthetic_anvil_fork_runner_executes_inside_networkless_container(
     assert observed["command"][0] == "-c"
     script = observed["command"][1]
     assert "anvil --host 127.0.0.1 --port 8545" in script
-    assert "--fork-url http://127.0.0.1:8545" in script
+    assert '--fork-url "$UPSTREAM"' in script
     assert "--fork-block-number" in script
     assert "forge test" in script
     assert "python3" not in script

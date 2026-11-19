@@ -260,7 +260,7 @@ def run_foundry_test(
         "--match-path",
         _TEST_PATH,
         "--match-test",
-        "test*",
+        "^test.*$",
         "--json",
         "--out",
         "/tmp/aegisforge-out",

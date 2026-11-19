@@ -87,7 +87,7 @@ forge create src/SyntheticTarget.sol:SyntheticTarget \
 TARGET_ADDRESS="$(sed -n 's/^Deployed to: //p' /tmp/aegis-deploy.txt | tail -n 1)"
 BLOCK_NUMBER="$(cast block-number --rpc-url "$UPSTREAM")"
 [ -n "$TARGET_ADDRESS" ] && [ -n "$BLOCK_NUMBER" ] || { cat /tmp/aegis-deploy.txt; exit 23; }
-UPSTREAM_HASH="$(cast block "$BLOCK_NUMBER" --rpc-url "$UPSTREAM" --json | sed -n 's/.*"hash"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
+UPSTREAM_HASH="$(cast block "$BLOCK_NUMBER" --rpc-url "$UPSTREAM" --json | grep -o '"hash"[[:space:]]*:[[:space:]]*"0x[0-9a-fA-F]*"' | head -n 1 | cut -d '"' -f 4)"
 [ -n "$UPSTREAM_HASH" ] || exit 24
 anvil --host 127.0.0.1 --port 8546 --chain-id 31338 \
   --fork-url "$UPSTREAM" --fork-block-number "$BLOCK_NUMBER" --silent \
@@ -101,7 +101,7 @@ while [ "$i" -lt 60 ]; do
   sleep 0.25
 done
 [ "$ready" -eq 1 ] || { cat /tmp/aegis-fork.log; exit 25; }
-FORK_HASH="$(cast block "$BLOCK_NUMBER" --rpc-url "$FORK" --json | sed -n 's/.*"hash"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
+FORK_HASH="$(cast block "$BLOCK_NUMBER" --rpc-url "$FORK" --json | grep -o '"hash"[[:space:]]*:[[:space:]]*"0x[0-9a-fA-F]*"' | head -n 1 | cut -d '"' -f 4)"
 [ -n "$FORK_HASH" ] && [ "$UPSTREAM_HASH" = "$FORK_HASH" ] || {
   echo "fork block hash mismatch: upstream=$UPSTREAM_HASH fork=$FORK_HASH"; exit 26;
 }

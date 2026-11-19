@@ -148,7 +148,6 @@ def create_anvil_rpc_adapter_server(
 ):
     """Create a bounded adapter listener; network isolation is external policy."""
     host, gateway_port, gateway_path = validate_gateway_url(gateway_url)
-    gateway_headers = build_gateway_headers(bearer_token)
     if (
         not isinstance(bind_host, str)
         or not bind_host
@@ -241,6 +240,11 @@ def create_anvil_rpc_adapter_server(
                     body,
                     bearer_token=bearer_token,
                 )
+            except AnvilRpcAdapterError:
+                self._reply(403)
+                return
+
+            try:
                 encoded = json.dumps(
                     request,
                     separators=(",", ":"),
@@ -253,16 +257,17 @@ def create_anvil_rpc_adapter_server(
                     encoded,
                     headers,
                 )
-                if status != 200:
-                    self._reply(502)
-                    return
                 validate_rpc_response(
                     status_code=status,
                     body=response_body,
                     expected_id=request["id"],
                 )
-            except (AnvilRpcAdapterError, RpcGatewayError):
-                self._reply(403)
+            except (AnvilRpcAdapterError, RpcGatewayError, OSError, TimeoutError):
+                self._reply(502)
+                return
+            except Exception:
+                # Do not expose transport/client exception details to Anvil.
+                self._reply(502)
                 return
             self._reply(200, response_body)
 

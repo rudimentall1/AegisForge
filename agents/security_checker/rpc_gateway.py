@@ -361,6 +361,8 @@ def create_rpc_gateway_server(
     bind_host: str = "127.0.0.1",
     port: int = 8545,
     max_concurrent_requests: int = 8,
+    rate_limit_per_minute: int = 120,
+    rate_limit_burst: int = 20,
 ):
     """Create a bounded authenticated HTTP listener for the read-only RPC gateway.
 
@@ -370,7 +372,9 @@ def create_rpc_gateway_server(
     to the upstream RPC provider.
     """
     import hmac
+    import math
     import threading
+    import time
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     if (
@@ -380,6 +384,12 @@ def create_rpc_gateway_server(
         or not isinstance(max_concurrent_requests, int)
         or isinstance(max_concurrent_requests, bool)
         or not 1 <= max_concurrent_requests <= 64
+        or not isinstance(rate_limit_per_minute, int)
+        or isinstance(rate_limit_per_minute, bool)
+        or not 1 <= rate_limit_per_minute <= 10000
+        or not isinstance(rate_limit_burst, int)
+        or isinstance(rate_limit_burst, bool)
+        or not 1 <= rate_limit_burst <= 100
         or not isinstance(port, int)
         or isinstance(port, bool)
         or not 0 <= port <= 65535
@@ -390,6 +400,23 @@ def create_rpc_gateway_server(
 
     validate_upstream_url(upstream_url, allowed_hosts=allowed_hosts)
     slots = threading.BoundedSemaphore(max_concurrent_requests)
+    rate_lock = threading.Lock()
+    rate_bucket = {"tokens": float(rate_limit_burst), "updated": time.monotonic()}
+
+    def take_rate_token() -> int | None:
+        now = time.monotonic()
+        refill_per_second = rate_limit_per_minute / 60.0
+        with rate_lock:
+            elapsed = max(0.0, now - rate_bucket["updated"])
+            rate_bucket["tokens"] = min(
+                float(rate_limit_burst),
+                rate_bucket["tokens"] + elapsed * refill_per_second,
+            )
+            rate_bucket["updated"] = now
+            if rate_bucket["tokens"] >= 1.0:
+                rate_bucket["tokens"] -= 1.0
+                return None
+            return max(1, math.ceil((1.0 - rate_bucket["tokens"]) / refill_per_second))
 
     class BoundedThreadingHTTPServer(ThreadingHTTPServer):
         daemon_threads = True
@@ -432,7 +459,12 @@ def create_rpc_gateway_server(
             # Avoid logging bearer tokens, provider URLs, and RPC payloads.
             return
 
-        def _reply(self, status: int, payload: dict | None = None):
+        def _reply(
+            self,
+            status: int,
+            payload: dict | None = None,
+            extra_headers: dict[str, str] | None = None,
+        ):
             body = b"" if payload is None else json.dumps(
                 payload, separators=(",", ":"), ensure_ascii=False
             ).encode("utf-8")
@@ -442,6 +474,8 @@ def create_rpc_gateway_server(
             self.send_header("Connection", "close")
             if payload is not None:
                 self.send_header("Content-Type", "application/json")
+            for name, value in (extra_headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             if body:
                 self.wfile.write(body)
@@ -470,6 +504,14 @@ def create_rpc_gateway_server(
             expected = "Bearer " + bearer_token
             if not hmac.compare_digest(auth, expected):
                 self._reply(401, {"error": "unauthorized"})
+                return
+            retry_after = take_rate_token()
+            if retry_after is not None:
+                self._reply(
+                    429,
+                    {"error": "rate_limit_exceeded"},
+                    {"Retry-After": str(retry_after)},
+                )
                 return
             raw_length = self.headers.get("Content-Length")
             if raw_length is None or not raw_length.isascii() or not raw_length.isdecimal():

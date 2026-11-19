@@ -255,6 +255,51 @@ def collect_fork_snapshot(
     )
     block_hash = block_result.get("hash") if isinstance(block_result, dict) else None
 
+    # Re-read the same height after eth_getCode. A reorg between the first
+    # block read and the code read must not produce a mixed-state snapshot.
+    confirmation_request = {
+        "jsonrpc": "2.0",
+        "id": "aegisforge-block-confirmation",
+        "method": "eth_getBlockByNumber",
+        "params": [block_tag, False],
+    }
+    try:
+        confirmation_response = forward_rpc_request(
+            upstream_url,
+            allowed_hosts,
+            json.dumps(
+                confirmation_request,
+                separators=(",", ":"),
+            ).encode("utf-8"),
+        )
+    except RpcGatewayError as exc:
+        raise ForkSnapshotError(
+            "rpc_gateway_rejected_block_confirmation"
+        ) from exc
+
+    _response_id(
+        confirmation_response,
+        confirmation_request["id"],
+        "block_confirmation",
+    )
+    if not isinstance(confirmation_response.get("result"), dict):
+        raise ForkSnapshotError("fork_block_confirmation_invalid")
+
+    try:
+        validate_fork_anchor(
+            chain_response=responses[0],
+            block_response=confirmation_response,
+            expected_chain_id=expected_chain_id,
+            expected_block_number=block_number,
+            expected_block_hash=block_hash,
+        )
+    except RpcGatewayError as exc:
+        if str(exc) == "fork_block_hash_mismatch":
+            raise ForkSnapshotError(
+                "fork_block_changed_during_collection"
+            ) from exc
+        raise ForkSnapshotError("fork_block_confirmation_invalid") from exc
+
     return build_fork_snapshot_from_rpc(
         chain_response=responses[0],
         block_response=responses[1],

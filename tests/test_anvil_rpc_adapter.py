@@ -305,3 +305,63 @@ def test_adapter_still_maps_invalid_client_rpc_to_forbidden():
 
     assert response.status == 403
     assert forwarded == []
+
+
+def test_adapter_cli_reads_credentials_from_environment_not_arguments(monkeypatch):
+    import agents.security_checker.anvil_rpc_adapter as adapter
+
+    observed = {}
+    class FakeServer:
+        def serve_forever(self):
+            observed["served"] = True
+
+        def server_close(self):
+            observed["closed"] = True
+
+    def fake_create(url, token, *, bind_host, port):
+        observed.update({
+            "url": url,
+            "token": token,
+            "bind_host": bind_host,
+            "port": port,
+        })
+        return FakeServer()
+
+    monkeypatch.setenv("AEGISFORGE_ANVIL_GATEWAY_URL", "http://rpc-gateway:8545/rpc")
+    monkeypatch.setenv("AEGISFORGE_ANVIL_GATEWAY_TOKEN", "s" * 48)
+    monkeypatch.setenv("AEGISFORGE_ANVIL_ADAPTER_BIND_HOST", "0.0.0.0")
+    monkeypatch.setenv("AEGISFORGE_ANVIL_ADAPTER_PORT", "8546")
+    monkeypatch.setattr(adapter, "create_anvil_rpc_adapter_server", fake_create)
+
+    adapter.run_adapter_from_environment()
+
+    assert observed == {
+        "url": "http://rpc-gateway:8545/rpc",
+        "token": "s" * 48,
+        "bind_host": "0.0.0.0",
+        "port": 8546,
+        "served": True,
+        "closed": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("AEGISFORGE_ANVIL_GATEWAY_URL", ""),
+        ("AEGISFORGE_ANVIL_GATEWAY_TOKEN", ""),
+        ("AEGISFORGE_ANVIL_ADAPTER_PORT", "not-a-port"),
+        ("AEGISFORGE_ANVIL_ADAPTER_BIND_HOST", "192.0.2.10"),
+    ],
+)
+def test_adapter_cli_fails_closed_on_invalid_environment(monkeypatch, name, value):
+    import agents.security_checker.anvil_rpc_adapter as adapter
+
+    monkeypatch.setenv("AEGISFORGE_ANVIL_GATEWAY_URL", "http://rpc-gateway:8545/rpc")
+    monkeypatch.setenv("AEGISFORGE_ANVIL_GATEWAY_TOKEN", "s" * 48)
+    monkeypatch.setenv("AEGISFORGE_ANVIL_ADAPTER_BIND_HOST", "0.0.0.0")
+    monkeypatch.setenv("AEGISFORGE_ANVIL_ADAPTER_PORT", "8546")
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(AnvilRpcAdapterError):
+        adapter.run_adapter_from_environment()

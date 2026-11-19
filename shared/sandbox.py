@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import selectors
+import shutil
 import signal
 import subprocess
 import time
@@ -53,6 +55,8 @@ class SandboxResult:
     stderr_truncated: bool
     duration_seconds: float
     isolation: str
+    stdout: str = ""
+    stderr: str = ""
 
 
 def _validate_command(command: object) -> list[str]:
@@ -163,6 +167,72 @@ def _bounded_run(
         stderr_truncated=truncated["stderr"],
         duration_seconds=max(0.0, time.monotonic() - started),
         isolation=isolation,
+        stdout=bytes(buffers["stdout"]).decode("utf-8", errors="replace"),
+        stderr=bytes(buffers["stderr"]).decode("utf-8", errors="replace"),
+    )
+
+
+def run_in_container(
+    command: list[str],
+    limits: SandboxLimits,
+    source_root: Path,
+    *,
+    image: str,
+) -> SandboxResult:
+    """Run a command in a digest-pinned, networkless Docker container.
+
+    Docker's default seccomp profile remains enabled. This is a container
+    boundary, not a claim of resistance to kernel or Docker-runtime escapes.
+    """
+    argv = _validate_command(command)
+    if not isinstance(limits, SandboxLimits):
+        raise SandboxError("limits_invalid")
+    if (
+        not isinstance(image, str)
+        or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9./:_-]*@sha256:[0-9a-f]{64}",
+            image,
+        )
+    ):
+        raise SandboxError("container_image_must_be_digest_pinned")
+    docker = shutil.which("docker")
+    if not docker:
+        raise SandboxError("docker_not_available")
+    try:
+        root = Path(source_root).resolve(strict=True)
+    except (OSError, TypeError, ValueError) as exc:
+        raise SandboxError("source_root_invalid") from exc
+    if not root.is_dir():
+        raise SandboxError("source_root_not_directory")
+
+    docker_command = [
+        docker,
+        "run",
+        "--rm",
+        "--pull=never",
+        "--network=none",
+        "--read-only",
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
+        "--pids-limit=64",
+        "--user=65532:65532",
+        f"--memory={limits.memory_mb}m",
+        f"--cpus={limits.cpu_cores}",
+        "--ulimit", "nofile=256:256",
+        "--ulimit", "nproc=64:64",
+        "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=128m",
+        "--env=HOME=/tmp",
+        "--mount", f"type=bind,src={root},dst=/work,readonly",
+        "--workdir=/work",
+        image,
+        *argv,
+    ]
+    return _bounded_run(
+        docker_command,
+        cwd=root,
+        timeout_seconds=limits.timeout_seconds,
+        max_output_bytes=limits.max_output_bytes,
+        isolation="container",
     )
 
 

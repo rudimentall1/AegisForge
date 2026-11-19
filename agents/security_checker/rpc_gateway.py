@@ -198,3 +198,83 @@ def validate_rpc_response(
     ):
         raise RpcGatewayError("upstream_response_invalid")
     return payload
+
+
+def forward_rpc_request(
+    upstream_url: str,
+    allowed_hosts: set[str],
+    body: bytes,
+    *,
+    transport=None,
+    max_response_bytes: int = MAX_RESPONSE_BYTES,
+) -> dict:
+    """Forward one allowlisted request with bounded streaming and no redirects.
+
+    The caller remains responsible for exposing this function only behind a
+    separately isolated listener. No caller-supplied headers or URL are passed
+    through from the untrusted RPC request.
+    """
+    import requests
+
+    validated_url = validate_upstream_url(
+        upstream_url,
+        allowed_hosts=allowed_hosts,
+    )
+    request = parse_rpc_request(body)
+    if transport is None:
+        transport = requests.post
+    if (
+        isinstance(max_response_bytes, bool)
+        or not isinstance(max_response_bytes, int)
+        or not 1 <= max_response_bytes <= MAX_RESPONSE_BYTES
+    ):
+        raise RpcGatewayError("response_limit_invalid")
+
+    encoded_request = json.dumps(
+        request,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    response = None
+    try:
+        response = transport(
+            validated_url,
+            data=encoded_request,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            timeout=(3.0, 15.0),
+            allow_redirects=False,
+            stream=True,
+        )
+        status_code = response.status_code
+        if status_code != 200:
+            return validate_rpc_response(
+                status_code=status_code,
+                body=b"",
+                expected_id=request["id"],
+                max_response_bytes=max_response_bytes,
+            )
+
+        chunks = []
+        total_bytes = 0
+        for chunk in response.iter_content(chunk_size=65536):
+            if not isinstance(chunk, bytes):
+                raise RpcGatewayError("upstream_response_invalid")
+            total_bytes += len(chunk)
+            if total_bytes > max_response_bytes:
+                raise RpcGatewayError("upstream_response_size_invalid")
+            if chunk:
+                chunks.append(chunk)
+        return validate_rpc_response(
+            status_code=status_code,
+            body=b"".join(chunks),
+            expected_id=request["id"],
+            max_response_bytes=max_response_bytes,
+        )
+    except requests.RequestException as exc:
+        raise RpcGatewayError("upstream_transport_failed") from exc
+    finally:
+        if response is not None:
+            response.close()

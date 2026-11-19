@@ -242,6 +242,10 @@ def test_collect_snapshot_rejects_wrong_chain_identity(monkeypatch):
                 "hash": "0x" + "ab" * 32,
             },
             "aegisforge-code": "0x6001",
+            "aegisforge-block-confirmation": {
+                "number": "0xfa",
+                "hash": "0x" + "ab" * 32,
+            },
         }[request["id"]]
         return {"jsonrpc": "2.0", "id": request["id"], "result": result}
 

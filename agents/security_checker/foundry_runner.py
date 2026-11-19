@@ -25,7 +25,7 @@ def _sha256(value: bytes) -> str:
 def _summarize_foundry_output(stdout: str) -> dict:
     try:
         payload = json.loads(stdout)
-    except (TypeError, ValueError, json.JSONDecodeError):
+    except (TypeError, ValueError, json.JSONDecodeError, RecursionError):
         return {"valid": False, "total": 0, "passed": 0, "failed": 0, "skipped": 0}
     if not isinstance(payload, dict):
         return {"valid": False, "total": 0, "passed": 0, "failed": 0, "skipped": 0}
@@ -45,7 +45,7 @@ def _summarize_foundry_output(stdout: str) -> dict:
                 counts["valid"] = False
                 continue
             status = test_result.get("status")
-            if status not in {"Success", "Failure", "Skipped"}:
+            if not isinstance(status, str) or status not in {"Success", "Failure", "Skipped"}:
                 counts["valid"] = False
                 continue
             counts["total"] += 1

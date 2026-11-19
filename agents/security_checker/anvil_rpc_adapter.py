@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -275,3 +276,40 @@ def create_anvil_rpc_adapter_server(
         return BoundedServer((bind_host, port), Handler)
     except OSError as exc:
         raise AnvilRpcAdapterError("listener_bind_failed") from exc
+
+
+
+def run_adapter_from_environment() -> None:
+    """Run the adapter sidecar using secrets supplied only through its environment.
+
+    The container must be attached only to the dedicated internal fork network.
+    Do not publish this listener to the host or attach the adapter to an egress
+    network. The separate Gateway service is responsible for constrained egress.
+    """
+    gateway_url = os.environ.get("AEGISFORGE_ANVIL_GATEWAY_URL", "")
+    bearer_token = os.environ.get("AEGISFORGE_ANVIL_GATEWAY_TOKEN", "")
+    bind_host = os.environ.get("AEGISFORGE_ANVIL_ADAPTER_BIND_HOST", "0.0.0.0")
+    raw_port = os.environ.get("AEGISFORGE_ANVIL_ADAPTER_PORT", "8546")
+
+    if bind_host not in {"127.0.0.1", "0.0.0.0"}:
+        raise AnvilRpcAdapterError("listener_bind_host_not_allowed")
+    if not raw_port.isascii() or not raw_port.isdecimal() or len(raw_port) > 5:
+        raise AnvilRpcAdapterError("listener_port_invalid")
+    port = int(raw_port)
+    if not 1 <= port <= 65535:
+        raise AnvilRpcAdapterError("listener_port_invalid")
+
+    server = create_anvil_rpc_adapter_server(
+        gateway_url,
+        bearer_token,
+        bind_host=bind_host,
+        port=port,
+    )
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    run_adapter_from_environment()

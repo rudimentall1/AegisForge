@@ -203,3 +203,34 @@ def test_foundry_runner_rejects_non_solidity_source_and_oversized_input():
 
     assert non_solidity["status"] == "INVALID_INPUT"
     assert oversized["status"] == "INPUT_TOO_LARGE"
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "expected_status"),
+    [(125, "RUNNER_UNAVAILABLE"), (126, "TOOL_UNAVAILABLE"), (127, "TOOL_UNAVAILABLE")],
+)
+def test_foundry_runner_distinguishes_container_or_tool_start_failure(
+    monkeypatch, exit_code, expected_status
+):
+    import agents.security_checker.foundry_runner as runner
+
+    monkeypatch.setattr(
+        runner,
+        "run_in_container",
+        lambda *args, **kwargs: sandbox_result(
+            exit_code=exit_code,
+            stderr="container or executable start failed",
+        ),
+    )
+
+    result = run_foundry_test(
+        SOURCES,
+        TEST_SOURCE,
+        compiler_version="0.8.20",
+        image=IMAGE,
+    )
+
+    assert result["status"] == expected_status
+    assert result["dynamic_verified"] is False
+    assert result["confirmed"] is False
+    assert result["test_passed"] is False

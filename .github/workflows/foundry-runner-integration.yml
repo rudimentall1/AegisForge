@@ -5,10 +5,13 @@ on:
     branches:
       - main
       - master
+      - feat/aegisforge-working-state-2026-11-18
     paths:
       - "agents/security_checker/foundry_runner.py"
+      - "agents/security_checker/anvil_fork_runner.py"
       - "shared/sandbox.py"
       - "tests/test_foundry_dynamic_runner_integration.py"
+      - "tests/test_anvil_fork_runner_integration.py"
       - ".github/workflows/foundry-runner-integration.yml"
   push:
     branches:
@@ -57,8 +60,10 @@ jobs:
           echo "AEGISFORGE_FOUNDRY_IMAGE=$image_digest" >> "$GITHUB_ENV"
           echo "AEGISFORGE_AUTO_INSTALL_SOLC=1" >> "$GITHUB_ENV"
           echo "AEGISFORGE_FOUNDRY_INTEGRATION=1" >> "$GITHUB_ENV"
+          echo "AEGISFORGE_ANVIL_FORK_INTEGRATION=1" >> "$GITHUB_ENV"
+          solc-select install 0.8.20
           echo "Foundry image pinned for this run: $image_digest"
 
       - name: Execute real Solidity test in isolated container
         run: |
-          python -m pytest -q tests/test_foundry_dynamic_runner_integration.py
+          python -m pytest -q tests/test_foundry_dynamic_runner_integration.py tests/test_anvil_fork_runner_integration.py

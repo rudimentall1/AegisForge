@@ -1,4 +1,5 @@
 import hashlib
+import json
 
 import pytest
 
@@ -21,7 +22,19 @@ contract AegisForgeValidationTest {
 """
 
 
-def sandbox_result(exit_code=0, stdout='{"ok":true}', stderr=""):
+def forge_output(status="Success"):
+    return json.dumps({
+        "test/Vault.t.sol:VaultTest": {
+            "test_results": {
+                "testSyntheticVaultDeploys()": {"status": status}
+            }
+        }
+    })
+
+
+def sandbox_result(exit_code=0, stdout=None, stderr=""):
+    if stdout is None:
+        stdout = forge_output()
     return SandboxResult(
         exit_code=exit_code,
         stdout_sha256=hashlib.sha256(stdout.encode()).hexdigest(),
@@ -151,7 +164,11 @@ def test_foundry_runner_records_failed_test_without_confirmation(monkeypatch):
     monkeypatch.setattr(
         runner,
         "run_in_container",
-        lambda *args, **kwargs: sandbox_result(exit_code=1, stderr="test failed"),
+        lambda *args, **kwargs: sandbox_result(
+            exit_code=1,
+            stdout=forge_output("Failure"),
+            stderr="test failed",
+        ),
     )
 
     result = run_foundry_test(
@@ -234,3 +251,57 @@ def test_foundry_runner_distinguishes_container_or_tool_start_failure(
     assert result["dynamic_verified"] is False
     assert result["confirmed"] is False
     assert result["test_passed"] is False
+
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected_status"),
+    [
+        ("{}", "NO_TESTS"),
+        (forge_output("Skipped"), "SKIPPED"),
+        ("not-json", "INVALID_OUTPUT"),
+    ],
+)
+def test_foundry_runner_requires_machine_readable_executed_test_results(
+    monkeypatch, stdout, expected_status
+):
+    import agents.security_checker.foundry_runner as runner
+
+    monkeypatch.setattr(
+        runner,
+        "run_in_container",
+        lambda *args, **kwargs: sandbox_result(stdout=stdout),
+    )
+
+    result = run_foundry_test(
+        SOURCES,
+        TEST_SOURCE,
+        compiler_version="0.8.20",
+        image=IMAGE,
+    )
+
+    assert result["status"] == expected_status
+    assert result["dynamic_verified"] is False
+    assert result["confirmed"] is False
+    assert result["test_passed"] is False
+
+
+def test_foundry_runner_does_not_pass_when_exit_code_disagrees_with_json(monkeypatch):
+    import agents.security_checker.foundry_runner as runner
+
+    monkeypatch.setattr(
+        runner,
+        "run_in_container",
+        lambda *args, **kwargs: sandbox_result(exit_code=1, stdout=forge_output("Success")),
+    )
+
+    result = run_foundry_test(
+        SOURCES,
+        TEST_SOURCE,
+        compiler_version="0.8.20",
+        image=IMAGE,
+    )
+
+    assert result["status"] == "EXECUTION_FAILED"
+    assert result["test_passed"] is False
+    assert result["dynamic_verified"] is False

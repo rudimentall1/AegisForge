@@ -95,7 +95,7 @@ def _verify_source_mappings(source_bytes: bytes, findings: list) -> dict:
                 or mapping.get("filename_used")
                 or mapping.get("filename_short")
             )
-            if not isinstance(filename, str) or not filename or "\\\\" in filename:
+            if not isinstance(filename, str) or not filename or "\\" in filename:
                 invalid = True
                 continue
             relative = PurePosixPath(filename)

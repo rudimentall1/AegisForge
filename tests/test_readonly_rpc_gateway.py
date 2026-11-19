@@ -303,9 +303,8 @@ def test_fork_anchor_rejects_unvalidated_response_envelopes():
         )
 
 
-def test_default_transport_ignores_environment_proxy_configuration(monkeypatch):
-    import requests
-    from agents.security_checker.rpc_gateway import forward_rpc_request
+def test_default_transport_uses_pinned_https_path(monkeypatch):
+    import agents.security_checker.rpc_gateway as gateway
 
     response = FakeResponse(
         200,
@@ -313,30 +312,81 @@ def test_default_transport_ignores_environment_proxy_configuration(monkeypatch):
     )
     observed = {}
 
-    class FakeSession:
-        def __init__(self):
-            self.trust_env = True
+    def fake_pinned_post(url, **kwargs):
+        observed["url"] = url
+        observed.update(kwargs)
+        return response
 
-        def post(self, url, **kwargs):
-            observed["trust_env"] = self.trust_env
-            observed["url"] = url
-            return response
+    monkeypatch.setattr(gateway, "_pinned_https_post", fake_pinned_post)
 
-        def close(self):
-            observed["session_closed"] = True
-
-    monkeypatch.setattr(requests, "Session", FakeSession)
-
-    result = forward_rpc_request(
+    result = gateway.forward_rpc_request(
         "https://rpc.example.test/",
         {"rpc.example.test"},
         b'{"jsonrpc":"2.0","id":4,"method":"eth_chainId","params":[]}',
     )
 
     assert result["result"] == "0x1"
-    assert observed["trust_env"] is False
-    assert observed["session_closed"] is True
+    assert observed["url"] == "https://rpc.example.test/"
+    assert observed["allow_redirects"] is False
+    assert observed["stream"] is True
+    assert observed["timeout"] == (3.0, 15.0)
     assert response.closed is True
+
+
+def test_pinned_https_connection_uses_ip_for_tcp_and_hostname_for_tls(monkeypatch):
+    import socket
+    import agents.security_checker.rpc_gateway as gateway
+
+    observed = {}
+
+    class FakeSocket:
+        def settimeout(self, value):
+            observed.setdefault("timeouts", []).append(value)
+
+        def connect(self, address):
+            observed["connected_address"] = address
+
+        def close(self):
+            observed["socket_closed"] = True
+
+    class FakeTLSContext:
+        def wrap_socket(self, sock, *, server_hostname):
+            observed["server_hostname"] = server_hostname
+            return sock
+
+    monkeypatch.setattr(gateway.ssl, "create_default_context", lambda: FakeTLSContext())
+    monkeypatch.setattr(gateway.socket, "socket", lambda *args: FakeSocket())
+
+    connection = gateway._PinnedHTTPSConnection(
+        "rpc.example.test",
+        443,
+        ("93.184.216.34", 443),
+        socket.AF_INET,
+        connect_timeout=3.0,
+        read_timeout=15.0,
+    )
+    connection.connect()
+
+    assert observed["connected_address"] == ("93.184.216.34", 443)
+    assert observed["server_hostname"] == "rpc.example.test"
+    assert observed["timeouts"] == [3.0, 15.0]
+
+
+@pytest.mark.parametrize("address", ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1", "fc00::1"])
+def test_upstream_dns_resolution_rejects_non_global_addresses(monkeypatch, address):
+    import socket
+    import agents.security_checker.rpc_gateway as gateway
+
+    family = socket.AF_INET6 if ":" in address else socket.AF_INET
+    sockaddr = (address, 443, 0, 0) if family == socket.AF_INET6 else (address, 443)
+    monkeypatch.setattr(
+        gateway.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(family, socket.SOCK_STREAM, 6, "", sockaddr)],
+    )
+
+    with pytest.raises(RpcGatewayError, match="upstream_ip_not_public"):
+        gateway._resolve_public_upstream_address("rpc.example.test", 443)
 
 
 def _start_test_gateway(monkeypatch, *, forward_result=None, **gateway_kwargs):

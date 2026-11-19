@@ -60,7 +60,6 @@ def test_read_only_allowlist_is_explicit_and_excludes_mutating_methods():
     [
         "http://rpc.example.test",
         "https://user:pass@rpc.example.test",
-        "https://rpc.example.test/path?token=secret",
         "https://rpc.example.test/path#fragment",
         "https://attacker.example.test",
         "https://rpc.example.test:8546",
@@ -69,6 +68,14 @@ def test_read_only_allowlist_is_explicit_and_excludes_mutating_methods():
 def test_rejects_untrusted_or_ambiguous_upstream_urls(url):
     with pytest.raises(RpcGatewayError):
         validate_upstream_url(url, allowed_hosts={"rpc.example.test"})
+
+
+def test_accepts_allowlisted_provider_endpoint_with_path_and_query_credentials():
+    endpoint = "https://rpc.example.test/v1/project-id?token=provider-key"
+    assert validate_upstream_url(
+        endpoint,
+        allowed_hosts={"rpc.example.test"},
+    ) == endpoint
 
 
 def test_accepts_exact_allowlisted_https_upstream():

@@ -1,8 +1,8 @@
-"""Strict validation primitives for a read-only EVM JSON-RPC gateway.
+"""Authenticated, bounded HTTP gateway for an allowlisted read-only EVM RPC upstream.
 
-This module deliberately does not start a listener or choose an upstream. The
-caller must bind its HTTP server to an isolated interface and configure an
-explicit hostname allowlist before forwarding requests.
+The listener defaults to loopback. Binding it to a container interface requires
+an isolated Docker network and an egress policy that permits only the configured
+upstream. This module does not create or enforce those network policies.
 """
 from __future__ import annotations
 

@@ -293,3 +293,39 @@ def test_fork_anchor_rejects_unvalidated_response_envelopes():
             expected_block_number=42,
             expected_block_hash="0x" + "a" * 64,
         )
+
+
+def test_default_transport_ignores_environment_proxy_configuration(monkeypatch):
+    import requests
+    from agents.security_checker.rpc_gateway import forward_rpc_request
+
+    response = FakeResponse(
+        200,
+        [b'{"jsonrpc":"2.0","id":4,"result":"0x1"}'],
+    )
+    observed = {}
+
+    class FakeSession:
+        def __init__(self):
+            self.trust_env = True
+
+        def post(self, url, **kwargs):
+            observed["trust_env"] = self.trust_env
+            observed["url"] = url
+            return response
+
+        def close(self):
+            observed["session_closed"] = True
+
+    monkeypatch.setattr(requests, "Session", FakeSession)
+
+    result = forward_rpc_request(
+        "https://rpc.example.test/",
+        {"rpc.example.test"},
+        b'{"jsonrpc":"2.0","id":4,"method":"eth_chainId","params":[]}',
+    )
+
+    assert result["result"] == "0x1"
+    assert observed["trust_env"] is False
+    assert observed["session_closed"] is True
+    assert response.closed is True

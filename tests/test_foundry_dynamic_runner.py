@@ -305,3 +305,31 @@ def test_foundry_runner_does_not_pass_when_exit_code_disagrees_with_json(monkeyp
     assert result["status"] == "EXECUTION_FAILED"
     assert result["test_passed"] is False
     assert result["dynamic_verified"] is False
+
+
+def test_foundry_runner_rejects_malformed_test_status_type(monkeypatch):
+    import agents.security_checker.foundry_runner as runner
+
+    malformed = json.dumps({
+        "suite": {
+            "test_results": {
+                "testBadStatus()": {"status": []}
+            }
+        }
+    })
+    monkeypatch.setattr(
+        runner,
+        "run_in_container",
+        lambda *args, **kwargs: sandbox_result(stdout=malformed),
+    )
+
+    result = run_foundry_test(
+        SOURCES,
+        TEST_SOURCE,
+        compiler_version="0.8.20",
+        image=IMAGE,
+    )
+
+    assert result["status"] == "INVALID_OUTPUT"
+    assert result["dynamic_verified"] is False
+    assert result["confirmed"] is False

@@ -32,6 +32,19 @@ def forge_output(status="Success"):
     })
 
 
+
+
+@pytest.fixture(autouse=True)
+def configured_compiler(monkeypatch, tmp_path):
+    import agents.security_checker.foundry_runner as runner
+
+    compiler = tmp_path / "solc"
+    compiler.write_bytes(b"synthetic-solidity-compiler-binary")
+    compiler.chmod(0o555)
+    monkeypatch.setattr(runner, "_resolve_solc_binary", lambda version: compiler)
+    monkeypatch.setattr(runner, "_probe_solc_binary", lambda path, version: "OK")
+
+
 def sandbox_result(exit_code=0, stdout=None, stderr=""):
     if stdout is None:
         stdout = forge_output()
@@ -100,6 +113,8 @@ def test_foundry_runner_executes_only_generated_project_in_container(monkeypatch
         observed["entrypoint"] = entrypoint
         observed["root_mode"] = source_root.stat().st_mode & 0o777
         observed["source_mode"] = (source_root / "src" / "Vault.sol").stat().st_mode & 0o777
+        observed["compiler_bytes"] = (source_root / ".aegisforge" / "solc").read_bytes()
+        observed["compiler_mode"] = (source_root / ".aegisforge" / "solc").stat().st_mode & 0o777
         observed["files"] = {
             path.relative_to(source_root).as_posix(): path.read_text(encoding="utf-8")
             for path in source_root.rglob("*")
@@ -123,7 +138,10 @@ def test_foundry_runner_executes_only_generated_project_in_container(monkeypatch
     assert observed["entrypoint"] == "forge"
     assert observed["root_mode"] == 0o755
     assert observed["source_mode"] & 0o444 == 0o444
+    assert observed["compiler_bytes"] == b"synthetic-solidity-compiler-binary"
+    assert observed["compiler_mode"] == 0o555
     assert observed["command"][:4] == ["test", "--root", "/work", "--offline"]
+    assert observed["command"][observed["command"].index("--use") + 1] == "/work/.aegisforge/solc"
     assert "--offline" in observed["command"]
     assert "--match-path" in observed["command"]
     assert "--json" in observed["command"]
@@ -333,3 +351,63 @@ def test_foundry_runner_rejects_malformed_test_status_type(monkeypatch):
     assert result["status"] == "INVALID_OUTPUT"
     assert result["dynamic_verified"] is False
     assert result["confirmed"] is False
+
+
+def test_foundry_runner_requires_compiler_binary_when_not_installed(monkeypatch):
+    import agents.security_checker.foundry_runner as runner
+
+    monkeypatch.setattr(runner, "_resolve_solc_binary", lambda version: None)
+    monkeypatch.delenv("AEGISFORGE_AUTO_INSTALL_SOLC", raising=False)
+
+    result = run_foundry_test(
+        SOURCES,
+        TEST_SOURCE,
+        compiler_version="0.8.20",
+        image=IMAGE,
+    )
+
+    assert result["status"] == "COMPILER_UNAVAILABLE"
+    assert result["dynamic_verified"] is False
+    assert result["confirmed"] is False
+
+
+def test_foundry_runner_installs_compiler_only_with_explicit_opt_in(
+    monkeypatch, tmp_path
+):
+    import agents.security_checker.foundry_runner as runner
+
+    compiler = tmp_path / "solc"
+    compiler.write_bytes(b"installed-solc")
+    compiler.chmod(0o555)
+    observed = {"install_commands": []}
+    monkeypatch.setenv("AEGISFORGE_AUTO_INSTALL_SOLC", "1")
+    monkeypatch.setattr(
+        runner,
+        "_resolve_solc_binary",
+        lambda version: None if not observed["install_commands"] else compiler,
+    )
+    monkeypatch.setattr(runner, "_probe_solc_binary", lambda path, version: "OK")
+    monkeypatch.setattr(runner.shutil, "which", lambda name: "/usr/bin/solc-select")
+
+    def fake_subprocess_run(command, **kwargs):
+        observed["install_commands"].append(command)
+        return runner.subprocess.CompletedProcess(command, 0, stdout="installed", stderr="")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(
+        runner,
+        "run_in_container",
+        lambda *args, **kwargs: sandbox_result(),
+    )
+
+    result = run_foundry_test(
+        SOURCES,
+        TEST_SOURCE,
+        compiler_version="0.8.20",
+        image=IMAGE,
+    )
+
+    assert result["status"] == "EXECUTED_PASS"
+    assert observed["install_commands"] == [
+        ["/usr/bin/solc-select", "install", "0.8.20"]
+    ]

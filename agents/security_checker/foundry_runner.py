@@ -45,7 +45,7 @@ def _probe_solc_binary(path: Path, expected_version: str) -> str:
     except (OSError, subprocess.TimeoutExpired):
         return "COMPILER_UNAVAILABLE"
     output = (completed.stdout or "") + (completed.stderr or "")
-    match = re.search(r"Version:\\s*(\\d+\\.\\d+\\.\\d+)", output)
+    match = re.search(r"Version:\s*(\d+\.\d+\.\d+)", output)
     if completed.returncode != 0 or match is None:
         return "COMPILER_UNAVAILABLE"
     if match.group(1) != expected_version:

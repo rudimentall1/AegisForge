@@ -113,7 +113,13 @@ def parse_rpc_request(
 
 def validate_upstream_url(url: str, *, allowed_hosts: set[str]) -> str:
     """Accept only an explicitly allowlisted HTTPS origin without URL credentials."""
-    if not isinstance(url, str) or not isinstance(allowed_hosts, set) or not allowed_hosts:
+    if (
+        not isinstance(url, str)
+        or any(ord(char) <= 32 or ord(char) == 127 for char in url)
+        or "\\\\" in url
+        or not isinstance(allowed_hosts, set)
+        or not allowed_hosts
+    ):
         raise RpcGatewayError("upstream_configuration_invalid")
     try:
         parsed = urlsplit(url)
@@ -133,8 +139,6 @@ def validate_upstream_url(url: str, *, allowed_hosts: set[str]) -> str:
         or hostname.lower().rstrip(".") not in normalized_hosts
         or parsed.username is not None
         or parsed.password is not None
-        or parsed.path not in ("", "/")
-        or parsed.query
         or parsed.fragment
         or port not in (None, 443)
     ):

@@ -329,3 +329,163 @@ def test_default_transport_ignores_environment_proxy_configuration(monkeypatch):
     assert observed["trust_env"] is False
     assert observed["session_closed"] is True
     assert response.closed is True
+
+
+def _start_test_gateway(monkeypatch, *, forward_result=None):
+    import threading
+    import agents.security_checker.rpc_gateway as gateway
+
+    calls = []
+
+    def fake_forward(upstream_url, allowed_hosts, body):
+        calls.append((upstream_url, allowed_hosts, body))
+        if forward_result is not None:
+            return forward_result
+        return {"jsonrpc": "2.0", "id": 9, "result": "0x1"}
+
+    monkeypatch.setattr(gateway, "forward_rpc_request", fake_forward)
+    server = gateway.create_rpc_gateway_server(
+        "https://rpc.example.test/",
+        {"rpc.example.test"},
+        "t" * 40,
+        port=0,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread, calls
+
+
+def test_http_listener_authenticates_and_forwards_only_rpc_post(monkeypatch):
+    import http.client
+
+    server, thread, calls = _start_test_gateway(monkeypatch)
+    try:
+        connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+        body = b'{"jsonrpc":"2.0","id":9,"method":"eth_chainId","params":[]}'
+        connection.request(
+            "POST",
+            "/rpc",
+            body=body,
+            headers={
+                "Authorization": "Bearer " + "t" * 40,
+                "Content-Type": "application/json",
+            },
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read())
+        assert response.status == 200
+        assert payload == {"jsonrpc": "2.0", "id": 9, "result": "0x1"}
+        assert calls == [
+            (
+                "https://rpc.example.test/",
+                {"rpc.example.test"},
+                body,
+            )
+        ]
+        connection.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_http_listener_rejects_missing_or_invalid_bearer_token(monkeypatch):
+    import http.client
+
+    server, thread, calls = _start_test_gateway(monkeypatch)
+    try:
+        connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+        connection.request(
+            "POST",
+            "/rpc",
+            body=b'{"jsonrpc":"2.0","id":9,"method":"eth_chainId","params":[]}',
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read())
+        assert response.status == 401
+        assert payload["error"] == "unauthorized"
+        assert calls == []
+        connection.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_http_listener_rejects_wrong_route_and_non_post_methods(monkeypatch):
+    import http.client
+
+    server, thread, calls = _start_test_gateway(monkeypatch)
+    try:
+        connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+        connection.request("GET", "/")
+        response = connection.getresponse()
+        assert response.status == 405
+        response.read()
+        connection.close()
+
+        connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+        connection.request(
+            "POST",
+            "/admin",
+            body=b"{}",
+            headers={
+                "Authorization": "Bearer " + "t" * 40,
+                "Content-Type": "application/json",
+            },
+        )
+        response = connection.getresponse()
+        assert response.status == 404
+        response.read()
+        connection.close()
+        assert calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_http_listener_rejects_oversized_body_before_reading(monkeypatch):
+    import http.client
+
+    server, thread, calls = _start_test_gateway(monkeypatch)
+    try:
+        connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+        connection.putrequest("POST", "/rpc")
+        connection.putheader("Authorization", "Bearer " + "t" * 40)
+        connection.putheader("Content-Type", "application/json")
+        connection.putheader("Content-Length", str(1_048_577))
+        connection.endheaders()
+        response = connection.getresponse()
+        assert response.status == 413
+        response.read()
+        connection.close()
+        assert calls == []
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"bearer_token": "short"},
+        {"bearer_token": "x" * 32, "max_concurrent_requests": 0},
+        {"bearer_token": "x" * 32, "max_concurrent_requests": 65},
+        {"bearer_token": "x" * 32, "port": -1},
+        {"bearer_token": "x" * 32, "port": 65536},
+    ],
+)
+def test_http_listener_rejects_unsafe_configuration(kwargs):
+    from agents.security_checker.rpc_gateway import create_rpc_gateway_server
+
+    values = {
+        "upstream_url": "https://rpc.example.test/",
+        "allowed_hosts": {"rpc.example.test"},
+        "bearer_token": "x" * 32,
+    }
+    values.update(kwargs)
+    with pytest.raises(RpcGatewayError, match="gateway_listener_configuration_invalid"):
+        create_rpc_gateway_server(**values)

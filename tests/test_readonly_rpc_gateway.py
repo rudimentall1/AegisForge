@@ -350,6 +350,9 @@ def test_pinned_https_connection_uses_ip_for_tcp_and_hostname_for_tls(monkeypatc
             observed["socket_closed"] = True
 
     class FakeTLSContext:
+        check_hostname = True
+        verify_mode = gateway.ssl.CERT_REQUIRED
+
         def wrap_socket(self, sock, *, server_hostname):
             observed["server_hostname"] = server_hostname
             return sock

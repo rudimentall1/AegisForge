@@ -278,3 +278,65 @@ def forward_rpc_request(
     finally:
         if response is not None:
             response.close()
+
+
+def validate_fork_anchor(
+    *,
+    chain_response: dict,
+    block_response: dict,
+    expected_chain_id: int,
+    expected_block_number: int,
+    expected_block_hash: str,
+) -> dict:
+    """Bind a fork target to one configured chain, height, and block hash."""
+    if (
+        isinstance(expected_chain_id, bool)
+        or not isinstance(expected_chain_id, int)
+        or expected_chain_id <= 0
+        or isinstance(expected_block_number, bool)
+        or not isinstance(expected_block_number, int)
+        or expected_block_number < 0
+        or not isinstance(expected_block_hash, str)
+        or not re.fullmatch(r"0x[0-9a-fA-F]{64}", expected_block_hash)
+    ):
+        raise RpcGatewayError("fork_anchor_configuration_invalid")
+
+    if (
+        not isinstance(chain_response, dict)
+        or not isinstance(block_response, dict)
+        or "result" not in chain_response
+        or not isinstance(chain_response["result"], str)
+        or not re.fullmatch(r"0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)", chain_response["result"])
+    ):
+        raise RpcGatewayError("fork_chain_identity_invalid")
+    try:
+        observed_chain_id = int(chain_response["result"], 16)
+    except ValueError as exc:
+        raise RpcGatewayError("fork_chain_identity_invalid") from exc
+    if observed_chain_id != expected_chain_id:
+        raise RpcGatewayError("fork_chain_id_mismatch")
+
+    block = block_response.get("result")
+    if not isinstance(block, dict):
+        raise RpcGatewayError("fork_block_identity_invalid")
+    number = block.get("number")
+    block_hash = block.get("hash")
+    if (
+        not isinstance(number, str)
+        or not re.fullmatch(r"0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)", number)
+        or not isinstance(block_hash, str)
+        or not re.fullmatch(r"0x[0-9a-fA-F]{64}", block_hash)
+    ):
+        raise RpcGatewayError("fork_block_identity_invalid")
+    observed_block_number = int(number, 16)
+    if observed_block_number != expected_block_number:
+        raise RpcGatewayError("fork_block_number_mismatch")
+    if block_hash.lower() != expected_block_hash.lower():
+        raise RpcGatewayError("fork_block_hash_mismatch")
+
+    return {
+        "chain_id": observed_chain_id,
+        "block_number": observed_block_number,
+        "block_hash": block_hash.lower(),
+        "anchor_verified": True,
+    }

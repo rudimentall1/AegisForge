@@ -6,10 +6,12 @@ It does not start Anvil, contact an RPC provider, or execute transactions.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 
 from agents.security_checker.rpc_gateway import (
     RpcGatewayError,
+    forward_rpc_request,
     validate_fork_anchor,
 )
 
@@ -178,4 +180,89 @@ def build_fork_snapshot_from_rpc(
         block_hash=anchor["block_hash"],
         contract_address=contract_address,
         runtime_bytecode=code_response["result"],
+    )
+
+
+def collect_fork_snapshot(
+    *,
+    upstream_url: str,
+    allowed_hosts: set[str],
+    expected_chain_id: int,
+    block_number: int,
+    contract_address: str,
+) -> dict:
+    """Collect chain, historical block, and historical code via the RPC gateway.
+
+    All upstream requests are read-only JSON-RPC calls. The block height is
+    explicit, and eth_getCode is queried at that same height, never at latest.
+    """
+    if (
+        isinstance(expected_chain_id, bool)
+        or not isinstance(expected_chain_id, int)
+        or expected_chain_id <= 0
+    ):
+        raise ForkSnapshotError("chain_id_invalid")
+    if (
+        isinstance(block_number, bool)
+        or not isinstance(block_number, int)
+        or block_number < 0
+    ):
+        raise ForkSnapshotError("block_number_invalid")
+    if (
+        not isinstance(contract_address, str)
+        or not _ADDRESS_RE.fullmatch(contract_address)
+    ):
+        raise ForkSnapshotError("contract_address_invalid")
+
+    block_tag = hex(block_number)
+    requests = (
+        {
+            "jsonrpc": "2.0",
+            "id": "aegisforge-chain-id",
+            "method": "eth_chainId",
+            "params": [],
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": "aegisforge-block",
+            "method": "eth_getBlockByNumber",
+            "params": [block_tag, False],
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": "aegisforge-code",
+            "method": "eth_getCode",
+            "params": [contract_address.lower(), block_tag],
+        },
+    )
+
+    responses = []
+    try:
+        for request in requests:
+            response = forward_rpc_request(
+                upstream_url,
+                allowed_hosts,
+                json.dumps(request, separators=(",", ":")).encode("utf-8"),
+            )
+            responses.append(response)
+    except RpcGatewayError as exc:
+        raise ForkSnapshotError("rpc_gateway_rejected_snapshot_request") from exc
+
+    block_result = (
+        responses[1].get("result")
+        if isinstance(responses[1], dict)
+        else None
+    )
+    block_hash = block_result.get("hash") if isinstance(block_result, dict) else None
+
+    return build_fork_snapshot_from_rpc(
+        chain_response=responses[0],
+        block_response=responses[1],
+        code_response=responses[2],
+        code_request=requests[2],
+        expected_chain_id=expected_chain_id,
+        expected_block_number=block_number,
+        expected_block_hash=block_hash,
+        contract_address=contract_address,
+        expected_response_ids=tuple(request["id"] for request in requests),
     )

@@ -304,7 +304,9 @@ def validate_fork_anchor(
 
     if (
         not isinstance(chain_response, dict)
+        or chain_response.get("jsonrpc") != "2.0"
         or not isinstance(block_response, dict)
+        or block_response.get("jsonrpc") != "2.0"
         or "result" not in chain_response
         or not isinstance(chain_response["result"], str)
         or not re.fullmatch(r"0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)", chain_response["result"])

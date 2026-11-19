@@ -348,3 +348,148 @@ def validate_fork_anchor(
         "block_hash": block_hash.lower(),
         "anchor_verified": True,
     }
+
+
+def create_rpc_gateway_server(
+    upstream_url: str,
+    allowed_hosts: set[str],
+    bearer_token: str,
+    *,
+    bind_host: str = "127.0.0.1",
+    port: int = 8545,
+    max_concurrent_requests: int = 8,
+):
+    """Create a bounded authenticated HTTP listener for the read-only RPC gateway.
+
+    The default bind address is loopback. Deployments that bind to a container
+    interface must additionally isolate that interface at the network layer.
+    The bearer token authenticates the research-side caller; it is never sent
+    to the upstream RPC provider.
+    """
+    import hmac
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    if (
+        not isinstance(bearer_token, str)
+        or len(bearer_token) < 32
+        or not bearer_token.isascii()
+        or not isinstance(max_concurrent_requests, int)
+        or isinstance(max_concurrent_requests, bool)
+        or not 1 <= max_concurrent_requests <= 64
+        or not isinstance(port, int)
+        or isinstance(port, bool)
+        or not 0 <= port <= 65535
+        or not isinstance(bind_host, str)
+        or not bind_host
+    ):
+        raise RpcGatewayError("gateway_listener_configuration_invalid")
+
+    validate_upstream_url(upstream_url, allowed_hosts=allowed_hosts)
+    slots = threading.BoundedSemaphore(max_concurrent_requests)
+
+    class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+        daemon_threads = True
+        allow_reuse_address = False
+
+        def process_request(self, request, client_address):
+            if not slots.acquire(blocking=False):
+                try:
+                    request.sendall(
+                        b"HTTP/1.1 503 Service Unavailable\r\n"
+                        b"Connection: close\r\n"
+                        b"Content-Length: 0\r\n\r\n"
+                    )
+                except OSError:
+                    pass
+                self.shutdown_request(request)
+                return
+            try:
+                super().process_request(request, client_address)
+            except Exception:
+                slots.release()
+                raise
+
+        def process_request_thread(self, request, client_address):
+            try:
+                super().process_request_thread(request, client_address)
+            finally:
+                slots.release()
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        server_version = "AegisForgeRPC"
+        sys_version = ""
+
+        def log_message(self, format, *args):
+            # Avoid logging bearer tokens, provider URLs, and RPC payloads.
+            return
+
+        def _reply(self, status: int, payload: dict | None = None):
+            body = b"" if payload is None else json.dumps(
+                payload, separators=(",", ":"), ensure_ascii=False
+            ).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            if payload is not None:
+                self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+            self.close_connection = True
+
+        def do_GET(self):
+            self._reply(405, {"error": "method_not_allowed"})
+
+        def do_PUT(self):
+            self._reply(405, {"error": "method_not_allowed"})
+
+        def do_DELETE(self):
+            self._reply(405, {"error": "method_not_allowed"})
+
+        def do_POST(self):
+            if self.path != "/rpc":
+                self._reply(404, {"error": "route_not_found"})
+                return
+            if self.headers.get("Transfer-Encoding") is not None:
+                self._reply(400, {"error": "transfer_encoding_not_supported"})
+                return
+            if self.headers.get_content_type() != "application/json":
+                self._reply(415, {"error": "content_type_must_be_json"})
+                return
+            auth = self.headers.get("Authorization", "")
+            expected = "Bearer " + bearer_token
+            if not hmac.compare_digest(auth, expected):
+                self._reply(401, {"error": "unauthorized"})
+                return
+            raw_length = self.headers.get("Content-Length")
+            if raw_length is None or not raw_length.isascii() or not raw_length.isdecimal():
+                self._reply(411, {"error": "content_length_required"})
+                return
+            length = int(raw_length)
+            if length < 1 or length > MAX_REQUEST_BYTES:
+                self._reply(413, {"error": "request_body_size_invalid"})
+                return
+            body = self.rfile.read(length)
+            if len(body) != length:
+                self._reply(400, {"error": "request_body_incomplete"})
+                return
+            try:
+                result = forward_rpc_request(
+                    upstream_url,
+                    allowed_hosts,
+                    body,
+                )
+            except RpcGatewayError as exc:
+                status = 403 if str(exc) == "method_not_allowed" else 502
+                self._reply(status, {"error": str(exc)})
+                return
+            self._reply(200, result)
+
+    try:
+        server = BoundedThreadingHTTPServer((bind_host, port), Handler)
+    except OSError as exc:
+        raise RpcGatewayError("gateway_listener_bind_failed") from exc
+    return server

@@ -152,7 +152,7 @@ def test_foundry_runner_executes_only_generated_project_in_container(monkeypatch
     assert "--match-path" in observed["command"]
     assert observed["command"][
         observed["command"].index("--match-test") + 1
-    ] == "test*"
+    ] == "^test.*$"
     assert "--json" in observed["command"]
     assert observed["files"]["src/Vault.sol"] == SOURCES["Vault.sol"]
     assert observed["files"]["test/AegisForgeValidation.t.sol"] == TEST_SOURCE

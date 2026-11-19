@@ -149,6 +149,8 @@ def create_anvil_rpc_adapter_server(
 ):
     """Create a bounded adapter listener; network isolation is external policy."""
     host, gateway_port, gateway_path = validate_gateway_url(gateway_url)
+    # Fail before opening a listener when the Gateway credential is absent or invalid.
+    build_gateway_headers(bearer_token)
     if (
         not isinstance(bind_host, str)
         or not bind_host

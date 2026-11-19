@@ -58,6 +58,8 @@ class EvidenceLedger:
             self.db.execute("ALTER TABLE evidence_observations ADD COLUMN case_id TEXT")
         if "round_id" not in observation_columns:
             self.db.execute("ALTER TABLE evidence_observations ADD COLUMN round_id TEXT")
+        if "round_spec_id" not in observation_columns:
+            self.db.execute("ALTER TABLE evidence_observations ADD COLUMN round_spec_id TEXT")
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_evidence_observations_task
             ON evidence_observations(task_id)
@@ -330,31 +332,35 @@ class EvidenceLedger:
         atom_id = self.atom_id(normalized_atom)
         case_id = None
         round_id = None
+        round_spec_id = None
         try:
             queue_columns = {
                 row[1] for row in self.db.execute("PRAGMA table_info(queue)")
             }
             if {"id", "research_case_id"}.issubset(queue_columns):
-                round_select = ", round_id" if "round_id" in queue_columns else ""
+                selected = ["research_case_id"]
+                for column in ("round_id", "round_spec_id"):
+                    if column in queue_columns:
+                        selected.append(column)
                 case_row = self.db.execute(
-                    f"SELECT research_case_id{round_select} FROM queue WHERE id = ?",
+                    f"SELECT {', '.join(selected)} FROM queue WHERE id = ?",
                     (task_id,),
                 ).fetchone()
-                case_id = case_row[0] if case_row else None
-                round_id = (
-                    case_row[1]
-                    if case_row and "round_id" in queue_columns
-                    else None
-                )
+                if case_row:
+                    case_id = case_row[0]
+                    offsets = {name: index for index, name in enumerate(selected)}
+                    round_id = case_row[offsets["round_id"]] if "round_id" in offsets else None
+                    round_spec_id = case_row[offsets["round_spec_id"]] if "round_spec_id" in offsets else None
         except Exception:
             # Standalone/legacy databases may not contain a compatible queue.
             case_id = None
             round_id = None
+            round_spec_id = None
         self.db.execute(
             """INSERT OR IGNORE INTO evidence_observations
-               (atom_id, task_id, role, observed_at, case_id, round_id)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (atom_id, task_id, role, now, case_id, round_id),
+               (atom_id, task_id, role, observed_at, case_id, round_id, round_spec_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (atom_id, task_id, role, now, case_id, round_id, round_spec_id),
         )
         self.db.execute(
             """DELETE FROM evidence_observations

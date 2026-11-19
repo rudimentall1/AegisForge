@@ -1,4 +1,5 @@
 import hashlib
+import json
 
 import pytest
 
@@ -6,6 +7,7 @@ from agents.security_checker.fork_engine import (
     ForkSnapshotError,
     build_fork_snapshot,
     build_fork_snapshot_from_rpc,
+    collect_fork_snapshot,
 )
 
 
@@ -176,4 +178,78 @@ def test_rejects_code_observed_at_a_different_or_unpinned_block(block_tag):
             expected_block_hash=block_hash,
             contract_address=address,
             expected_response_ids=(1, 2, 3),
+        )
+
+
+def test_collects_historical_snapshot_through_read_only_gateway(monkeypatch):
+    import agents.security_checker.fork_engine as engine
+
+    block_hash = "0x" + "ab" * 32
+    address = "0x" + "cd" * 20
+    observed_requests = []
+
+    def fake_forward(url, allowed_hosts, body):
+        request = json.loads(body)
+        observed_requests.append(request)
+        results = {
+            "aegisforge-chain-id": "0xa4b1",
+            "aegisforge-block": {
+                "number": "0xfa",
+                "hash": block_hash,
+            },
+            "aegisforge-code": "0x6001600055",
+        }
+        return {
+            "jsonrpc": "2.0",
+            "id": request["id"],
+            "result": results[request["id"]],
+        }
+
+    monkeypatch.setattr(engine, "forward_rpc_request", fake_forward)
+
+    snapshot = collect_fork_snapshot(
+        upstream_url="https://rpc.example.test/",
+        allowed_hosts={"rpc.example.test"},
+        expected_chain_id=42161,
+        block_number=250,
+        contract_address=address,
+    )
+
+    assert snapshot["chain_id"] == 42161
+    assert snapshot["block_number"] == 250
+    assert snapshot["block_hash"] == block_hash
+    assert snapshot["runtime_bytecode"] == "0x6001600055"
+    assert [item["method"] for item in observed_requests] == [
+        "eth_chainId",
+        "eth_getBlockByNumber",
+        "eth_getCode",
+    ]
+    assert observed_requests[1]["params"] == ["0xfa", False]
+    assert observed_requests[2]["params"] == [address, "0xfa"]
+
+
+def test_collect_snapshot_rejects_wrong_chain_identity(monkeypatch):
+    import agents.security_checker.fork_engine as engine
+
+    def fake_forward(url, allowed_hosts, body):
+        request = json.loads(body)
+        result = {
+            "aegisforge-chain-id": "0x1",
+            "aegisforge-block": {
+                "number": "0xfa",
+                "hash": "0x" + "ab" * 32,
+            },
+            "aegisforge-code": "0x6001",
+        }[request["id"]]
+        return {"jsonrpc": "2.0", "id": request["id"], "result": result}
+
+    monkeypatch.setattr(engine, "forward_rpc_request", fake_forward)
+
+    with pytest.raises(ForkSnapshotError):
+        collect_fork_snapshot(
+            upstream_url="https://rpc.example.test/",
+            allowed_hosts={"rpc.example.test"},
+            expected_chain_id=42161,
+            block_number=250,
+            contract_address="0x" + "cd" * 20,
         )

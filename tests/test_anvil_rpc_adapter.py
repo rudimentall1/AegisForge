@@ -208,3 +208,100 @@ def test_adapter_server_rejects_write_method_before_gateway_forwarding():
 
     assert response.status == 403
     assert forwarded == []
+
+
+@pytest.mark.parametrize(
+    "transport",
+    [
+        lambda *args: (200, b'{"jsonrpc":"2.0","id":"wrong","result":"0x1"}'),
+        lambda *args: (503, b""),
+        lambda *args: (_ for _ in ()).throw(
+            AnvilRpcAdapterError("gateway_transport_failed")
+        ),
+    ],
+)
+def test_adapter_maps_gateway_failures_to_bad_gateway_not_forbidden(transport):
+    import http.client
+    import threading
+
+    from agents.security_checker.anvil_rpc_adapter import (
+        create_anvil_rpc_adapter_server,
+    )
+
+    server = create_anvil_rpc_adapter_server(
+        "http://rpc-gateway:8545/rpc",
+        "x" * 40,
+        bind_host="127.0.0.1",
+        port=0,
+        transport=transport,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = http.client.HTTPConnection(
+            "127.0.0.1",
+            server.server_address[1],
+            timeout=3,
+        )
+        connection.request(
+            "POST",
+            "/rpc",
+            body=json.dumps({
+                "jsonrpc": "2.0",
+                "id": "expected",
+                "method": "eth_chainId",
+                "params": [],
+            }).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+    assert response.status == 502
+
+
+def test_adapter_still_maps_invalid_client_rpc_to_forbidden():
+    import http.client
+    import threading
+
+    from agents.security_checker.anvil_rpc_adapter import (
+        create_anvil_rpc_adapter_server,
+    )
+
+    forwarded = []
+    server = create_anvil_rpc_adapter_server(
+        "http://rpc-gateway:8545/rpc",
+        "x" * 40,
+        bind_host="127.0.0.1",
+        port=0,
+        transport=lambda *args: forwarded.append(args),
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = http.client.HTTPConnection(
+            "127.0.0.1",
+            server.server_address[1],
+            timeout=3,
+        )
+        connection.request(
+            "POST",
+            "/rpc",
+            body=b'{"jsonrpc":"2.0","id":1,"method":"eth_sendTransaction","params":[]}',
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+    assert response.status == 403
+    assert forwarded == []

@@ -219,3 +219,60 @@ def test_gateway_never_follows_upstream_redirects():
         )
 
     assert response.closed is True
+
+
+def test_fork_anchor_requires_expected_chain_height_and_hash():
+    from agents.security_checker.rpc_gateway import validate_fork_anchor
+
+    result = validate_fork_anchor(
+        chain_response={"jsonrpc": "2.0", "id": 1, "result": "0x1"},
+        block_response={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {
+                "number": "0x2a",
+                "hash": "0x" + "a" * 64,
+            },
+        },
+        expected_chain_id=1,
+        expected_block_number=42,
+        expected_block_hash="0x" + "a" * 64,
+    )
+
+    assert result == {
+        "chain_id": 1,
+        "block_number": 42,
+        "block_hash": "0x" + "a" * 64,
+        "anchor_verified": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("chain_id", "block_number", "block_hash"),
+    [
+        ("0x2", 42, "0x" + "a" * 64),
+        ("0x1", 43, "0x" + "a" * 64),
+        ("0x1", 42, "0x" + "b" * 64),
+        ("0x01", 42, "0x" + "a" * 64),
+    ],
+)
+def test_fork_anchor_fails_closed_on_chain_height_or_hash_mismatch(
+    chain_id, block_number, block_hash
+):
+    from agents.security_checker.rpc_gateway import validate_fork_anchor
+
+    with pytest.raises(RpcGatewayError):
+        validate_fork_anchor(
+            chain_response={"jsonrpc": "2.0", "id": 1, "result": chain_id},
+            block_response={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {
+                    "number": hex(block_number),
+                    "hash": block_hash,
+                },
+            },
+            expected_chain_id=1,
+            expected_block_number=42,
+            expected_block_hash="0x" + "a" * 64,
+        )

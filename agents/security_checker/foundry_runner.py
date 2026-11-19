@@ -67,6 +67,7 @@ def _result(status: str, error: str | None = None) -> dict:
         "validation_scope": "local_isolated_harness_execution",
         "network_access": False,
         "host_filesystem_access": False,
+        "project_mount_read_only": True,
         "transactions_sent": False,
     }
     if error:

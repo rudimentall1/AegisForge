@@ -11,12 +11,11 @@ SOURCES = {
     "Vault.sol": "pragma solidity ^0.8.20; contract Vault {}",
 }
 TEST_SOURCE = """pragma solidity ^0.8.20;
-import {Test} from "forge-std/Test.sol";
 import {Vault} from "../src/Vault.sol";
-contract AegisForgeValidationTest is Test {
+contract AegisForgeValidationTest {
     function testSyntheticVaultDeploys() public {
         Vault vault = new Vault();
-        assertTrue(address(vault) != address(0));
+        require(address(vault) != address(0), "deployment failed");
     }
 }
 """

@@ -339,7 +339,7 @@ def test_default_transport_ignores_environment_proxy_configuration(monkeypatch):
     assert response.closed is True
 
 
-def _start_test_gateway(monkeypatch, *, forward_result=None):
+def _start_test_gateway(monkeypatch, *, forward_result=None, **gateway_kwargs):
     import threading
     import agents.security_checker.rpc_gateway as gateway
 
@@ -357,6 +357,7 @@ def _start_test_gateway(monkeypatch, *, forward_result=None):
         {"rpc.example.test"},
         "t" * 40,
         port=0,
+        **gateway_kwargs,
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -487,6 +488,66 @@ def test_http_listener_rejects_oversized_body_before_reading(monkeypatch):
     ],
 )
 def test_http_listener_rejects_unsafe_configuration(kwargs):
+    from agents.security_checker.rpc_gateway import create_rpc_gateway_server
+
+    values = {
+        "upstream_url": "https://rpc.example.test/",
+        "allowed_hosts": {"rpc.example.test"},
+        "bearer_token": "x" * 32,
+    }
+    values.update(kwargs)
+    with pytest.raises(RpcGatewayError, match="gateway_listener_configuration_invalid"):
+        create_rpc_gateway_server(**values)
+
+
+def test_http_listener_enforces_global_token_bucket_rate_limit(monkeypatch):
+    import http.client
+
+    server, thread, calls = _start_test_gateway(
+        monkeypatch,
+        rate_limit_per_minute=1,
+        rate_limit_burst=1,
+    )
+    try:
+        body = b'{"jsonrpc":"2.0","id":9,"method":"eth_chainId","params":[]}'
+        headers = {
+            "Authorization": "Bearer " + "t" * 40,
+            "Content-Type": "application/json",
+        }
+
+        first = http.client.HTTPConnection(*server.server_address, timeout=3)
+        first.request("POST", "/rpc", body=body, headers=headers)
+        response = first.getresponse()
+        assert response.status == 200
+        response.read()
+        first.close()
+
+        second = http.client.HTTPConnection(*server.server_address, timeout=3)
+        second.request("POST", "/rpc", body=body, headers=headers)
+        response = second.getresponse()
+        assert response.status == 429
+        assert int(response.getheader("Retry-After")) >= 1
+        assert json.loads(response.read())["error"] == "rate_limit_exceeded"
+        second.close()
+        assert len(calls) == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"rate_limit_per_minute": 0},
+        {"rate_limit_per_minute": 10001},
+        {"rate_limit_per_minute": True},
+        {"rate_limit_burst": 0},
+        {"rate_limit_burst": 101},
+        {"rate_limit_burst": False},
+    ],
+)
+def test_http_listener_rejects_invalid_rate_limit_configuration(kwargs):
     from agents.security_checker.rpc_gateway import create_rpc_gateway_server
 
     values = {

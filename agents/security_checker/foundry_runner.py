@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -198,6 +199,10 @@ def run_foundry_test(
         source_digest.update(b"\x00")
         source_digest.update(content.encode("utf-8"))
         source_digest.update(b"\x00")
+    if platform.system() != "Linux":
+        return _result("COMPILER_UNAVAILABLE", "linux_compiler_artifact_required")
+
+    compiler_installed = False
     compiler_path = _resolve_solc_binary(compiler_version)
     if compiler_path is None:
         auto_install = os.getenv("AEGISFORGE_AUTO_INSTALL_SOLC", "0").strip().lower()
@@ -218,6 +223,7 @@ def run_foundry_test(
                 return _result("COMPILER_UNAVAILABLE", "solc_install_failed")
             if install.returncode != 0:
                 return _result("COMPILER_UNAVAILABLE", "solc_install_failed")
+            compiler_installed = True
             compiler_path = _resolve_solc_binary(compiler_version)
     if compiler_path is None:
         return _result("COMPILER_UNAVAILABLE", "required_solc_binary_not_installed")
@@ -348,7 +354,10 @@ def run_foundry_test(
         "container_image_provenance_verified": False,
         "container_isolation": observation.isolation,
         "compiler_version": compiler_version,
+        "compiler_installed": compiler_installed,
+        "compiler_selection_mode": "explicit_binary_path_no_global_switch",
         "compiler_binary_sha256": compiler_digest,
+        "compiler_binary_provenance_verified": False,
         "source_tree_sha256": source_digest.hexdigest(),
         "test_harness_sha256": test_digest,
         "stdout_sha256": observation.stdout_sha256,

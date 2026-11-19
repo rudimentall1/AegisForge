@@ -29,6 +29,7 @@ def test_accepts_single_read_only_json_rpc_request():
         b'[{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}]',
         b'{"jsonrpc":"1.0","id":1,"method":"eth_chainId","params":[]}',
         b'{"jsonrpc":"2.0","id":true,"method":"eth_chainId","params":[]}',
+        b'{"jsonrpc":"2.0","id":null,"method":"eth_chainId","params":[]}',
         b'{"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0x00"]}',
         b'{"jsonrpc":"2.0","id":1,"method":"debug_traceTransaction","params":["0x00",{}]}',
         b'{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[],"extra":true}',

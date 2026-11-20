@@ -201,6 +201,12 @@ def _resolved_compose():
             service["networks"] = {name: None for name in service["networks"]}
     document["networks"]["fork-internal"]["name"] = "aegisforge-anvil-fork_fork-internal"
     document["networks"]["rpc-egress"]["name"] = "aegisforge-anvil-fork_rpc-egress"
+    document["services"]["anvil-rpc-adapter"]["depends_on"]["rpc-gateway"].update(
+        {"required": True, "restart": False}
+    )
+    document["services"]["anvil"]["depends_on"]["anvil-rpc-adapter"].update(
+        {"required": True, "restart": False}
+    )
     return document
 
 

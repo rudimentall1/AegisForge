@@ -394,3 +394,129 @@ def validate_fork_execution_anchor(snapshot: dict, execution_anchor: dict) -> di
         "runtime_bytecode_sha256": normalized["runtime_bytecode_sha256"],
         "snapshot_bound": True,
     }
+
+
+
+def validate_fork_execution_rpc_observation(
+    snapshot: dict,
+    *,
+    chain_response: dict,
+    block_response: dict,
+    code_response: dict,
+    code_request: dict,
+    expected_response_ids: tuple,
+) -> dict:
+    """Bind fork RPC observations to a previously collected source snapshot.
+
+    The caller must obtain these responses through the authenticated, read-only
+    Anvil adapter. This function validates response structure and state
+    consistency; it does not authenticate the transport or prove independent
+    provenance, successful exploit reproduction, or vulnerability severity.
+    """
+    if not isinstance(snapshot, dict) or snapshot.get("schema") != "aegisforge.fork_snapshot.v1":
+        raise ForkSnapshotError("fork_snapshot_invalid")
+    try:
+        normalized = build_fork_snapshot(
+            chain_id=snapshot["chain_id"],
+            block_number=snapshot["block_number"],
+            block_hash=snapshot["block_hash"],
+            contract_address=snapshot["contract_address"],
+            runtime_bytecode=snapshot["runtime_bytecode"],
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ForkSnapshotError("fork_snapshot_invalid") from exc
+    if normalized != snapshot:
+        raise ForkSnapshotError("fork_snapshot_invalid")
+
+    if (
+        not isinstance(expected_response_ids, tuple)
+        or len(expected_response_ids) != 3
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, str))
+            or (isinstance(value, str) and (not value or len(value) > 128))
+            for value in expected_response_ids
+        )
+        or len(set(expected_response_ids)) != 3
+    ):
+        raise ForkSnapshotError("rpc_response_ids_invalid")
+
+    chain_id_response_id, block_response_id, code_response_id = expected_response_ids
+    _response_id(chain_response, chain_id_response_id, "chain")
+    _response_id(block_response, block_response_id, "block")
+    _response_id(code_response, code_response_id, "code")
+
+    chain_quantity = chain_response["result"]
+    if not isinstance(chain_quantity, str) or not _QUANTITY_RE.fullmatch(chain_quantity):
+        raise ForkSnapshotError("fork_execution_anchor_invalid")
+    fork_chain_id = int(chain_quantity, 16)
+    if fork_chain_id <= 0:
+        raise ForkSnapshotError("fork_execution_anchor_invalid")
+
+    block = block_response["result"]
+    if not isinstance(block, dict):
+        raise ForkSnapshotError("fork_execution_block_mismatch")
+    block_quantity = block.get("number")
+    block_hash = block.get("hash")
+    if (
+        not isinstance(block_quantity, str)
+        or not _QUANTITY_RE.fullmatch(block_quantity)
+        or not isinstance(block_hash, str)
+        or not _HASH_RE.fullmatch(block_hash)
+    ):
+        raise ForkSnapshotError("fork_execution_block_mismatch")
+    block_number = int(block_quantity, 16)
+
+    if (
+        not isinstance(code_request, dict)
+        or set(code_request) != {"jsonrpc", "id", "method", "params"}
+        or code_request.get("jsonrpc") != "2.0"
+        or code_request.get("id") != code_response_id
+        or isinstance(code_request.get("id"), bool)
+        or code_request.get("method") != "eth_getCode"
+    ):
+        raise ForkSnapshotError("fork_execution_code_request_invalid")
+    params = code_request.get("params")
+    if (
+        not isinstance(params, list)
+        or len(params) != 2
+        or not isinstance(params[0], str)
+        or not _ADDRESS_RE.fullmatch(params[0])
+        or params[0].lower() != normalized["contract_address"]
+        or not isinstance(params[1], str)
+        or not _QUANTITY_RE.fullmatch(params[1])
+        or int(params[1], 16) != normalized["block_number"]
+    ):
+        raise ForkSnapshotError("fork_execution_code_request_invalid")
+
+    try:
+        observed_snapshot = build_fork_snapshot(
+            chain_id=normalized["chain_id"],
+            block_number=block_number,
+            block_hash=block_hash,
+            contract_address=params[0],
+            runtime_bytecode=code_response["result"],
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ForkSnapshotError("fork_execution_bytecode_mismatch") from exc
+    if (
+        observed_snapshot["block_number"] != normalized["block_number"]
+        or observed_snapshot["block_hash"] != normalized["block_hash"]
+    ):
+        raise ForkSnapshotError("fork_execution_block_mismatch")
+    if observed_snapshot["runtime_bytecode_sha256"] != normalized["runtime_bytecode_sha256"]:
+        raise ForkSnapshotError("fork_execution_bytecode_mismatch")
+
+    anchor = {
+        "source_chain_id": normalized["chain_id"],
+        "fork_chain_id": fork_chain_id,
+        "block_number": block_number,
+        "block_hash": block_hash,
+        "contract_address": params[0],
+        "runtime_bytecode_sha256": observed_snapshot["runtime_bytecode_sha256"],
+    }
+    binding = validate_fork_execution_anchor(normalized, anchor)
+    return {
+        **binding,
+        "fork_rpc_observation_verified": True,
+    }

@@ -240,3 +240,39 @@ Next steps:
 2. If the Docker job succeeds, download/inspect the Actions receipt and independently validate its commit/run binding, IDs, ruleset digest, counter deltas, and probe outcomes.
 3. If the job fails, use actual step logs to isolate the failing assertion; do not diagnose from a missing artifact alone.
 4. Only after the receipt has been observed and independently reviewed should we design any integration into the finding-specific SecurityChecker evidence chain. Do not change confirmation flags in this stage.
+
+
+## TCP probe source and receipt serialization correction — 2026-11-20
+
+Regression-test commit: `ae0118eecefd0f0f725297567d24d13fa9a5db7e`.
+Implementation commit: `c14a2f680c2d6ba513ceb746a146905dae889944`.
+
+Static review of the newly added Docker packet-path receipt code found a concrete source-generation defect:
+- The TCP probe passed to `docker exec ... python -c` contained escaped backslash-n sequences rather than actual line breaks. The in-container Python interpreter would receive invalid source instead of the intended multi-line probe.
+- The receipt writer likewise appended a literal backslash-n sequence instead of a newline character.
+
+Correction:
+- Added `_docker_tcp_probe_script()` as a dedicated source builder.
+- Added a regression test that compiles the generated probe source, so malformed Python source is rejected before any Docker integration test is attempted.
+- Replaced the escaped sequence with real newline escapes in the Python string literals.
+- Corrected receipt serialization to end with an actual newline.
+
+Verification:
+- The generated probe source was independently compiled with Python in this authoring session: compilation succeeded and the source contains the expected line breaks.
+- The repository pytest regression test has **not** been executed here. No test pass or Docker runtime pass is claimed.
+- No successful workflow run or receipt artifact has been observed for commit `c14a2f680c2d6ba513ceb746a146905dae889944` at checkpoint time.
+- Latest known CI runs on the preceding head `01efad6b40ba3b0ed049429c5611a6c335f6c8ae`: Foundry integration `44716836713` and AegisForge CI `44716836727`, both `failure`; both job summaries had `steps: null`. Their failure cause remains unknown.
+
+Repository state:
+- PR #206 remains open, Draft, and unmerged.
+- Base remains `feat/aegisforge-working-state-2026-11-18`.
+- Latest head: `c14a2f680c2d6ba513ceb746a146905dae889944`.
+- The two commits in this correction stage put the branch 268 commits ahead and 0 behind the base.
+- No protected doctrine/policy files were changed.
+- No VPS, production host, wallet, or live asset was used.
+
+Next steps:
+1. Inspect CI runs for the corrected head and obtain step logs if GitHub exposes them.
+2. Run the focused regression and packet receipt tests in CI; do not infer success from source inspection.
+3. If Docker integration succeeds, inspect the uploaded receipt and independently validate its bindings and observed packet counters.
+4. Keep `runtime_isolation_verified`, `dynamic_verified`, and `confirmed` false until the separate evidence chain is independently established.

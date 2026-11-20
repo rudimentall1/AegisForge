@@ -209,12 +209,16 @@ def test_real_compose_network_membership_and_internal_service_egress():
             for service in ("anvil-rpc-adapter", "anvil"):
                 _docker_exec(
                     service_ids[service],
-                    "import socket; rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
+                    "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
                     "assert not any(line.split()[1]=='00000000' for line in rows), "
-                    "'internal-only service unexpectedly has a default route'; "
-                    "result=socket.create_connection(('8.8.8.8',443),1); result.close()",
-                    expect_success=False,
+                    "'internal-only service unexpectedly has a default route'",
                     expect_success=True,
+                )
+                _docker_exec(
+                    service_ids[service],
+                    "import socket; s=socket.socket(); s.settimeout(1); "
+                    "s.connect(('8.8.8.8',443))",
+                    expect_success=False,
                 )
 
             # Isolation is asserted from Docker's live network state, not from a

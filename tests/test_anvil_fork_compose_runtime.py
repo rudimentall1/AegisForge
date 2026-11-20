@@ -131,6 +131,26 @@ def test_real_compose_network_membership_and_internal_service_egress():
             assert egress["Internal"] is False
             assert egress["EnableIPv6"] is False
             assert egress["Options"]["com.docker.network.bridge.name"] == "br-aegisforge"
+            egress_gateway = egress["IPAM"]["Config"][0]["Gateway"]
+            assert gateway_networks[f"{project}_rpc-egress"]["IPAddress"] == "172.31.240.2"
+
+            # The dual-homed Gateway must select rpc-egress as its default route.
+            _docker_exec(
+                service_ids["rpc-gateway"],
+                "import socket,struct,sys; "
+                "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
+                "assert any((r:=line.split())[1]=='00000000' and "
+                "socket.inet_ntoa(struct.pack('<I',int(r[2],16)))==sys.argv[1] "
+                "for line in rows)",
+                expect_success=True,
+            )
+            for isolated_service in ("anvil-rpc-adapter", "anvil"):
+                _docker_exec(
+                    service_ids[isolated_service],
+                    "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
+                    "assert not any(line.split()[1]=='00000000' for line in rows)",
+                    expect_success=True,
+                )
 
             egress_services = set()
             for container_id in egress["Containers"]:

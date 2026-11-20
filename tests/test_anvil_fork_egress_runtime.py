@@ -40,8 +40,16 @@ def _run(*args: str, check: bool = True, input_text: str | None = None):
     )
 
 
-def _ns(namespace: str, *args: str, check: bool = True):
-    return _run("ip", "netns", "exec", namespace, *args, check=check)
+def _ns(
+    namespace: str,
+    *args: str,
+    check: bool = True,
+    input_text: str | None = None,
+):
+    return _run(
+        "ip", "netns", "exec", namespace, *args,
+        check=check, input_text=input_text,
+    )
 
 
 def _wait_for_listener(namespace: str, address: str, port: int) -> None:
@@ -138,7 +146,8 @@ def test_gateway_egress_firewall_allows_only_approved_https_and_preserves_intern
         internal_server = (
             "import socket; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); "
             "s.bind(('172.30.240.2',8545)); s.listen(); "
-            "c,_=s.accept(); c.sendall(b'INTERNAL_RPC_OK'); c.close()"
+            "while True: "
+            " c,_=s.accept(); c.sendall(b'INTERNAL_RPC_OK'); c.close()"
         )
         processes.append(subprocess.Popen(
             ["ip", "netns", "exec", "aegis-provider", "python", "-c", provider_server],

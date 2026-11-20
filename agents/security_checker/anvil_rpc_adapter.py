@@ -290,7 +290,7 @@ def run_adapter_from_environment() -> None:
     """
     gateway_url = os.environ.get("AEGISFORGE_ANVIL_GATEWAY_URL", "")
     bearer_token = os.environ.get("AEGISFORGE_ANVIL_GATEWAY_TOKEN", "")
-    bind_host = os.environ.get("AEGISFORGE_ANVIL_ADAPTER_BIND_HOST", "0.0.0.0")
+    bind_host = os.environ.get("AEGISFORGE_ANVIL_ADAPTER_BIND_HOST", "127.0.0.1")
     raw_port = os.environ.get("AEGISFORGE_ANVIL_ADAPTER_PORT", "8546")
 
     if bind_host not in {"127.0.0.1", "0.0.0.0"}:

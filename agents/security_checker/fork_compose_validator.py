@@ -162,8 +162,10 @@ def _validate_service_security(name: str, service: dict) -> None:
         "256m": "268435456",
         "1g": "1073741824",
     }[expected_memory]
+    resolved_memory = service.get("mem_limit")
     _require(
-        service.get("mem_limit") in {expected_memory, memory_bytes},
+        isinstance(resolved_memory, str)
+        and resolved_memory in {expected_memory, memory_bytes},
         f"{name}_memory_limit_invalid",
     )
     _require(

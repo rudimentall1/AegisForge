@@ -19,7 +19,8 @@ def _snapshot():
 
 def _anchor():
     return {
-        "chain_id": 42161,
+        "source_chain_id": 42161,
+        "fork_chain_id": 31338,
         "block_number": 250,
         "block_hash": "0x" + "ab" * 32,
         "contract_address": "0x" + "cd" * 20,
@@ -32,7 +33,8 @@ def test_execution_anchor_is_bound_to_exact_snapshot():
 
     assert binding == {
         "schema": "aegisforge.fork_execution_binding.v1",
-        "chain_id": 42161,
+        "source_chain_id": 42161,
+        "fork_chain_id": 31338,
         "block_number": 250,
         "block_hash": "0x" + "ab" * 32,
         "contract_address": "0x" + "cd" * 20,
@@ -44,7 +46,8 @@ def test_execution_anchor_is_bound_to_exact_snapshot():
 @pytest.mark.parametrize(
     ("field", "value", "error"),
     [
-        ("chain_id", 1, "fork_execution_chain_mismatch"),
+        ("source_chain_id", 1, "fork_execution_chain_mismatch"),
+        ("fork_chain_id", 0, "fork_execution_anchor_invalid"),
         ("block_number", 251, "fork_execution_block_mismatch"),
         ("block_hash", "0x" + "ef" * 32, "fork_execution_block_mismatch"),
         ("contract_address", "0x" + "ef" * 20, "fork_execution_contract_mismatch"),

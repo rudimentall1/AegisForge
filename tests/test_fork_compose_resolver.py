@@ -51,6 +51,8 @@ def _compose_json():
         networks = service.get("networks", [])
         if isinstance(networks, list):
             service["networks"] = {name: None for name in networks}
+    document["networks"]["fork-internal"]["name"] = "aegisforge-anvil-fork_fork-internal"
+    document["networks"]["rpc-egress"]["name"] = "aegisforge-anvil-fork_rpc-egress"
     return document
 
 

@@ -17,6 +17,7 @@ The Compose file uses the `gw_priority` network attribute to make `rpc-egress` t
 - The Adapter talks only to `http://rpc-gateway:8545/rpc` and injects the bearer token from its process environment.
 - The Gateway is the only service with a Docker network attachment that can route externally.
 - The fork block number is mandatory. Do not substitute `latest` or a moving block tag.
+- The local Anvil fork chain ID is also explicit and mandatory. The validated execution plan supplies `AEGISFORGE_ANVIL_CHAIN_ID` and `AEGISFORGE_ANVIL_FORK_BLOCK_NUMBER`; keep provider URL and Gateway credentials in the separate deployment secret/configuration channel. Local fork transactions are simulation-only and do not authorize transactions to the upstream network.
 
 ## Critical egress limitation
 

@@ -132,23 +132,32 @@ def test_gateway_egress_firewall_allows_only_approved_https_and_preserves_intern
         _ns("aegis-router", "ip", "route", "add", "1.1.1.1/32", "dev", "provider0")
         _ns("aegis-provider", "ip", "route", "add", "172.31.240.0/28", "via", "198.18.0.1")
 
-        provider_server = (
-            "import socket,threading; "
-            "servers=[]; "
-            "[(lambda s: (s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1),"
-            "s.bind(('0.0.0.0',p)),s.listen(),servers.append(s)))(socket.socket()) "
-            "for p in (443,444)]; "
-            "[(threading.Thread(target=lambda s=s: "
-            "[(lambda c: c.close())(s.accept()[0]) for _ in iter(int,1)],daemon=True).start()) "
-            "for s in servers]; "
-            "__import__('threading').Event().wait()"
-        )
-        internal_server = (
-            "import socket; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); "
-            "s.bind(('172.30.240.2',8545)); s.listen(); "
-            "while True: "
-            " c,_=s.accept(); c.sendall(b'INTERNAL_RPC_OK'); c.close()"
-        )
+        provider_server = """
+import socket
+import threading
+def serve(port):
+    server = socket.socket()
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("0.0.0.0", port))
+    server.listen()
+    while True:
+        connection, _ = server.accept()
+        connection.close()
+for port in (443, 444):
+    threading.Thread(target=serve, args=(port,), daemon=True).start()
+threading.Event().wait()
+"""
+        internal_server = """
+import socket
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("172.30.240.2", 8545))
+server.listen()
+while True:
+    connection, _ = server.accept()
+    connection.sendall(b"INTERNAL_RPC_OK")
+    connection.close()
+"""
         processes.append(subprocess.Popen(
             ["ip", "netns", "exec", "aegis-provider", "python", "-c", provider_server],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

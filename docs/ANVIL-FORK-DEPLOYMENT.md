@@ -79,3 +79,12 @@ This guide does not authorize running the stack on a production server. Validate
 ## Evidence status
 
 A running container is not proof of a safe egress boundary or a verified vulnerability. This topology does not by itself connect the synthetic Anvil runner to SecurityChecker findings. Keep `dynamic_verified=false` and `confirmed=false` until a finding-specific, hash-pinned fork execution produces validated evidence through the SecurityChecker pipeline.
+
+
+## Preparation-only runtime orchestration
+
+`agents.security_checker.fork_runtime_orchestrator.prepare_fork_runtime()` validates the snapshot-bound execution plan, exact HTTPS provider-host allowlist, Gateway bearer-token shape, and immutable Foundry image reference. It returns a frozen `PREPARED` description and a minimal Compose environment containing only the fork chain ID, pinned block number, and Foundry image digest.
+
+The preparation result deliberately does not retain the provider URL or bearer token. It names the three secret inputs that a future runtime launcher must supply through a separate secret channel. Do not serialize secret values into the execution plan, preparation result, logs, or Anvil command line.
+
+This orchestrator is preparation-only: it does not invoke Docker or Compose, create files, start containers, execute transactions, or validate the effective host firewall. A `PREPARED` result is not execution evidence. Keep `runtime_started=false`, `dynamic_verified=false`, and `confirmed=false`; do not promote a finding based on preparation or synthetic test fixtures.

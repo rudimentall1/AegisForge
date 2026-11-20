@@ -242,19 +242,32 @@ while True:
             "approved provider reply did not match the established-return allow rule"
         )
 
+        gateway_drop_rule = 'iifname "br-aegisforge" ip saddr 172.31.240.2'
+        denied_ip_before = _nft_counter(
+            "aegis-router", gateway_drop_rule, "drop"
+        )
         denied_ip = _ns(
             "aegis-gateway", "python", "-c",
             "import socket; s=socket.create_connection(('1.1.1.1',443),1); s.close()",
             check=False,
         )
         assert denied_ip.returncode != 0, "unapproved provider IP unexpectedly reachable"
+        assert _nft_counter(
+            "aegis-router", gateway_drop_rule, "drop"
+        ) > denied_ip_before, "unapproved provider packet did not hit the nftables drop rule"
 
+        denied_port_before = _nft_counter(
+            "aegis-router", gateway_drop_rule, "drop"
+        )
         denied_port = _ns(
             "aegis-gateway", "python", "-c",
             "import socket; s=socket.create_connection(('8.8.8.8',444),1); s.close()",
             check=False,
         )
         assert denied_port.returncode != 0, "non-HTTPS provider port unexpectedly reachable"
+        assert _nft_counter(
+            "aegis-router", gateway_drop_rule, "drop"
+        ) > denied_port_before, "non-HTTPS provider packet did not hit the nftables drop rule"
 
         internal = _ns(
             "aegis-adapter", "python", "-c",
@@ -280,6 +293,11 @@ while True:
         # Their external packets therefore traverse the router's production
         # br-aegisforge policy and must be rejected by source-IP enforcement.
         for isolated_service in ("aegis-adapter", "aegis-anvil"):
+            isolated_drop_before = _nft_counter(
+                "aegis-router",
+                'iifname "br-aegisforge" ip saddr 172.31.240.2',
+                "drop",
+            )
             external_attempt = _ns(
                 isolated_service, "python", "-c",
                 "import socket; socket.create_connection(('8.8.8.8',443),1)",
@@ -287,6 +305,13 @@ while True:
             )
             assert external_attempt.returncode != 0, (
                 f"{isolated_service} unexpectedly reached the external provider endpoint"
+            )
+            assert _nft_counter(
+                "aegis-router",
+                'iifname "br-aegisforge" ip saddr 172.31.240.2',
+                "drop",
+            ) > isolated_drop_before, (
+                f"{isolated_service} external packet did not hit the nftables drop rule"
             )
     finally:
         for process in processes:

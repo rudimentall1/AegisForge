@@ -628,3 +628,84 @@ def test_http_listener_rejects_non_internal_bind_addresses(bind_host):
             bind_host=bind_host,
             port=0,
         )
+
+
+def test_gateway_cli_loads_explicit_upstream_policy_and_closes_server(monkeypatch):
+    import agents.security_checker.rpc_gateway as gateway
+
+    observed = {}
+
+    class FakeServer:
+        def serve_forever(self):
+            observed["served"] = True
+
+        def server_close(self):
+            observed["closed"] = True
+
+    def fake_create(url, hosts, token, *, bind_host, port):
+        observed.update({
+            "url": url,
+            "hosts": hosts,
+            "token": token,
+            "bind_host": bind_host,
+            "port": port,
+        })
+        return FakeServer()
+
+    monkeypatch.setenv(
+        "AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL",
+        "https://rpc.example.test/v1",
+    )
+    monkeypatch.setenv(
+        "AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS",
+        "rpc.example.test",
+    )
+    monkeypatch.setenv("AEGISFORGE_RPC_GATEWAY_TOKEN", "g" * 48)
+    monkeypatch.setenv("AEGISFORGE_RPC_GATEWAY_BIND_HOST", "0.0.0.0")
+    monkeypatch.setenv("AEGISFORGE_RPC_GATEWAY_PORT", "8545")
+    monkeypatch.setattr(gateway, "create_rpc_gateway_server", fake_create)
+
+    gateway.run_gateway_from_environment()
+
+    assert observed == {
+        "url": "https://rpc.example.test/v1",
+        "hosts": {"rpc.example.test"},
+        "token": "g" * 48,
+        "bind_host": "0.0.0.0",
+        "port": 8545,
+        "served": True,
+        "closed": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL", ""),
+        ("AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS", ""),
+        ("AEGISFORGE_RPC_GATEWAY_TOKEN", ""),
+        ("AEGISFORGE_RPC_GATEWAY_PORT", "0"),
+        ("AEGISFORGE_RPC_GATEWAY_PORT", "65536"),
+        ("AEGISFORGE_RPC_GATEWAY_PORT", "8545;rm"),
+        ("AEGISFORGE_RPC_GATEWAY_BIND_HOST", "192.0.2.10"),
+        ("AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS", "*.example.test"),
+    ],
+)
+def test_gateway_cli_fails_closed_on_invalid_environment(monkeypatch, name, value):
+    import agents.security_checker.rpc_gateway as gateway
+
+    monkeypatch.setenv(
+        "AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL",
+        "https://rpc.example.test/v1",
+    )
+    monkeypatch.setenv(
+        "AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS",
+        "rpc.example.test",
+    )
+    monkeypatch.setenv("AEGISFORGE_RPC_GATEWAY_TOKEN", "g" * 48)
+    monkeypatch.setenv("AEGISFORGE_RPC_GATEWAY_BIND_HOST", "127.0.0.1")
+    monkeypatch.setenv("AEGISFORGE_RPC_GATEWAY_PORT", "8545")
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(RpcGatewayError):
+        gateway.run_gateway_from_environment()

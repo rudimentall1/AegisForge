@@ -151,10 +151,10 @@ def create_anvil_rpc_adapter_server(
     host, gateway_port, gateway_path = validate_gateway_url(gateway_url)
     # Fail before opening a listener when the Gateway credential is absent or invalid.
     build_gateway_headers(bearer_token)
+    if bind_host not in {"127.0.0.1", "0.0.0.0"}:
+        raise AnvilRpcAdapterError("listener_bind_host_not_allowed")
     if (
-        not isinstance(bind_host, str)
-        or not bind_host
-        or isinstance(port, bool)
+        isinstance(port, bool)
         or not isinstance(port, int)
         or not 0 <= port <= 65535
     ):

@@ -223,13 +223,15 @@ Evidence limitations:
 CI observations:
 - Earlier checkpoint commit `a8d5b516ce0d8f4e223b376b4424b2ce3a333d0a` produced Foundry integration run `44714787040` and AegisForge CI run `44714787046`; both concluded `failure`.
 - The Foundry job endpoint returned `steps: null` and no log URL. The failure cause is unknown and is not attributed to the receipt changes.
-- No workflow run for the newest receipt implementation commits was returned at checkpoint time. Do not initiate blind reruns.
+- Receipt implementation commit `d86de207e44d76bc69a6b6e46d68027489128698` produced Foundry integration run `44716547824` and AegisForge CI run `44716547873`; both concluded `failure`.
+- Both job summaries returned `steps: null`; both job-log downloads returned `BlobNotFound`. The artifact listing for Foundry run `44716547824` was empty. The failure cause and whether the test reached receipt emission are unknown.
+- No blind rerun was started.
 
 Repository state:
 - PR #206 remains open and Draft; not merged.
-- Head: `feat/anvil-fork-research-engine`, latest implementation commit `d86de207e44d76bc69a6b6e46d68027489128698`.
+- Head: `feat/anvil-fork-research-engine`; latest implementation commit `d86de207e44d76bc69a6b6e46d68027489128698`; checkpoint commit `325379df9b3b35594dd24724d3f36b63bbd2d7df`.
 - Base: `feat/aegisforge-working-state-2026-11-18`.
-- Compare: 263 commits ahead, 0 behind, 36 changed files.
+- Compare: 264 commits ahead, 0 behind, 36 changed files.
 - Protected doctrine/policy files remain untouched.
 - No VPS, production host, wallet, live transaction, or production asset was used.
 

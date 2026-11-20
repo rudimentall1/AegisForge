@@ -337,7 +337,8 @@ def validate_fork_execution_anchor(snapshot: dict, execution_anchor: dict) -> di
         raise ForkSnapshotError("fork_snapshot_invalid")
 
     required = {
-        "chain_id",
+        "source_chain_id",
+        "fork_chain_id",
         "block_number",
         "block_hash",
         "contract_address",
@@ -346,15 +347,19 @@ def validate_fork_execution_anchor(snapshot: dict, execution_anchor: dict) -> di
     if not isinstance(execution_anchor, dict) or set(execution_anchor) != required:
         raise ForkSnapshotError("fork_execution_anchor_invalid")
 
-    chain_id = execution_anchor["chain_id"]
+    source_chain_id = execution_anchor["source_chain_id"]
+    fork_chain_id = execution_anchor["fork_chain_id"]
     block_number = execution_anchor["block_number"]
     block_hash = execution_anchor["block_hash"]
     contract_address = execution_anchor["contract_address"]
     bytecode_hash = execution_anchor["runtime_bytecode_sha256"]
     if (
-        isinstance(chain_id, bool)
-        or not isinstance(chain_id, int)
-        or chain_id <= 0
+        isinstance(source_chain_id, bool)
+        or not isinstance(source_chain_id, int)
+        or source_chain_id <= 0
+        or isinstance(fork_chain_id, bool)
+        or not isinstance(fork_chain_id, int)
+        or fork_chain_id <= 0
         or isinstance(block_number, bool)
         or not isinstance(block_number, int)
         or block_number < 0
@@ -367,7 +372,7 @@ def validate_fork_execution_anchor(snapshot: dict, execution_anchor: dict) -> di
     ):
         raise ForkSnapshotError("fork_execution_anchor_invalid")
 
-    if chain_id != normalized["chain_id"]:
+    if source_chain_id != normalized["chain_id"]:
         raise ForkSnapshotError("fork_execution_chain_mismatch")
     if (
         block_number != normalized["block_number"]
@@ -381,7 +386,8 @@ def validate_fork_execution_anchor(snapshot: dict, execution_anchor: dict) -> di
 
     return {
         "schema": "aegisforge.fork_execution_binding.v1",
-        "chain_id": normalized["chain_id"],
+        "source_chain_id": normalized["chain_id"],
+        "fork_chain_id": fork_chain_id,
         "block_number": normalized["block_number"],
         "block_hash": normalized["block_hash"],
         "contract_address": normalized["contract_address"],

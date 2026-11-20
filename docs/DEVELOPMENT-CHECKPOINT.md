@@ -276,3 +276,37 @@ Next steps:
 2. Run the focused regression and packet receipt tests in CI; do not infer success from source inspection.
 3. If Docker integration succeeds, inspect the uploaded receipt and independently validate its bindings and observed packet counters.
 4. Keep `runtime_isolation_verified`, `dynamic_verified`, and `confirmed` false until the separate evidence chain is independently established.
+
+## CI failure refresh and SecurityChecker integration boundary — 2026-11-20
+
+Repository state:
+- PR #206 remains open, Draft, and unmerged.
+- Head branch: `feat/anvil-fork-research-engine`.
+- Head SHA at review: `38a0a69f5d33a504113253906daec2de22474cc9`.
+- Base remains `feat/aegisforge-working-state-2026-11-18`.
+- PR metadata reports 269 commits ahead, 0 behind, and 36 changed files.
+- No protected doctrine/policy files were changed.
+
+CI observation for the current head:
+- Foundry runner integration run `44717347331`: completed with `failure`; job `136224007235`.
+- AegisForge CI run `44717347308`: completed with `failure`; job `136224006955`.
+- Both jobs endpoints returned job summaries without usable step details; the dedicated step endpoints returned empty arrays.
+- Both log downloads returned GitHub `BlobNotFound`.
+- Both run artifact listings were empty. No packet-path receipt artifact is available.
+- The failure cause, failing step, and whether the Docker test reached receipt emission remain unknown. No blind rerun was started; no test pass is claimed.
+
+SecurityChecker integration audit:
+- `agents/security_checker/anvil_fork_runner.py` contains a synthetic, networkless Anvil/Foundry smoke runner. Its result explicitly remains synthetic and keeps `dynamic_verified=false` and `confirmed=false`.
+- `agents/security_checker/fork_runtime_orchestrator.py` validates a fork plan and Compose topology and returns a preparation-only object; it does not start the runtime.
+- `agents/security_checker/packet_path_evidence.py` validates the disposable Docker packet-path receipt against a commit SHA, GitHub run ID, and attempt. It validates structure/bindings only and does not establish a finding-specific exploit.
+- `agents/security_checker/agent.py` still invokes `_run_foundry_fork_validation` for findings, but that method unconditionally returns `SKIPPED` with reason `isolated_fork_runner_not_configured`. The message is now stale: runner/preparation components exist, but there is no finding-specific execution-and-evidence binding path connected to SecurityChecker.
+- Do not simply invoke the synthetic smoke runner for production findings: it deploys a synthetic target and proves runner mechanics, not exploitability of a repository finding.
+- Do not connect the packet-path receipt to finding promotion. It proves only the declared disposable CI network probes and remains a separate infrastructure-evidence class.
+
+Next engineering sequence:
+1. Obtain accessible CI step logs or reproduce the failing workflow in an authorized disposable CI environment; do not infer the cause from missing artifacts.
+2. Correct the SecurityChecker skip reason and add regression coverage before any runner integration, so API/status output accurately distinguishes “runner unavailable” from “finding-specific validation not implemented.” Keep all confirmation flags false.
+3. Design a separate finding-specific execution contract: immutable source/snapshot binding, normalized finding identity, exact fork block/hash, exploit preconditions, bounded test payload, isolated runtime identity, execution transcript, and independent result validation.
+4. Only after that contract has tests and real evidence should SecurityChecker consume the result. A generic Anvil smoke pass or packet-path receipt must never confirm a finding.
+
+No VPS, production host, real wallet, live transaction, or production asset was used.

@@ -94,7 +94,7 @@ def _normalize_finding(finding: object) -> dict:
         raise FindingExecutionContractError("finding_source_tree_digest_invalid")
     if not isinstance(detector_id, str) or not _DETECTOR_RE.fullmatch(detector_id):
         raise FindingExecutionContractError("finding_detector_invalid")
-    if severity not in _SEVERITIES:
+    if not isinstance(severity, str) or severity not in _SEVERITIES:
         raise FindingExecutionContractError("finding_severity_invalid")
     if (
         not isinstance(source_file, str)
@@ -149,6 +149,8 @@ def _normalize_preconditions(preconditions: object) -> list[dict]:
         if not isinstance(item, dict) or set(item) != _PRECONDITION_FIELDS:
             raise FindingExecutionContractError("precondition_schema_invalid")
         kind, operator, value = item["kind"], item["operator"], item["value"]
+        if not isinstance(kind, str) or not isinstance(operator, str):
+            raise FindingExecutionContractError("precondition_kind_or_operator_invalid")
         allowed = _PRECONDITION_RULES.get(kind)
         if not isinstance(allowed, dict) or operator not in allowed:
             raise FindingExecutionContractError("precondition_kind_or_operator_invalid")

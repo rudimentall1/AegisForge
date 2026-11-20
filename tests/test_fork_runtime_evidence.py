@@ -20,6 +20,18 @@ def _container(service, *, healthy=True):
     return {
         "Id": ({"rpc-gateway": "1", "anvil-rpc-adapter": "2", "anvil": "3"}[service] * 64),
         "Config": {
+            "Image": (
+                "aegisforge-rpc-sidecar:local"
+                if service != "anvil"
+                else "ghcr.io/foundry-rs/foundry@sha256:" + "a" * 64
+            ),
+            "Entrypoint": (
+                ["python", "-m", "agents.security_checker.rpc_gateway"]
+                if service == "rpc-gateway"
+                else ["python", "-m", "agents.security_checker.anvil_rpc_adapter"]
+                if service == "anvil-rpc-adapter"
+                else ["anvil"]
+            ),
             "Labels": {
                 "com.docker.compose.project": PROJECT,
                 "com.docker.compose.service": service,

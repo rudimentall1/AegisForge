@@ -21,15 +21,15 @@ def test_firewall_rules_allow_only_approved_ipv4_rpc_destinations():
     module = _load_module()
     rules = module.build_rules(
         gateway_ip="172.31.240.2",
-        bridge_name="br-aegisforge-egress",
         provider_networks=[ipaddress.ip_network("8.8.8.8/32")],
     )
 
     assert "table inet aegisforge_gateway_egress" in rules
-    assert 'iifname "br-aegisforge-egress"' in rules
     assert "ip saddr 172.31.240.2" in rules
     assert "ip daddr @approved_rpc_v4 tcp dport 443 ct state new accept" in rules
     assert "ip saddr 172.31.240.2 drop" in rules
+    assert "ip daddr 172.31.240.2 drop" in rules
+    assert "ip daddr 172.31.240.2 ct state established,related accept" in rules
     assert "oifname \"br-aegisforge-egress\" ip daddr 172.31.240.2 drop" in rules
 
 
@@ -56,7 +56,6 @@ def test_firewall_rules_do_not_flush_or_replace_other_host_firewall_state():
     module = _load_module()
     rules = module.build_rules(
         gateway_ip="172.31.240.2",
-        bridge_name="br-aegisforge-egress",
         provider_networks=[ipaddress.ip_network("8.8.8.8/32")],
     )
 
@@ -70,7 +69,6 @@ def test_firewall_requires_at_least_one_approved_provider_network():
     try:
         module.build_rules(
             gateway_ip="172.31.240.2",
-            bridge_name="br-aegisforge-egress",
             provider_networks=[],
         )
     except ValueError:

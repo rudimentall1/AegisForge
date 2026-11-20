@@ -26,7 +26,7 @@ The egress bridge has inter-container communication disabled and a stable bridge
 
 Before running this topology with a real provider:
 
-1. Configure the host firewall to permit new outbound TCP connections from the Gateway container address `172.31.240.2` only to the provider's current, independently verified IP/CIDR ranges on port 443.
+1. Configure the host firewall to permit new outbound TCP connections from the Gateway container address `172.31.240.2` only to the provider's current, independently verified IPv4 CIDR ranges (the installer rejects prefixes broader than /16) on port 443.
 2. Deny all other new forwarded traffic sourced from `172.31.240.2`; allow established return traffic.
 3. Preserve DNS resolution only through the Docker embedded resolver / host resolver path required by the deployment. Do not give the Gateway unrestricted direct DNS egress.
 4. Verify the effective rules against the actual Docker firewall backend (iptables-nft or native nftables), including Docker chain ordering and IPv6 behavior.

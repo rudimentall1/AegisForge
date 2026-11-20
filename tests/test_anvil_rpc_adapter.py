@@ -381,3 +381,30 @@ def test_adapter_server_rejects_non_internal_bind_addresses(bind_host):
             bind_host=bind_host,
             port=0,
         )
+
+
+def test_adapter_cli_defaults_to_loopback_when_bind_host_is_unset(monkeypatch):
+    import agents.security_checker.anvil_rpc_adapter as adapter
+
+    observed = {}
+    monkeypatch.setenv("AEGISFORGE_ANVIL_GATEWAY_URL", "http://gateway:8545/rpc")
+    monkeypatch.setenv("AEGISFORGE_ANVIL_GATEWAY_TOKEN", "s" * 48)
+    monkeypatch.delenv("AEGISFORGE_ANVIL_ADAPTER_BIND_HOST", raising=False)
+    monkeypatch.setenv("AEGISFORGE_ANVIL_ADAPTER_PORT", "8546")
+
+    class FakeServer:
+        def serve_forever(self):
+            return None
+
+        def server_close(self):
+            return None
+
+    def fake_create(url, token, *, bind_host, port):
+        observed["bind_host"] = bind_host
+        observed["port"] = port
+        return FakeServer()
+
+    monkeypatch.setattr(adapter, "create_anvil_rpc_adapter_server", fake_create)
+    adapter.run_adapter_from_environment()
+
+    assert observed == {"bind_host": "127.0.0.1", "port": 8546}

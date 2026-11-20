@@ -52,7 +52,7 @@ def _container(service, *, healthy=True):
         "NetworkSettings": {
             "Networks": {
                 "aegisforge-anvil-fork_fork-internal": {},
-                **({"aegisforge-anvil-fork_rpc-egress": {}} if service == "rpc-gateway" else {}),
+                **({"aegisforge-anvil-fork_rpc-egress": {"IPAddress": "172.31.240.2"}} if service == "rpc-gateway" else {}),
             },
         },
         "Mounts": [
@@ -189,9 +189,9 @@ def test_runtime_collector_uses_read_only_inspect_commands_and_returns_sanitized
     container_ids = [item["Id"] for item in observations["containers"]]
     network_names = [item["Name"] for item in observations["networks"]]
     outputs = [
-        "\\n".join(container_ids),
+        chr(10).join(container_ids),
         json.dumps(observations["containers"]),
-        "\\n".join(network_names),
+        chr(10).join(network_names),
         json.dumps(observations["networks"]),
         json.dumps({"nftables": [{"table": {"family": "inet", "name": "aegisforge_gateway_egress"}}]}),
     ]

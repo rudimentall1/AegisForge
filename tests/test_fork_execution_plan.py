@@ -8,6 +8,7 @@ from agents.security_checker.fork_engine import build_fork_snapshot
 from agents.security_checker.fork_execution_plan import (
     ForkExecutionPlanError,
     build_fork_execution_plan,
+    build_fork_runtime_compose_environment,
     validate_fork_execution_plan,
 )
 
@@ -113,3 +114,21 @@ def test_execution_plan_rejects_endpoint_or_trust_policy_override(field, value):
 
     with pytest.raises(ForkExecutionPlanError, match="snapshot_binding_mismatch"):
         validate_fork_execution_plan(plan, snapshot)
+
+
+
+def test_runtime_environment_contains_only_snapshot_pinned_compose_values():
+    snapshot = _snapshot()
+    plan = build_fork_execution_plan(
+        snapshot,
+        fork_chain_id=31338,
+    )
+
+    environment = build_fork_runtime_compose_environment(plan, snapshot)
+
+    assert environment == {
+        "AEGISFORGE_ANVIL_CHAIN_ID": "31338",
+        "AEGISFORGE_ANVIL_FORK_BLOCK_NUMBER": "123456",
+    }
+    assert "AEGISFORGE_RPC_GATEWAY_TOKEN" not in environment
+    assert "AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL" not in environment

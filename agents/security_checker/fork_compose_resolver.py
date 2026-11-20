@@ -44,8 +44,8 @@ _ENVIRONMENT_KEYS = frozenset(
         "AEGISFORGE_FOUNDRY_IMAGE",
     }
 )
-_DIGEST_IMAGE = re.compile(r"[^\\s@]+@sha256:[0-9a-f]{64}\\Z")
-_DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\Z")
+_DIGEST_IMAGE = re.compile(r"[^\s@]+@sha256:[0-9a-f]{64}\Z")
+_DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 _MAX_CONFIG_OUTPUT_BYTES = 1_048_576
 _CONFIG_TIMEOUT_SECONDS = 15
 

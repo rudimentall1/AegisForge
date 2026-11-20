@@ -91,7 +91,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--provider-cidr",
         action="append",
-        required=True,
         help="Public IPv4 CIDR published by the approved RPC provider; repeat as needed.",
     )
     mode = parser.add_mutually_exclusive_group()
@@ -102,6 +101,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.remove:
         _run(["nft", "delete", "table", "inet", TABLE])
         return 0
+
+    if not args.provider_cidr:
+        parser.error("--provider-cidr is required unless --remove is used")
 
     try:
         networks = [validate_provider_network(item) for item in args.provider_cidr]

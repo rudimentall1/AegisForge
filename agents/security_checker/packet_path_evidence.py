@@ -190,9 +190,12 @@ def validate_packet_path_receipt(
     _require(
         _is_mapping(firewall)
         and set(firewall) == {"table", "ruleset_sha256", "counters"}
-        and firewall.get("table") == "aegisforge_gateway_egress"
-        and _is_hex(firewall.get("ruleset_sha256"), 64),
+        and firewall.get("table") == "aegisforge_gateway_egress",
         "packet_path_firewall_identity_invalid",
+    )
+    _require(
+        _is_hex(firewall.get("ruleset_sha256"), 64),
+        "packet_path_ruleset_digest_invalid",
     )
     counters = firewall.get("counters")
     _require(

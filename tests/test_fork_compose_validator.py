@@ -58,7 +58,7 @@ def test_validator_rejects_anvil_egress_network_attachment():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="anvil_network_boundary_invalid"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 def test_validator_rejects_published_host_ports():

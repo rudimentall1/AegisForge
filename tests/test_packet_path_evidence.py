@@ -48,7 +48,11 @@ def _receipt():
             },
         },
         "probes": {
-            "gateway_approved_egress": {"attempted": True, "rule_matched": True},
+            "gateway_approved_egress": {
+                "attempted": True,
+                "rule_matched": True,
+                "tcp_connected": False,
+            },
             "gateway_unapproved_egress": {
                 "attempted": True,
                 "blocked": True,

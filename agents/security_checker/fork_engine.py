@@ -110,6 +110,13 @@ def build_fork_snapshot_from_rpc(
     read-only gateway. This prevents labeling latest-state code as historical.
     """
     if (
+        isinstance(expected_fork_chain_id, bool)
+        or not isinstance(expected_fork_chain_id, int)
+        or expected_fork_chain_id <= 0
+    ):
+        raise ForkSnapshotError("fork_execution_chain_configuration_invalid")
+
+    if (
         not isinstance(expected_response_ids, tuple)
         or len(expected_response_ids) != 3
         or any(
@@ -404,6 +411,7 @@ def validate_fork_execution_rpc_observation(
     block_response: dict,
     code_response: dict,
     code_request: dict,
+    expected_fork_chain_id: int,
     expected_response_ids: tuple,
 ) -> dict:
     """Bind fork RPC observations to a previously collected source snapshot.
@@ -452,6 +460,8 @@ def validate_fork_execution_rpc_observation(
     fork_chain_id = int(chain_quantity, 16)
     if fork_chain_id <= 0:
         raise ForkSnapshotError("fork_execution_anchor_invalid")
+    if fork_chain_id != expected_fork_chain_id:
+        raise ForkSnapshotError("fork_execution_chain_mismatch")
 
     block = block_response["result"]
     if not isinstance(block, dict):

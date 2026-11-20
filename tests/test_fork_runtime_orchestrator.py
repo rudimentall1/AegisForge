@@ -56,16 +56,25 @@ def _resolved_compose(config, plan):
     return document
 
 
-def _prepare(snapshot, plan, config, *, compose_source=None, resolved_compose=None):
-    source = compose_source if compose_source is not None else COMPOSE_PATH.read_text(encoding="utf-8")
-    resolved = resolved_compose if resolved_compose is not None else _resolved_compose(config, plan)
-    return prepare_fork_runtime(
-        snapshot,
-        plan,
-        config,
-        compose_source=source,
-        resolved_compose=resolved,
+@pytest.fixture(autouse=True)
+def _stub_compose_resolver(monkeypatch):
+    def fake_resolver(*, runtime_config, fork_chain_id, fork_block_number):
+        return _resolved_compose(
+            runtime_config,
+            {
+                "fork_chain_id": fork_chain_id,
+                "block_number": fork_block_number,
+            },
+        )
+
+    monkeypatch.setattr(
+        "agents.security_checker.fork_runtime_orchestrator.resolve_anvil_fork_compose",
+        fake_resolver,
     )
+
+
+def _prepare(snapshot, plan, config):
+    return prepare_fork_runtime(snapshot, plan, config)
 
 
 def _config(**overrides):
@@ -216,21 +225,24 @@ def test_prepare_rejects_unrecognized_configuration_fields():
 
 
 
-def test_prepare_rejects_compose_topology_before_prepared_state():
+def test_prepare_fails_closed_when_compose_resolver_rejects_configuration(monkeypatch):
+    from agents.security_checker.fork_compose_resolver import ComposeConfigResolutionError
+
+    monkeypatch.setattr(
+        "agents.security_checker.fork_runtime_orchestrator.resolve_anvil_fork_compose",
+        lambda **kwargs: (_ for _ in ()).throw(
+            ComposeConfigResolutionError("adapter_network_boundary_invalid")
+        ),
+    )
     snapshot = _snapshot()
     plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
-    source = COMPOSE_PATH.read_text(encoding="utf-8").replace(
-        "    networks:\n      - fork-internal\n    read_only: true",
-        "    networks:\n      - fork-internal\n      - rpc-egress\n    read_only: true",
-        1,
-    )
 
     with pytest.raises(ForkRuntimePreparationError, match="adapter_network_boundary_invalid"):
-        _prepare(snapshot, plan, _config(), compose_source=source)
+        _prepare(snapshot, plan, _config())
 
 
 
-def test_prepare_rejects_resolved_compose_secret_or_runtime_mismatch():
+def test_prepare_rejects_resolved_compose_secret_or_runtime_mismatch(monkeypatch):
     snapshot = _snapshot()
     plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
     config = _config()
@@ -239,5 +251,9 @@ def test_prepare_rejects_resolved_compose_secret_or_runtime_mismatch():
         "AEGISFORGE_ANVIL_GATEWAY_TOKEN"
     ] = "wrong-token"
 
+    monkeypatch.setattr(
+        "agents.security_checker.fork_runtime_orchestrator.resolve_anvil_fork_compose",
+        lambda **kwargs: resolved,
+    )
     with pytest.raises(ForkRuntimePreparationError, match="resolved_gateway_secret_mismatch"):
-        _prepare(snapshot, plan, config, resolved_compose=resolved)
+        _prepare(snapshot, plan, config)

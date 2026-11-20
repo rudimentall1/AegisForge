@@ -94,3 +94,19 @@ def test_firewall_table_can_be_removed_without_provider_cidr(monkeypatch):
     assert module.main(["--remove"]) == 0
     assert observed["command"] == ["nft", "delete", "table", "inet", "aegisforge_gateway_egress"]
     assert observed["input_text"] is None
+
+def test_firewall_default_mode_only_checks_rules_without_applying(monkeypatch, capsys):
+    module = _load_module()
+    observed = {}
+
+    def fake_run(command, *, input_text=None):
+        observed["command"] = command
+        observed["input_text"] = input_text
+
+    monkeypatch.setattr(module, "_run", fake_run)
+    assert module.main(["--provider-cidr", "8.8.8.8/32"]) == 0
+
+    assert observed["command"] == ["nft", "-c", "-f", "-"]
+    assert "table inet aegisforge_gateway_egress" in observed["input_text"]
+    assert "nftables syntax valid" in capsys.readouterr().out
+

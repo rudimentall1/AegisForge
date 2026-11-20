@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
-import re
 import subprocess
 import sys
 
@@ -34,7 +33,6 @@ def validate_provider_network(value: str) -> ipaddress.IPv4Network:
 def build_rules(
     *,
     gateway_ip: str,
-    bridge_name: str,
     provider_networks: list[ipaddress.IPv4Network],
 ) -> str:
     try:
@@ -43,8 +41,6 @@ def build_rules(
         raise ValueError("gateway_ip_invalid") from exc
     if not isinstance(address, ipaddress.IPv4Address) or not address.is_private:
         raise ValueError("gateway_ip_must_be_private_ipv4")
-    if not re.fullmatch(r"[a-zA-Z0-9_.-]{1,15}", bridge_name):
-        raise ValueError("bridge_name_invalid")
     if not provider_networks:
         raise ValueError("provider_allowlist_empty")
     if any(
@@ -92,7 +88,6 @@ def _run(command: list[str], *, input_text: str | None = None) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gateway-ip", default="172.31.240.2")
-    parser.add_argument("--bridge-name", default="br-aegisforge-egress")
     parser.add_argument(
         "--provider-cidr",
         action="append",
@@ -114,7 +109,6 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("provider_allowlist_duplicate")
         rules = build_rules(
             gateway_ip=args.gateway_ip,
-            bridge_name=args.bridge_name,
             provider_networks=networks,
         )
     except ValueError as exc:

@@ -459,3 +459,18 @@ def test_resolved_compose_rejects_extra_healthcheck_behavior():
             document,
             expected_runtime=_resolved_expectations(),
         )
+
+
+def test_resolved_compose_rejects_non_string_memory_limit():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["services"]["anvil"]["mem_limit"] = {"unbounded": True}
+
+    with pytest.raises(ComposeTopologyValidationError, match="anvil_memory_limit_invalid"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )

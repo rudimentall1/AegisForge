@@ -18,6 +18,11 @@ from agents.security_checker.anvil_rpc_adapter import (
 from agents.security_checker.fork_execution_plan import (
     validate_fork_execution_plan,
 )
+from agents.security_checker.fork_compose_validator import (
+    ComposeTopologyValidationError,
+    ComposeTopologyValidationReport,
+    validate_anvil_fork_compose,
+)
 from agents.security_checker.fork_engine import ForkSnapshotError
 from agents.security_checker.rpc_gateway import RpcGatewayError, validate_upstream_url
 
@@ -48,6 +53,7 @@ class PreparedForkRuntime:
     network_profile: str
     compose_environment: tuple[tuple[str, str], ...]
     required_secret_inputs: tuple[str, ...]
+    compose_validation: ComposeTopologyValidationReport
     runtime_started: bool = False
     dynamic_verified: bool = False
     confirmed: bool = False
@@ -98,6 +104,8 @@ def prepare_fork_runtime(
     snapshot: dict,
     plan: object,
     runtime_config: Mapping[str, object],
+    *,
+    compose_source: str,
 ) -> PreparedForkRuntime:
     """Validate a fork plan and runtime config without starting any process.
 
@@ -112,6 +120,13 @@ def prepare_fork_runtime(
         raise ForkRuntimePreparationError(reason) from exc
 
     _validate_runtime_configuration(runtime_config)
+    try:
+        compose_validation = validate_anvil_fork_compose(
+            compose_source,
+            foundry_image=runtime_config["foundry_image"],
+        )
+    except ComposeTopologyValidationError as exc:
+        raise ForkRuntimePreparationError(str(exc)) from exc
 
     compose_environment = (
         ("AEGISFORGE_ANVIL_CHAIN_ID", str(validated_plan["fork_chain_id"])),
@@ -127,4 +142,5 @@ def prepare_fork_runtime(
         network_profile=validated_plan["required_network_profile"],
         compose_environment=compose_environment,
         required_secret_inputs=_REQUIRED_SECRET_INPUTS,
+        compose_validation=compose_validation,
     )

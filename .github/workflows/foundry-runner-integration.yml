@@ -68,7 +68,7 @@ jobs:
           docker pull "$python_image_tag"
           python_image_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$python_image_tag")"
           case "$python_image_digest" in
-            python@sha256:*) ;;
+            *python@sha256:*) ;;
             *) echo "Unexpected Python image digest: $python_image_digest" >&2; exit 1 ;;
           esac
           echo "AEGISFORGE_PYTHON_IMAGE=$python_image_digest" >> "$GITHUB_ENV"

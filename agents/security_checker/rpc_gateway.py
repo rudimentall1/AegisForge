@@ -549,8 +549,7 @@ def create_rpc_gateway_server(
         or not isinstance(port, int)
         or isinstance(port, bool)
         or not 0 <= port <= 65535
-        or not isinstance(bind_host, str)
-        or not bind_host
+        or bind_host not in {"127.0.0.1", "0.0.0.0"}
     ):
         raise RpcGatewayError("gateway_listener_configuration_invalid")
 

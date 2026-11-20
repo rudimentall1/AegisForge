@@ -92,3 +92,22 @@ def test_execution_plan_rejects_mutable_or_extra_plan_fields():
 
     with pytest.raises(ForkExecutionPlanError, match="plan_schema_invalid"):
         validate_fork_execution_plan(plan, snapshot)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("anvil_rpc_url", "http://attacker.example:8545"),
+        ("adapter_rpc_url", "http://127.0.0.1:8546"),
+        ("transactions_enabled", True),
+        ("dynamic_verified", True),
+        ("confirmed", True),
+    ],
+)
+def test_execution_plan_rejects_endpoint_or_trust_policy_override(field, value):
+    snapshot = _snapshot()
+    plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
+    plan[field] = value
+
+    with pytest.raises(ForkExecutionPlanError, match="snapshot_binding_mismatch"):
+        validate_fork_execution_plan(plan, snapshot)

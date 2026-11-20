@@ -65,7 +65,7 @@ def test_real_compose_network_membership_and_internal_service_egress():
     assert "@sha256:" in python_image, "CI must provide a digest-pinned Python base image"
 
     project = f"aegisforge-compose-runtime-{os.getpid()}"
-    image_tag = f"{project}-rpc-sidecar:local"
+    image_tag = "aegisforge-rpc-sidecar:local"
     token = "aegisforge-compose-runtime-test-token-0123456789"
     with tempfile.TemporaryDirectory(prefix="aegisforge-compose-runtime-") as temporary:
         env_file = Path(temporary) / "compose.env"

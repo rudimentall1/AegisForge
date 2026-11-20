@@ -48,15 +48,21 @@ def _nft_counter(rule_fragment: str) -> int:
     )
     for line in output.splitlines():
         if rule_fragment in line:
-            match = re.search(r"counter packets (\\d+)", line)
+            match = re.search(r"counter packets (\d+)", line)
             if match:
                 return int(match.group(1))
     raise AssertionError(f"firewall_rule_counter_missing:{rule_fragment}")
 
 
-def _docker_exec(container_id: str, code: str, *, expect_success: bool) -> None:
+def _docker_exec(
+    container_id: str,
+    code: str,
+    *,
+    expect_success: bool,
+    args: tuple[str, ...] = (),
+) -> None:
     result = subprocess.run(
-        ["docker", "exec", container_id, "python", "-c", code],
+        ["docker", "exec", container_id, "python", "-c", code, *args],
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -206,41 +212,26 @@ def test_real_compose_network_membership_and_internal_service_egress():
                     'iifname "br-aegisforge" ip saddr 172.31.240.2 '
                     "ip daddr @approved_rpc_v4 tcp dport 443 ct state new"
                 )
-                denied_rule = 'iifname "br-aegisforge" ip saddr 172.31.240.2'
+                denied_rule = (
+                    'iifname "br-aegisforge" ip saddr 172.31.240.2 counter drop'
+                )
                 allowed_before = _nft_counter(allowed_rule)
                 denied_before = _nft_counter(denied_rule)
 
-                # Attempt both destinations from the actual Gateway container.
-                # The allowed attempt need not complete an Internet TCP handshake:
-                # its nft counter proves the allow rule matched at the host boundary.
+                # Counters prove that packets reached the host firewall and
+                # matched the intended rule; TCP handshake success is irrelevant.
                 probe = (
-                    "import socket; "
-                    "[(lambda s: (s.settimeout(1), "
-                    "s.connect((host,443)) if False else None))(socket.socket()) "
-                    "for host in ()]; "
-                    "forbidden=False"
-                )
-                probe = (
-                    "import socket; "
-                    "[(lambda host: (lambda s: (s.settimeout(1), "
-                    "s.connect((host,443)) if False else None))(socket.socket()))(host) "
-                    "for host in ()]"
+                    "import socket,sys; "
+                    "s=socket.socket(); s.settimeout(1); "
+                    "exec('try:\\n s.connect((sys.argv[1],443))\\n"
+                    "except OSError:\\n pass\\nfinally:\\n s.close()')"
                 )
                 for destination in ("8.8.8.8", "1.1.1.1"):
                     _docker_exec(
                         service_ids["rpc-gateway"],
-                        "import socket,sys; "
-                        "s=socket.socket(); s.settimeout(1); "
-                        "try_connect=True; "
-                        "exec('try:\\n s.connect((sys.argv[1],443))\\nexcept OSError:\\n pass\\nfinally:\\n s.close()')",
+                        probe,
                         expect_success=True,
-                    ) if False else None
-                    _docker_exec(
-                        service_ids["rpc-gateway"],
-                        "import socket,sys; "
-                        "s=socket.socket(); s.settimeout(1); "
-                        "exec('try:\\n s.connect((sys.argv[1],443))\\nexcept OSError:\\n pass\\nfinally:\\n s.close()')",
-                        expect_success=True,
+                        args=(destination,),
                     )
 
                 assert _nft_counter(allowed_rule) > allowed_before, (

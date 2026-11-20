@@ -7,6 +7,10 @@ only an isolated packet-path probe can establish that boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import os
+import shutil
+import subprocess
 from typing import Mapping
 
 
@@ -230,4 +234,132 @@ def validate_runtime_observations(
         container_ids=container_ids,
         networks=validated_networks,
         firewall_table=_FIREWALL_TABLE,
+    )
+
+
+
+def _runtime_command(binary: str, args: list[str]) -> str:
+    command = [binary, *args]
+    try:
+        result = subprocess.run(
+            command,
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=12,
+            check=False,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+            env={
+                "PATH": os.pathsep.join((os.path.dirname(binary), "/usr/bin", "/bin")),
+                "HOME": "/nonexistent",
+                "DOCKER_CONFIG": "/nonexistent",
+            },
+        )
+    except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+        raise RuntimeEvidenceError("runtime_command_failed") from exc
+    if result.returncode != 0:
+        raise RuntimeEvidenceError("runtime_command_failed")
+    output = result.stdout
+    if not isinstance(output, str) or len(output.encode("utf-8")) > 2 * 1024 * 1024:
+        raise RuntimeEvidenceError("runtime_command_output_invalid")
+    return output
+
+
+def _json_output(output: str, reason: str):
+    try:
+        return json.loads(output)
+    except (json.JSONDecodeError, RecursionError, TypeError, ValueError) as exc:
+        raise RuntimeEvidenceError(reason) from exc
+
+
+def collect_runtime_evidence(
+    *,
+    expected_project: str = "aegisforge-anvil-fork",
+) -> RuntimeEvidenceReport:
+    """Collect Docker inspect and nftables table observations without mutation.
+
+    Only a compact validated receipt is returned. Raw inspect output can contain
+    environment secrets and is intentionally kept local to this call.
+    """
+    _require(
+        expected_project == "aegisforge-anvil-fork",
+        "runtime_project_invalid",
+    )
+    docker = shutil.which("docker")
+    nft = shutil.which("nft")
+    _require(bool(docker) and bool(nft), "runtime_cli_unavailable")
+
+    container_output = _runtime_command(
+        docker,
+        ["ps", "-aq", "--filter", f"label=com.docker.compose.project={expected_project}"],
+    )
+    container_ids = [line.strip() for line in container_output.splitlines() if line.strip()]
+    _require(
+        len(container_ids) == len(_SERVICES)
+        and len(set(container_ids)) == len(_SERVICES)
+        and all(
+            len(item) == 64 and all(char in "0123456789abcdef" for char in item.lower())
+            for item in container_ids
+        ),
+        "runtime_service_inventory_invalid",
+    )
+    containers = _json_output(
+        _runtime_command(docker, ["inspect", *container_ids]),
+        "runtime_container_inspect_invalid",
+    )
+    _require(isinstance(containers, list), "runtime_container_inspect_invalid")
+
+    network_output = _runtime_command(
+        docker,
+        [
+            "network", "ls", "--filter",
+            f"label=com.docker.compose.project={expected_project}",
+            "--format", "{{.Name}}",
+        ],
+    )
+    network_names = [line.strip() for line in network_output.splitlines() if line.strip()]
+    _require(
+        len(network_names) == 2 and len(set(network_names)) == 2,
+        "runtime_network_inventory_invalid",
+    )
+    networks = _json_output(
+        _runtime_command(docker, ["network", "inspect", *network_names]),
+        "runtime_network_inspect_invalid",
+    )
+    _require(isinstance(networks, list), "runtime_network_inspect_invalid")
+
+    firewall_document = _json_output(
+        _runtime_command(
+            nft,
+            ["-j", "list", "table", "inet", _FIREWALL_TABLE],
+        ),
+        "runtime_firewall_inspect_invalid",
+    )
+    _require(_mapping(firewall_document), "runtime_firewall_inspect_invalid")
+    nftables = firewall_document.get("nftables")
+    table_present = (
+        isinstance(nftables, list)
+        and any(
+            _mapping(item)
+            and _mapping(item.get("table"))
+            and item["table"].get("family") == "inet"
+            and item["table"].get("name") == _FIREWALL_TABLE
+            for item in nftables
+        )
+    )
+
+    return validate_runtime_observations(
+        {
+            "containers": containers,
+            "networks": networks,
+            "firewall": {
+                "table_present": table_present,
+                "family": "inet",
+                "name": _FIREWALL_TABLE,
+            },
+        },
+        expected_project=expected_project,
     )

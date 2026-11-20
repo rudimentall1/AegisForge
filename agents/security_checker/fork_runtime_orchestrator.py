@@ -18,10 +18,13 @@ from agents.security_checker.anvil_rpc_adapter import (
 from agents.security_checker.fork_execution_plan import (
     validate_fork_execution_plan,
 )
+from agents.security_checker.fork_compose_resolver import (
+    ComposeConfigResolutionError,
+    resolve_anvil_fork_compose,
+)
 from agents.security_checker.fork_compose_validator import (
     ComposeTopologyValidationError,
     ComposeTopologyValidationReport,
-    validate_anvil_fork_compose,
     validate_resolved_anvil_fork_compose,
 )
 from agents.security_checker.fork_engine import ForkSnapshotError
@@ -105,15 +108,13 @@ def prepare_fork_runtime(
     snapshot: dict,
     plan: object,
     runtime_config: Mapping[str, object],
-    *,
-    compose_source: str,
-    resolved_compose: Mapping[str, object],
 ) -> PreparedForkRuntime:
     """Validate a fork plan and runtime config without starting any process.
 
     Secrets and the upstream URL are validated in-place and intentionally are
     not copied into the result, its repr, or the Compose environment. The
-    caller must provide those values later through a separate secret channel.
+    effective Compose model is resolved internally through the fixed,
+    side-effect-free Docker Compose config resolver.
     """
     try:
         validated_plan = validate_fork_execution_plan(plan, snapshot)
@@ -123,9 +124,10 @@ def prepare_fork_runtime(
 
     _validate_runtime_configuration(runtime_config)
     try:
-        validate_anvil_fork_compose(
-            compose_source,
-            foundry_image=runtime_config["foundry_image"],
+        resolved_compose = resolve_anvil_fork_compose(
+            runtime_config=runtime_config,
+            fork_chain_id=validated_plan["fork_chain_id"],
+            fork_block_number=validated_plan["block_number"],
         )
         compose_validation = validate_resolved_anvil_fork_compose(
             resolved_compose,
@@ -138,7 +140,7 @@ def prepare_fork_runtime(
                 "fork_block_number": validated_plan["block_number"],
             },
         )
-    except ComposeTopologyValidationError as exc:
+    except (ComposeConfigResolutionError, ComposeTopologyValidationError) as exc:
         raise ForkRuntimePreparationError(str(exc)) from exc
 
     compose_environment = (

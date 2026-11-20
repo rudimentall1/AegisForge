@@ -97,7 +97,7 @@ Before a runtime handoff, call `validate_anvil_fork_compose(source, foundry_imag
 The caller must pass the resolved Foundry image reference; it is accepted only as an immutable `@sha256:` digest. The preparation orchestrator now requires this static validation before it can return `PREPARED`. The report is static configuration evidence only: it does not resolve Docker Compose interpolation, inspect a live Docker network, apply or inspect nftables, or prove packet-path isolation. Docker Compose's own config validation and disposable runtime firewall tests remain separate gates.
 
 
-The orchestrator's `compose_source` argument is mandatory. It invokes the static validator itself and refuses to return `PREPARED` if the Compose template or resolved Foundry digest fails validation. The resulting `compose_validation` field is a static-only receipt; it is not evidence that Docker accepted the configuration or that the network policy is effective.
+The orchestrator requires both `compose_source` and `resolved_compose`. It validates the source template and then the effective Compose JSON before returning `PREPARED`. The resulting `compose_validation` field is a resolved-static receipt; it is not evidence that containers started or that the network policy is effective.
 
 
 ## Effective Compose configuration gate

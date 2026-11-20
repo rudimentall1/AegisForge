@@ -126,7 +126,7 @@ fi
 RUNTIME_BYTECODE="$(cast code "$TARGET_ADDRESS" --rpc-url "$UPSTREAM")"
 [ -n "$RUNTIME_BYTECODE" ] || exit 30
 printf 'AEGISFORGE_RESULT={"target_address":"%s","block_number":%s,"block_hash":"%s","runtime_bytecode":"%s","forge_output":{"suite":{"test_results":{"testPinnedForkState()":{"status":"Success"}}}}}\n' \
-  "$TARGET_ADDRESS" "$BLOCK_NUMBER" "$UPSTREAM_HASH"
+  "$TARGET_ADDRESS" "$BLOCK_NUMBER" "$UPSTREAM_HASH" "$RUNTIME_BYTECODE"
 """
 
 

@@ -220,7 +220,7 @@ def test_runtime_collector_uses_read_only_inspect_commands_and_returns_sanitized
     ]
     assert calls[3][0] == ["/usr/bin/docker", "network", "inspect", *network_names]
     assert calls[4][0] == [
-        "/usr/sbin/nft", "-j", "list", "table", "inet", "aegisforge_gateway_egress",
+        "/usr/bin/nft", "-j", "list", "table", "inet", "aegisforge_gateway_egress",
     ]
     for args, kwargs in calls:
         assert kwargs["shell"] is False

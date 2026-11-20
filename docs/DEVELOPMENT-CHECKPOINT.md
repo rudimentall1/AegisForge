@@ -185,3 +185,56 @@ Latest repository check:
 - No workflow runs were returned for commit `4d5ebc69bcfdea62db9cab63edcb31d923fd910d` at the time of this check.
 - The receipt tests remain unexecuted here. No green CI result is claimed.
 - No protected doctrine/policy files were changed.
+
+
+## Disposable Docker Packet Path Receipt — runtime emission and CI artifact wiring — 2026-11-20
+
+Implementation commits:
+- Dynamic Compose project binding in the receipt validator: `49453c9d60d0cdca14537d058a5dafe0deec9b95`, `1e8a675645bbc78dd9a385fb1d5f9b14bf4853f1`, `c1b9f333ee7e5acded40442a9349e51782b2a208`.
+- Runtime packet-path receipt capture: `370055fcfdf2f64a6ce9b159b300c346f2bfbfcb`, `4697d40fb47b761dc0e08460fe4ba06b7a465a83`, `294e910bb118e8c2934fd311a74daf28c8adc697`, `d86de207e44d76bc69a6b6e46d68027489128698`.
+- Validator/test contract refinements: `8de5d300a04e94c7e09fda75830ef731421420b8`, `2ca905f4d9d6901352fbf5bd269ee387ef77f4ef`, `da7c626ab88dd6db062bf84c11ecd7c107291bef`.
+- CI artifact and workflow path/test wiring: `7f9f12c5d88975ce99f69305bdca762adfc3b8b6`, `22db9a743003c0de667b01eea095f33eeae3ee0d`.
+
+The disposable Docker Compose integration test now, when and only when `AEGISFORGE_DOCKER_FIREWALL_RUNTIME=1` on a GitHub-hosted runner:
+- captures the unique Compose project name and actual full container/network IDs;
+- computes a canonical SHA-256 digest of the live nftables JSON ruleset with volatile counter expressions excluded (counter values are recorded separately);
+- records before/after packet counters for the approved Gateway allow rule and unapproved Gateway drop rule;
+- records observed TCP outcomes for approved Gateway egress, denied Gateway egress, Adapter-to-Gateway, Anvil-to-Adapter, and external egress attempts from Adapter and Anvil;
+- records observed default-route absence and Docker internal-only network membership for Adapter and Anvil;
+- binds the JSON receipt to `GITHUB_SHA`, `GITHUB_RUN_ID`, and `GITHUB_RUN_ATTEMPT`;
+- validates the receipt in the same test process and writes it to the configured runner-temp path only after all required assertions pass.
+
+The validator binds network names to the actual unique Compose project name, rather than assuming a fixed project name. This matches the disposable integration test's per-run Compose namespace.
+
+The Foundry integration workflow now:
+- includes the packet receipt validator and tests in path filters and the focused test command;
+- configures a runner-temp receipt path for the Docker integration step;
+- uploads the receipt as a 14-day Actions artifact when one exists. The upload step is `always()` so a receipt created before a later test/job failure is still retained; missing receipts are ignored rather than fabricated.
+
+Evidence limitations:
+- No receipt has yet been emitted by a successful GitHub-hosted Docker run.
+- The runtime receipt is created only after all Docker and nftables assertions succeed. A failed or skipped integration test produces no receipt.
+- Approved egress records both whether the TCP handshake connected and whether the specific nftables allow counter increased. A successful handshake is not required because the test target is an external IP without a guaranteed listener.
+- Denied egress requires both a failed TCP connection and a positive nftables drop-counter delta.
+- The receipt validator checks structure and CI bindings; it does not independently re-run probes or establish finding-specific exploit validation.
+- The receipt does not promote `runtime_isolation_verified`, `dynamic_verified`, or `confirmed`; all remain false.
+- Tests have not been executed in this authoring environment. No green CI result is claimed.
+
+CI observations:
+- Earlier checkpoint commit `a8d5b516ce0d8f4e223b376b4424b2ce3a333d0a` produced Foundry integration run `44714787040` and AegisForge CI run `44714787046`; both concluded `failure`.
+- The Foundry job endpoint returned `steps: null` and no log URL. The failure cause is unknown and is not attributed to the receipt changes.
+- No workflow run for the newest receipt implementation commits was returned at checkpoint time. Do not initiate blind reruns.
+
+Repository state:
+- PR #206 remains open and Draft; not merged.
+- Head: `feat/anvil-fork-research-engine`, latest implementation commit `d86de207e44d76bc69a6b6e46d68027489128698`.
+- Base: `feat/aegisforge-working-state-2026-11-18`.
+- Compare: 263 commits ahead, 0 behind, 36 changed files.
+- Protected doctrine/policy files remain untouched.
+- No VPS, production host, wallet, live transaction, or production asset was used.
+
+Next steps:
+1. Obtain a new CI result for the receipt-emission commit and inspect real job logs/artifact metadata.
+2. If the Docker job succeeds, download/inspect the Actions receipt and independently validate its commit/run binding, IDs, ruleset digest, counter deltas, and probe outcomes.
+3. If the job fails, use actual step logs to isolate the failing assertion; do not diagnose from a missing artifact alone.
+4. Only after the receipt has been observed and independently reviewed should we design any integration into the finding-specific SecurityChecker evidence chain. Do not change confirmation flags in this stage.

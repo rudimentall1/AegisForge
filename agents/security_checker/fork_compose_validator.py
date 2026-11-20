@@ -141,7 +141,14 @@ def _validate_service_security(name: str, service: dict) -> None:
         and not isinstance(service.get("pids_limit"), bool),
         f"{name}_pids_limit_invalid",
     )
-    _require(service.get("mem_limit") == expected_memory, f"{name}_memory_limit_invalid")
+    memory_bytes = {
+        "256m": "268435456",
+        "1g": "1073741824",
+    }[expected_memory]
+    _require(
+        service.get("mem_limit") in {expected_memory, memory_bytes},
+        f"{name}_memory_limit_invalid",
+    )
     _require(
         service.get("cpus") == expected_cpus
         and not isinstance(service.get("cpus"), bool),
@@ -550,6 +557,27 @@ def validate_resolved_anvil_fork_compose(
         == {"anvil-rpc-adapter": {"condition": "service_healthy"}},
         "resolved_service_dependency_invalid",
     )
+    expected_healthchecks = {
+        "rpc-gateway": [
+            "CMD", "python", "-c",
+            "import socket; s=socket.create_connection(('127.0.0.1',8545),2); s.close()",
+        ],
+        "anvil-rpc-adapter": [
+            "CMD", "python", "-c",
+            "import socket; s=socket.create_connection(('127.0.0.1',8546),2); s.close()",
+        ],
+    }
+    for name, service in (("rpc-gateway", gateway), ("anvil-rpc-adapter", adapter)):
+        healthcheck = service.get("healthcheck")
+        _require(
+            _is_mapping(healthcheck)
+            and healthcheck.get("test") == expected_healthchecks[name]
+            and healthcheck.get("interval") == "5s"
+            and healthcheck.get("timeout") == "3s"
+            and healthcheck.get("retries") == 12
+            and healthcheck.get("start_period") == "3s",
+            "resolved_healthcheck_invalid",
+        )
 
     return ComposeTopologyValidationReport(
         state="RESOLVED_STATIC_VALIDATED",

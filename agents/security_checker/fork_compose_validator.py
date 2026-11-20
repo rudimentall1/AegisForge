@@ -463,7 +463,8 @@ def validate_resolved_anvil_fork_compose(
 
     _require(_is_mapping(resolved), "resolved_compose_document_invalid")
     _require(
-        resolved.get("name") == COMPOSE_SCHEMA_NAME
+        set(resolved) == {"name", "services", "networks"}
+        and resolved.get("name") == COMPOSE_SCHEMA_NAME
         and _is_mapping(resolved.get("services"))
         and _is_mapping(resolved.get("networks")),
         "resolved_compose_document_invalid",
@@ -593,9 +594,9 @@ def validate_resolved_anvil_fork_compose(
         and internal.get("internal") is True
         and internal.get("enable_ipv6") is False
         and _is_mapping(internal.get("ipam"))
+        and set(internal["ipam"]) == {"config"}
         and isinstance(internal["ipam"].get("config"), list)
-        and bool(internal["ipam"]["config"])
-        and internal["ipam"]["config"][0].get("subnet") == "172.30.240.0/24",
+        and internal["ipam"]["config"] == [{"subnet": "172.30.240.0/24"}],
         "resolved_fork_internal_network_invalid",
     )
     _require(
@@ -611,14 +612,19 @@ def validate_resolved_anvil_fork_compose(
         and egress.get("driver") == "bridge"
         and egress.get("enable_ipv6") is False
         and _is_mapping(egress.get("driver_opts"))
+        and set(egress["driver_opts"])
+        == {
+            "com.docker.network.bridge.name",
+            "com.docker.network.bridge.enable_icc",
+        }
         and egress["driver_opts"].get("com.docker.network.bridge.name")
         == "br-aegisforge"
         and egress["driver_opts"].get("com.docker.network.bridge.enable_icc")
         == "false"
         and _is_mapping(egress.get("ipam"))
+        and set(egress["ipam"]) == {"config"}
         and isinstance(egress["ipam"].get("config"), list)
-        and bool(egress["ipam"]["config"])
-        and egress["ipam"]["config"][0].get("subnet") == "172.31.240.0/28",
+        and egress["ipam"]["config"] == [{"subnet": "172.31.240.0/28"}],
         "resolved_rpc_egress_network_invalid",
     )
 
@@ -651,7 +657,9 @@ def validate_resolved_anvil_fork_compose(
             and healthcheck.get("interval") == "5s"
             and healthcheck.get("timeout") == "3s"
             and healthcheck.get("retries") == 12
-            and healthcheck.get("start_period") == "3s",
+            and healthcheck.get("start_period") == "3s"
+            and set(healthcheck)
+            == {"test", "interval", "timeout", "retries", "start_period"},
             "resolved_healthcheck_invalid",
         )
 

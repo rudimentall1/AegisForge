@@ -49,7 +49,10 @@ From the repository root, first create the containers and networks without start
 cp deploy/anvil-fork/.env.example deploy/anvil-fork/.env
 # Edit deploy/anvil-fork/.env and replace every placeholder.
 docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml config
-docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml build
+set -a
+. deploy/anvil-fork/.env
+set +a
+docker build --build-arg PYTHON_IMAGE="$AEGISFORGE_PYTHON_IMAGE" -f deploy/anvil-fork/Dockerfile.rpc-sidecar -t aegisforge-rpc-sidecar:local .
 docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml create
 sudo python3 deploy/anvil-fork/install_egress_firewall.py --provider-cidr <PROVIDER_IPV4_CIDR>
 sudo python3 deploy/anvil-fork/install_egress_firewall.py --provider-cidr <PROVIDER_IPV4_CIDR> --apply

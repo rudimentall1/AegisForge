@@ -33,6 +33,7 @@ def test_only_gateway_joins_the_egress_network_and_no_ports_are_published():
     anvil = _service_block(source, "anvil")
 
     assert "rpc-egress" in gateway
+    assert "gw_priority: 1" in gateway
     assert "rpc-egress" not in adapter
     assert "rpc-egress" not in anvil
     assert "ports:" not in source

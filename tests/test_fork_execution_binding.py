@@ -102,6 +102,7 @@ def test_rpc_observation_binds_actual_fork_chain_block_and_runtime_code():
         block_response=observed["block"],
         code_response=observed["code"],
         code_request=observed["request"],
+        expected_fork_chain_id=31602,
         expected_response_ids=("fork-chain", "fork-block", "fork-code"),
     )
 
@@ -137,7 +138,8 @@ def test_rpc_observation_rejects_fork_state_not_matching_snapshot(
             block_response=observed["block"],
             code_response=observed["code"],
             code_request=observed["request"],
-            expected_response_ids=("fork-chain", "fork-block", "fork-code"),
+            expected_fork_chain_id=31602,
+        expected_response_ids=("fork-chain", "fork-block", "fork-code"),
         )
 
 
@@ -155,7 +157,8 @@ def test_rpc_observation_rejects_code_request_for_different_contract_or_block():
             block_response=observed["block"],
             code_response=observed["code"],
             code_request=observed["request"],
-            expected_response_ids=("fork-chain", "fork-block", "fork-code"),
+            expected_fork_chain_id=31602,
+        expected_response_ids=("fork-chain", "fork-block", "fork-code"),
         )
 
 
@@ -173,5 +176,24 @@ def test_rpc_observation_rejects_response_id_mismatch():
             block_response=observed["block"],
             code_response=observed["code"],
             code_request=observed["request"],
+            expected_fork_chain_id=31602,
+        expected_response_ids=("fork-chain", "fork-block", "fork-code"),
+        )
+
+
+def test_rpc_observation_rejects_unexpected_fork_chain_id():
+    from agents.security_checker.fork_engine import (
+        validate_fork_execution_rpc_observation,
+    )
+
+    observed = _rpc_observations()
+    with pytest.raises(ForkSnapshotError, match="fork_execution_chain_mismatch"):
+        validate_fork_execution_rpc_observation(
+            _snapshot(),
+            chain_response=observed["chain"],
+            block_response=observed["block"],
+            code_response=observed["code"],
+            code_request=observed["request"],
+            expected_fork_chain_id=31337,
             expected_response_ids=("fork-chain", "fork-block", "fork-code"),
         )

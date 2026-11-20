@@ -108,8 +108,7 @@ def validate_packet_path_receipt(
     _require(_is_hex(expected_commit_sha, 40), "packet_path_commit_binding_invalid")
     _require(
         isinstance(expected_run_id, str)
-        and expected_run_id.isdigit()
-        and int(expected_run_id) > 0
+        and re.fullmatch(r"[1-9][0-9]{0,19}", expected_run_id) is not None
         and type(expected_run_attempt) is int
         and expected_run_attempt > 0,
         "packet_path_run_binding_invalid",

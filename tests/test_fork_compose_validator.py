@@ -306,3 +306,48 @@ def test_resolved_compose_rejects_unexpected_privileged_service_options():
             document,
             expected_runtime=_resolved_expectations(),
         )
+
+
+
+def test_resolved_compose_rejects_expected_provider_outside_allowlist():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_runtime_expectations_invalid"):
+        validate_resolved_anvil_fork_compose(
+            _resolved_compose(),
+            expected_runtime=_resolved_expectations(
+                upstream_url="https://attacker.example/rpc",
+            ),
+        )
+
+
+def test_resolved_compose_report_never_retains_gateway_secret_or_provider_url():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    expected = _resolved_expectations()
+    report = validate_resolved_anvil_fork_compose(
+        _resolved_compose(),
+        expected_runtime=expected,
+    )
+
+    assert expected["bearer_token"] not in repr(report)
+    assert expected["upstream_url"] not in repr(report)
+
+
+def test_resolved_compose_rejects_anvil_attached_to_egress_network():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["services"]["anvil"]["networks"]["rpc-egress"] = {}
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_anvil_network_boundary_invalid"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )

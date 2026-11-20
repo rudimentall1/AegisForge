@@ -1,0 +1,79 @@
+from pathlib import Path
+import importlib.util
+import ipaddress
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MODULE_PATH = ROOT / "deploy" / "anvil-fork" / "install_egress_firewall.py"
+
+
+def _load_module():
+    spec = importlib.util.spec_from_file_location("aegisforge_egress_firewall", MODULE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_firewall_rules_allow_only_approved_ipv4_rpc_destinations():
+    module = _load_module()
+    rules = module.build_rules(
+        gateway_ip="172.31.240.2",
+        bridge_name="br-aegisforge-egress",
+        provider_networks=[ipaddress.ip_network("198.51.100.8/32")],
+    )
+
+    assert "table inet aegisforge_gateway_egress" in rules
+    assert 'iifname "br-aegisforge-egress"' in rules
+    assert "ip saddr 172.31.240.2" in rules
+    assert "ip daddr @approved_rpc_v4 tcp dport 443 ct state new accept" in rules
+    assert "ip saddr 172.31.240.2 drop" in rules
+    assert "oifname \"br-aegisforge-egress\" ip daddr 172.31.240.2 drop" in rules
+
+
+def test_firewall_rejects_invalid_or_non_ipv4_provider_ranges():
+    module = _load_module()
+
+    for value in ("0.0.0.0/0", "127.0.0.1/32", "169.254.1.1/32"):
+        try:
+            module.validate_provider_network(value)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"unsafe provider range accepted: {value}")
+
+    try:
+        module.validate_provider_network("2001:db8::1/128")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("IPv6 provider range must be rejected")
+
+
+def test_firewall_rules_do_not_flush_or_replace_other_host_firewall_state():
+    module = _load_module()
+    rules = module.build_rules(
+        gateway_ip="172.31.240.2",
+        bridge_name="br-aegisforge-egress",
+        provider_networks=[ipaddress.ip_network("198.51.100.8/32")],
+    )
+
+    assert "flush ruleset" not in rules
+    assert "flush table" not in rules
+    assert "delete table" not in rules
+
+
+def test_firewall_requires_at_least_one_approved_provider_network():
+    module = _load_module()
+    try:
+        module.build_rules(
+            gateway_ip="172.31.240.2",
+            bridge_name="br-aegisforge-egress",
+            provider_networks=[],
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("empty provider allowlist must fail closed")

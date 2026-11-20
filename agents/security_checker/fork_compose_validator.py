@@ -124,7 +124,7 @@ def _is_mapping(value: object) -> bool:
     return isinstance(value, dict) and all(isinstance(key, str) for key in value)
 
 
-def _resolved_dependency_matches(value: object, service_name: str) -> bool:
+def _resolved_dependency_matches(value: object) -> bool:
     if not _is_mapping(value):
         return False
     if set(value) not in (
@@ -557,11 +557,14 @@ def validate_resolved_anvil_fork_compose(
     )
 
     _require(
-        _is_mapping(gateway.get("networks"))
-        and set(gateway["networks"]) == {"fork-internal", "rpc-egress"}
-        and _is_mapping(gateway["networks"]["rpc-egress"])
-        and gateway["networks"]["rpc-egress"].get("gw_priority") == 1
-        and gateway["networks"]["rpc-egress"].get("ipv4_address") == "172.31.240.2",
+        gateway.get("networks")
+        == {
+            "fork-internal": {"aliases": ["rpc-gateway"]},
+            "rpc-egress": {
+                "ipv4_address": "172.31.240.2",
+                "gw_priority": 1,
+            },
+        },
         "resolved_gateway_network_boundary_invalid",
     )
     _require(
@@ -624,14 +627,10 @@ def validate_resolved_anvil_fork_compose(
     _require(
         _is_mapping(adapter_dependencies)
         and set(adapter_dependencies) == {"rpc-gateway"}
-        and _resolved_dependency_matches(
-            adapter_dependencies["rpc-gateway"], "rpc-gateway"
-        )
+        and _resolved_dependency_matches(adapter_dependencies["rpc-gateway"])
         and _is_mapping(anvil_dependencies)
         and set(anvil_dependencies) == {"anvil-rpc-adapter"}
-        and _resolved_dependency_matches(
-            anvil_dependencies["anvil-rpc-adapter"], "anvil-rpc-adapter"
-        ),
+        and _resolved_dependency_matches(anvil_dependencies["anvil-rpc-adapter"]),
         "resolved_service_dependency_invalid",
     )
     expected_healthchecks = {

@@ -63,12 +63,12 @@ def build_rules(
     chain forward_guard {{
         type filter hook forward priority -10; policy accept;
 
-        # Only return traffic for Gateway-initiated sessions is admitted.
-        ip daddr {gateway} ct state established,related accept
+        # Return traffic is accepted only from approved RPC provider ranges.
+        ip saddr @approved_rpc_v4 ip daddr {gateway} ct state established,related accept
         ip daddr {gateway} drop
 
-        # Permit new Gateway connections only to approved public RPC ranges.
-        ip saddr {gateway} ct state established,related accept
+        # Gateway sessions (new and established) stay within approved HTTPS ranges.
+        ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state established,related accept
         ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state new accept
         ip saddr {gateway} drop
     }}

@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "deploy" / "anvil-fork" / "compose.yaml"
 DOCKERFILE = ROOT / "deploy" / "anvil-fork" / "Dockerfile.rpc-sidecar"
 GUIDE = ROOT / "docs" / "ANVIL-FORK-DEPLOYMENT.md"
+FIREWALL = ROOT / "deploy" / "anvil-fork" / "install_egress_firewall.py"
 
 
 def _service_block(source: str, name: str) -> str:
@@ -74,3 +75,16 @@ def test_deployment_guide_does_not_claim_compose_enforces_provider_egress():
     assert "host firewall" in guide
     assert "does not enforce" in guide
     assert "approved rpc" in guide
+
+
+def test_egress_bridge_is_dedicated_and_firewall_allows_only_provider_https():
+    compose = COMPOSE.read_text(encoding="utf-8")
+    firewall = FIREWALL.read_text(encoding="utf-8")
+    egress = compose.split("  rpc-egress:", 1)[1]
+
+    assert 'com.docker.network.bridge.enable_icc: "false"' in egress
+    assert "br-aegisforge-egress" in egress
+    assert "tcp dport 443 ct state new accept" in firewall
+    assert "ip saddr {gateway} drop" in firewall
+    assert "ip daddr {gateway} drop" in firewall
+    assert "priority -10" in firewall

@@ -62,3 +62,18 @@ This ordering matches the documented deployment safety sequence and closes the t
 ## Checkpoint discipline
 
 Update this file after each substantive repository change or verification milestone. Record the exact head commit, workflow run IDs/conclusions, and any unverified assumptions. Keep facts, hypotheses, and next actions separate.
+
+
+## Latest review update — 2026-11-20
+
+Implementation commit: `de54875db60d92aefcf75645e4cfc37915abad5c`.
+
+A review of the Docker runtime test found that its Anvil probes invoked Python inside the official Foundry container, although that image is not guaranteed to include Python. The test now uses the Foundry container's Bash TCP device for Anvil-to-Adapter and Anvil-to-external connection probes, and checks the Anvil route table with `awk`. Python probes remain limited to the Python sidecar. This removes an invalid test-environment assumption; it is not yet a passing runtime result.
+
+Workflow observations:
+- Runs `44710108854` (Foundry runner integration) and `44710108982` (AegisForge CI), triggered by an earlier test commit, both concluded `failure`.
+- The jobs endpoint returned no step summaries; the dedicated step endpoint returned empty arrays, and the log download returned `BlobNotFound`.
+- These failures cannot be attributed to a specific test or command. No blind rerun was started.
+- No workflow result has yet been observed for implementation commit `de54875...`.
+
+The test now installs the firewall after Compose creates the network/containers but before `compose up` starts the Gateway. The integration test still needs a successful GitHub-hosted Docker run before its packet-path assertions can be treated as verified.

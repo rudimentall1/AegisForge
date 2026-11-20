@@ -67,7 +67,7 @@ def test_validator_rejects_published_host_ports():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="published_ports_forbidden"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 def test_validator_rejects_non_internal_fork_network():
@@ -76,7 +76,7 @@ def test_validator_rejects_non_internal_fork_network():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="fork_internal_network_invalid"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 def test_validator_rejects_missing_explicit_fork_chain_id():
@@ -90,7 +90,7 @@ def test_validator_rejects_missing_explicit_fork_chain_id():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="anvil_fork_identity_invalid"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 def test_validator_rejects_missing_pinned_fork_block():
@@ -104,7 +104,7 @@ def test_validator_rejects_missing_pinned_fork_block():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="anvil_fork_identity_invalid"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 def test_validator_rejects_anvil_gateway_credentials():
@@ -115,7 +115,7 @@ def test_validator_rejects_anvil_gateway_credentials():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="anvil_environment_invalid"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 def test_validator_rejects_gateway_without_egress_route_priority():
@@ -126,7 +126,7 @@ def test_validator_rejects_gateway_without_egress_route_priority():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="gateway_egress_route_invalid"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 def test_validator_rejects_non_digest_foundry_image_reference():
@@ -135,7 +135,7 @@ def test_validator_rejects_non_digest_foundry_image_reference():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="foundry_image_reference_invalid"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 def test_validator_rejects_unexpected_compose_services():
@@ -144,7 +144,7 @@ def test_validator_rejects_unexpected_compose_services():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="compose_services_invalid"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 def test_validator_rejects_duplicate_yaml_keys_without_silent_overwrite():
@@ -155,7 +155,7 @@ def test_validator_rejects_duplicate_yaml_keys_without_silent_overwrite():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="compose_yaml_invalid"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 

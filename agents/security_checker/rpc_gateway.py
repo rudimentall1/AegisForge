@@ -9,6 +9,7 @@ from __future__ import annotations
 import http.client
 import ipaddress
 import json
+import os
 import re
 import socket
 import ssl
@@ -703,3 +704,78 @@ def create_rpc_gateway_server(
     except OSError as exc:
         raise RpcGatewayError("gateway_listener_bind_failed") from exc
     return server
+
+
+
+def run_gateway_from_environment() -> None:
+    """Run the RPC Gateway with an explicit, exact-host upstream policy.
+
+    Required environment:
+      AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL
+      AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS (comma-separated exact DNS names)
+      AEGISFORGE_RPC_GATEWAY_TOKEN
+
+    Optional environment:
+      AEGISFORGE_RPC_GATEWAY_BIND_HOST (default: 127.0.0.1)
+      AEGISFORGE_RPC_GATEWAY_PORT (default: 8545)
+
+    Binding to 0.0.0.0 is intended only for a private, separately isolated
+    container network. This process does not enforce Docker egress policy.
+    """
+    upstream_url = os.environ.get("AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL", "")
+    raw_hosts = os.environ.get("AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS", "")
+    bearer_token = os.environ.get("AEGISFORGE_RPC_GATEWAY_TOKEN", "")
+    bind_host = os.environ.get("AEGISFORGE_RPC_GATEWAY_BIND_HOST", "127.0.0.1")
+    raw_port = os.environ.get("AEGISFORGE_RPC_GATEWAY_PORT", "8545")
+
+    if not isinstance(raw_hosts, str) or not raw_hosts:
+        raise RpcGatewayError("upstream_configuration_invalid")
+    hosts = [item.strip().lower().rstrip(".") for item in raw_hosts.split(",")]
+    if (
+        not hosts
+        or any(
+            not host
+            or len(host) > 253
+            or not re.fullmatch(
+                r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*",
+                host,
+            )
+            for host in hosts
+        )
+    ):
+        raise RpcGatewayError("upstream_configuration_invalid")
+    allowed_hosts = set(hosts)
+    if len(allowed_hosts) != len(hosts):
+        raise RpcGatewayError("upstream_configuration_invalid")
+
+    if bind_host not in {"127.0.0.1", "0.0.0.0"}:
+        raise RpcGatewayError("gateway_listener_configuration_invalid")
+    if not raw_port.isascii() or not raw_port.isdecimal() or len(raw_port) > 5:
+        raise RpcGatewayError("gateway_listener_configuration_invalid")
+    port = int(raw_port)
+    if not 1 <= port <= 65535:
+        raise RpcGatewayError("gateway_listener_configuration_invalid")
+
+    validate_upstream_url(upstream_url, allowed_hosts=allowed_hosts)
+    if (
+        not isinstance(bearer_token, str)
+        or len(bearer_token) < 32
+        or not bearer_token.isascii()
+    ):
+        raise RpcGatewayError("gateway_listener_configuration_invalid")
+
+    server = create_rpc_gateway_server(
+        upstream_url,
+        allowed_hosts,
+        bearer_token,
+        bind_host=bind_host,
+        port=port,
+    )
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    run_gateway_from_environment()

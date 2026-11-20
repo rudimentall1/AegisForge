@@ -44,7 +44,7 @@ sudo apt-get install -y nftables iproute2
 sudo python -m pytest -q tests/test_anvil_fork_egress_runtime.py
 ```
 
-The test creates temporary network namespaces, installs the generated nftables table only inside its disposable router namespace, and checks approved HTTPS, denied destination IPs, denied non-HTTPS ports, and a separate Adapter-to-Gateway RPC path. It never applies rules to the host firewall.
+The test creates temporary network namespaces, installs the generated nftables table only inside its disposable router namespace, and checks approved HTTPS, denied destination IPs, denied non-HTTPS ports, Adapter-to-Gateway RPC, Anvil-to-Adapter RPC, and the absence of direct external routes from both Adapter and Anvil. It never applies rules to the host firewall.
 
 This is a Linux forwarding-policy test using an interface named `br-aegisforge`; it is not yet a Docker Compose bridge runtime test. Docker bridge behavior, Docker firewall-chain ordering, DNS forwarding, and container-level Anvil/Adapter egress still require a separate disposable Docker integration run.
 

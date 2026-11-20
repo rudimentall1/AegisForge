@@ -17,7 +17,7 @@ on:
       - "agents/security_checker/packet_path_evidence.py"
       - "tests/test_packet_path_evidence.py"
       - "tests/test_fork_compose_resolver.py"
-      - "tests/test_fork_runtime_evidence.py tests/test_packet_path_evidence.py"
+      - "tests/test_fork_runtime_evidence.py"
       - "tests/test_fork_execution_plan.py"
       - "tests/test_fork_runtime_orchestrator.py"
       - "tests/test_fork_compose_validator.py"
@@ -41,9 +41,11 @@ on:
       - "agents/security_checker/fork_compose_validator.py"
       - "agents/security_checker/fork_compose_resolver.py"
       - "agents/security_checker/fork_runtime_orchestrator.py"
+      - "agents/security_checker/packet_path_evidence.py"
       - "tests/test_fork_compose_validator.py"
       - "tests/test_fork_compose_resolver.py"
       - "tests/test_fork_runtime_orchestrator.py"
+      - "tests/test_packet_path_evidence.py"
       - "requirements.txt"
       - "agents/security_checker/foundry_runner.py"
       - "shared/sandbox.py"
@@ -160,4 +162,4 @@ jobs:
 
       - name: Execute real Solidity test in isolated container
         run: |
-          python -m pytest -q tests/test_foundry_dynamic_runner_integration.py tests/test_anvil_fork_runner_integration.py tests/test_anvil_fork_deployment_topology.py tests/test_anvil_fork_egress_firewall.py tests/test_fork_execution_plan.py tests/test_fork_runtime_orchestrator.py tests/test_fork_compose_validator.py tests/test_fork_compose_resolver.py tests/test_fork_runtime_evidence.py
+          python -m pytest -q tests/test_foundry_dynamic_runner_integration.py tests/test_anvil_fork_runner_integration.py tests/test_anvil_fork_deployment_topology.py tests/test_anvil_fork_egress_firewall.py tests/test_fork_execution_plan.py tests/test_fork_runtime_orchestrator.py tests/test_fork_compose_validator.py tests/test_fork_compose_resolver.py tests/test_fork_runtime_evidence.py tests/test_packet_path_evidence.py

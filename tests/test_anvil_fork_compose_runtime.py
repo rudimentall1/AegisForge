@@ -340,7 +340,7 @@ def test_real_compose_network_membership_and_internal_service_egress():
 
                 ruleset_sha256 = _nft_ruleset_sha256()
                 allowed_before = _nft_counter(allowed_rule, "accept")
-                _docker_tcp_connects(
+                approved_connected = _docker_tcp_connects(
                     service_ids["rpc-gateway"], "8.8.8.8", 443
                 )
                 allowed_after = _nft_counter(allowed_rule, "accept")
@@ -421,6 +421,7 @@ def test_real_compose_network_membership_and_internal_service_egress():
                         "gateway_approved_egress": {
                             "attempted": True,
                             "rule_matched": allowed_after > allowed_before,
+                            "tcp_connected": approved_connected,
                         },
                         "gateway_unapproved_egress": {
                             "attempted": True,

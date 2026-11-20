@@ -93,7 +93,9 @@ jobs:
           sudo python deploy/anvil-fork/install_egress_firewall.py --provider-cidr 8.8.8.8/32
           sudo "$(command -v python)" -m pytest -q tests/test_anvil_fork_egress_runtime.py
 
-      - name: Verify real Docker Compose network isolation
+      - name: Verify real Docker Compose network and firewall isolation
+        env:
+          AEGISFORGE_DOCKER_FIREWALL_RUNTIME: "1"
         run: |
           python -m pytest -vv -s tests/test_anvil_fork_compose_runtime.py
 

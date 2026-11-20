@@ -172,3 +172,137 @@ def test_validator_rejects_relaxed_anvil_resource_limits():
 
     with pytest.raises(ComposeTopologyValidationError, match="anvil_pids_limit_invalid"):
         _validate(source)
+
+
+
+def _resolved_compose():
+    document = yaml.safe_load(_source())
+    services = document["services"]
+    services["rpc-gateway"]["environment"].update(
+        {
+            "AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL": "https://arb-mainnet.example-rpc.com/v1/key",
+            "AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS": "arb-mainnet.example-rpc.com",
+            "AEGISFORGE_RPC_GATEWAY_TOKEN": "r" * 48,
+        }
+    )
+    services["anvil-rpc-adapter"]["environment"][
+        "AEGISFORGE_ANVIL_GATEWAY_TOKEN"
+    ] = "r" * 48
+    services["anvil"]["image"] = FOUNDRY_IMAGE
+    services["anvil"]["command"] = [
+        "--host", "0.0.0.0",
+        "--port", "8545",
+        "--chain-id", "31338",
+        "--fork-url", "http://anvil-rpc-adapter:8546",
+        "--fork-block-number", "123456",
+    ]
+    return document
+
+
+def _resolved_expectations(**overrides):
+    expected = {
+        "upstream_url": "https://arb-mainnet.example-rpc.com/v1/key",
+        "allowed_hosts": ("arb-mainnet.example-rpc.com",),
+        "bearer_token": "r" * 48,
+        "foundry_image": FOUNDRY_IMAGE,
+        "fork_chain_id": 31338,
+        "fork_block_number": 123456,
+    }
+    expected.update(overrides)
+    return expected
+
+
+def test_resolved_compose_validator_accepts_effective_interpolated_configuration():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    report = validate_resolved_anvil_fork_compose(
+        _resolved_compose(),
+        expected_runtime=_resolved_expectations(),
+    )
+
+    assert report.state == "RESOLVED_STATIC_VALIDATED"
+    assert report.runtime_started is False
+    assert report.dynamic_verified is False
+    assert report.confirmed is False
+    assert "resolved_secret_consistency" in report.checked_invariants
+
+
+def test_resolved_compose_rejects_gateway_secret_mismatch():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["services"]["anvil-rpc-adapter"]["environment"][
+        "AEGISFORGE_ANVIL_GATEWAY_TOKEN"
+    ] = "different-secret"
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_gateway_secret_mismatch"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )
+
+
+def test_resolved_compose_rejects_provider_url_not_matching_runtime_configuration():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["services"]["rpc-gateway"]["environment"][
+        "AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL"
+    ] = "https://attacker.example/rpc"
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_gateway_environment_invalid"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )
+
+
+def test_resolved_compose_rejects_published_ports_and_extra_networks():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["services"]["anvil"]["ports"] = [{"target": 8545, "published": "8545"}]
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_published_ports_forbidden"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )
+
+
+def test_resolved_compose_rejects_changed_chain_or_block_anchor():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["services"]["anvil"]["command"][-1] = "latest"
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_anvil_fork_identity_invalid"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )
+
+
+def test_resolved_compose_rejects_unexpected_privileged_service_options():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["services"]["anvil"]["privileged"] = True
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_privileged_mode_forbidden"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )

@@ -12,7 +12,7 @@ from typing import Mapping
 from uuid import UUID
 
 
-_PROJECT = "aegisforge-anvil-fork"
+_PROJECT_PATTERN = re.compile(r"aegisforge-compose-runtime-[1-9][0-9]{0,19}\\Z")
 _SERVICES = ("rpc-gateway", "anvil-rpc-adapter", "anvil")
 _NETWORK_NAMES = {
     "fork-internal": f"{_PROJECT}_fork-internal",
@@ -51,6 +51,7 @@ class PacketPathEvidenceReport:
     state: str
     runtime_session_id: str
     services: tuple[str, ...]
+    compose_project: str
     container_ids: tuple[str, ...]
     network_ids: tuple[str, ...]
     firewall_ruleset_sha256: str
@@ -119,6 +120,7 @@ def validate_packet_path_receipt(
         "schema_version",
         "evidence_level",
         "runtime_session_id",
+        "compose_project",
         "git_commit_sha",
         "github_run_id",
         "github_run_attempt",
@@ -143,6 +145,13 @@ def validate_packet_path_receipt(
     _require(
         bool(canonical_session_id) and canonical_session_id == session_id,
         "packet_path_session_invalid",
+    )
+
+    compose_project = receipt.get("compose_project")
+    _require(
+        isinstance(compose_project, str)
+        and _PROJECT_PATTERN.fullmatch(compose_project) is not None,
+        "packet_path_project_binding_invalid",
     )
 
     _require(
@@ -174,8 +183,9 @@ def validate_packet_path_receipt(
         "packet_path_network_inventory_invalid",
     )
     network_ids = []
-    for logical_name, expected_name in _NETWORK_NAMES.items():
+    for logical_name, suffix in (("fork-internal", "fork-internal"), ("rpc-egress", "rpc-egress")):
         network = networks.get(logical_name)
+        expected_name = f"{compose_project}_{suffix}"
         _require(
             _is_mapping(network) and set(network) == {"name", "id"}
             and network.get("name") == expected_name
@@ -221,6 +231,7 @@ def validate_packet_path_receipt(
         state="PACKET_PATH_RECEIPT_VALIDATED",
         runtime_session_id=session_id,
         services=_SERVICES,
+        compose_project=compose_project,
         container_ids=container_ids,
         network_ids=tuple(network_ids),
         firewall_ruleset_sha256=firewall["ruleset_sha256"],

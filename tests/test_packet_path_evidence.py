@@ -85,6 +85,7 @@ def test_packet_path_receipt_validates_observed_ci_evidence_without_promoting_fi
     assert report.state == "PACKET_PATH_RECEIPT_VALIDATED"
     assert report.runtime_session_id == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
     assert report.services == ("rpc-gateway", "anvil-rpc-adapter", "anvil")
+    assert report.compose_project == "aegisforge-compose-runtime-12345"
     assert report.runtime_isolation_verified is False
     assert report.dynamic_verified is False
     assert report.confirmed is False

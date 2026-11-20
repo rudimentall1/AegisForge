@@ -65,13 +65,13 @@ def build_rules(
 
         # Gateway-originated packets enter the host through the dedicated bridge.
         # Adapter <-> Gateway traffic on fork-internal does not traverse this bridge.
-        iifname "br-aegisforge" ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state established,related accept
-        iifname "br-aegisforge" ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state new accept
-        iifname "br-aegisforge" ip saddr {gateway} drop
+        iifname "br-aegisforge" ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state established,related counter accept
+        iifname "br-aegisforge" ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state new counter accept
+        iifname "br-aegisforge" ip saddr {gateway} counter drop
 
         # Provider replies leave the host through the dedicated bridge toward Gateway.
-        oifname "br-aegisforge" ip saddr @approved_rpc_v4 ip daddr {gateway} ct state established,related accept
-        oifname "br-aegisforge" ip daddr {gateway} drop
+        oifname "br-aegisforge" ip saddr @approved_rpc_v4 ip daddr {gateway} ct state established,related counter accept
+        oifname "br-aegisforge" ip daddr {gateway} counter drop
     }}
 }}
 """

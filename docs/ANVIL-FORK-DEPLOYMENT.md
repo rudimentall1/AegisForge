@@ -22,6 +22,8 @@ The Compose file uses the `gw_priority` network attribute to make `rpc-egress` t
 
 Docker Compose network attachment is not an approved-provider IP allowlist. In this scaffold, the Gateway's application layer validates an exact HTTPS hostname allowlist, resolves and pins public DNS answers, and verifies TLS hostnames. However, the `rpc-egress` bridge itself can route to arbitrary destinations unless the Docker host enforces an outbound firewall policy.
 
+The egress bridge has inter-container communication disabled and a stable bridge name. Keep this network dedicated to the Gateway; do not attach diagnostic or utility containers to it. The firewall matches the Gateway private source IP and the Docker bridge should contain only this one service.
+
 Before running this topology with a real provider:
 
 1. Configure the host firewall to permit new outbound TCP connections from the Gateway container address `172.31.240.2` only to the provider's current, independently verified IP/CIDR ranges on port 443.
@@ -41,18 +43,21 @@ The same high-entropy Gateway token is supplied to the Gateway and Adapter. It i
 
 ## Start and inspect
 
-From the repository root:
+From the repository root, first create the containers and networks without starting any service. Obtain provider IPv4 CIDRs from the provider documentation or support channel; do not guess or use broad internet ranges. Validate the firewall rules, apply them, and only then start the stack:
 
 ```sh
 cp deploy/anvil-fork/.env.example deploy/anvil-fork/.env
 # Edit deploy/anvil-fork/.env and replace every placeholder.
 docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml config
 docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml build
-docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml up -d
+docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml create
+sudo python3 deploy/anvil-fork/install_egress_firewall.py --provider-cidr <PROVIDER_IPV4_CIDR>
+sudo python3 deploy/anvil-fork/install_egress_firewall.py --provider-cidr <PROVIDER_IPV4_CIDR> --apply
+docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml start
 docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml ps
 ```
 
-This guide does not authorize running the stack on a production server. Validate it in a disposable test host first. Do not expose Anvil or Adapter ports to the host or internet.
+This guide does not authorize running the stack on a production server. Validate it in a disposable test host first. Do not expose Anvil or Adapter ports to the host or internet. Repeat `--provider-cidr` for every current provider IPv4 range. The installer validates syntax by default and changes no firewall state without `--apply`. The ruleset is not persistent across reboot; configure and test host-native persistence before production. To remove only this dedicated table, run `sudo python3 deploy/anvil-fork/install_egress_firewall.py --remove`.
 
 ## Evidence status
 

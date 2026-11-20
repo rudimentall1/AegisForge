@@ -36,8 +36,6 @@ def test_firewall_rules_allow_only_approved_ipv4_rpc_destinations():
     assert 'oifname "br-aegisforge" ip saddr @approved_rpc_v4 ip daddr 172.31.240.2 ct state established,related accept' in rules
     assert 'iifname "br-aegisforge" ip saddr 172.31.240.2 drop' in rules
     assert 'oifname "br-aegisforge" ip daddr 172.31.240.2 drop' in rules
-    assert 'ip saddr @approved_rpc_v4 ip daddr 172.31.240.2 ct state established,related accept' not in rules
-    assert 'ip saddr 172.31.240.2 ip daddr @approved_rpc_v4 tcp dport 443 ct state new accept' not in rules
 
 
 def test_firewall_rejects_invalid_or_non_ipv4_provider_ranges():

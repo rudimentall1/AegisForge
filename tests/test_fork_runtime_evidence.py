@@ -52,10 +52,14 @@ def _network(name, *, internal, subnet):
         "Driver": "bridge",
         "Internal": internal,
         "EnableIPv6": False,
-        "Options": {
-            "com.docker.network.bridge.enable_icc": "false",
-            **({"com.docker.network.bridge.name": "br-aegisforge"} if not internal else {}),
-        },
+        "Options": (
+            {}
+            if internal
+            else {
+                "com.docker.network.bridge.enable_icc": "false",
+                "com.docker.network.bridge.name": "br-aegisforge",
+            }
+        ),
         "IPAM": {"Config": [{"Subnet": subnet}]},
         "Labels": {
             "com.docker.compose.project": PROJECT,

@@ -8,6 +8,8 @@ It is not a production-ready security boundary until the host egress firewall de
 
 ## Network boundaries
 
+The Compose file uses the `gw_priority` network attribute to make `rpc-egress` the Gateway default route. Use Docker Compose v2.33.1 or newer; older Compose releases may ignore this routing selection and must not be used for this topology.
+
 - `fork-internal` is a Docker internal network. Anvil and the Adapter are attached only to this network.
 - The Gateway is attached to `fork-internal` and the separate `rpc-egress` bridge.
 - No service publishes a host port. Do not add `ports:` to this Compose file.

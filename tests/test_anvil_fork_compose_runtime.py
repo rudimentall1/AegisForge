@@ -30,6 +30,10 @@ FIREWALL_SCRIPT = ROOT / "deploy" / "anvil-fork" / "install_egress_firewall.py"
 FIREWALL_TABLE = "aegisforge_gateway_egress"
 
 
+def test_docker_tcp_probe_script_is_valid_python():
+    compile(_docker_tcp_probe_script(), "<docker-tcp-probe>", "exec")
+
+
 def _run(command: list[str], *, timeout: int = 90) -> str:
     result = subprocess.run(
         command,

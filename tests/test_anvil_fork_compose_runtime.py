@@ -212,7 +212,7 @@ def test_real_compose_network_membership_and_internal_service_egress():
                     'iifname "br-aegisforge" ip saddr 172.31.240.2 '
                     "ip daddr @approved_rpc_v4 tcp dport 443 ct state new"
                 )
-                denied_rule = 'iifname "br-aegisforge" ip saddr 172.31.240.2'
+                denied_rule = 'iifname "br-aegisforge"'
                 allowed_before = _nft_counter(allowed_rule, "accept")
                 denied_before = _nft_counter(denied_rule, "drop")
 

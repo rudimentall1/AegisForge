@@ -22,6 +22,7 @@ from agents.security_checker.fork_compose_validator import (
     ComposeTopologyValidationError,
     ComposeTopologyValidationReport,
     validate_anvil_fork_compose,
+    validate_resolved_anvil_fork_compose,
 )
 from agents.security_checker.fork_engine import ForkSnapshotError
 from agents.security_checker.rpc_gateway import RpcGatewayError, validate_upstream_url
@@ -106,6 +107,7 @@ def prepare_fork_runtime(
     runtime_config: Mapping[str, object],
     *,
     compose_source: str,
+    resolved_compose: Mapping[str, object],
 ) -> PreparedForkRuntime:
     """Validate a fork plan and runtime config without starting any process.
 
@@ -121,9 +123,20 @@ def prepare_fork_runtime(
 
     _validate_runtime_configuration(runtime_config)
     try:
-        compose_validation = validate_anvil_fork_compose(
+        validate_anvil_fork_compose(
             compose_source,
             foundry_image=runtime_config["foundry_image"],
+        )
+        compose_validation = validate_resolved_anvil_fork_compose(
+            resolved_compose,
+            expected_runtime={
+                "upstream_url": runtime_config["upstream_url"],
+                "allowed_hosts": tuple(runtime_config["allowed_hosts"]),
+                "bearer_token": runtime_config["bearer_token"],
+                "foundry_image": runtime_config["foundry_image"],
+                "fork_chain_id": validated_plan["fork_chain_id"],
+                "fork_block_number": validated_plan["block_number"],
+            },
         )
     except ComposeTopologyValidationError as exc:
         raise ForkRuntimePreparationError(str(exc)) from exc

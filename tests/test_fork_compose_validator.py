@@ -412,3 +412,50 @@ def test_resolved_compose_rejects_unexpected_project_network_name():
             document,
             expected_runtime=_resolved_expectations(),
         )
+
+
+def test_resolved_compose_rejects_unexpected_root_configuration():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["volumes"] = {"host-root": {"external": True}}
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_compose_document_invalid"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )
+
+
+def test_resolved_compose_rejects_extra_ipam_subnet_configuration():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["networks"]["rpc-egress"]["ipam"]["config"].append(
+        {"subnet": "0.0.0.0/0"}
+    )
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_rpc_egress_network_invalid"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )
+
+
+def test_resolved_compose_rejects_extra_healthcheck_behavior():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["services"]["rpc-gateway"]["healthcheck"]["disable"] = True
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_healthcheck_invalid"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )

@@ -171,3 +171,17 @@ Next implementation stage:
 3. Write the receipt to a temporary CI artifact path and upload it only from the disposable GitHub-hosted integration job.
 4. Add a test that validates the generated artifact against `GITHUB_SHA`, `GITHUB_RUN_ID`, and `GITHUB_RUN_ATTEMPT`.
 5. Keep all finding/runtime promotion flags false until a separate finding-specific evidence design is implemented and verified.
+
+
+## Receipt contract test alignment — 2026-11-20
+
+Test correction commit: `4d5ebc69bcfdea62db9cab63edcb31d923fd910d`.
+
+The missing-session-field test now expects the schema-level rejection emitted by the validator (the required-field inventory is checked before UUID semantics). This aligns the test with the fail-closed validation order; no production behavior or security state changed.
+
+Latest repository check:
+- PR #206 is still open; its PR description still identifies it as Draft.
+- Branch comparison: 249 commits ahead, 0 behind, 36 changed files.
+- No workflow runs were returned for commit `4d5ebc69bcfdea62db9cab63edcb31d923fd910d` at the time of this check.
+- The receipt tests remain unexecuted here. No green CI result is claimed.
+- No protected doctrine/policy files were changed.

@@ -72,7 +72,7 @@ services:
       - "--port"
       - "8545"
       - "--chain-id"
-      - ${AEGISFORGE_ANVIL_CHAIN_ID:-31337}
+      - ${AEGISFORGE_ANVIL_CHAIN_ID:?Set the explicit fork chain ID from the execution plan}
       - "--fork-url"
       - "http://anvil-rpc-adapter:8546"
       - "--fork-block-number"

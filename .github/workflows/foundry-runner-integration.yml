@@ -28,6 +28,9 @@ on:
       - "agents/security_checker/foundry_runner.py"
       - "shared/sandbox.py"
       - "tests/test_foundry_dynamic_runner_integration.py"
+      - "tests/test_anvil_fork_compose_runtime.py"
+      - "tests/fixtures/anvil-fork-compose-runtime.override.yaml"
+      - "deploy/anvil-fork/**"
       - ".github/workflows/foundry-runner-integration.yml"
 
 permissions:

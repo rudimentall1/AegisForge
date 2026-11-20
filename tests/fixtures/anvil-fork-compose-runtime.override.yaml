@@ -1,0 +1,8 @@
+# Replace the real Anvil binary with a minimal Python process while preserving
+# the production service's Docker network attachments and security settings.
+# This test verifies Docker topology and network isolation, not Anvil execution.
+services:
+  anvil:
+    image: ${AEGISFORGE_PYTHON_IMAGE:?Set a digest-pinned Python image}
+    entrypoint: ["python", "-c"]
+    command: ["import time; time.sleep(3600)"]

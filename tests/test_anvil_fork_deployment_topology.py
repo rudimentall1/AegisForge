@@ -87,7 +87,8 @@ def test_egress_bridge_is_dedicated_and_firewall_allows_only_provider_https():
 
     assert 'com.docker.network.bridge.enable_icc: "false"' in egress
     assert "br-aegisforge" in egress
-    assert "tcp dport 443 ct state new accept" in firewall
-    assert "ip saddr {gateway} drop" in firewall
-    assert "ip daddr {gateway} drop" in firewall
+    assert 'iifname "br-aegisforge" ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state new accept' in firewall
+    assert 'oifname "br-aegisforge" ip saddr @approved_rpc_v4 ip daddr {gateway} ct state established,related accept' in firewall
+    assert 'iifname "br-aegisforge" ip saddr {gateway} drop' in firewall
+    assert 'oifname "br-aegisforge" ip daddr {gateway} drop' in firewall
     assert "priority -10" in firewall

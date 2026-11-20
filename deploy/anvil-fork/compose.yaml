@@ -102,7 +102,7 @@ networks:
   rpc-egress:
     driver: bridge
     driver_opts:
-      com.docker.network.bridge.name: br-aegisforge-egress
+      com.docker.network.bridge.name: br-aegisforge
       com.docker.network.bridge.enable_icc: "false"
     ipam:
       config:

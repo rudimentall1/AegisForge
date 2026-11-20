@@ -85,7 +85,7 @@ def test_execution_plan_rejects_invalid_fork_chain_id():
         build_fork_execution_plan(_snapshot(), fork_chain_id=True)
 
 
-def test_execution_plan_rejects_mutable_or_extra_plan_fields():
+def test_execution_plan_rejects_unexpected_fields():
     snapshot = _snapshot()
     plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
     plan["provider_url"] = "https://attacker.example/rpc"

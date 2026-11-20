@@ -12,6 +12,8 @@ on:
       - "agents/security_checker/fork_execution_plan.py"
       - "agents/security_checker/fork_runtime_orchestrator.py"
       - "agents/security_checker/fork_compose_validator.py"
+      - "agents/security_checker/fork_compose_resolver.py"
+      - "tests/test_fork_compose_resolver.py"
       - "tests/test_fork_execution_plan.py"
       - "tests/test_fork_runtime_orchestrator.py"
       - "tests/test_fork_compose_validator.py"
@@ -92,7 +94,7 @@ jobs:
           solc-select install 0.8.20
           echo "Foundry image pinned for this run: $image_digest"
 
-      - name: Validate Docker Compose deployment topology
+      - name: Resolve and validate effective Docker Compose configuration
         env:
           AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL: https://rpc-provider.example/v1/ci-validation
           AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS: rpc-provider.example
@@ -101,40 +103,23 @@ jobs:
         run: |
           set -euo pipefail
           export AEGISFORGE_RPC_GATEWAY_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(36))')"
-          resolved_config="$(mktemp)"
-          trap 'rm -f "$resolved_config"' EXIT
-          export AEGISFORGE_RESOLVED_COMPOSE_PATH="$resolved_config"
-          docker compose --env-file deploy/anvil-fork/.env.example -f deploy/anvil-fork/compose.yaml config --format json > "$resolved_config"
           python - <<'PY'
-          import json
           import os
-          from pathlib import Path
-          from agents.security_checker.fork_compose_validator import (
-              validate_anvil_fork_compose,
-              validate_resolved_anvil_fork_compose,
+          from agents.security_checker.fork_compose_resolver import (
+              resolve_anvil_fork_compose,
           )
 
-          source = Path("deploy/anvil-fork/compose.yaml").read_text(encoding="utf-8")
-          image = os.environ["AEGISFORGE_FOUNDRY_IMAGE"]
-          validate_anvil_fork_compose(source, foundry_image=image)
-          resolved = json.loads(
-              Path(os.environ["AEGISFORGE_RESOLVED_COMPOSE_PATH"]).read_text(encoding="utf-8")
-          )
-          report = validate_resolved_anvil_fork_compose(
-              resolved,
-              expected_runtime={
+          resolved = resolve_anvil_fork_compose(
+              runtime_config={
                   "upstream_url": os.environ["AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL"],
-                  "allowed_hosts": (os.environ["AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS"],),
+                  "allowed_hosts": [os.environ["AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS"]],
                   "bearer_token": os.environ["AEGISFORGE_RPC_GATEWAY_TOKEN"],
-                  "foundry_image": image,
-                  "fork_chain_id": 31337,
-                  "fork_block_number": 1,
+                  "foundry_image": os.environ["AEGISFORGE_FOUNDRY_IMAGE"],
               },
+              fork_chain_id=31337,
+              fork_block_number=1,
           )
-          assert report.state == "RESOLVED_STATIC_VALIDATED", report
-          assert report.runtime_started is False
-          assert report.dynamic_verified is False
-          assert report.confirmed is False
+          assert resolved["name"] == "aegisforge-anvil-fork"
           print("Compose source and effective interpolation: PASS")
           PY
 

@@ -96,11 +96,13 @@ services:
 networks:
   fork-internal:
     internal: true
+    enable_ipv6: false
     ipam:
       config:
         - subnet: 172.30.240.0/24
   rpc-egress:
     driver: bridge
+    enable_ipv6: false
     driver_opts:
       com.docker.network.bridge.name: br-aegisforge
       com.docker.network.bridge.enable_icc: "false"

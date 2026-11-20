@@ -212,9 +212,8 @@ def test_real_compose_network_membership_and_internal_service_egress():
                     "import socket; rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
                     "assert not any(line.split()[1]=='00000000' for line in rows), "
                     "'internal-only service unexpectedly has a default route'; "
-                    "s=socket.socket(); s.settimeout(1); "
-                    "exec('try:\\n s.connect((\\\"8.8.8.8\\\",443))\\n'
-                    "except OSError:\\n pass\\nelse:\\n raise AssertionError('external egress unexpectedly succeeded')\\nfinally:\\n s.close()')",
+                    "result=socket.create_connection(('8.8.8.8',443),1); result.close()",
+                    expect_success=False,
                     expect_success=True,
                 )
 

@@ -83,7 +83,7 @@ def _wait_for_listener(namespace: str, address: str, port: int) -> None:
     reason="requires root, iproute2 and nftables; CI runs this in an ephemeral Ubuntu VM",
 )
 def test_gateway_egress_firewall_allows_only_approved_https_and_preserves_internal_rpc():
-    namespaces = ("aegis-router", "aegis-gateway", "aegis-provider", "aegis-adapter")
+    namespaces = ("aegis-router", "aegis-gateway", "aegis-provider", "aegis-adapter", "aegis-anvil")
     processes: list[subprocess.Popen] = []
 
     def add_veth(left_ns: str, left_name: str, right_ns: str, right_name: str):
@@ -105,6 +105,7 @@ def test_gateway_egress_firewall_allows_only_approved_https_and_preserves_intern
         add_veth("aegis-router", "br-aegisforge", "aegis-gateway", "eth0")
         add_veth("aegis-router", "provider0", "aegis-provider", "eth0")
         add_veth("aegis-gateway", "internal0", "aegis-adapter", "eth0")
+        add_veth("aegis-gateway", "internal1", "aegis-anvil", "eth0")
 
         _ns("aegis-router", "ip", "addr", "add", "172.31.240.1/28", "dev", "br-aegisforge")
         _ns("aegis-gateway", "ip", "addr", "add", "172.31.240.2/28", "dev", "eth0")
@@ -112,16 +113,19 @@ def test_gateway_egress_firewall_allows_only_approved_https_and_preserves_intern
         _ns("aegis-provider", "ip", "addr", "add", "198.18.0.2/30", "dev", "eth0")
         _ns("aegis-provider", "ip", "addr", "add", "8.8.8.8/32", "dev", "lo")
         _ns("aegis-provider", "ip", "addr", "add", "1.1.1.1/32", "dev", "lo")
-        _ns("aegis-gateway", "ip", "addr", "add", "172.30.240.2/30", "dev", "internal0")
-        _ns("aegis-adapter", "ip", "addr", "add", "172.30.240.3/30", "dev", "eth0")
+        _ns("aegis-gateway", "ip", "addr", "add", "172.30.240.2/29", "dev", "internal0")
+        _ns("aegis-adapter", "ip", "addr", "add", "172.30.240.3/29", "dev", "eth0")
+        _ns("aegis-anvil", "ip", "addr", "add", "172.30.240.4/29", "dev", "eth0")
 
         for namespace, interface in (
             ("aegis-router", "br-aegisforge"),
             ("aegis-router", "provider0"),
             ("aegis-gateway", "eth0"),
             ("aegis-gateway", "internal0"),
+            ("aegis-gateway", "internal1"),
             ("aegis-provider", "eth0"),
             ("aegis-adapter", "eth0"),
+            ("aegis-anvil", "eth0"),
         ):
             _ns(namespace, "ip", "link", "set", interface, "up")
 
@@ -158,6 +162,17 @@ while True:
     connection.sendall(b"INTERNAL_RPC_OK")
     connection.close()
 """
+        adapter_server = """
+import socket
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("172.30.240.3", 8546))
+server.listen()
+while True:
+    connection, _ = server.accept()
+    connection.sendall(b"ANVIL_ADAPTER_RPC_OK")
+    connection.close()
+"""
         processes.append(subprocess.Popen(
             ["ip", "netns", "exec", "aegis-provider", "python", "-c", provider_server],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -166,8 +181,13 @@ while True:
             ["ip", "netns", "exec", "aegis-gateway", "python", "-c", internal_server],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         ))
+        processes.append(subprocess.Popen(
+            ["ip", "netns", "exec", "aegis-adapter", "python", "-c", adapter_server],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ))
         _wait_for_listener("aegis-provider", "8.8.8.8", 443)
         _wait_for_listener("aegis-gateway", "172.30.240.2", 8545)
+        _wait_for_listener("aegis-adapter", "172.30.240.3", 8546)
 
         module = _firewall_module()
         rules = module.build_rules(
@@ -206,6 +226,26 @@ while True:
             check=False,
         )
         assert internal.returncode == 0, internal.stderr
+
+        anvil_to_adapter = _ns(
+            "aegis-anvil", "python", "-c",
+            (
+                "import socket; s=socket.create_connection(('172.30.240.3',8546),2); "
+                "assert s.recv(64)==b'ANVIL_ADAPTER_RPC_OK'; s.close()"
+            ),
+            check=False,
+        )
+        assert anvil_to_adapter.returncode == 0, anvil_to_adapter.stderr
+
+        for isolated_service in ("aegis-adapter", "aegis-anvil"):
+            external_attempt = _ns(
+                isolated_service, "python", "-c",
+                "import socket; socket.create_connection(('8.8.8.8',443),1)",
+                check=False,
+            )
+            assert external_attempt.returncode != 0, (
+                f"{isolated_service} unexpectedly reached the external provider endpoint"
+            )
     finally:
         for process in processes:
             process.terminate()

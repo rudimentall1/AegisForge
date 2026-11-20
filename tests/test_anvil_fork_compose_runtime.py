@@ -5,6 +5,7 @@ only when an explicit GitHub-hosted-runner flag is set, and is always removed.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -12,6 +13,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from uuid import uuid4
+
+from agents.security_checker.packet_path_evidence import validate_packet_path_receipt
 from pathlib import Path
 
 import pytest
@@ -52,6 +56,61 @@ def _nft_counter(rule_fragment: str, verdict: str) -> int:
             if match:
                 return int(match.group(1))
     raise AssertionError(f"firewall_rule_counter_missing:{rule_fragment}")
+
+
+
+
+
+def _nft_counter_snapshot(rule_fragment: str, verdict: str) -> dict[str, int]:
+    value = _nft_counter(rule_fragment, verdict)
+    return {"packets": value}
+
+
+def _nft_ruleset_sha256() -> str:
+    raw = _run(["sudo", "-n", "nft", "-j", "list", "table", "inet", FIREWALL_TABLE])
+    document = json.loads(raw)
+
+    def without_counters(value):
+        if isinstance(value, list):
+            return [without_counters(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: without_counters(item)
+                for key, item in value.items()
+                if key != "counter"
+            }
+        return value
+
+    canonical = json.dumps(
+        without_counters(document),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _docker_tcp_connects(container_id: str, destination: str, port: int) -> bool:
+    result = subprocess.run(
+        [
+            "docker", "exec", container_id, "python", "-c",
+            "import socket,sys; s=socket.socket(); s.settimeout(1); "
+            "connected=False; "
+            "exec('try:\\n s.connect((sys.argv[1],int(sys.argv[2]))); connected=True\\n"
+            "except OSError:\\n pass\\nfinally:\\n s.close()'); "
+            "sys.exit(0 if connected else 1)",
+            destination,
+            str(port),
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+    if result.returncode not in (0, 1):
+        raise AssertionError(f"tcp_probe_execution_failed:{result.stderr}")
+    return result.returncode == 0
 
 
 def _docker_exec_output(container_id: str, command: list[str]) -> str:
@@ -264,30 +323,130 @@ def test_real_compose_network_membership_and_internal_service_egress():
                     "ip daddr @approved_rpc_v4 tcp dport 443 ct state new"
                 )
                 denied_rule = 'iifname "br-aegisforge"'
+
+                ruleset_sha256 = _nft_ruleset_sha256()
                 allowed_before = _nft_counter(allowed_rule, "accept")
-                denied_before = _nft_counter(denied_rule, "drop")
-
-                # Counters prove that packets reached the host firewall and
-                # matched the intended rule; TCP handshake success is irrelevant.
-                probe = (
-                    "import socket,sys; "
-                    "s=socket.socket(); s.settimeout(1); "
-                    "exec('try:\\n s.connect((sys.argv[1],443))\\n"
-                    "except OSError:\\n pass\\nfinally:\\n s.close()')"
+                allowed_connected = _docker_tcp_connects(
+                    service_ids["rpc-gateway"], "8.8.8.8", 443
                 )
-                for destination in ("8.8.8.8", "1.1.1.1"):
-                    _docker_exec(
-                        service_ids["rpc-gateway"],
-                        probe,
-                        expect_success=True,
-                        args=(destination,),
-                    )
-
-                assert _nft_counter(allowed_rule, "accept") > allowed_before, (
+                allowed_after = _nft_counter(allowed_rule, "accept")
+                assert allowed_after > allowed_before, (
                     "approved Gateway egress did not match the nftables allow rule"
                 )
-                assert _nft_counter(denied_rule, "drop") > denied_before, (
+
+                denied_before = _nft_counter(denied_rule, "drop")
+                denied_connected = _docker_tcp_connects(
+                    service_ids["rpc-gateway"], "1.1.1.1", 443
+                )
+                denied_after = _nft_counter(denied_rule, "drop")
+                assert not denied_connected, "unapproved Gateway egress unexpectedly connected"
+                assert denied_after > denied_before, (
                     "unapproved Gateway egress did not match the nftables drop rule"
+                )
+
+                adapter_external_connected = _docker_tcp_connects(
+                    service_ids["anvil-rpc-adapter"], "8.8.8.8", 443
+                )
+                anvil_external_connected = _docker_tcp_connects(
+                    service_ids["anvil"], "8.8.8.8", 443
+                )
+                assert not adapter_external_connected
+                assert not anvil_external_connected
+
+                required_environment = (
+                    "GITHUB_SHA",
+                    "GITHUB_RUN_ID",
+                    "GITHUB_RUN_ATTEMPT",
+                    "RUNNER_TEMP",
+                )
+                assert all(os.environ.get(key) for key in required_environment), (
+                    "packet_path_receipt_requires_github_actions_context"
+                )
+                receipt_path_value = os.environ.get(
+                    "AEGISFORGE_PACKET_PATH_RECEIPT_PATH"
+                )
+                assert receipt_path_value, "packet_path_receipt_output_path_missing"
+
+                receipt = {
+                    "schema_version": 1,
+                    "evidence_level": "DISPOSABLE_DOCKER_PACKET_PATH_TEST",
+                    "runtime_session_id": str(uuid4()),
+                    "compose_project": project,
+                    "git_commit_sha": os.environ["GITHUB_SHA"],
+                    "github_run_id": os.environ["GITHUB_RUN_ID"],
+                    "github_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                    "containers": {
+                        service: service_ids[service]
+                        for service in ("rpc-gateway", "anvil-rpc-adapter", "anvil")
+                    },
+                    "networks": {
+                        "fork-internal": {
+                            "name": internal["Name"],
+                            "id": internal["Id"],
+                        },
+                        "rpc-egress": {
+                            "name": egress["Name"],
+                            "id": egress["Id"],
+                        },
+                    },
+                    "firewall": {
+                        "table": FIREWALL_TABLE,
+                        "ruleset_sha256": ruleset_sha256,
+                        "counters": {
+                            "gateway_approved_egress_allow_new": {
+                                "before": allowed_before,
+                                "after": allowed_after,
+                            },
+                            "gateway_unapproved_egress_drop": {
+                                "before": denied_before,
+                                "after": denied_after,
+                            },
+                        },
+                    },
+                    "probes": {
+                        "gateway_approved_egress": {
+                            "attempted": True,
+                            "rule_matched": allowed_after > allowed_before,
+                        },
+                        "gateway_unapproved_egress": {
+                            "attempted": True,
+                            "blocked": not denied_connected,
+                            "rule_matched": denied_after > denied_before,
+                        },
+                        "adapter_gateway_internal": {"connected": True},
+                        "anvil_adapter_internal": {"connected": True},
+                        "adapter_external_egress": {
+                            "blocked": not adapter_external_connected,
+                            "default_route_absent": True,
+                            "internal_network_only": (
+                                internal["Internal"] is True
+                                and set(adapter_networks) == {f"{project}_fork-internal"}
+                            ),
+                        },
+                        "anvil_external_egress": {
+                            "blocked": not anvil_external_connected,
+                            "default_route_absent": True,
+                            "internal_network_only": (
+                                internal["Internal"] is True
+                                and set(anvil_networks) == {f"{project}_fork-internal"}
+                            ),
+                        },
+                    },
+                }
+                report = validate_packet_path_receipt(
+                    receipt,
+                    expected_commit_sha=os.environ["GITHUB_SHA"],
+                    expected_run_id=os.environ["GITHUB_RUN_ID"],
+                    expected_run_attempt=int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                )
+                assert report.runtime_isolation_verified is False
+                assert report.dynamic_verified is False
+                assert report.confirmed is False
+                output_path = Path(receipt_path_value)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(
+                    json.dumps(receipt, sort_keys=True, indent=2) + "\\n",
+                    encoding="utf-8",
                 )
         finally:
             try:

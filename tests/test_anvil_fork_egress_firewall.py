@@ -35,7 +35,7 @@ def test_firewall_rules_allow_only_approved_ipv4_rpc_destinations():
 def test_firewall_rejects_invalid_or_non_ipv4_provider_ranges():
     module = _load_module()
 
-    for value in ("0.0.0.0/0", "127.0.0.1/32", "169.254.1.1/32"):
+    for value in ("0.0.0.0/0", "8.0.0.0/8", "127.0.0.1/32", "169.254.1.1/32"):
         try:
             module.validate_provider_network(value)
         except ValueError:

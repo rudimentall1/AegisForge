@@ -42,7 +42,7 @@ def _run(command: list[str], *, timeout: int = 90) -> str:
     return result.stdout.strip()
 
 
-def _nft_counter(rule_fragment: str) -> int:
+def _nft_counter(rule_fragment: str, verdict: str) -> int:
     output = _run(
         ["sudo", "-n", "nft", "list", "chain", "inet", FIREWALL_TABLE, "forward_guard"]
     )
@@ -212,11 +212,9 @@ def test_real_compose_network_membership_and_internal_service_egress():
                     'iifname "br-aegisforge" ip saddr 172.31.240.2 '
                     "ip daddr @approved_rpc_v4 tcp dport 443 ct state new"
                 )
-                denied_rule = (
-                    'iifname "br-aegisforge" ip saddr 172.31.240.2 counter drop'
-                )
-                allowed_before = _nft_counter(allowed_rule)
-                denied_before = _nft_counter(denied_rule)
+                denied_rule = 'iifname "br-aegisforge" ip saddr 172.31.240.2'
+                allowed_before = _nft_counter(allowed_rule, "accept")
+                denied_before = _nft_counter(denied_rule, "drop")
 
                 # Counters prove that packets reached the host firewall and
                 # matched the intended rule; TCP handshake success is irrelevant.
@@ -234,10 +232,10 @@ def test_real_compose_network_membership_and_internal_service_egress():
                         args=(destination,),
                     )
 
-                assert _nft_counter(allowed_rule) > allowed_before, (
+                assert _nft_counter(allowed_rule, "accept") > allowed_before, (
                     "approved Gateway egress did not match the nftables allow rule"
                 )
-                assert _nft_counter(denied_rule) > denied_before, (
+                assert _nft_counter(denied_rule, "drop") > denied_before, (
                     "unapproved Gateway egress did not match the nftables drop rule"
                 )
         finally:

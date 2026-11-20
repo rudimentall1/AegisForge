@@ -101,7 +101,10 @@ jobs:
         run: |
           set -euo pipefail
           export AEGISFORGE_RPC_GATEWAY_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(36))')"
-          docker compose --env-file deploy/anvil-fork/.env.example -f deploy/anvil-fork/compose.yaml config --format json > /tmp/aegisforge-resolved-compose.json
+          resolved_config="$(mktemp)"
+          trap 'rm -f "$resolved_config"' EXIT
+          export AEGISFORGE_RESOLVED_COMPOSE_PATH="$resolved_config"
+          docker compose --env-file deploy/anvil-fork/.env.example -f deploy/anvil-fork/compose.yaml config --format json > "$resolved_config"
           python - <<'PY'
           import json
           import os
@@ -115,7 +118,7 @@ jobs:
           image = os.environ["AEGISFORGE_FOUNDRY_IMAGE"]
           validate_anvil_fork_compose(source, foundry_image=image)
           resolved = json.loads(
-              Path("/tmp/aegisforge-resolved-compose.json").read_text(encoding="utf-8")
+              Path(os.environ["AEGISFORGE_RESOLVED_COMPOSE_PATH"]).read_text(encoding="utf-8")
           )
           report = validate_resolved_anvil_fork_compose(
               resolved,

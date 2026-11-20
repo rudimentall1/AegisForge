@@ -106,6 +106,9 @@ def test_gateway_egress_firewall_allows_only_approved_https_and_preserves_intern
         add_veth("aegis-router", "provider0", "aegis-provider", "eth0")
         add_veth("aegis-gateway", "internal0", "aegis-adapter", "eth0")
         add_veth("aegis-gateway", "internal1", "aegis-anvil", "eth0")
+        _ns("aegis-gateway", "ip", "link", "add", "br-internal", "type", "bridge")
+        _ns("aegis-gateway", "ip", "link", "set", "internal0", "master", "br-internal")
+        _ns("aegis-gateway", "ip", "link", "set", "internal1", "master", "br-internal")
 
         _ns("aegis-router", "ip", "addr", "add", "172.31.240.1/28", "dev", "br-aegisforge")
         _ns("aegis-gateway", "ip", "addr", "add", "172.31.240.2/28", "dev", "eth0")
@@ -113,7 +116,7 @@ def test_gateway_egress_firewall_allows_only_approved_https_and_preserves_intern
         _ns("aegis-provider", "ip", "addr", "add", "198.18.0.2/30", "dev", "eth0")
         _ns("aegis-provider", "ip", "addr", "add", "8.8.8.8/32", "dev", "lo")
         _ns("aegis-provider", "ip", "addr", "add", "1.1.1.1/32", "dev", "lo")
-        _ns("aegis-gateway", "ip", "addr", "add", "172.30.240.2/29", "dev", "internal0")
+        _ns("aegis-gateway", "ip", "addr", "add", "172.30.240.2/29", "dev", "br-internal")
         _ns("aegis-adapter", "ip", "addr", "add", "172.30.240.3/29", "dev", "eth0")
         _ns("aegis-anvil", "ip", "addr", "add", "172.30.240.4/29", "dev", "eth0")
 
@@ -123,6 +126,7 @@ def test_gateway_egress_firewall_allows_only_approved_https_and_preserves_intern
             ("aegis-gateway", "eth0"),
             ("aegis-gateway", "internal0"),
             ("aegis-gateway", "internal1"),
+            ("aegis-gateway", "br-internal"),
             ("aegis-provider", "eth0"),
             ("aegis-adapter", "eth0"),
             ("aegis-anvil", "eth0"),

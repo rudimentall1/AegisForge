@@ -351,3 +351,53 @@ def test_resolved_compose_rejects_anvil_attached_to_egress_network():
             document,
             expected_runtime=_resolved_expectations(),
         )
+
+
+
+def test_resolved_compose_accepts_canonical_project_network_names():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["services"]["anvil-rpc-adapter"]["networks"] = {"fork-internal": None}
+    document["services"]["anvil"]["networks"] = {"fork-internal": None}
+    document["networks"]["fork-internal"]["name"] = "aegisforge-anvil-fork_fork-internal"
+    document["networks"]["rpc-egress"]["name"] = "aegisforge-anvil-fork_rpc-egress"
+
+    report = validate_resolved_anvil_fork_compose(
+        document,
+        expected_runtime=_resolved_expectations(),
+    )
+
+    assert report.state == "RESOLVED_STATIC_VALIDATED"
+
+
+def test_resolved_compose_rejects_unrecognized_service_configuration_fields():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["services"]["anvil"]["restart"] = "always"
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_compose_service_fields_invalid"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )
+
+
+def test_resolved_compose_rejects_unexpected_project_network_name():
+    from agents.security_checker.fork_compose_validator import (
+        validate_resolved_anvil_fork_compose,
+    )
+
+    document = _resolved_compose()
+    document["networks"]["rpc-egress"]["name"] = "attacker-controlled-network"
+
+    with pytest.raises(ComposeTopologyValidationError, match="resolved_rpc_egress_network_invalid"):
+        validate_resolved_anvil_fork_compose(
+            document,
+            expected_runtime=_resolved_expectations(),
+        )

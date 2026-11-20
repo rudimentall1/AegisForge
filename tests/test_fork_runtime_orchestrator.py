@@ -3,6 +3,7 @@ from pathlib import Path
 from dataclasses import FrozenInstanceError
 
 import pytest
+import yaml
 
 from agents.security_checker.fork_engine import build_fork_snapshot
 from agents.security_checker.fork_execution_plan import build_fork_execution_plan
@@ -25,9 +26,41 @@ def _snapshot():
 COMPOSE_PATH = Path(__file__).resolve().parents[1] / "deploy" / "anvil-fork" / "compose.yaml"
 
 
-def _prepare(snapshot, plan, config, *, compose_source=None):
+def _resolved_compose(config, plan):
+    document = yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8"))
+    services = document["services"]
+    allowed_hosts = ",".join(sorted(config["allowed_hosts"]))
+    services["rpc-gateway"]["environment"].update(
+        {
+            "AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL": config["upstream_url"],
+            "AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS": allowed_hosts,
+            "AEGISFORGE_RPC_GATEWAY_TOKEN": config["bearer_token"],
+        }
+    )
+    services["anvil-rpc-adapter"]["environment"][
+        "AEGISFORGE_ANVIL_GATEWAY_TOKEN"
+    ] = config["bearer_token"]
+    services["anvil"]["image"] = config["foundry_image"]
+    services["anvil"]["command"] = [
+        "--host", "0.0.0.0",
+        "--port", "8545",
+        "--chain-id", str(plan["fork_chain_id"]),
+        "--fork-url", "http://anvil-rpc-adapter:8546",
+        "--fork-block-number", str(plan["block_number"]),
+    ]
+    return document
+
+
+def _prepare(snapshot, plan, config, *, compose_source=None, resolved_compose=None):
     source = compose_source if compose_source is not None else COMPOSE_PATH.read_text(encoding="utf-8")
-    return prepare_fork_runtime(snapshot, plan, config, compose_source=source)
+    resolved = resolved_compose if resolved_compose is not None else _resolved_compose(config, plan)
+    return prepare_fork_runtime(
+        snapshot,
+        plan,
+        config,
+        compose_source=source,
+        resolved_compose=resolved,
+    )
 
 
 def _config(**overrides):
@@ -64,7 +97,7 @@ def test_prepare_revalidates_snapshot_plan_and_returns_prepared_only_state():
     assert prepared.runtime_started is False
     assert prepared.dynamic_verified is False
     assert prepared.confirmed is False
-    assert prepared.compose_validation.state == "STATIC_VALIDATED"
+    assert prepared.compose_validation.state == "RESOLVED_STATIC_VALIDATED"
     assert prepared.compose_validation.runtime_started is False
 
 
@@ -189,3 +222,17 @@ def test_prepare_rejects_compose_topology_before_prepared_state():
 
     with pytest.raises(ForkRuntimePreparationError, match="adapter_network_boundary_invalid"):
         _prepare(snapshot, plan, _config(), compose_source=source)
+
+
+
+def test_prepare_rejects_resolved_compose_secret_or_runtime_mismatch():
+    snapshot = _snapshot()
+    plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
+    config = _config()
+    resolved = _resolved_compose(config, plan)
+    resolved["services"]["anvil-rpc-adapter"]["environment"][
+        "AEGISFORGE_ANVIL_GATEWAY_TOKEN"
+    ] = "wrong-token"
+
+    with pytest.raises(ForkRuntimePreparationError, match="resolved_gateway_secret_mismatch"):
+        _prepare(snapshot, plan, config, resolved_compose=resolved)

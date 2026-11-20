@@ -54,15 +54,14 @@ def _nft_counter(rule_fragment: str, verdict: str) -> int:
     raise AssertionError(f"firewall_rule_counter_missing:{rule_fragment}")
 
 
-def _docker_exec(
+def _docker_exec_command(
     container_id: str,
-    code: str,
+    command: list[str],
     *,
     expect_success: bool,
-    args: tuple[str, ...] = (),
 ) -> None:
     result = subprocess.run(
-        ["docker", "exec", container_id, "python", "-c", code, *args],
+        ["docker", "exec", container_id, *command],
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -76,6 +75,20 @@ def _docker_exec(
         assert result.returncode != 0, (
             "container unexpectedly reached an external IPv4 endpoint"
         )
+
+
+def _docker_exec(
+    container_id: str,
+    code: str,
+    *,
+    expect_success: bool,
+    args: tuple[str, ...] = (),
+) -> None:
+    _docker_exec_command(
+        container_id,
+        ["python", "-c", code, *args],
+        expect_success=expect_success,
+    )
 
 
 @pytest.mark.skipif(
@@ -193,9 +206,11 @@ def test_real_compose_network_membership_and_internal_service_egress():
             _run(["ip", "-o", "link", "show", "br-aegisforge"])
 
             # Internal RPC paths must work over the real Docker bridge.
-            _docker_exec(
+            # The official Foundry image does not include Python; use Bash's
+            # TCP device for a direct connection check from the Anvil namespace.
+            _docker_exec_command(
                 service_ids["anvil"],
-                "import socket; s=socket.create_connection(('anvil-rpc-adapter',8546),3); s.close()",
+                ["/bin/bash", "-c", "echo > /dev/tcp/anvil-rpc-adapter/8546"],
                 expect_success=True,
             )
             _docker_exec(
@@ -206,20 +221,32 @@ def test_real_compose_network_membership_and_internal_service_egress():
 
             # The two single-homed services must have no default route and must
             # fail closed on an external destination from their own namespaces.
-            for service in ("anvil-rpc-adapter", "anvil"):
-                _docker_exec(
-                    service_ids[service],
-                    "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
-                    "assert not any(line.split()[1]=='00000000' for line in rows), "
-                    "'internal-only service unexpectedly has a default route'",
-                    expect_success=True,
-                )
-                _docker_exec(
-                    service_ids[service],
-                    "import socket; s=socket.socket(); s.settimeout(1); "
-                    "s.connect(('8.8.8.8',443))",
-                    expect_success=False,
-                )
+            _docker_exec(
+                service_ids["anvil-rpc-adapter"],
+                "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
+                "assert not any(line.split()[1]=='00000000' for line in rows), "
+                "'internal-only service unexpectedly has a default route'",
+                expect_success=True,
+            )
+            _docker_exec_command(
+                service_ids["anvil"],
+                [
+                    "/bin/bash", "-c",
+                    "awk 'NR > 1 && $2 == \"00000000\" { found=1 } END { exit found ? 1 : 0 }' /proc/net/route",
+                ],
+                expect_success=True,
+            )
+            _docker_exec(
+                service_ids["anvil-rpc-adapter"],
+                "import socket; s=socket.socket(); s.settimeout(1); "
+                "s.connect(('8.8.8.8',443))",
+                expect_success=False,
+            )
+            _docker_exec_command(
+                service_ids["anvil"],
+                ["/bin/bash", "-c", "echo > /dev/tcp/8.8.8.8/443"],
+                expect_success=False,
+            )
 
             # Isolation is asserted from Docker's live network state, not from a
             # failed connection to an arbitrary public IP (which could be down).

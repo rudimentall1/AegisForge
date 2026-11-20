@@ -1,3 +1,6 @@
+import json
+import subprocess
+
 import pytest
 
 from agents.security_checker.fork_runtime_evidence import (
@@ -164,3 +167,79 @@ def test_runtime_observations_reject_wrong_project_label():
 
     with pytest.raises(RuntimeEvidenceError, match="runtime_project_binding_invalid"):
         validate_runtime_observations(observations, expected_project=PROJECT)
+
+
+
+def test_runtime_collector_uses_read_only_inspect_commands_and_returns_sanitized_receipt(monkeypatch):
+    from agents.security_checker.fork_runtime_evidence import collect_runtime_evidence
+
+    observations = _observations()
+    container_ids = [item["Id"] for item in observations["containers"]]
+    network_names = [item["Name"] for item in observations["networks"]]
+    outputs = [
+        "\\n".join(container_ids),
+        json.dumps(observations["containers"]),
+        "\\n".join(network_names),
+        json.dumps(observations["networks"]),
+        json.dumps({"nftables": [{"table": {"family": "inet", "name": "aegisforge_gateway_egress"}}]}),
+    ]
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0, outputs[len(calls) - 1], "sensitive stderr")
+
+    monkeypatch.setattr("agents.security_checker.fork_runtime_evidence.shutil.which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr("agents.security_checker.fork_runtime_evidence.subprocess.run", fake_run)
+
+    report = collect_runtime_evidence(expected_project=PROJECT)
+
+    assert report.state == "RUNTIME_OBSERVATIONS_VALIDATED"
+    assert len(calls) == 5
+    assert calls[0][0] == [
+        "/usr/bin/docker", "ps", "-aq",
+        "--filter", f"label=com.docker.compose.project={PROJECT}",
+    ]
+    assert calls[1][0] == ["/usr/bin/docker", "inspect", *container_ids]
+    assert calls[2][0] == [
+        "/usr/bin/docker", "network", "ls", "-q",
+        "--filter", f"label=com.docker.compose.project={PROJECT}",
+    ]
+    assert calls[3][0] == ["/usr/bin/docker", "network", "inspect", *network_names]
+    assert calls[4][0] == [
+        "/usr/sbin/nft", "-j", "list", "table", "inet", "aegisforge_gateway_egress",
+    ]
+    for args, kwargs in calls:
+        assert kwargs["shell"] is False
+        assert kwargs["stdin"] == subprocess.DEVNULL
+        assert kwargs["stderr"] == subprocess.DEVNULL
+        assert kwargs["timeout"] <= 15
+        assert kwargs["env"]["HOME"] == "/nonexistent"
+    assert not hasattr(report, "raw_observations")
+
+
+def test_runtime_collector_fails_closed_when_docker_cli_is_missing(monkeypatch):
+    from agents.security_checker.fork_runtime_evidence import RuntimeEvidenceError, collect_runtime_evidence
+
+    monkeypatch.setattr("agents.security_checker.fork_runtime_evidence.shutil.which", lambda name: None)
+
+    with pytest.raises(RuntimeEvidenceError, match="runtime_cli_unavailable"):
+        collect_runtime_evidence(expected_project=PROJECT)
+
+
+def test_runtime_collector_rejects_missing_container_and_sanitizes_command_errors(monkeypatch):
+    from agents.security_checker.fork_runtime_evidence import RuntimeEvidenceError, collect_runtime_evidence
+
+    monkeypatch.setattr(
+        "agents.security_checker.fork_runtime_evidence.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+
+    def fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(args, 1, "", "token=private-secret")
+
+    monkeypatch.setattr("agents.security_checker.fork_runtime_evidence.subprocess.run", fake_run)
+
+    with pytest.raises(RuntimeEvidenceError, match="runtime_command_failed") as error:
+        collect_runtime_evidence(expected_project=PROJECT)
+    assert "private-secret" not in str(error.value)

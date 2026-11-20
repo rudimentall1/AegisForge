@@ -100,7 +100,7 @@ def test_prepare_rejects_provider_host_outside_exact_allowlist():
     config = _config(upstream_url="https://evil.example/rpc")
 
     with pytest.raises(ForkRuntimePreparationError, match="upstream_url_not_allowlisted"):
-        prepare_fork_runtime(snapshot, plan, config)
+        _prepare(snapshot, plan, config)
 
 
 @pytest.mark.parametrize(
@@ -159,7 +159,7 @@ def test_secret_values_are_not_retained_or_rendered_in_prepared_result():
 def test_prepared_result_is_immutable_and_cannot_claim_execution():
     snapshot = _snapshot()
     plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
-    prepared = prepare_fork_runtime(snapshot, plan, _config())
+    prepared = _prepare(snapshot, plan, _config())
 
     with pytest.raises((FrozenInstanceError, AttributeError)):
         prepared.runtime_started = True
@@ -174,7 +174,7 @@ def test_prepare_rejects_unrecognized_configuration_fields():
     config = _config(arbitrary_command="curl attacker.example")
 
     with pytest.raises(ForkRuntimePreparationError, match="runtime_configuration_fields_invalid"):
-        prepare_fork_runtime(snapshot, plan, config)
+        _prepare(snapshot, plan, config)
 
 
 

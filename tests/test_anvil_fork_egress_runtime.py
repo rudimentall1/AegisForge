@@ -135,7 +135,11 @@ def test_gateway_egress_firewall_allows_only_approved_https_and_preserves_intern
 
         _ns("aegis-router", "sysctl", "-w", "net.ipv4.ip_forward=1")
         _ns("aegis-router", "sysctl", "-w", "net.ipv4.conf.all.rp_filter=0")
+        _ns("aegis-gateway", "sysctl", "-w", "net.ipv4.ip_forward=1")
+        _ns("aegis-gateway", "sysctl", "-w", "net.ipv4.conf.all.rp_filter=0")
         _ns("aegis-gateway", "ip", "route", "add", "default", "via", "172.31.240.1")
+        _ns("aegis-adapter", "ip", "route", "add", "default", "via", "172.30.240.2")
+        _ns("aegis-anvil", "ip", "route", "add", "default", "via", "172.30.240.2")
         _ns("aegis-router", "ip", "route", "add", "8.8.8.8/32", "dev", "provider0")
         _ns("aegis-router", "ip", "route", "add", "1.1.1.1/32", "dev", "provider0")
         _ns("aegis-provider", "ip", "route", "add", "172.31.240.0/28", "via", "198.18.0.1")
@@ -241,6 +245,9 @@ while True:
         )
         assert anvil_to_adapter.returncode == 0, anvil_to_adapter.stderr
 
+        # Give both internal services a real default route through the Gateway.
+        # Their external packets therefore traverse the router's production
+        # br-aegisforge policy and must be rejected by source-IP enforcement.
         for isolated_service in ("aegis-adapter", "aegis-anvil"):
             external_attempt = _ns(
                 isolated_service, "python", "-c",

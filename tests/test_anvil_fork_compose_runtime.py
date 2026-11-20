@@ -139,8 +139,8 @@ def test_real_compose_network_membership_and_internal_service_egress():
                 service_ids["rpc-gateway"],
                 "import socket,struct,sys; "
                 "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
-                "assert any((r:=line.split())[1]=='00000000' and "
-                "socket.inet_ntoa(struct.pack('<I',int(r[2],16)))==sys.argv[1] "
+                f"assert any((r:=line.split())[1]=='00000000' and "
+                f"socket.inet_ntoa(struct.pack('<I',int(r[2],16)))=='{egress_gateway}' "
                 "for line in rows)",
                 expect_success=True,
             )

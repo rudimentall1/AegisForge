@@ -26,8 +26,8 @@ The egress bridge has inter-container communication disabled and a stable bridge
 
 Before running this topology with a real provider:
 
-1. Configure the host firewall to permit outbound TCP connections traversing `br-aegisforge` from Gateway address `172.31.240.2` only to the provider's current, independently verified IPv4 CIDR ranges (the installer rejects prefixes broader than /16) on port 443.
-2. Permit established return traffic entering `br-aegisforge` only when its source is in the approved provider CIDRs. Drop other traffic to or from the Gateway address on that bridge. Traffic on `fork-internal` is intentionally outside these egress rules so Adapter-to-Gateway RPC remains functional.
+1. Configure the host firewall to permit Gateway-originated packets entering the host through `br-aegisforge` from `172.31.240.2` only to the provider's current, independently verified IPv4 CIDR ranges (the installer rejects prefixes broader than /16) on TCP/443.
+2. Permit established provider replies leaving the host through `br-aegisforge` toward `172.31.240.2` only when their source is in the approved provider CIDRs. Drop other Gateway-originated or Gateway-destined forwarded traffic on that bridge. Traffic on `fork-internal` is intentionally outside these egress rules so Adapter-to-Gateway RPC remains functional.
 3. Preserve DNS resolution only through the Docker embedded resolver / host resolver path required by the deployment. Do not give the Gateway unrestricted direct DNS egress.
 4. Verify the effective rules against the actual Docker firewall backend (iptables-nft or native nftables), including Docker chain ordering and IPv6 behavior.
 5. From each container, prove that Anvil and Adapter cannot reach an external test endpoint, that Gateway can reach the approved provider, and that Gateway cannot reach an unapproved public IP or port.

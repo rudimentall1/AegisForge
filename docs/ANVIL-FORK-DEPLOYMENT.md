@@ -20,7 +20,7 @@ The Compose file uses the `gw_priority` network attribute to make `rpc-egress` t
 
 ## Critical egress limitation
 
-Docker Compose network attachment is not an approved-provider IP allowlist. In this scaffold, the Gateway's application layer validates an exact HTTPS hostname allowlist, resolves and pins public DNS answers, and verifies TLS hostnames. However, the `rpc-egress` bridge itself can route to arbitrary destinations unless the Docker host enforces an outbound firewall policy.
+Docker Compose does not enforce an approved-provider IP allowlist. In this scaffold, the Gateway's application layer validates an exact HTTPS hostname allowlist, resolves and pins public DNS answers, and verifies TLS hostnames. However, the `rpc-egress` bridge itself can route to arbitrary destinations unless the Docker host enforces an outbound firewall policy.
 
 The egress bridge has inter-container communication disabled and a stable bridge name. Keep this network dedicated to the Gateway; do not attach diagnostic or utility containers to it. The firewall matches the Gateway private source IP and the Docker bridge should contain only this one service.
 

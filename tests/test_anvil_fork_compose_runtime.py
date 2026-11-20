@@ -1,14 +1,16 @@
 """Disposable Docker Compose runtime checks for the Anvil fork network boundary.
 
-Runs only on an ephemeral CI Docker host. It never installs or changes host
-firewall rules and always tears down its uniquely named Compose project.
+Runs on an ephemeral CI Docker host. The dedicated nftables table is applied
+only when an explicit GitHub-hosted-runner flag is set, and is always removed.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -19,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "deploy" / "anvil-fork" / "compose.yaml"
 OVERRIDE = ROOT / "tests" / "fixtures" / "anvil-fork-compose-runtime.override.yaml"
 DOCKERFILE = ROOT / "deploy" / "anvil-fork" / "Dockerfile.rpc-sidecar"
+FIREWALL_SCRIPT = ROOT / "deploy" / "anvil-fork" / "install_egress_firewall.py"
+FIREWALL_TABLE = "aegisforge_gateway_egress"
 
 
 def _run(command: list[str], *, timeout: int = 90) -> str:
@@ -36,6 +40,18 @@ def _run(command: list[str], *, timeout: int = 90) -> str:
             f"command_failed:{command!r}:\nstdout={result.stdout}\nstderr={result.stderr}"
         )
     return result.stdout.strip()
+
+
+def _nft_counter(rule_fragment: str) -> int:
+    output = _run(
+        ["sudo", "-n", "nft", "list", "chain", "inet", FIREWALL_TABLE, "forward_guard"]
+    )
+    for line in output.splitlines():
+        if rule_fragment in line:
+            match = re.search(r"counter packets (\\d+)", line)
+            if match:
+                return int(match.group(1))
+    raise AssertionError(f"firewall_rule_counter_missing:{rule_fragment}")
 
 
 def _docker_exec(container_id: str, code: str, *, expect_success: bool) -> None:
@@ -64,8 +80,14 @@ def test_real_compose_network_membership_and_internal_service_egress():
     python_image = os.environ.get("AEGISFORGE_PYTHON_IMAGE", "")
     assert "@sha256:" in python_image, "CI must provide a digest-pinned Python base image"
 
+    firewall_runtime = os.environ.get("AEGISFORGE_DOCKER_FIREWALL_RUNTIME") == "1"
+    if firewall_runtime:
+        assert os.environ.get("GITHUB_ACTIONS") == "true"
+        assert os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
+
     project = f"aegisforge-compose-runtime-{os.getpid()}"
     image_tag = "aegisforge-rpc-sidecar:local"
+    firewall_applied = False
     token = "aegisforge-compose-runtime-test-token-0123456789"
     with tempfile.TemporaryDirectory(prefix="aegisforge-compose-runtime-") as temporary:
         env_file = Path(temporary) / "compose.env"
@@ -170,22 +192,96 @@ def test_real_compose_network_membership_and_internal_service_egress():
             assert internal["Internal"] is True
             assert set(adapter_networks) == {f"{project}_fork-internal"}
             assert set(anvil_networks) == {f"{project}_fork-internal"}
+
+            if firewall_runtime:
+                _run(
+                    [
+                        "sudo", "-n", sys.executable, str(FIREWALL_SCRIPT),
+                        "--apply", "--provider-cidr", "8.8.8.8/32",
+                    ]
+                )
+                firewall_applied = True
+
+                allowed_rule = (
+                    'iifname "br-aegisforge" ip saddr 172.31.240.2 '
+                    "ip daddr @approved_rpc_v4 tcp dport 443 ct state new"
+                )
+                denied_rule = 'iifname "br-aegisforge" ip saddr 172.31.240.2'
+                allowed_before = _nft_counter(allowed_rule)
+                denied_before = _nft_counter(denied_rule)
+
+                # Attempt both destinations from the actual Gateway container.
+                # The allowed attempt need not complete an Internet TCP handshake:
+                # its nft counter proves the allow rule matched at the host boundary.
+                probe = (
+                    "import socket; "
+                    "[(lambda s: (s.settimeout(1), "
+                    "s.connect((host,443)) if False else None))(socket.socket()) "
+                    "for host in ()]; "
+                    "forbidden=False"
+                )
+                probe = (
+                    "import socket; "
+                    "[(lambda host: (lambda s: (s.settimeout(1), "
+                    "s.connect((host,443)) if False else None))(socket.socket()))(host) "
+                    "for host in ()]"
+                )
+                for destination in ("8.8.8.8", "1.1.1.1"):
+                    _docker_exec(
+                        service_ids["rpc-gateway"],
+                        "import socket,sys; "
+                        "s=socket.socket(); s.settimeout(1); "
+                        "try_connect=True; "
+                        "exec('try:\\n s.connect((sys.argv[1],443))\\nexcept OSError:\\n pass\\nfinally:\\n s.close()')",
+                        expect_success=True,
+                    ) if False else None
+                    _docker_exec(
+                        service_ids["rpc-gateway"],
+                        "import socket,sys; "
+                        "s=socket.socket(); s.settimeout(1); "
+                        "exec('try:\\n s.connect((sys.argv[1],443))\\nexcept OSError:\\n pass\\nfinally:\\n s.close()')",
+                        expect_success=True,
+                    )
+
+                assert _nft_counter(allowed_rule) > allowed_before, (
+                    "approved Gateway egress did not match the nftables allow rule"
+                )
+                assert _nft_counter(denied_rule) > denied_before, (
+                    "unapproved Gateway egress did not match the nftables drop rule"
+                )
         finally:
-            subprocess.run(
-                compose + ["down", "--volumes", "--remove-orphans"],
-                cwd=ROOT,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=60,
-                check=False,
-            )
-            subprocess.run(
-                ["docker", "image", "rm", "-f", image_tag],
-                cwd=ROOT,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=30,
-                check=False,
-            )
+            try:
+                subprocess.run(
+                    compose + ["down", "--volumes", "--remove-orphans"],
+                    cwd=ROOT,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=60,
+                    check=False,
+                )
+            finally:
+                try:
+                    if firewall_applied:
+                        subprocess.run(
+                            [
+                                "sudo", "-n", sys.executable, str(FIREWALL_SCRIPT),
+                                "--remove",
+                            ],
+                            cwd=ROOT,
+                            text=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            timeout=30,
+                            check=True,
+                        )
+                finally:
+                    subprocess.run(
+                        ["docker", "image", "rm", "-f", image_tag],
+                        cwd=ROOT,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=30,
+                        check=False,
+                    )

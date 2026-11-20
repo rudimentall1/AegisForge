@@ -219,37 +219,37 @@ def test_real_compose_network_membership_and_internal_service_egress():
 
             _run(["ip", "-o", "link", "show", "br-aegisforge"])
 
-            # Adapter-to-Gateway traffic must work over the real Docker bridge.
-            # Anvil-to-Adapter TCP behavior is covered by the namespace packet-path
-            # test; this container-level check avoids assuming extra tools in Foundry.
+            # The test override deliberately replaces Anvil with the same
+            # digest-pinned Python sidecar image, so both internal-only services
+            # can perform namespace-local TCP probes without assuming tools in
+            # the production Foundry image.
             _docker_exec(
                 service_ids["anvil-rpc-adapter"],
                 "import socket; s=socket.create_connection(('rpc-gateway',8545),3); s.close()",
                 expect_success=True,
             )
-
-            # Neither internal-only service may have a default route. The
-            # Adapter additionally performs a real failed-connect probe from its
-            # own network namespace; Anvil's route table is read without assuming
-            # Python, Bash, curl, or netcat in the official Foundry image.
             _docker_exec(
-                service_ids["anvil-rpc-adapter"],
-                "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
-                "assert not any(line.split()[1]=='00000000' for line in rows), "
-                "'internal-only service unexpectedly has a default route'",
+                service_ids["anvil"],
+                "import socket; s=socket.create_connection(('anvil-rpc-adapter',8546),3); s.close()",
                 expect_success=True,
             )
-            anvil_routes = _docker_exec_output(service_ids["anvil"], ["cat", "/proc/net/route"])
-            anvil_route_rows = [line.split() for line in anvil_routes.splitlines()[1:]]
-            assert not any(len(row) > 1 and row[1] == "00000000" for row in anvil_route_rows), (
-                "Anvil unexpectedly has a default route"
-            )
-            _docker_exec(
-                service_ids["anvil-rpc-adapter"],
-                "import socket; s=socket.socket(); s.settimeout(1); "
-                "s.connect(('8.8.8.8',443))",
-                expect_success=False,
-            )
+
+            # Both services must have no default route and must fail a real
+            # external TCP connection attempt from their own network namespace.
+            for service in ("anvil-rpc-adapter", "anvil"):
+                _docker_exec(
+                    service_ids[service],
+                    "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
+                    "assert not any(line.split()[1]=='00000000' for line in rows), "
+                    "'internal-only service unexpectedly has a default route'",
+                    expect_success=True,
+                )
+                _docker_exec(
+                    service_ids[service],
+                    "import socket; s=socket.socket(); s.settimeout(1); "
+                    "s.connect(('8.8.8.8',443))",
+                    expect_success=False,
+                )
 
             # Isolation is asserted from Docker's live network state, not from a
             # failed connection to an arbitrary public IP (which could be down).

@@ -93,8 +93,47 @@ jobs:
           echo "Foundry image pinned for this run: $image_digest"
 
       - name: Validate Docker Compose deployment topology
+        env:
+          AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL: https://rpc-provider.example/v1/ci-validation
+          AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS: rpc-provider.example
+          AEGISFORGE_ANVIL_CHAIN_ID: "31337"
+          AEGISFORGE_ANVIL_FORK_BLOCK_NUMBER: "1"
         run: |
-          docker compose --env-file deploy/anvil-fork/.env.example -f deploy/anvil-fork/compose.yaml config --quiet
+          set -euo pipefail
+          export AEGISFORGE_RPC_GATEWAY_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(36))')"
+          docker compose --env-file deploy/anvil-fork/.env.example -f deploy/anvil-fork/compose.yaml config --format json > /tmp/aegisforge-resolved-compose.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from agents.security_checker.fork_compose_validator import (
+              validate_anvil_fork_compose,
+              validate_resolved_anvil_fork_compose,
+          )
+
+          source = Path("deploy/anvil-fork/compose.yaml").read_text(encoding="utf-8")
+          image = os.environ["AEGISFORGE_FOUNDRY_IMAGE"]
+          validate_anvil_fork_compose(source, foundry_image=image)
+          resolved = json.loads(
+              Path("/tmp/aegisforge-resolved-compose.json").read_text(encoding="utf-8")
+          )
+          report = validate_resolved_anvil_fork_compose(
+              resolved,
+              expected_runtime={
+                  "upstream_url": os.environ["AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL"],
+                  "allowed_hosts": (os.environ["AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS"],),
+                  "bearer_token": os.environ["AEGISFORGE_RPC_GATEWAY_TOKEN"],
+                  "foundry_image": image,
+                  "fork_chain_id": 31337,
+                  "fork_block_number": 1,
+              },
+          )
+          assert report.state == "RESOLVED_STATIC_VALIDATED", report
+          assert report.runtime_started is False
+          assert report.dynamic_verified is False
+          assert report.confirmed is False
+          print("Compose source and effective interpolation: PASS")
+          PY
 
       - name: Validate generated nftables policy without applying it
         run: |

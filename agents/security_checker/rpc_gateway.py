@@ -736,9 +736,12 @@ def run_gateway_from_environment() -> None:
         or any(
             not host
             or len(host) > 253
-            or not re.fullmatch(
-                r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*",
-                host,
+            or any(
+                not re.fullmatch(
+                    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
+                    label,
+                )
+                for label in host.split(".")
             )
             for host in hosts
         )

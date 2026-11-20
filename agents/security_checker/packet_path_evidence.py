@@ -14,10 +14,7 @@ from uuid import UUID
 
 _PROJECT_PATTERN = re.compile(r"aegisforge-compose-runtime-[1-9][0-9]{0,19}\\Z")
 _SERVICES = ("rpc-gateway", "anvil-rpc-adapter", "anvil")
-_NETWORK_NAMES = {
-    "fork-internal": f"{_PROJECT}_fork-internal",
-    "rpc-egress": f"{_PROJECT}_rpc-egress",
-}
+_NETWORK_KEYS = {"fork-internal", "rpc-egress"}
 _COUNTERS = (
     "gateway_approved_egress_allow_new",
     "gateway_unapproved_egress_drop",
@@ -179,7 +176,7 @@ def validate_packet_path_receipt(
 
     networks = receipt.get("networks")
     _require(
-        _is_mapping(networks) and set(networks) == set(_NETWORK_NAMES),
+        _is_mapping(networks) and set(networks) == _NETWORK_KEYS,
         "packet_path_network_inventory_invalid",
     )
     network_ids = []

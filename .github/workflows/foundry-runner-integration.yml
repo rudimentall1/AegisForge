@@ -12,6 +12,9 @@ on:
       - "shared/sandbox.py"
       - "tests/test_foundry_dynamic_runner_integration.py"
       - "tests/test_anvil_fork_runner_integration.py"
+      - "tests/test_anvil_fork_deployment_topology.py"
+      - "tests/test_anvil_fork_egress_firewall.py"
+      - "deploy/anvil-fork/**"
       - ".github/workflows/foundry-runner-integration.yml"
   push:
     branches:

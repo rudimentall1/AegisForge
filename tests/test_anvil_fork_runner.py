@@ -69,6 +69,7 @@ def test_synthetic_anvil_fork_runner_executes_inside_networkless_container(
                 "target_address": "0x" + "1" * 40,
                 "block_number": 7,
                 "block_hash": "0x" + "a" * 64,
+                "runtime_bytecode": "0x6001600055",
                 "forge_output": {
                     "test/ForkSmoke.t.sol:ForkSmokeTest": {
                         "test_results": {
@@ -107,6 +108,10 @@ def test_synthetic_anvil_fork_runner_executes_inside_networkless_container(
     }
     assert result["fork_anchor"]["block_number"] == 7
     assert result["fork_anchor"]["block_hash"] == "0x" + "a" * 64
+    assert result["fork_snapshot"]["runtime_bytecode_sha256"]
+    assert result["fork_execution_binding"]["snapshot_bound"] is True
+    assert result["fork_execution_binding"]["source_chain_id"] == 31337
+    assert result["fork_execution_binding"]["fork_chain_id"] == 31338
     assert observed["image"] == IMAGE
     assert observed["entrypoint"] == "/bin/sh"
     assert observed["limits"].network == "none"

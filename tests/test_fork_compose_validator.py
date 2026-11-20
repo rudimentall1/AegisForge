@@ -17,6 +17,13 @@ def _source():
     return COMPOSE.read_text(encoding="utf-8")
 
 
+FOUNDRY_IMAGE = "ghcr.io/foundry-rs/foundry@sha256:" + "a" * 64
+
+
+def _validate(source):
+    return validate_anvil_fork_compose(source, foundry_image=FOUNDRY_IMAGE)
+
+
 def _mutated_source(mutator):
     document = yaml.safe_load(_source())
     mutator(document)
@@ -24,7 +31,7 @@ def _mutated_source(mutator):
 
 
 def test_validator_accepts_repository_topology_and_returns_static_only_report():
-    report = validate_anvil_fork_compose(_source())
+    report = _validate(_source())
 
     assert report.state == "STATIC_VALIDATED"
     assert report.services == ("rpc-gateway", "anvil-rpc-adapter", "anvil")
@@ -42,7 +49,7 @@ def test_validator_rejects_adapter_egress_network_attachment():
     )
 
     with pytest.raises(ComposeTopologyValidationError, match="adapter_network_boundary_invalid"):
-        validate_anvil_fork_compose(source)
+        _validate(source)
 
 
 def test_validator_rejects_anvil_egress_network_attachment():
@@ -149,3 +156,9 @@ def test_validator_rejects_duplicate_yaml_keys_without_silent_overwrite():
 
     with pytest.raises(ComposeTopologyValidationError, match="compose_yaml_invalid"):
         validate_anvil_fork_compose(source)
+
+
+
+def test_validator_rejects_unpinned_resolved_foundry_image():
+    with pytest.raises(ComposeTopologyValidationError, match="foundry_image_not_digest_pinned"):
+        validate_anvil_fork_compose(_source(), foundry_image="foundry:latest")

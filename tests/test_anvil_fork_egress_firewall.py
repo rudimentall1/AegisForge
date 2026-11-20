@@ -29,12 +29,12 @@ def test_firewall_rules_allow_only_approved_ipv4_rpc_destinations():
     assert "ip saddr 172.31.240.2 ip daddr @approved_rpc_v4 tcp dport 443 ct state established,related counter accept" in rules
     assert "ip daddr @approved_rpc_v4 tcp dport 443 ct state new counter accept" in rules
     assert "ip saddr 172.31.240.2 ct state established,related accept" not in rules
-    assert "ip saddr 172.31.240.2 counter drop" in rules
     assert "ip daddr 172.31.240.2 counter drop" in rules
     assert 'iifname "br-aegisforge" ip saddr 172.31.240.2 ip daddr @approved_rpc_v4 tcp dport 443 ct state established,related counter accept' in rules
     assert 'iifname "br-aegisforge" ip saddr 172.31.240.2 ip daddr @approved_rpc_v4 tcp dport 443 ct state new counter accept' in rules
     assert 'oifname "br-aegisforge" ip saddr @approved_rpc_v4 ip daddr 172.31.240.2 ct state established,related counter accept' in rules
-    assert 'iifname "br-aegisforge" ip saddr 172.31.240.2 counter drop' in rules
+    assert 'iifname "br-aegisforge" counter drop' in rules
+    assert 'iifname "br-aegisforge" ip saddr 172.31.240.2 counter drop' not in rules
     assert 'oifname "br-aegisforge" ip daddr 172.31.240.2 counter drop' in rules
 
 

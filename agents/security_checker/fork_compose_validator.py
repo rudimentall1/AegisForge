@@ -155,7 +155,14 @@ def _validate_service_security(name: str, service: dict) -> None:
         and not isinstance(service.get("cpus"), bool),
         f"{name}_cpu_limit_invalid",
     )
-    _require(service.get("tmpfs") == [expected_tmpfs], f"{name}_tmpfs_invalid")
+    tmpfs_bytes = {
+        "/tmp:rw,noexec,nosuid,size=16m": "/tmp:rw,noexec,nosuid,size=16777216",
+        "/tmp:rw,noexec,nosuid,size=64m": "/tmp:rw,noexec,nosuid,size=67108864",
+    }[expected_tmpfs]
+    _require(
+        service.get("tmpfs") in ([expected_tmpfs], [tmpfs_bytes]),
+        f"{name}_tmpfs_invalid",
+    )
 
 
 def validate_anvil_fork_compose(

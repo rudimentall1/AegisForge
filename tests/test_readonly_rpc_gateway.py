@@ -611,3 +611,20 @@ def test_http_listener_rejects_invalid_rate_limit_configuration(kwargs):
     values.update(kwargs)
     with pytest.raises(RpcGatewayError, match="gateway_listener_configuration_invalid"):
         create_rpc_gateway_server(**values)
+
+
+@pytest.mark.parametrize("bind_host", ["192.0.2.10", "::", "localhost"])
+def test_http_listener_rejects_non_internal_bind_addresses(bind_host):
+    from agents.security_checker.rpc_gateway import create_rpc_gateway_server
+
+    with pytest.raises(
+        RpcGatewayError,
+        match="gateway_listener_configuration_invalid",
+    ):
+        create_rpc_gateway_server(
+            "https://rpc.example.test/",
+            {"rpc.example.test"},
+            "x" * 40,
+            bind_host=bind_host,
+            port=0,
+        )

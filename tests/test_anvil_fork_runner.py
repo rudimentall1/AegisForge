@@ -121,6 +121,8 @@ def test_synthetic_anvil_fork_runner_executes_inside_networkless_container(
     assert '--fork-url "$UPSTREAM"' in script
     assert "--fork-block-number" in script
     assert "forge test" in script
+    assert 'cast code "$TARGET_ADDRESS" --rpc-url "$UPSTREAM"' in script
+    assert '"$TARGET_ADDRESS" "$BLOCK_NUMBER" "$UPSTREAM_HASH" "$RUNTIME_BYTECODE"' in script
     assert "python3" not in script
     assert "--private-key" in script
     assert "src/SyntheticTarget.sol" in observed["files"]

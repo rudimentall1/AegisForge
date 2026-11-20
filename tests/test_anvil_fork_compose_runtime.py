@@ -84,16 +84,21 @@ def _nft_ruleset_sha256() -> str:
 
 
 def _docker_tcp_connects(container_id: str, destination: str, port: int) -> bool:
+    probe = (
+        "import socket,sys\\n"
+        "s=socket.socket(); s.settimeout(1)\\n"
+        "try:\\n"
+        " s.connect((sys.argv[1],int(sys.argv[2])))\\n"
+        " print('CONNECTED')\\n"
+        "except OSError as exc:\\n"
+        " print('BLOCKED:'+type(exc).__name__)\\n"
+        "finally:\\n"
+        " s.close()\\n"
+    )
     result = subprocess.run(
         [
             "docker", "exec", container_id, "python", "-c",
-            "import socket,sys; s=socket.socket(); s.settimeout(1); "
-            "connected=False; "
-            "exec('try:\\n s.connect((sys.argv[1],int(sys.argv[2]))); connected=True\\n"
-            "except OSError:\\n pass\\nfinally:\\n s.close()'); "
-            "sys.exit(0 if connected else 1)",
-            destination,
-            str(port),
+            probe, destination, str(port),
         ],
         cwd=ROOT,
         text=True,
@@ -102,9 +107,14 @@ def _docker_tcp_connects(container_id: str, destination: str, port: int) -> bool
         timeout=10,
         check=False,
     )
-    if result.returncode not in (0, 1):
+    if result.returncode != 0:
         raise AssertionError(f"tcp_probe_execution_failed:{result.stderr}")
-    return result.returncode == 0
+    outcome = result.stdout.strip()
+    if outcome == "CONNECTED":
+        return True
+    if outcome.startswith("BLOCKED:"):
+        return False
+    raise AssertionError(f"tcp_probe_outcome_unrecognized:{outcome!r}")
 
 
 def _docker_exec_output(container_id: str, command: list[str]) -> str:
@@ -293,7 +303,7 @@ def test_real_compose_network_membership_and_internal_service_egress():
                     [
                         "docker", "exec", service_ids[service], "python", "-c",
                         "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
-                        "raise SystemExit(1 if any(line.split()[1]=='00000000' for line in rows) else 0)",
+                        "print('present' if any(line.split()[1]=='00000000' for line in rows) else 'absent')",
                     ],
                     cwd=ROOT,
                     text=True,
@@ -302,7 +312,8 @@ def test_real_compose_network_membership_and_internal_service_egress():
                     timeout=10,
                     check=False,
                 )
-                default_route_absent[service] = route_result.returncode == 0
+                assert route_result.returncode == 0, route_result.stderr
+                default_route_absent[service] = route_result.stdout.strip() == "absent"
                 assert default_route_absent[service], (
                     f"{service} unexpectedly has a default route: {route_result.stderr}"
                 )

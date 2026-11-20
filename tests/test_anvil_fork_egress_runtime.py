@@ -63,7 +63,7 @@ def _wait_for_listener(namespace: str, address: str, port: int) -> None:
             (
                 "import socket,sys; "
                 "s=socket.socket(); s.settimeout(.3); "
-                "sys.exit(0 if (lambda: (s.connect((sys.argv[1],int(sys.argv[2])))) is None)() else 1)"
+                "s.connect((sys.argv[1],int(sys.argv[2])))"
             ),
             address,
             str(port),

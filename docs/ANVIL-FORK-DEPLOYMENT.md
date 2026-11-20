@@ -1,0 +1,57 @@
+# Anvil fork deployment topology
+
+This is a controlled deployment scaffold for the authenticated RPC path:
+
+`Anvil -> Anvil RPC Adapter -> RPC Gateway -> approved RPC provider`
+
+It is not a production-ready security boundary until the host egress firewall described below is installed, verified, and kept in sync with the provider's published IP ranges.
+
+## Network boundaries
+
+- `fork-internal` is a Docker internal network. Anvil and the Adapter are attached only to this network.
+- The Gateway is attached to `fork-internal` and the separate `rpc-egress` bridge.
+- No service publishes a host port. Do not add `ports:` to this Compose file.
+- Anvil talks only to `http://anvil-rpc-adapter:8546`.
+- The Adapter talks only to `http://rpc-gateway:8545/rpc` and injects the bearer token from its process environment.
+- The Gateway is the only service with a Docker network attachment that can route externally.
+- The fork block number is mandatory. Do not substitute `latest` or a moving block tag.
+
+## Critical egress limitation
+
+Docker Compose network attachment is not an approved-provider IP allowlist. In this scaffold, the Gateway's application layer validates an exact HTTPS hostname allowlist, resolves and pins public DNS answers, and verifies TLS hostnames. However, the `rpc-egress` bridge itself can route to arbitrary destinations unless the Docker host enforces an outbound firewall policy.
+
+Before running this topology with a real provider:
+
+1. Configure the host firewall to permit new outbound TCP connections from the Gateway container address `172.31.240.2` only to the provider's current, independently verified IP/CIDR ranges on port 443.
+2. Deny all other new forwarded traffic sourced from `172.31.240.2`; allow established return traffic.
+3. Preserve DNS resolution only through the Docker embedded resolver / host resolver path required by the deployment. Do not give the Gateway unrestricted direct DNS egress.
+4. Verify the effective rules against the actual Docker firewall backend (iptables-nft or native nftables), including Docker chain ordering and IPv6 behavior.
+5. From each container, prove that Anvil and Adapter cannot reach an external test endpoint, that Gateway can reach the approved provider, and that Gateway cannot reach an unapproved public IP or port.
+6. Re-run those checks after Docker, firewall, provider IP-range, or host-network changes.
+
+Do not assume that a host firewall rule is active merely because a configuration file exists. The firewall must be loaded and its effective rules inspected. This repository scaffold intentionally does not install or mutate host firewall rules automatically.
+
+## Images and secrets
+
+Copy `.env.example` to `.env`, replace every placeholder, and keep `.env` out of version control. Both image references must be immutable `@sha256:` digests. The Python sidecar image is built from the supplied Python digest; Foundry is pulled from its supplied digest.
+
+The same high-entropy Gateway token is supplied to the Gateway and Adapter. It is never passed to Anvil arguments or fork headers. Rotate it when the deployment is rebuilt or access is suspected to have leaked.
+
+## Start and inspect
+
+From the repository root:
+
+```sh
+cp deploy/anvil-fork/.env.example deploy/anvil-fork/.env
+# Edit deploy/anvil-fork/.env and replace every placeholder.
+docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml config
+docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml build
+docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml up -d
+docker compose --env-file deploy/anvil-fork/.env -f deploy/anvil-fork/compose.yaml ps
+```
+
+This guide does not authorize running the stack on a production server. Validate it in a disposable test host first. Do not expose Anvil or Adapter ports to the host or internet.
+
+## Evidence status
+
+A running container is not proof of a safe egress boundary or a verified vulnerability. This topology does not by itself connect the synthetic Anvil runner to SecurityChecker findings. Keep `dynamic_verified=false` and `confirmed=false` until a finding-specific, hash-pinned fork execution produces validated evidence through the SecurityChecker pipeline.

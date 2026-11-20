@@ -242,7 +242,7 @@ while True:
             "approved provider reply did not match the established-return allow rule"
         )
 
-        gateway_drop_rule = 'iifname "br-aegisforge" ip saddr 172.31.240.2'
+        gateway_drop_rule = 'iifname "br-aegisforge"'
         denied_ip_before = _nft_counter(
             "aegis-router", gateway_drop_rule, "drop"
         )

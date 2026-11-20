@@ -68,3 +68,110 @@ def test_execution_anchor_rejects_missing_or_malformed_fields():
 
     with pytest.raises(ForkSnapshotError, match="fork_execution_anchor_invalid"):
         validate_fork_execution_anchor(_snapshot(), anchor)
+
+
+
+def _rpc_observations(*, chain_id="0x7b72", block_number="0xfa",
+                      block_hash="0x" + "ab" * 32, code="0x6001600055"):
+    return {
+        "chain": {"jsonrpc": "2.0", "id": "fork-chain", "result": chain_id},
+        "block": {
+            "jsonrpc": "2.0",
+            "id": "fork-block",
+            "result": {"number": block_number, "hash": block_hash},
+        },
+        "code": {"jsonrpc": "2.0", "id": "fork-code", "result": code},
+        "request": {
+            "jsonrpc": "2.0",
+            "id": "fork-code",
+            "method": "eth_getCode",
+            "params": ["0x" + "cd" * 20, "0xfa"],
+        },
+    }
+
+
+def test_rpc_observation_binds_actual_fork_chain_block_and_runtime_code():
+    from agents.security_checker.fork_engine import (
+        validate_fork_execution_rpc_observation,
+    )
+
+    observed = _rpc_observations()
+    result = validate_fork_execution_rpc_observation(
+        _snapshot(),
+        chain_response=observed["chain"],
+        block_response=observed["block"],
+        code_response=observed["code"],
+        code_request=observed["request"],
+        expected_response_ids=("fork-chain", "fork-block", "fork-code"),
+    )
+
+    assert result["snapshot_bound"] is True
+    assert result["fork_rpc_observation_verified"] is True
+    assert result["source_chain_id"] == 42161
+    assert result["fork_chain_id"] == 31602
+    assert result["block_number"] == 250
+    assert result["runtime_bytecode_sha256"] == _snapshot()["runtime_bytecode_sha256"]
+
+
+@pytest.mark.parametrize(
+    ("observation", "expected_error"),
+    [
+        ({"chain_id": "0x0"}, "fork_execution_anchor_invalid"),
+        ({"block_number": "0xfb"}, "fork_execution_block_mismatch"),
+        ({"block_hash": "0x" + "ef" * 32}, "fork_execution_block_mismatch"),
+        ({"code": "0x6002600055"}, "fork_execution_bytecode_mismatch"),
+    ],
+)
+def test_rpc_observation_rejects_fork_state_not_matching_snapshot(
+    observation, expected_error
+):
+    from agents.security_checker.fork_engine import (
+        validate_fork_execution_rpc_observation,
+    )
+
+    observed = _rpc_observations(**observation)
+    with pytest.raises(ForkSnapshotError, match=expected_error):
+        validate_fork_execution_rpc_observation(
+            _snapshot(),
+            chain_response=observed["chain"],
+            block_response=observed["block"],
+            code_response=observed["code"],
+            code_request=observed["request"],
+            expected_response_ids=("fork-chain", "fork-block", "fork-code"),
+        )
+
+
+def test_rpc_observation_rejects_code_request_for_different_contract_or_block():
+    from agents.security_checker.fork_engine import (
+        validate_fork_execution_rpc_observation,
+    )
+
+    observed = _rpc_observations()
+    observed["request"]["params"] = ["0x" + "ef" * 20, "0xfa"]
+    with pytest.raises(ForkSnapshotError, match="fork_execution_code_request_invalid"):
+        validate_fork_execution_rpc_observation(
+            _snapshot(),
+            chain_response=observed["chain"],
+            block_response=observed["block"],
+            code_response=observed["code"],
+            code_request=observed["request"],
+            expected_response_ids=("fork-chain", "fork-block", "fork-code"),
+        )
+
+
+def test_rpc_observation_rejects_response_id_mismatch():
+    from agents.security_checker.fork_engine import (
+        validate_fork_execution_rpc_observation,
+    )
+
+    observed = _rpc_observations()
+    observed["code"]["id"] = "unexpected"
+    with pytest.raises(ForkSnapshotError, match="code_response_invalid"):
+        validate_fork_execution_rpc_observation(
+            _snapshot(),
+            chain_response=observed["chain"],
+            block_response=observed["block"],
+            code_response=observed["code"],
+            code_request=observed["request"],
+            expected_response_ids=("fork-chain", "fork-block", "fork-code"),
+        )

@@ -12,7 +12,7 @@ from typing import Mapping
 from uuid import UUID
 
 
-_PROJECT_PATTERN = re.compile(r"aegisforge-compose-runtime-[1-9][0-9]{0,19}\\Z")
+_PROJECT_PATTERN = re.compile(r"aegisforge-compose-runtime-[1-9][0-9]{0,19}")
 _SERVICES = ("rpc-gateway", "anvil-rpc-adapter", "anvil")
 _NETWORK_KEYS = {"fork-internal", "rpc-egress"}
 _COUNTERS = (

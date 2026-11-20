@@ -20,6 +20,7 @@ def _receipt():
         "schema_version": 1,
         "evidence_level": "DISPOSABLE_DOCKER_PACKET_PATH_TEST",
         "runtime_session_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        "compose_project": "aegisforge-compose-runtime-12345",
         "git_commit_sha": COMMIT,
         "github_run_id": RUN_ID,
         "github_run_attempt": RUN_ATTEMPT,
@@ -30,11 +31,11 @@ def _receipt():
         },
         "networks": {
             "fork-internal": {
-                "name": "aegisforge-anvil-fork_fork-internal",
+                "name": "aegisforge-compose-runtime-12345_fork-internal",
                 "id": "4" * 64,
             },
             "rpc-egress": {
-                "name": "aegisforge-anvil-fork_rpc-egress",
+                "name": "aegisforge-compose-runtime-12345_rpc-egress",
                 "id": "5" * 64,
             },
         },
@@ -140,3 +141,12 @@ def test_packet_path_receipt_rejects_mismatched_expected_workflow_context():
             expected_run_id="44712559105",
             expected_run_attempt=RUN_ATTEMPT,
         )
+
+
+
+def test_packet_path_receipt_rejects_unexpected_compose_project_name():
+    receipt = _receipt()
+    receipt["compose_project"] = "untrusted-project"
+
+    with pytest.raises(PacketPathEvidenceError, match="packet_path_project_binding_invalid"):
+        _validate(receipt)

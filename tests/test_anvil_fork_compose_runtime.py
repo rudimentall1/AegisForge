@@ -47,7 +47,7 @@ def _nft_counter(rule_fragment: str, verdict: str) -> int:
         ["sudo", "-n", "nft", "list", "chain", "inet", FIREWALL_TABLE, "forward_guard"]
     )
     for line in output.splitlines():
-        if rule_fragment in line:
+        if rule_fragment in line and line.rstrip().endswith(verdict):
             match = re.search(r"counter packets (\d+)", line)
             if match:
                 return int(match.group(1))

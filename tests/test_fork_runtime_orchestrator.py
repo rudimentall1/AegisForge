@@ -1,4 +1,5 @@
 import copy
+from pathlib import Path
 from dataclasses import FrozenInstanceError
 
 import pytest
@@ -21,6 +22,14 @@ def _snapshot():
     )
 
 
+COMPOSE_PATH = Path(__file__).resolve().parents[1] / "deploy" / "anvil-fork" / "compose.yaml"
+
+
+def _prepare(snapshot, plan, config, *, compose_source=None):
+    source = compose_source if compose_source is not None else COMPOSE_PATH.read_text(encoding="utf-8")
+    return prepare_fork_runtime(snapshot, plan, config, compose_source=source)
+
+
 def _config(**overrides):
     config = {
         "upstream_url": "https://arb-mainnet.example-rpc.com/v1/private-key",
@@ -36,7 +45,7 @@ def test_prepare_revalidates_snapshot_plan_and_returns_prepared_only_state():
     snapshot = _snapshot()
     plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
 
-    prepared = prepare_fork_runtime(snapshot, plan, _config())
+    prepared = _prepare(snapshot, plan, _config())
 
     assert prepared.state == "PREPARED"
     assert prepared.snapshot_sha256 == plan["snapshot_sha256"]
@@ -55,6 +64,8 @@ def test_prepare_revalidates_snapshot_plan_and_returns_prepared_only_state():
     assert prepared.runtime_started is False
     assert prepared.dynamic_verified is False
     assert prepared.confirmed is False
+    assert prepared.compose_validation.state == "STATIC_VALIDATED"
+    assert prepared.compose_validation.runtime_started is False
 
 
 def test_prepare_rejects_snapshot_plan_mismatch_before_preparation():
@@ -64,7 +75,7 @@ def test_prepare_rejects_snapshot_plan_mismatch_before_preparation():
     changed["block_number"] += 1
 
     with pytest.raises(ForkRuntimePreparationError, match="snapshot_binding_mismatch"):
-        prepare_fork_runtime(changed, plan, _config())
+        _prepare(changed, plan, _config())
 
 
 @pytest.mark.parametrize(
@@ -80,7 +91,7 @@ def test_prepare_rejects_missing_or_invalid_gateway_secret(config):
     plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
 
     with pytest.raises(ForkRuntimePreparationError, match="gateway_token_invalid"):
-        prepare_fork_runtime(snapshot, plan, config)
+        _prepare(snapshot, plan, config)
 
 
 def test_prepare_rejects_provider_host_outside_exact_allowlist():
@@ -106,7 +117,7 @@ def test_prepare_rejects_unsafe_provider_url_shapes(url):
     plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
 
     with pytest.raises(ForkRuntimePreparationError):
-        prepare_fork_runtime(snapshot, plan, _config(upstream_url=url))
+        _prepare(snapshot, plan, _config(upstream_url=url))
 
 
 @pytest.mark.parametrize(
@@ -123,7 +134,7 @@ def test_prepare_rejects_non_immutable_or_malformed_foundry_image(image):
     plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
 
     with pytest.raises(ForkRuntimePreparationError, match="foundry_image_not_digest_pinned"):
-        prepare_fork_runtime(snapshot, plan, _config(foundry_image=image))
+        _prepare(snapshot, plan, _config(foundry_image=image))
 
 
 def test_secret_values_are_not_retained_or_rendered_in_prepared_result():
@@ -132,7 +143,7 @@ def test_secret_values_are_not_retained_or_rendered_in_prepared_result():
     secret = "super-secret-gateway-token-" + "x" * 32
     upstream = "https://arb-mainnet.example-rpc.com/" + secret
 
-    prepared = prepare_fork_runtime(
+    prepared = _prepare(
         snapshot,
         plan,
         _config(bearer_token=secret, upstream_url=upstream),
@@ -164,3 +175,17 @@ def test_prepare_rejects_unrecognized_configuration_fields():
 
     with pytest.raises(ForkRuntimePreparationError, match="runtime_configuration_fields_invalid"):
         prepare_fork_runtime(snapshot, plan, config)
+
+
+
+def test_prepare_rejects_compose_topology_before_prepared_state():
+    snapshot = _snapshot()
+    plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
+    source = COMPOSE_PATH.read_text(encoding="utf-8").replace(
+        "    networks:\n      - fork-internal\n    read_only: true",
+        "    networks:\n      - fork-internal\n      - rpc-egress\n    read_only: true",
+        1,
+    )
+
+    with pytest.raises(ForkRuntimePreparationError, match="adapter_network_boundary_invalid"):
+        _prepare(snapshot, plan, _config(), compose_source=source)

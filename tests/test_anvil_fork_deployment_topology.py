@@ -55,10 +55,12 @@ def test_images_are_required_as_immutable_user_supplied_references():
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
 
     assert "${AEGISFORGE_FOUNDRY_IMAGE:?}" in source
-    assert "${AEGISFORGE_PYTHON_IMAGE:?}" in source
+    assert "aegisforge-rpc-sidecar:local" in source
     assert re.search(r"(?m)^ARG PYTHON_IMAGE$", dockerfile)
     assert re.search(r"(?m)^FROM \${PYTHON_IMAGE}$", dockerfile)
     assert "python:latest" not in dockerfile.lower()
+    env_example = (ROOT / "deploy" / "anvil-fork" / ".env.example").read_text(encoding="utf-8")
+    assert "AEGISFORGE_PYTHON_IMAGE=" in env_example
 
 
 def test_fork_block_is_explicit_and_credentials_are_not_anvil_arguments():

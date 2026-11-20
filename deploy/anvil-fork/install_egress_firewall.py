@@ -63,14 +63,15 @@ def build_rules(
     chain forward_guard {{
         type filter hook forward priority -10; policy accept;
 
-        # Return traffic is accepted only from approved RPC provider ranges.
-        ip saddr @approved_rpc_v4 ip daddr {gateway} ct state established,related accept
-        ip daddr {gateway} drop
+        # Restrict only packets traversing the dedicated egress bridge.
+        # Gateway traffic on fork-internal (Adapter <-> Gateway) is unaffected.
+        iifname "br-aegisforge" ip saddr @approved_rpc_v4 ip daddr {gateway} ct state established,related accept
+        iifname "br-aegisforge" ip daddr {gateway} drop
 
-        # Gateway sessions (new and established) stay within approved HTTPS ranges.
-        ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state established,related accept
-        ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state new accept
-        ip saddr {gateway} drop
+        # Gateway may leave this bridge only for approved HTTPS RPC ranges.
+        oifname "br-aegisforge" ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state established,related accept
+        oifname "br-aegisforge" ip saddr {gateway} ip daddr @approved_rpc_v4 tcp dport 443 ct state new accept
+        oifname "br-aegisforge" ip saddr {gateway} drop
     }}
 }}
 """

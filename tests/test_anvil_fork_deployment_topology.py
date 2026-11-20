@@ -69,6 +69,7 @@ def test_fork_block_is_explicit_and_credentials_are_not_anvil_arguments():
     anvil = _service_block(source, "anvil")
 
     assert "${AEGISFORGE_ANVIL_FORK_BLOCK_NUMBER:?}" in anvil
+    assert "${AEGISFORGE_ANVIL_CHAIN_ID:?}" in anvil
     assert "--fork-header" not in anvil
     assert "AEGISFORGE_ANVIL_GATEWAY_TOKEN" not in anvil
 

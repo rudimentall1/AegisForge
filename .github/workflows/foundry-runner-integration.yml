@@ -15,6 +15,8 @@ on:
       - "tests/test_anvil_fork_deployment_topology.py"
       - "tests/test_anvil_fork_egress_firewall.py"
       - "tests/test_anvil_fork_egress_runtime.py"
+      - "tests/test_anvil_fork_compose_runtime.py"
+      - "tests/fixtures/anvil-fork-compose-runtime.override.yaml"
       - "deploy/anvil-fork/**"
       - ".github/workflows/foundry-runner-integration.yml"
   push:
@@ -62,6 +64,14 @@ jobs:
             *) echo "Unexpected Foundry image digest: $image_digest" >&2; exit 1 ;;
           esac
           echo "AEGISFORGE_FOUNDRY_IMAGE=$image_digest" >> "$GITHUB_ENV"
+          python_image_tag="python:3.12-slim"
+          docker pull "$python_image_tag"
+          python_image_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$python_image_tag")"
+          case "$python_image_digest" in
+            python@sha256:*) ;;
+            *) echo "Unexpected Python image digest: $python_image_digest" >&2; exit 1 ;;
+          esac
+          echo "AEGISFORGE_PYTHON_IMAGE=$python_image_digest" >> "$GITHUB_ENV"
           echo "AEGISFORGE_AUTO_INSTALL_SOLC=1" >> "$GITHUB_ENV"
           echo "AEGISFORGE_FOUNDRY_INTEGRATION=1" >> "$GITHUB_ENV"
           echo "AEGISFORGE_ANVIL_FORK_INTEGRATION=1" >> "$GITHUB_ENV"
@@ -79,6 +89,10 @@ jobs:
           sudo apt-get install -y nftables iproute2
           sudo python deploy/anvil-fork/install_egress_firewall.py --provider-cidr 8.8.8.8/32
           sudo "$(command -v python)" -m pytest -q tests/test_anvil_fork_egress_runtime.py
+
+      - name: Verify real Docker Compose network isolation
+        run: |
+          python -m pytest -vv -s tests/test_anvil_fork_compose_runtime.py
 
       - name: Execute real Solidity test in isolated container
         run: |

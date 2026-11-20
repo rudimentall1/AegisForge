@@ -105,3 +105,14 @@ Implementation commit: `e9f83ac670002e530581fc47f54aa420e3ad4e2d`.
 A second review removed the Bash dependency as well as the Python dependency from the Foundry runtime checks. The Anvil container's route table is now read with `cat /proc/net/route` and parsed by the host-side pytest process. The test no longer assumes Bash, Python, curl, or netcat exists in the official Foundry image. The Adapter sidecar retains Python-based route and failed-connect checks. The namespace-level packet-path test remains responsible for the Anvil-to-Adapter TCP probe.
 
 This is a test portability correction only. It does not establish a passing Docker run or promote the runtime evidence state. The Docker runtime integration still requires a successful GitHub-hosted workflow result.
+
+
+## Latest CI observation — 2026-11-20
+
+Implementation commit `e9f83ac670002e530581fc47f54aa420e3ad4e2d` produced:
+- Foundry runner integration run `44710514921`: `failure`.
+- AegisForge CI run `44710514942`: `failure`.
+
+The integration job again has `steps: null`; the dedicated step endpoint returned no usable step details, and downloading the job log returned `BlobNotFound`. The failure remains undiagnosed. The checkpoint-only commit `5aa9bf49fc73e4459927bdcb6d20359ede695c81` has no associated workflow runs in the commit-runs response at the time of this update.
+
+Do not claim that the probe portability correction fixed CI. The next engineering action is to obtain usable Actions logs or reproduce the failing workflow in an authorized disposable CI environment; do not repeatedly rerun jobs whose logs are unavailable.

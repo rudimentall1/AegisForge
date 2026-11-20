@@ -342,3 +342,229 @@ def validate_anvil_fork_compose(
             "dedicated_egress_bridge",
         ),
     )
+
+
+
+def validate_resolved_anvil_fork_compose(
+    resolved: object,
+    *,
+    expected_runtime: object,
+) -> ComposeTopologyValidationReport:
+    """Validate effective Compose JSON after variable interpolation.
+
+    The caller must obtain the mapping from docker compose config --format
+    json. This function performs no subprocess or Docker calls. Secret values
+    are compared in memory and never copied into the report.
+    """
+    expected_fields = {
+        "upstream_url",
+        "allowed_hosts",
+        "bearer_token",
+        "foundry_image",
+        "fork_chain_id",
+        "fork_block_number",
+    }
+    _require(_is_mapping(expected_runtime), "resolved_runtime_expectations_invalid")
+    _require(
+        set(expected_runtime) == expected_fields,
+        "resolved_runtime_expectations_invalid",
+    )
+
+    upstream_url = expected_runtime["upstream_url"]
+    allowed_hosts = expected_runtime["allowed_hosts"]
+    bearer_token = expected_runtime["bearer_token"]
+    foundry_image = expected_runtime["foundry_image"]
+    chain_id = expected_runtime["fork_chain_id"]
+    block_number = expected_runtime["fork_block_number"]
+    _require(
+        isinstance(upstream_url, str) and upstream_url.startswith("https://"),
+        "resolved_runtime_expectations_invalid",
+    )
+    _require(
+        isinstance(allowed_hosts, (list, tuple, set, frozenset))
+        and bool(allowed_hosts)
+        and all(isinstance(host, str) and host for host in allowed_hosts),
+        "resolved_runtime_expectations_invalid",
+    )
+    _require(
+        isinstance(bearer_token, str) and len(bearer_token) >= 32,
+        "resolved_runtime_expectations_invalid",
+    )
+    _require(
+        isinstance(foundry_image, str) and _DIGEST_IMAGE.fullmatch(foundry_image),
+        "foundry_image_not_digest_pinned",
+    )
+    _require(
+        isinstance(chain_id, int) and not isinstance(chain_id, bool) and chain_id > 0,
+        "resolved_runtime_expectations_invalid",
+    )
+    _require(
+        isinstance(block_number, int)
+        and not isinstance(block_number, bool)
+        and block_number >= 0,
+        "resolved_runtime_expectations_invalid",
+    )
+
+    _require(_is_mapping(resolved), "resolved_compose_document_invalid")
+    _require(
+        resolved.get("name") == COMPOSE_SCHEMA_NAME
+        and _is_mapping(resolved.get("services"))
+        and _is_mapping(resolved.get("networks")),
+        "resolved_compose_document_invalid",
+    )
+    services = resolved["services"]
+    networks = resolved["networks"]
+    _require(
+        set(services) == set(_SERVICE_KEYS),
+        "resolved_compose_services_invalid",
+    )
+    _require(
+        set(networks) == {"fork-internal", "rpc-egress"},
+        "resolved_compose_networks_invalid",
+    )
+
+    forbidden_service_fields = {
+        "privileged", "network_mode", "devices", "cap_add", "volumes",
+        "volumes_from", "pid", "ipc", "userns_mode", "runtime", "sysctls",
+        "dns", "extra_hosts", "use_api_socket",
+    }
+    for name, service in services.items():
+        _require(_is_mapping(service), "resolved_compose_service_invalid")
+        _require(
+            not forbidden_service_fields.intersection(service),
+            "resolved_privileged_mode_forbidden",
+        )
+        _require("ports" not in service, "resolved_published_ports_forbidden")
+        _validate_service_security(name, service)
+
+    gateway = services["rpc-gateway"]
+    adapter = services["anvil-rpc-adapter"]
+    anvil = services["anvil"]
+
+    _require(
+        gateway.get("image") == SIDECAR_IMAGE
+        and adapter.get("image") == SIDECAR_IMAGE,
+        "resolved_sidecar_image_invalid",
+    )
+    _require(
+        anvil.get("image") == foundry_image,
+        "resolved_foundry_image_mismatch",
+    )
+
+    expected_hosts_value = ",".join(sorted(set(allowed_hosts)))
+    expected_gateway_environment = {
+        "AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL": upstream_url,
+        "AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS": expected_hosts_value,
+        "AEGISFORGE_RPC_GATEWAY_TOKEN": bearer_token,
+        "AEGISFORGE_RPC_GATEWAY_BIND_HOST": "0.0.0.0",
+        "AEGISFORGE_RPC_GATEWAY_PORT": "8545",
+    }
+    expected_adapter_environment = {
+        "AEGISFORGE_ANVIL_GATEWAY_URL": "http://rpc-gateway:8545/rpc",
+        "AEGISFORGE_ANVIL_GATEWAY_TOKEN": bearer_token,
+        "AEGISFORGE_ANVIL_ADAPTER_BIND_HOST": "0.0.0.0",
+        "AEGISFORGE_ANVIL_ADAPTER_PORT": "8546",
+    }
+    _require(
+        gateway.get("environment") == expected_gateway_environment,
+        "resolved_gateway_environment_invalid",
+    )
+    _require(
+        adapter.get("environment") == expected_adapter_environment,
+        "resolved_gateway_secret_mismatch",
+    )
+    _require(
+        "environment" not in anvil,
+        "resolved_anvil_environment_invalid",
+    )
+
+    expected_command = [
+        "--host", "0.0.0.0",
+        "--port", "8545",
+        "--chain-id", str(chain_id),
+        "--fork-url", "http://anvil-rpc-adapter:8546",
+        "--fork-block-number", str(block_number),
+    ]
+    _require(
+        anvil.get("entrypoint") == ["anvil"]
+        and anvil.get("command") == expected_command,
+        "resolved_anvil_fork_identity_invalid",
+    )
+    _require(
+        adapter.get("entrypoint")
+        == ["python", "-m", "agents.security_checker.anvil_rpc_adapter"],
+        "resolved_adapter_entrypoint_invalid",
+    )
+
+    _require(
+        _is_mapping(gateway.get("networks"))
+        and set(gateway["networks"]) == {"fork-internal", "rpc-egress"}
+        and _is_mapping(gateway["networks"]["rpc-egress"])
+        and gateway["networks"]["rpc-egress"].get("gw_priority") == 1
+        and gateway["networks"]["rpc-egress"].get("ipv4_address") == "172.31.240.2",
+        "resolved_gateway_network_boundary_invalid",
+    )
+    _require(
+        _is_mapping(adapter.get("networks"))
+        and set(adapter["networks"]) == {"fork-internal"},
+        "resolved_adapter_network_boundary_invalid",
+    )
+    _require(
+        _is_mapping(anvil.get("networks"))
+        and set(anvil["networks"]) == {"fork-internal"},
+        "resolved_anvil_network_boundary_invalid",
+    )
+
+    internal = networks["fork-internal"]
+    egress = networks["rpc-egress"]
+    _require(
+        _is_mapping(internal)
+        and internal.get("internal") is True
+        and internal.get("enable_ipv6") is False
+        and _is_mapping(internal.get("ipam"))
+        and isinstance(internal["ipam"].get("config"), list)
+        and bool(internal["ipam"]["config"])
+        and internal["ipam"]["config"][0].get("subnet") == "172.30.240.0/24",
+        "resolved_fork_internal_network_invalid",
+    )
+    _require(
+        _is_mapping(egress)
+        and egress.get("driver") == "bridge"
+        and egress.get("enable_ipv6") is False
+        and _is_mapping(egress.get("driver_opts"))
+        and egress["driver_opts"].get("com.docker.network.bridge.name")
+        == "br-aegisforge"
+        and egress["driver_opts"].get("com.docker.network.bridge.enable_icc")
+        == "false"
+        and _is_mapping(egress.get("ipam"))
+        and isinstance(egress["ipam"].get("config"), list)
+        and bool(egress["ipam"]["config"])
+        and egress["ipam"]["config"][0].get("subnet") == "172.31.240.0/28",
+        "resolved_rpc_egress_network_invalid",
+    )
+
+    _require(
+        adapter.get("depends_on")
+        == {"rpc-gateway": {"condition": "service_healthy"}}
+        and anvil.get("depends_on")
+        == {"anvil-rpc-adapter": {"condition": "service_healthy"}},
+        "resolved_service_dependency_invalid",
+    )
+
+    return ComposeTopologyValidationReport(
+        state="RESOLVED_STATIC_VALIDATED",
+        services=("rpc-gateway", "anvil-rpc-adapter", "anvil"),
+        egress_service="rpc-gateway",
+        checked_invariants=(
+            "resolved_service_inventory",
+            "resolved_secret_consistency",
+            "resolved_provider_host_configuration",
+            "resolved_digest_pinned_foundry_image",
+            "resolved_chain_and_block_anchors",
+            "resolved_single_egress_gateway",
+            "resolved_internal_only_adapter_and_anvil",
+            "resolved_no_published_ports",
+            "resolved_read_only_container_security",
+            "resolved_bounded_container_resources",
+        ),
+    )

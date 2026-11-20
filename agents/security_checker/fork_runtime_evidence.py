@@ -57,6 +57,25 @@ def _validate_container(container: object, *, project: str, service: str) -> str
     config = container.get("Config")
     _require(_mapping(config), "runtime_container_invalid")
     labels = _labels(config.get("Labels"))
+    image = config.get("Image")
+    if service == "anvil":
+        digest = image.rsplit("@sha256:", 1)[1] if isinstance(image, str) and "@sha256:" in image else ""
+        _require(
+            len(digest) == 64 and all(char in "0123456789abcdef" for char in digest),
+            "runtime_image_identity_invalid",
+        )
+        _require(config.get("Entrypoint") == ["anvil"], "runtime_process_identity_invalid")
+    else:
+        expected_entrypoint = (
+            ["python", "-m", "agents.security_checker.rpc_gateway"]
+            if service == "rpc-gateway"
+            else ["python", "-m", "agents.security_checker.anvil_rpc_adapter"]
+        )
+        _require(
+            image == "aegisforge-rpc-sidecar:local"
+            and config.get("Entrypoint") == expected_entrypoint,
+            "runtime_process_identity_invalid",
+        )
     _require(
         labels.get("com.docker.compose.project") == project
         and labels.get("com.docker.compose.service") == service,
@@ -129,6 +148,12 @@ def _validate_container(container: object, *, project: str, service: str) -> str
         _mapping(attached) and set(attached) == expected_networks,
         "runtime_network_attachment_invalid",
     )
+    if service == "rpc-gateway":
+        egress = attached.get(_EGRESS_NETWORK)
+        _require(
+            _mapping(egress) and egress.get("IPAddress") == "172.31.240.2",
+            "runtime_gateway_egress_address_invalid",
+        )
     return container_id
 
 
@@ -144,14 +169,18 @@ def _validate_network(network: object, *, project: str, logical_name: str) -> st
         "runtime_network_topology_invalid",
     )
     internal = logical_name == "fork-internal"
-    expected_options = (
-        {}
-        if internal
-        else {
-            "com.docker.network.bridge.enable_icc": "false",
-            "com.docker.network.bridge.name": "br-aegisforge",
-        }
-    )
+    options = network.get("Options") or {}
+    _require(_mapping(options), "runtime_network_topology_invalid")
+    if internal:
+        options_valid = (
+            options.get("com.docker.network.bridge.enable_icc") != "false"
+            and "com.docker.network.bridge.name" not in options
+        )
+    else:
+        options_valid = (
+            options.get("com.docker.network.bridge.enable_icc") == "false"
+            and options.get("com.docker.network.bridge.name") == "br-aegisforge"
+        )
     expected_subnet = "172.30.240.0/24" if internal else "172.31.240.0/28"
     ipam = network.get("IPAM")
     configs = ipam.get("Config") if _mapping(ipam) else None
@@ -159,7 +188,7 @@ def _validate_network(network: object, *, project: str, logical_name: str) -> st
         network.get("Driver") == "bridge"
         and network.get("Internal") is internal
         and network.get("EnableIPv6") is False
-        and network.get("Options") == expected_options
+        and options_valid
         and isinstance(configs, list)
         and len(configs) == 1
         and _mapping(configs[0])

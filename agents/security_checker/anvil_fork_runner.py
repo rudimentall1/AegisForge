@@ -14,6 +14,11 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from agents.security_checker.fork_engine import (
+    ForkSnapshotError,
+    build_fork_snapshot,
+    validate_fork_execution_anchor,
+)
 from agents.security_checker.foundry_runner import (
     MAX_OUTPUT_BYTES,
     MAX_TIMEOUT_SECONDS,
@@ -118,7 +123,9 @@ grep -q '"status"[[:space:]]*:[[:space:]]*"Success"' /tmp/aegis-forge.json || {
 if grep -q '"status"[[:space:]]*:[[:space:]]*"Failure"\|"status"[[:space:]]*:[[:space:]]*"Skipped"' /tmp/aegis-forge.json; then
   cat /tmp/aegis-forge.json; exit 29;
 fi
-printf 'AEGISFORGE_RESULT={"target_address":"%s","block_number":%s,"block_hash":"%s","forge_output":{"suite":{"test_results":{"testPinnedForkState()":{"status":"Success"}}}}}\n' \
+RUNTIME_BYTECODE="$(cast code "$TARGET_ADDRESS" --rpc-url "$UPSTREAM")"
+[ -n "$RUNTIME_BYTECODE" ] || exit 30
+printf 'AEGISFORGE_RESULT={"target_address":"%s","block_number":%s,"block_hash":"%s","runtime_bytecode":"%s","forge_output":{"suite":{"test_results":{"testPinnedForkState()":{"status":"Success"}}}}}\n' \
   "$TARGET_ADDRESS" "$BLOCK_NUMBER" "$UPSTREAM_HASH"
 """
 
@@ -259,6 +266,7 @@ def run_synthetic_anvil_fork_test(
         block_number = payload["block_number"]
         block_hash = payload["block_hash"]
         target_address = payload["target_address"]
+        runtime_bytecode = payload["runtime_bytecode"]
         if (
             not isinstance(block_number, int)
             or isinstance(block_number, bool)
@@ -267,6 +275,8 @@ def run_synthetic_anvil_fork_test(
             or not re.fullmatch(r"0x[0-9a-fA-F]{64}", block_hash)
             or not isinstance(target_address, str)
             or not re.fullmatch(r"0x[0-9a-fA-F]{40}", target_address)
+            or not isinstance(runtime_bytecode, str)
+            or not re.fullmatch(r"0x(?:[0-9a-fA-F]{2})+", runtime_bytecode)
         ):
             raise ValueError("fork_anchor_invalid")
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
@@ -283,6 +293,28 @@ def run_synthetic_anvil_fork_test(
     else:
         status = "EXECUTED_PASS"
 
+    try:
+        snapshot = build_fork_snapshot(
+            chain_id=31337,
+            block_number=block_number,
+            block_hash=block_hash,
+            contract_address=target_address,
+            runtime_bytecode=runtime_bytecode,
+        )
+        execution_binding = validate_fork_execution_anchor(
+            snapshot,
+            {
+                "source_chain_id": 31337,
+                "fork_chain_id": 31338,
+                "block_number": block_number,
+                "block_hash": block_hash,
+                "contract_address": target_address,
+                "runtime_bytecode_sha256": snapshot["runtime_bytecode_sha256"],
+            },
+        )
+    except ForkSnapshotError:
+        return _result("INVALID_OUTPUT", "synthetic_fork_snapshot_binding_invalid")
+
     result = _result(status)
     result.update({
         "exit_code": observation.exit_code,
@@ -293,6 +325,8 @@ def run_synthetic_anvil_fork_test(
         "compiler_version": compiler_version,
         "compiler_binary_sha256": __import__("hashlib").sha256(compiler_bytes).hexdigest(),
         "compiler_binary_provenance_verified": False,
+        "fork_snapshot": snapshot,
+        "fork_execution_binding": execution_binding,
         "fork_anchor": {
             "block_number": block_number,
             "block_hash": block_hash.lower(),

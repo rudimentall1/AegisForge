@@ -26,7 +26,9 @@ def test_firewall_rules_allow_only_approved_ipv4_rpc_destinations():
 
     assert "table inet aegisforge_gateway_egress" in rules
     assert "ip saddr 172.31.240.2" in rules
+    assert "ip saddr 172.31.240.2 ip daddr @approved_rpc_v4 tcp dport 443 ct state established,related accept" in rules
     assert "ip daddr @approved_rpc_v4 tcp dport 443 ct state new accept" in rules
+    assert "ip saddr 172.31.240.2 ct state established,related accept" not in rules
     assert "ip saddr 172.31.240.2 drop" in rules
     assert "ip daddr 172.31.240.2 drop" in rules
     assert "ip saddr @approved_rpc_v4 ip daddr 172.31.240.2 ct state established,related accept" in rules

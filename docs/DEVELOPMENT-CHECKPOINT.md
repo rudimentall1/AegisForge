@@ -310,3 +310,33 @@ Next engineering sequence:
 4. Only after that contract has tests and real evidence should SecurityChecker consume the result. A generic Anvil smoke pass or packet-path receipt must never confirm a finding.
 
 No VPS, production host, real wallet, live transaction, or production asset was used.
+
+## SecurityChecker validation status clarification — 2026-11-20
+
+Implementation commits:
+- Regression contract first: `4d4c47113c214f02927bfd926be03254dcb2fa62`.
+- Minimal implementation: `da622f5ce85b7e74e8f59f1c52ec979edec29ce4`.
+
+Change:
+- `dynamic_validation_status` now reports `FINDING_SPECIFIC_VALIDATION_NOT_IMPLEMENTED` when findings require dynamic validation.
+- Per-finding results remain `SKIPPED`, but the reason now accurately reports `finding_specific_execution_not_integrated`.
+- The required next step is `implement_finding_specific_fork_execution`.
+- Low-severity findings remain outside this dynamic-validation result list, as before.
+- `dynamic_verified=false` and `confirmed=false` remain unchanged.
+
+Why this matters:
+- The synthetic networkless Anvil smoke runner exists, and the runtime orchestrator can prepare/validate a Compose plan, but neither executes a finding-specific exploit test.
+- The old reason `isolated_fork_runner_not_configured` incorrectly implied that no runner component existed. The new status distinguishes available infrastructure components from the missing finding-specific execution/evidence integration.
+- No synthetic smoke result or packet-path receipt is promoted into finding confirmation.
+
+Verification:
+- Re-fetched both changed source/test files from the branch and statically checked the new status, reason, next-step field, regression assertions, and absence of the stale reason.
+- The pytest regression test was not executed in this session. No test pass is claimed.
+- CI has not yet been assessed for the new implementation commit at checkpoint time.
+
+Next:
+1. Obtain a usable focused-test CI result; if logs are unavailable, do not infer a cause or blindly rerun.
+2. Specify and test a finding-specific execution contract bound to immutable source, normalized finding identity, pinned chain/block hash, exploit preconditions, bounded test payload, runtime identity, transcript, and independent validation.
+3. Keep all runtime and finding confirmation flags false until real finding-specific evidence is independently verified.
+
+PR #206 remains Draft, open, and unmerged. Base branch unchanged. No protected doctrine/policy files were modified. No VPS or production environment was used.

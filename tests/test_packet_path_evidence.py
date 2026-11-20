@@ -92,7 +92,7 @@ def test_packet_path_receipt_validates_observed_ci_evidence_without_promoting_fi
 @pytest.mark.parametrize(
     ("mutate", "reason"),
     [
-        (lambda item: item.pop("runtime_session_id"), "packet_path_session_invalid"),
+        (lambda item: item.pop("runtime_session_id"), "packet_path_receipt_schema_invalid"),
         (lambda item: item.__setitem__("git_commit_sha", "b" * 40), "packet_path_commit_binding_invalid"),
         (lambda item: item.__setitem__("github_run_id", "1"), "packet_path_run_binding_invalid"),
         (lambda item: item["containers"].__setitem__("anvil", "x" * 64), "packet_path_container_id_invalid"),

@@ -54,6 +54,20 @@ def _nft_counter(rule_fragment: str, verdict: str) -> int:
     raise AssertionError(f"firewall_rule_counter_missing:{rule_fragment}")
 
 
+def _docker_exec_output(container_id: str, command: list[str]) -> str:
+    result = subprocess.run(
+        ["docker", "exec", container_id, *command],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
 def _docker_exec_command(
     container_id: str,
     command: list[str],
@@ -205,22 +219,19 @@ def test_real_compose_network_membership_and_internal_service_egress():
 
             _run(["ip", "-o", "link", "show", "br-aegisforge"])
 
-            # Internal RPC paths must work over the real Docker bridge.
-            # The official Foundry image does not include Python; use Bash's
-            # TCP device for a direct connection check from the Anvil namespace.
-            _docker_exec_command(
-                service_ids["anvil"],
-                ["/bin/bash", "-c", "echo > /dev/tcp/anvil-rpc-adapter/8546"],
-                expect_success=True,
-            )
+            # Adapter-to-Gateway traffic must work over the real Docker bridge.
+            # Anvil-to-Adapter TCP behavior is covered by the namespace packet-path
+            # test; this container-level check avoids assuming extra tools in Foundry.
             _docker_exec(
                 service_ids["anvil-rpc-adapter"],
                 "import socket; s=socket.create_connection(('rpc-gateway',8545),3); s.close()",
                 expect_success=True,
             )
 
-            # The two single-homed services must have no default route and must
-            # fail closed on an external destination from their own namespaces.
+            # Neither internal-only service may have a default route. The
+            # Adapter additionally performs a real failed-connect probe from its
+            # own network namespace; Anvil's route table is read without assuming
+            # Python, Bash, curl, or netcat in the official Foundry image.
             _docker_exec(
                 service_ids["anvil-rpc-adapter"],
                 "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
@@ -228,23 +239,15 @@ def test_real_compose_network_membership_and_internal_service_egress():
                 "'internal-only service unexpectedly has a default route'",
                 expect_success=True,
             )
-            _docker_exec_command(
-                service_ids["anvil"],
-                [
-                    "/bin/bash", "-c",
-                    "awk 'NR > 1 && $2 == \"00000000\" { found=1 } END { exit found ? 1 : 0 }' /proc/net/route",
-                ],
-                expect_success=True,
+            anvil_routes = _docker_exec_output(service_ids["anvil"], ["cat", "/proc/net/route"])
+            anvil_route_rows = [line.split() for line in anvil_routes.splitlines()[1:]]
+            assert not any(len(row) > 1 and row[1] == "00000000" for row in anvil_route_rows), (
+                "Anvil unexpectedly has a default route"
             )
             _docker_exec(
                 service_ids["anvil-rpc-adapter"],
                 "import socket; s=socket.socket(); s.settimeout(1); "
                 "s.connect(('8.8.8.8',443))",
-                expect_success=False,
-            )
-            _docker_exec_command(
-                service_ids["anvil"],
-                ["/bin/bash", "-c", "echo > /dev/tcp/8.8.8.8/443"],
                 expect_success=False,
             )
 

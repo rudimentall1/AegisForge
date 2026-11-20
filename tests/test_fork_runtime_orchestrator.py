@@ -63,7 +63,7 @@ def test_prepare_rejects_snapshot_plan_mismatch_before_preparation():
     changed = copy.deepcopy(snapshot)
     changed["block_number"] += 1
 
-    with pytest.raises(ForkRuntimePreparationError, match="snapshot_invalid"):
+    with pytest.raises(ForkRuntimePreparationError, match="snapshot_binding_mismatch"):
         prepare_fork_runtime(changed, plan, _config())
 
 

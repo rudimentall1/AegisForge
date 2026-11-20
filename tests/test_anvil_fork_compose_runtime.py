@@ -15,8 +15,9 @@ import sys
 import tempfile
 from uuid import uuid4
 
-from agents.security_checker.packet_path_evidence import validate_packet_path_receipt
 from pathlib import Path
+
+from agents.security_checker.packet_path_evidence import validate_packet_path_receipt
 
 import pytest
 
@@ -57,13 +58,6 @@ def _nft_counter(rule_fragment: str, verdict: str) -> int:
                 return int(match.group(1))
     raise AssertionError(f"firewall_rule_counter_missing:{rule_fragment}")
 
-
-
-
-
-def _nft_counter_snapshot(rule_fragment: str, verdict: str) -> dict[str, int]:
-    value = _nft_counter(rule_fragment, verdict)
-    return {"packets": value}
 
 
 def _nft_ruleset_sha256() -> str:
@@ -282,32 +276,41 @@ def test_real_compose_network_membership_and_internal_service_egress():
             # digest-pinned Python sidecar image, so both internal-only services
             # can perform namespace-local TCP probes without assuming tools in
             # the production Foundry image.
-            _docker_exec(
-                service_ids["anvil-rpc-adapter"],
-                "import socket; s=socket.create_connection(('rpc-gateway',8545),3); s.close()",
-                expect_success=True,
+            adapter_gateway_internal_connected = _docker_tcp_connects(
+                service_ids["anvil-rpc-adapter"], "rpc-gateway", 8545
             )
-            _docker_exec(
-                service_ids["anvil"],
-                "import socket; s=socket.create_connection(('anvil-rpc-adapter',8546),3); s.close()",
-                expect_success=True,
+            anvil_adapter_internal_connected = _docker_tcp_connects(
+                service_ids["anvil"], "anvil-rpc-adapter", 8546
             )
+            assert adapter_gateway_internal_connected
+            assert anvil_adapter_internal_connected
 
             # Both services must have no default route and must fail a real
             # external TCP connection attempt from their own network namespace.
+            default_route_absent = {}
             for service in ("anvil-rpc-adapter", "anvil"):
-                _docker_exec(
-                    service_ids[service],
-                    "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
-                    "assert not any(line.split()[1]=='00000000' for line in rows), "
-                    "'internal-only service unexpectedly has a default route'",
-                    expect_success=True,
+                route_result = subprocess.run(
+                    [
+                        "docker", "exec", service_ids[service], "python", "-c",
+                        "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
+                        "raise SystemExit(1 if any(line.split()[1]=='00000000' for line in rows) else 0)",
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=10,
+                    check=False,
                 )
-                _docker_exec(
-                    service_ids[service],
-                    "import socket; s=socket.socket(); s.settimeout(1); "
-                    "s.connect(('8.8.8.8',443))",
-                    expect_success=False,
+                default_route_absent[service] = route_result.returncode == 0
+                assert default_route_absent[service], (
+                    f"{service} unexpectedly has a default route: {route_result.stderr}"
+                )
+                external_connected = _docker_tcp_connects(
+                    service_ids[service], "8.8.8.8", 443
+                )
+                assert not external_connected, (
+                    f"{service} unexpectedly established external TCP"
                 )
 
             # Isolation is asserted from Docker's live network state, not from a
@@ -326,7 +329,7 @@ def test_real_compose_network_membership_and_internal_service_egress():
 
                 ruleset_sha256 = _nft_ruleset_sha256()
                 allowed_before = _nft_counter(allowed_rule, "accept")
-                allowed_connected = _docker_tcp_connects(
+                _docker_tcp_connects(
                     service_ids["rpc-gateway"], "8.8.8.8", 443
                 )
                 allowed_after = _nft_counter(allowed_rule, "accept")
@@ -413,11 +416,15 @@ def test_real_compose_network_membership_and_internal_service_egress():
                             "blocked": not denied_connected,
                             "rule_matched": denied_after > denied_before,
                         },
-                        "adapter_gateway_internal": {"connected": True},
-                        "anvil_adapter_internal": {"connected": True},
+                        "adapter_gateway_internal": {
+                            "connected": adapter_gateway_internal_connected
+                        },
+                        "anvil_adapter_internal": {
+                            "connected": anvil_adapter_internal_connected
+                        },
                         "adapter_external_egress": {
                             "blocked": not adapter_external_connected,
-                            "default_route_absent": True,
+                            "default_route_absent": default_route_absent["anvil-rpc-adapter"],
                             "internal_network_only": (
                                 internal["Internal"] is True
                                 and set(adapter_networks) == {f"{project}_fork-internal"}
@@ -425,7 +432,7 @@ def test_real_compose_network_membership_and_internal_service_egress():
                         },
                         "anvil_external_egress": {
                             "blocked": not anvil_external_connected,
-                            "default_route_absent": True,
+                            "default_route_absent": default_route_absent["anvil"],
                             "internal_network_only": (
                                 internal["Internal"] is True
                                 and set(anvil_networks) == {f"{project}_fork-internal"}

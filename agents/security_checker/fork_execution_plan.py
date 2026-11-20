@@ -35,7 +35,7 @@ _PLAN_FIELDS = frozenset(
         "adapter_rpc_url",
         "required_network_profile",
         "timeout_seconds",
-        "transactions_enabled",
+        "external_transactions_enabled",
         "dynamic_verified",
         "confirmed",
     }
@@ -114,7 +114,7 @@ def build_fork_execution_plan(
         "adapter_rpc_url": ADAPTER_RPC_URL,
         "required_network_profile": REQUIRED_NETWORK_PROFILE,
         "timeout_seconds": timeout_seconds,
-        "transactions_enabled": False,
+        "external_transactions_enabled": False,
         "dynamic_verified": False,
         "confirmed": False,
     }

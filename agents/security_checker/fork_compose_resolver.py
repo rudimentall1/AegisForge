@@ -153,10 +153,11 @@ def resolve_anvil_fork_compose(
 
     child_environment = {
         "PATH": os.pathsep.join((str(Path(docker_path).parent), os.defpath)),
-        "HOME": os.environ.get("HOME", "/nonexistent"),
+        "HOME": "/nonexistent",
+        "DOCKER_CONFIG": "/nonexistent",
         **environment,
     }
-    if set(child_environment) - ({"PATH", "HOME"} | _ENVIRONMENT_KEYS):
+    if set(child_environment) - ({"PATH", "HOME", "DOCKER_CONFIG"} | _ENVIRONMENT_KEYS):
         raise ComposeConfigResolutionError("child_environment_invalid")
 
     command = [

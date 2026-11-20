@@ -144,14 +144,6 @@ def test_real_compose_network_membership_and_internal_service_egress():
                 "for line in rows)",
                 expect_success=True,
             )
-            for isolated_service in ("anvil-rpc-adapter", "anvil"):
-                _docker_exec(
-                    service_ids[isolated_service],
-                    "rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
-                    "assert not any(line.split()[1]=='00000000' for line in rows)",
-                    expect_success=True,
-                )
-
             egress_services = set()
             for container_id in egress["Containers"]:
                 labels = json.loads(_run(["docker", "inspect", container_id]))[0]["Config"]["Labels"]

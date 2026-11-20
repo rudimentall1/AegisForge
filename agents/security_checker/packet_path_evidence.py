@@ -20,7 +20,7 @@ _COUNTERS = (
     "gateway_unapproved_egress_drop",
 )
 _PROBES = {
-    "gateway_approved_egress": ("attempted", "rule_matched"),
+    "gateway_approved_egress": ("attempted", "rule_matched", "tcp_connected"),
     "gateway_unapproved_egress": ("attempted", "blocked", "rule_matched"),
     "adapter_gateway_internal": ("connected",),
     "anvil_adapter_internal": ("connected",),
@@ -220,7 +220,11 @@ def validate_packet_path_receipt(
         probe = probes.get(probe_name)
         _require(
             _is_mapping(probe) and set(probe) == set(required_results)
-            and all(probe.get(result_name) is True for result_name in required_results),
+            and all(
+                type(probe.get(result_name)) is bool
+                and (result_name == "tcp_connected" or probe.get(result_name) is True)
+                for result_name in required_results
+            ),
             "packet_path_probe_incomplete",
         )
 

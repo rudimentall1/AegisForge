@@ -162,3 +162,13 @@ def test_validator_rejects_duplicate_yaml_keys_without_silent_overwrite():
 def test_validator_rejects_unpinned_resolved_foundry_image():
     with pytest.raises(ComposeTopologyValidationError, match="foundry_image_not_digest_pinned"):
         validate_anvil_fork_compose(_source(), foundry_image="foundry:latest")
+
+
+
+def test_validator_rejects_relaxed_anvil_resource_limits():
+    source = _mutated_source(
+        lambda doc: doc["services"]["anvil"].update({"pids_limit": 4096})
+    )
+
+    with pytest.raises(ComposeTopologyValidationError, match="anvil_pids_limit_invalid"):
+        _validate(source)

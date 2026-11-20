@@ -1,4 +1,4 @@
-"""Immutable, credential-free contract between snapshot collection and fork runtime.
+"""Deterministic, credential-free contract between snapshot collection and fork runtime.
 
 The plan carries only a validated state anchor and fixed internal service
 addresses. It is not proof that a Docker topology is running or isolated.

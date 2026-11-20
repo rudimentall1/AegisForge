@@ -92,10 +92,13 @@ def test_resolver_runs_only_fixed_compose_config_command_and_validates_json(monk
     assert kwargs["stderr"] == subprocess.DEVNULL
     assert kwargs["timeout"] <= 20
     assert kwargs["env"]["AEGISFORGE_RPC_GATEWAY_TOKEN"] == "s" * 48
+    assert kwargs["env"]["HOME"] == "/nonexistent"
+    assert kwargs["env"]["DOCKER_CONFIG"] == "/nonexistent"
     assert set(kwargs["env"]).issubset(
         {
             "PATH",
             "HOME",
+            "DOCKER_CONFIG",
             "AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL",
             "AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS",
             "AEGISFORGE_RPC_GATEWAY_TOKEN",

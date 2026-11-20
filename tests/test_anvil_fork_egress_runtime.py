@@ -295,7 +295,7 @@ while True:
         for isolated_service in ("aegis-adapter", "aegis-anvil"):
             isolated_drop_before = _nft_counter(
                 "aegis-router",
-                'iifname "br-aegisforge" ip saddr 172.31.240.2',
+                'iifname "br-aegisforge"',
                 "drop",
             )
             external_attempt = _ns(
@@ -308,7 +308,7 @@ while True:
             )
             assert _nft_counter(
                 "aegis-router",
-                'iifname "br-aegisforge" ip saddr 172.31.240.2',
+                'iifname "br-aegisforge"',
                 "drop",
             ) > isolated_drop_before, (
                 f"{isolated_service} external packet did not hit the nftables drop rule"

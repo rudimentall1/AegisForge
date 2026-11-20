@@ -88,3 +88,10 @@ A running container is not proof of a safe egress boundary or a verified vulnera
 The preparation result deliberately does not retain the provider URL or bearer token. It names the three secret inputs that a future runtime launcher must supply through a separate secret channel. Do not serialize secret values into the execution plan, preparation result, logs, or Anvil command line.
 
 This orchestrator is preparation-only: it does not invoke Docker or Compose, create files, start containers, execute transactions, or validate the effective host firewall. A `PREPARED` result is not execution evidence. Keep `runtime_started=false`, `dynamic_verified=false`, and `confirmed=false`; do not promote a finding based on preparation or synthetic test fixtures.
+
+
+## Static Compose topology validation
+
+Before a runtime handoff, call `validate_anvil_fork_compose(source, foundry_image=...)` from `agents.security_checker.fork_compose_validator`. The validator parses YAML with duplicate-key rejection and enforces the exact supported service inventory, network attachments, Gateway route priority, internal-network settings, fixed RPC endpoints, mandatory chain/block interpolation variables, secret separation from Anvil, read-only container controls, bounded resources, health dependencies, and absence of published ports.
+
+The caller must pass the resolved Foundry image reference; it is accepted only as an immutable `@sha256:` digest. The preparation orchestrator now requires this static validation before it can return `PREPARED`. The report is static configuration evidence only: it does not resolve Docker Compose interpolation, inspect a live Docker network, apply or inspect nftables, or prove packet-path isolation. Docker Compose's own config validation and disposable runtime firewall tests remain separate gates.

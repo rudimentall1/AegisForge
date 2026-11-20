@@ -54,7 +54,15 @@ def _ns(
 
 
 def _nft_counter(namespace: str, rule_fragment: str, verdict: str) -> int:
-    output = _ns(\n        namespace, "nft", "list", "chain", "inet",\n        "aegisforge_gateway_egress", "forward_guard"\n    ).stdout
+    output = _ns(
+        namespace,
+        "nft",
+        "list",
+        "chain",
+        "inet",
+        "aegisforge_gateway_egress",
+        "forward_guard",
+    ).stdout
     for line in output.splitlines():
         if rule_fragment in line and line.rstrip().endswith(verdict):
             match = re.search(r"counter packets (\d+)", line)

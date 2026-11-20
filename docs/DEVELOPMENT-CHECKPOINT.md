@@ -132,3 +132,42 @@ The test now performs, from the Anvil container namespace:
 The Adapter retains its real Gateway TCP connection, default-route assertion, and failed external connection probe. These are integration-test assertions only; they do not imply a successful run. The fixture contract was checked in the repository: Anvil is overridden to the digest-pinned Python image, so these probes do not depend on Python being present in the production Foundry image.
 
 CI status for this new implementation commit is pending observation. No test was run locally or on a server. No runtime state was promoted.
+
+
+## Packet Path Evidence Receipt — schema and validator stage — 2026-11-20
+
+Test contract commit: `d94a493b083868358e18c16005632ca353c1332d`.
+Validator implementation commit: `cf46f255fe0ea756c6e8a030c4f9a4b4f22e9197`.
+Validator hardening commits: `ebfeacdacc2e7b2e34ba8b4b0406e092947daa73` and `bf6ce37ae45c02bd12e45a14973fdfef3749f3c0`.
+
+Added:
+- `tests/test_packet_path_evidence.py`: receipt contract tests for exact service/probe inventory, UUID session identity, commit/run binding, container/network IDs, firewall ruleset digest, positive nftables counter deltas, and required probe outcomes.
+- `agents/security_checker/packet_path_evidence.py`: fail-closed validator for the disposable Docker packet-path receipt.
+- The validator binds evidence to the expected Git commit, GitHub Actions run ID, and run attempt.
+- The validator requires distinct full container/network IDs, a SHA-256 ruleset identity, increasing allow/drop counters, and all six required probe observations.
+- The report is explicitly limited to `PACKET_PATH_RECEIPT_VALIDATED`; it always keeps `runtime_isolation_verified=false`, `dynamic_verified=false`, and `confirmed=false`.
+
+Important scope limitation:
+- This is the receipt schema and validation layer only. The Docker integration test does not yet emit this receipt, the workflow does not yet upload it, and no receipt has been observed from a real CI run.
+- The tests were authored and committed but have not been executed in this environment. No passing test or CI result is claimed.
+- This receipt is not yet connected to a finding-specific Anvil fork execution and cannot promote a vulnerability finding.
+
+CI observations:
+- The latest observed runs associated with the earlier checkpoint commit `e994b4da7aa82d83009b177c04485d17144596fe` were AegisForge CI run `44712559237` and Foundry runner integration run `44712559105`; both concluded `failure`.
+- Their job summaries exposed `steps: null` and no usable log URL. The failure cause remains unknown and is not attributed to the new receipt code.
+- No workflow runs were returned for the latest validator hardening commit `bf6ce37ae45c02bd12e45a14973fdfef3749f3c0` at checkpoint time. No blind rerun was started.
+
+Repository state at this checkpoint:
+- PR #206 remains open; its description identifies it as a Draft PR. Do not merge or change its base.
+- Head branch: `feat/anvil-fork-research-engine`.
+- Base branch: `feat/aegisforge-working-state-2026-11-18`.
+- Compare: 247 commits ahead, 0 behind, 36 changed files.
+- No protected doctrine/policy file was changed in this stage.
+- No VPS, production host, wallet, or live asset was used.
+
+Next implementation stage:
+1. Instrument the disposable Docker Compose test to capture the runtime session ID, actual container IDs, Docker network IDs, canonical nftables ruleset SHA-256, counter snapshots, and probe outcomes.
+2. Ensure receipt values are captured from observed runtime state only; do not synthesize successful results.
+3. Write the receipt to a temporary CI artifact path and upload it only from the disposable GitHub-hosted integration job.
+4. Add a test that validates the generated artifact against `GITHUB_SHA`, `GITHUB_RUN_ID`, and `GITHUB_RUN_ATTEMPT`.
+5. Keep all finding/runtime promotion flags false until a separate finding-specific evidence design is implemented and verified.

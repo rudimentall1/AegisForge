@@ -124,6 +124,22 @@ def _is_mapping(value: object) -> bool:
     return isinstance(value, dict) and all(isinstance(key, str) for key in value)
 
 
+def _resolved_dependency_matches(value: object, service_name: str) -> bool:
+    if not _is_mapping(value):
+        return False
+    if set(value) not in (
+        {"condition"},
+        {"condition", "required"},
+        {"condition", "required", "restart"},
+    ):
+        return False
+    return (
+        value.get("condition") == "service_healthy"
+        and value.get("required", True) is True
+        and value.get("restart", False) is False
+    )
+
+
 def _validate_service_security(name: str, service: dict) -> None:
     limits = {
         "rpc-gateway": (64, "256m", 1.0, "/tmp:rw,noexec,nosuid,size=16m"),
@@ -603,11 +619,19 @@ def validate_resolved_anvil_fork_compose(
         "resolved_rpc_egress_network_invalid",
     )
 
+    adapter_dependencies = adapter.get("depends_on")
+    anvil_dependencies = anvil.get("depends_on")
     _require(
-        adapter.get("depends_on")
-        == {"rpc-gateway": {"condition": "service_healthy"}}
-        and anvil.get("depends_on")
-        == {"anvil-rpc-adapter": {"condition": "service_healthy"}},
+        _is_mapping(adapter_dependencies)
+        and set(adapter_dependencies) == {"rpc-gateway"}
+        and _resolved_dependency_matches(
+            adapter_dependencies["rpc-gateway"], "rpc-gateway"
+        )
+        and _is_mapping(anvil_dependencies)
+        and set(anvil_dependencies) == {"anvil-rpc-adapter"}
+        and _resolved_dependency_matches(
+            anvil_dependencies["anvil-rpc-adapter"], "anvil-rpc-adapter"
+        ),
         "resolved_service_dependency_invalid",
     )
     expected_healthchecks = {

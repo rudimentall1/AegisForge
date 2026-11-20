@@ -116,3 +116,19 @@ Implementation commit `e9f83ac670002e530581fc47f54aa420e3ad4e2d` produced:
 The integration job again has `steps: null`; the dedicated step endpoint returned no usable step details, and downloading the job log returned `BlobNotFound`. The failure remains undiagnosed. The checkpoint-only commit `5aa9bf49fc73e4459927bdcb6d20359ede695c81` has no associated workflow runs in the commit-runs response at the time of this update.
 
 Do not claim that the probe portability correction fixed CI. The next engineering action is to obtain usable Actions logs or reproduce the failing workflow in an authorized disposable CI environment; do not repeatedly rerun jobs whose logs are unavailable.
+
+
+## Anvil + Adapter container-level isolation probes — 2026-11-20
+
+Implementation commit: `e53a2c7074d45ce8c61657497484869353b6ed0e`.
+
+The Compose integration test fixture explicitly replaces the Anvil service image with the same digest-pinned Python sidecar image used for the test Adapter. The previous test did not take advantage of that fixture contract: it checked Anvil's route table but performed an external failed-connect probe only from Adapter, and it did not exercise Anvil-to-Adapter TCP in the real Docker topology.
+
+The test now performs, from the Anvil container namespace:
+- a real TCP connection to `anvil-rpc-adapter:8546`;
+- a default-route absence assertion;
+- a real failed TCP connection attempt to `8.8.8.8:443`.
+
+The Adapter retains its real Gateway TCP connection, default-route assertion, and failed external connection probe. These are integration-test assertions only; they do not imply a successful run. The fixture contract was checked in the repository: Anvil is overridden to the digest-pinned Python image, so these probes do not depend on Python being present in the production Foundry image.
+
+CI status for this new implementation commit is pending observation. No test was run locally or on a server. No runtime state was promoted.

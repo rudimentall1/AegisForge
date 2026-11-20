@@ -124,6 +124,12 @@ def _is_mapping(value: object) -> bool:
 
 
 def _validate_service_security(name: str, service: dict) -> None:
+    limits = {
+        "rpc-gateway": (64, "256m", 1.0, "/tmp:rw,noexec,nosuid,size=16m"),
+        "anvil-rpc-adapter": (64, "256m", 1.0, "/tmp:rw,noexec,nosuid,size=16m"),
+        "anvil": (128, "1g", 2.0, "/tmp:rw,noexec,nosuid,size=64m"),
+    }
+    expected_pids, expected_memory, expected_cpus, expected_tmpfs = limits[name]
     _require(service.get("read_only") is True, f"{name}_read_only_required")
     _require(service.get("cap_drop") == ["ALL"], f"{name}_capabilities_invalid")
     _require(
@@ -131,30 +137,17 @@ def _validate_service_security(name: str, service: dict) -> None:
         f"{name}_security_options_invalid",
     )
     _require(
-        isinstance(service.get("pids_limit"), int)
-        and not isinstance(service.get("pids_limit"), bool)
-        and service["pids_limit"] > 0,
+        service.get("pids_limit") == expected_pids
+        and not isinstance(service.get("pids_limit"), bool),
         f"{name}_pids_limit_invalid",
     )
+    _require(service.get("mem_limit") == expected_memory, f"{name}_memory_limit_invalid")
     _require(
-        isinstance(service.get("mem_limit"), str)
-        and re.fullmatch(r"[1-9][0-9]*(?:m|g)", service["mem_limit"]),
-        f"{name}_memory_limit_invalid",
-    )
-    _require(
-        isinstance(service.get("cpus"), (int, float))
-        and not isinstance(service.get("cpus"), bool)
-        and service["cpus"] > 0,
+        service.get("cpus") == expected_cpus
+        and not isinstance(service.get("cpus"), bool),
         f"{name}_cpu_limit_invalid",
     )
-    tmpfs = service.get("tmpfs")
-    _require(
-        isinstance(tmpfs, list)
-        and len(tmpfs) == 1
-        and isinstance(tmpfs[0], str)
-        and re.fullmatch(r"/tmp:rw,noexec,nosuid,size=[1-9][0-9]*m", tmpfs[0]),
-        f"{name}_tmpfs_invalid",
-    )
+    _require(service.get("tmpfs") == [expected_tmpfs], f"{name}_tmpfs_invalid")
 
 
 def validate_anvil_fork_compose(

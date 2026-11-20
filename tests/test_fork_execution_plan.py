@@ -45,7 +45,7 @@ def test_execution_plan_binds_snapshot_and_uses_fixed_internal_endpoints():
     assert plan["anvil_rpc_url"] == "http://anvil:8545"
     assert plan["adapter_rpc_url"] == "http://anvil-rpc-adapter:8546"
     assert plan["required_network_profile"] == "gateway_mediated_internal_v1"
-    assert plan["transactions_enabled"] is False
+    assert plan["external_transactions_enabled"] is False
     assert plan["dynamic_verified"] is False
     assert plan["confirmed"] is False
     assert validate_fork_execution_plan(plan, snapshot) == plan
@@ -99,7 +99,7 @@ def test_execution_plan_rejects_unexpected_fields():
     [
         ("anvil_rpc_url", "http://attacker.example:8545"),
         ("adapter_rpc_url", "http://127.0.0.1:8546"),
-        ("transactions_enabled", True),
+        ("external_transactions_enabled", True),
         ("dynamic_verified", True),
         ("confirmed", True),
     ],

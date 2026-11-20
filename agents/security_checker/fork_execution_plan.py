@@ -146,3 +146,19 @@ def validate_fork_execution_plan(plan: object, snapshot: dict) -> dict:
     if plan != expected:
         raise ForkExecutionPlanError("snapshot_binding_mismatch")
     return dict(expected)
+
+
+def build_fork_runtime_compose_environment(
+    plan: object,
+    snapshot: dict,
+) -> dict[str, str]:
+    """Project validated plan anchors into the minimal Compose environment.
+
+    Gateway credentials and provider configuration are deliberately supplied
+    through a separate secret/configuration channel, never through the plan.
+    """
+    validated = validate_fork_execution_plan(plan, snapshot)
+    return {
+        "AEGISFORGE_ANVIL_CHAIN_ID": str(validated["fork_chain_id"]),
+        "AEGISFORGE_ANVIL_FORK_BLOCK_NUMBER": str(validated["block_number"]),
+    }

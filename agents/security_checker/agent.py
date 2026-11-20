@@ -654,7 +654,7 @@ class SecurityChecker:
             "name": name,
             "dynamic_validation": dynamic_validation,
             "dynamic_validation_status": (
-                "ISOLATED_RUNNER_REQUIRED" if findings else "NOT_REQUIRED"
+                "FINDING_SPECIFIC_VALIDATION_NOT_IMPLEMENTED" if findings else "NOT_REQUIRED"
             ),
             "analysis_tool_status": analysis_tool_status,
             "url": developer_review.get("url"),
@@ -828,8 +828,8 @@ class SecurityChecker:
                     "dynamic_verified": False,
                     "confirmed": False,
                     "status": "SKIPPED",
-                    "reason": "isolated_fork_runner_not_configured",
-                    "required_next_step": "isolated_anvil_fork_runner",
+                    "reason": "finding_specific_execution_not_integrated",
+                    "required_next_step": "implement_finding_specific_fork_execution",
                 })
         return validation_results
 

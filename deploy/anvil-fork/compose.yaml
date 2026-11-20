@@ -1,0 +1,111 @@
+name: aegisforge-anvil-fork
+
+services:
+  rpc-gateway:
+    image: aegisforge-rpc-sidecar:local
+    environment:
+      AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL: ${AEGISFORGE_RPC_GATEWAY_UPSTREAM_URL:?Set the approved HTTPS RPC URL}
+      AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS: ${AEGISFORGE_RPC_GATEWAY_ALLOWED_HOSTS:?Set exact approved RPC DNS hosts}
+      AEGISFORGE_RPC_GATEWAY_TOKEN: ${AEGISFORGE_RPC_GATEWAY_TOKEN:?Set a random gateway bearer token}
+      AEGISFORGE_RPC_GATEWAY_BIND_HOST: "0.0.0.0"
+      AEGISFORGE_RPC_GATEWAY_PORT: "8545"
+    networks:
+      fork-internal:
+        aliases:
+          - rpc-gateway
+      rpc-egress:
+        ipv4_address: 172.31.240.2
+        gw_priority: 1
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8545),2); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+
+  anvil-rpc-adapter:
+    image: aegisforge-rpc-sidecar:local
+    entrypoint: ["python", "-m", "agents.security_checker.anvil_rpc_adapter"]
+    environment:
+      AEGISFORGE_ANVIL_GATEWAY_URL: "http://rpc-gateway:8545/rpc"
+      AEGISFORGE_ANVIL_GATEWAY_TOKEN: ${AEGISFORGE_RPC_GATEWAY_TOKEN:?Set a random gateway bearer token}
+      AEGISFORGE_ANVIL_ADAPTER_BIND_HOST: "0.0.0.0"
+      AEGISFORGE_ANVIL_ADAPTER_PORT: "8546"
+    depends_on:
+      rpc-gateway:
+        condition: service_healthy
+    networks:
+      - fork-internal
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8546),2); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+
+  anvil:
+    image: ${AEGISFORGE_FOUNDRY_IMAGE:?Set AEGISFORGE_FOUNDRY_IMAGE to an immutable Foundry image digest}
+    entrypoint: ["anvil"]
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8545"
+      - "--chain-id"
+      - ${AEGISFORGE_ANVIL_CHAIN_ID:?Set the explicit fork chain ID from the execution plan}
+      - "--fork-url"
+      - "http://anvil-rpc-adapter:8546"
+      - "--fork-block-number"
+      - ${AEGISFORGE_ANVIL_FORK_BLOCK_NUMBER:?Set an exact fork block number}
+    depends_on:
+      anvil-rpc-adapter:
+        condition: service_healthy
+    networks:
+      - fork-internal
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2.0
+
+networks:
+  fork-internal:
+    internal: true
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: 172.30.240.0/24
+  rpc-egress:
+    driver: bridge
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: br-aegisforge
+      com.docker.network.bridge.enable_icc: "false"
+    ipam:
+      config:
+        - subnet: 172.31.240.0/28

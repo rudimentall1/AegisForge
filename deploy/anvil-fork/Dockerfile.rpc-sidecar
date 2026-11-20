@@ -1,0 +1,18 @@
+# PYTHON_IMAGE must be supplied as an immutable tag@sha256 reference.
+ARG PYTHON_IMAGE
+FROM ${PYTHON_IMAGE}
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+COPY --chown=65532:65532 agents/__init__.py /app/agents/__init__.py
+COPY --chown=65532:65532 agents/security_checker/__init__.py /app/agents/security_checker/__init__.py
+COPY --chown=65532:65532 agents/security_checker/rpc_gateway.py /app/agents/security_checker/rpc_gateway.py
+COPY --chown=65532:65532 agents/security_checker/anvil_rpc_adapter.py /app/agents/security_checker/anvil_rpc_adapter.py
+
+USER 65532:65532
+
+ENTRYPOINT ["python", "-m", "agents.security_checker.rpc_gateway"]

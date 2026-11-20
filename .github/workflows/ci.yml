@@ -9,14 +9,20 @@ on:
     branches:
       - main
       - master
+      - feat/aegisforge-working-state-2026-11-18
 
 permissions:
   contents: read
+
+concurrency:
+  group: aegisforge-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     name: Python and EVM Key Forensics tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -33,7 +39,7 @@ jobs:
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
-          pip install pytest
+          pip install pytest pytest-timeout
 
       - name: Install C++ compiler
         run: |
@@ -259,7 +265,7 @@ jobs:
       - name: Run tests
         run: |
           set -o pipefail
-          python -m pytest -q --tb=short 2>&1 | tee pytest.log
+          python -m pytest -vv --timeout=180 --timeout-method=signal --tb=short 2>&1 | tee pytest.log
 
       - name: Upload EVM Key Forensics evidence
         if: success()

@@ -1,7 +1,7 @@
 from agents.security_checker.agent import SecurityChecker
 
 
-def test_foundry_validation_is_skipped_until_an_isolated_runner_exists():
+def test_foundry_validation_reports_missing_finding_specific_integration():
     checker = SecurityChecker.__new__(SecurityChecker)
     findings = [
         {"rule": "reentrancy", "severity": "HIGH"},
@@ -19,7 +19,11 @@ def test_foundry_validation_is_skipped_until_an_isolated_runner_exists():
     assert all(item["dynamic_verified"] is False for item in results)
     assert all(item["status"] == "SKIPPED" for item in results)
     assert all(
-        item["reason"] == "isolated_fork_runner_not_configured"
+        item["reason"] == "finding_specific_execution_not_integrated"
+        for item in results
+    )
+    assert all(
+        item["required_next_step"] == "implement_finding_specific_fork_execution"
         for item in results
     )
 
@@ -34,6 +38,8 @@ def test_foundry_validation_never_claims_a_finding_is_confirmed():
 
     assert results[0]["dynamic_verified"] is False
     assert results[0]["confirmed"] is False
+    assert results[0]["status"] == "SKIPPED"
+    assert results[0]["reason"] == "finding_specific_execution_not_integrated"
 
 
 def test_security_checker_materializes_source_files_before_running_slither(monkeypatch):
@@ -127,5 +133,5 @@ def test_security_checker_materializes_source_files_before_running_slither(monke
     assert result["analysis_tool_status"]["slither"] == "COMPLETED"
     assert result["analysis_scope"] == "pattern_scan_and_slither_static_analysis"
     assert result["finding_summary"]["high"] == 1
-    assert result["dynamic_validation_status"] == "ISOLATED_RUNNER_REQUIRED"
+    assert result["dynamic_validation_status"] == "FINDING_SPECIFIC_VALIDATION_NOT_IMPLEMENTED"
     assert result["dynamic_validation"][0]["dynamic_verified"] is False

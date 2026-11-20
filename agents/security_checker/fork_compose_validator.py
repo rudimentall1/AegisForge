@@ -157,7 +157,13 @@ def validate_anvil_fork_compose(
 ) -> ComposeTopologyValidationReport:
     """Validate Compose source and the resolved digest-pinned Foundry image."""
 
-    if not isinstance(source, str) or not source or len(source.encode("utf-8")) > 262144:
+    if not isinstance(source, str) or not source:
+        raise ComposeTopologyValidationError("compose_source_invalid")
+    try:
+        source_size = len(source.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise ComposeTopologyValidationError("compose_source_invalid") from exc
+    if source_size > 262144:
         raise ComposeTopologyValidationError("compose_source_invalid")
     if not isinstance(foundry_image, str) or not _DIGEST_IMAGE.fullmatch(foundry_image):
         raise ComposeTopologyValidationError("foundry_image_not_digest_pinned")
@@ -293,12 +299,21 @@ def validate_anvil_fork_compose(
         "rpc_egress_network_invalid",
     )
 
+    expected_healthchecks = {
+        "rpc-gateway": [
+            "CMD", "python", "-c",
+            "import socket; s=socket.create_connection(('127.0.0.1',8545),2); s.close()",
+        ],
+        "anvil-rpc-adapter": [
+            "CMD", "python", "-c",
+            "import socket; s=socket.create_connection(('127.0.0.1',8546),2); s.close()",
+        ],
+    }
     for name, service in (("rpc-gateway", gateway), ("anvil-rpc-adapter", adapter)):
         healthcheck = service.get("healthcheck")
         _require(
             _is_mapping(healthcheck)
-            and isinstance(healthcheck.get("test"), list)
-            and healthcheck["test"][:2] == ["CMD", "python"]
+            and healthcheck.get("test") == expected_healthchecks[name]
             and healthcheck.get("interval") == "5s"
             and healthcheck.get("timeout") == "3s"
             and healthcheck.get("retries") == 12

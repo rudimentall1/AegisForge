@@ -22,12 +22,12 @@ The Compose file uses the `gw_priority` network attribute to make `rpc-egress` t
 
 Docker Compose does not enforce an approved-provider IP allowlist. In this scaffold, the Gateway's application layer validates an exact HTTPS hostname allowlist, resolves and pins public DNS answers, and verifies TLS hostnames. However, the `rpc-egress` bridge itself can route to arbitrary destinations unless the Docker host enforces an outbound firewall policy.
 
-The egress bridge has inter-container communication disabled and a stable bridge name. Keep this network dedicated to the Gateway; do not attach diagnostic or utility containers to it. The firewall matches the Gateway private source IP and the Docker bridge should contain only this one service.
+The egress bridge has inter-container communication disabled and a stable bridge name (`br-aegisforge`). Keep this network dedicated to the Gateway; do not attach diagnostic or utility containers to it. The firewall rules are scoped to packets entering or leaving this exact bridge: this is essential because the Gateway must still communicate with the Adapter over `fork-internal`. The rules match the Gateway private address and should be reviewed if either the bridge name or network topology changes.
 
 Before running this topology with a real provider:
 
-1. Configure the host firewall to permit new outbound TCP connections from the Gateway container address `172.31.240.2` only to the provider's current, independently verified IPv4 CIDR ranges (the installer rejects prefixes broader than /16) on port 443.
-2. Deny all other new forwarded traffic sourced from `172.31.240.2`; allow established return traffic.
+1. Configure the host firewall to permit outbound TCP connections traversing `br-aegisforge` from Gateway address `172.31.240.2` only to the provider's current, independently verified IPv4 CIDR ranges (the installer rejects prefixes broader than /16) on port 443.
+2. Permit established return traffic entering `br-aegisforge` only when its source is in the approved provider CIDRs. Drop other traffic to or from the Gateway address on that bridge. Traffic on `fork-internal` is intentionally outside these egress rules so Adapter-to-Gateway RPC remains functional.
 3. Preserve DNS resolution only through the Docker embedded resolver / host resolver path required by the deployment. Do not give the Gateway unrestricted direct DNS egress.
 4. Verify the effective rules against the actual Docker firewall backend (iptables-nft or native nftables), including Docker chain ordering and IPv6 behavior.
 5. From each container, prove that Anvil and Adapter cannot reach an external test endpoint, that Gateway can reach the approved provider, and that Gateway cannot reach an unapproved public IP or port.

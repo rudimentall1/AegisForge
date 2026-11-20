@@ -365,3 +365,19 @@ def test_adapter_cli_fails_closed_on_invalid_environment(monkeypatch, name, valu
 
     with pytest.raises(AnvilRpcAdapterError):
         adapter.run_adapter_from_environment()
+
+
+@pytest.mark.parametrize("bind_host", ["192.0.2.10", "::", "localhost"])
+def test_adapter_server_rejects_non_internal_bind_addresses(bind_host):
+    from agents.security_checker.anvil_rpc_adapter import (
+        AnvilRpcAdapterError,
+        create_anvil_rpc_adapter_server,
+    )
+
+    with pytest.raises(AnvilRpcAdapterError, match="listener_bind_host_not_allowed"):
+        create_anvil_rpc_adapter_server(
+            "http://gateway:8545/rpc",
+            "x" * 40,
+            bind_host=bind_host,
+            port=0,
+        )

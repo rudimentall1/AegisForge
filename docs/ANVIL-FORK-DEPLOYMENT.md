@@ -98,3 +98,10 @@ The caller must pass the resolved Foundry image reference; it is accepted only a
 
 
 The orchestrator's `compose_source` argument is mandatory. It invokes the static validator itself and refuses to return `PREPARED` if the Compose template or resolved Foundry digest fails validation. The resulting `compose_validation` field is a static-only receipt; it is not evidence that Docker accepted the configuration or that the network policy is effective.
+
+
+## Effective Compose configuration gate
+
+Static YAML validation is not the final preparation gate. The caller must also obtain the effective configuration using `docker compose --env-file <controlled-env-file> -f deploy/anvil-fork/compose.yaml config --format json` and pass the parsed mapping as `resolved_compose` to `prepare_fork_runtime()`. The orchestrator compares resolved Gateway and Adapter secrets in memory, the exact provider URL and host allowlist, the resolved Foundry digest, chain ID, fork block, network membership, network settings, container restrictions, health checks, and dependency conditions.
+
+The resolved report contains no secret values. It is still static evidence: Compose has rendered configuration, but no containers have started and no live firewall or packet path has been verified. Do not log the resolved Compose JSON or upload it as a CI artifact because it contains the Gateway token and provider URL. A future executor must capture it in memory or in a tightly controlled temporary location and remove it securely after validation.

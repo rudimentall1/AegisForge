@@ -24,7 +24,7 @@ def validate_provider_network(value: str) -> ipaddress.IPv4Network:
     if (
         not isinstance(network, ipaddress.IPv4Network)
         or not network.is_global
-        or network.prefixlen < 8
+        or network.prefixlen < 16
     ):
         raise ValueError("provider_cidr_not_public_unicast")
     return network
@@ -46,7 +46,7 @@ def build_rules(
     if any(
         not isinstance(network, ipaddress.IPv4Network)
         or not network.is_global
-        or network.prefixlen < 8
+        or network.prefixlen < 16
         for network in provider_networks
     ):
         raise ValueError("provider_allowlist_invalid")

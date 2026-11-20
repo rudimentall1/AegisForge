@@ -257,3 +257,33 @@ def test_prepare_rejects_resolved_compose_secret_or_runtime_mismatch(monkeypatch
     )
     with pytest.raises(ForkRuntimePreparationError, match="resolved_gateway_secret_mismatch"):
         _prepare(snapshot, plan, config)
+
+
+def test_prepare_resolves_compose_against_the_validated_execution_plan(monkeypatch):
+    observed = {}
+
+    def resolver(*, runtime_config, fork_chain_id, fork_block_number):
+        observed["fork_chain_id"] = fork_chain_id
+        observed["fork_block_number"] = fork_block_number
+        return _resolved_compose(
+            runtime_config,
+            {
+                "fork_chain_id": fork_chain_id,
+                "block_number": fork_block_number,
+            },
+        )
+
+    monkeypatch.setattr(
+        "agents.security_checker.fork_runtime_orchestrator.resolve_anvil_fork_compose",
+        resolver,
+    )
+    snapshot = _snapshot()
+    plan = build_fork_execution_plan(snapshot, fork_chain_id=31338)
+
+    prepared = _prepare(snapshot, plan, _config())
+
+    assert observed == {
+        "fork_chain_id": 31338,
+        "fork_block_number": 123456,
+    }
+    assert prepared.compose_validation.state == "RESOLVED_STATIC_VALIDATED"

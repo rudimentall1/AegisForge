@@ -48,6 +48,7 @@ def test_anvil_and_adapter_share_only_the_internal_fork_network():
     assert "fork-internal" in adapter
     assert "fork-internal" in anvil
     assert "internal: true" in source
+    assert source.count("enable_ipv6: false") == 2
 
 
 def test_images_are_required_as_immutable_user_supplied_references():

@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 import ipaddress
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -50,6 +51,16 @@ def _ns(
         "ip", "netns", "exec", namespace, *args,
         check=check, input_text=input_text,
     )
+
+
+def _nft_counter(namespace: str, rule_fragment: str, verdict: str) -> int:
+    output = _ns(namespace, "nft", "list", "chain", "inet", "aegisforge_gateway_egress", "forward_guard").stdout
+    for line in output.splitlines():
+        if rule_fragment in line and line.rstrip().endswith(verdict):
+            match = re.search(r"counter packets (\\d+)", line)
+            if match:
+                return int(match.group(1))
+    raise AssertionError(f"firewall_rule_counter_missing:{rule_fragment}")
 
 
 def _wait_for_listener(namespace: str, address: str, port: int) -> None:
@@ -203,6 +214,13 @@ while True:
             provider_networks=[ipaddress.ip_network("8.8.8.8/32")],
         )
         _ns("aegis-router", "nft", "-f", "-", input_text=rules)
+        provider_reply_rule = (
+            'oifname "br-aegisforge" ip saddr @approved_rpc_v4 '
+            'ip daddr 172.31.240.2 ct state established,related'
+        )
+        provider_reply_before = _nft_counter(
+            "aegis-router", provider_reply_rule, "accept"
+        )
 
         allowed = _ns(
             "aegis-gateway", "python", "-c",
@@ -210,6 +228,11 @@ while True:
             check=False,
         )
         assert allowed.returncode == 0, allowed.stderr
+        assert _nft_counter(
+            "aegis-router", provider_reply_rule, "accept"
+        ) > provider_reply_before, (
+            "approved provider reply did not match the established-return allow rule"
+        )
 
         denied_ip = _ns(
             "aegis-gateway", "python", "-c",

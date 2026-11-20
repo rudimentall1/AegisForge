@@ -111,6 +111,9 @@ networks:
         - subnet: 172.30.240.0/24
   rpc-egress:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-aegisforge-egress
+      com.docker.network.bridge.enable_icc: "false"
     ipam:
       config:
         - subnet: 172.31.240.0/28

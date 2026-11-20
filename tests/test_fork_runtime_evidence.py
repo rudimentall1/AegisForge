@@ -202,8 +202,9 @@ def test_runtime_collector_uses_read_only_inspect_commands_and_returns_sanitized
     ]
     assert calls[1][0] == ["/usr/bin/docker", "inspect", *container_ids]
     assert calls[2][0] == [
-        "/usr/bin/docker", "network", "ls", "-q",
+        "/usr/bin/docker", "network", "ls",
         "--filter", f"label=com.docker.compose.project={PROJECT}",
+        "--format", "{{.Name}}",
     ]
     assert calls[3][0] == ["/usr/bin/docker", "network", "inspect", *network_names]
     assert calls[4][0] == [

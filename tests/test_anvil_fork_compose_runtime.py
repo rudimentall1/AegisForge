@@ -128,6 +128,18 @@ def test_real_compose_network_membership_and_internal_service_egress():
                 ],
                 timeout=180,
             )
+            # Create networks and containers first, but do not start services yet.
+            # The host egress policy must be installed before the dual-homed Gateway
+            # can emit any packets onto br-aegisforge.
+            _run(compose + ["create"], timeout=120)
+            if firewall_runtime:
+                _run(
+                    [
+                        "sudo", "-n", sys.executable, str(FIREWALL_SCRIPT),
+                        "--apply", "--provider-cidr", "8.8.8.8/32",
+                    ]
+                )
+                firewall_applied = True
             _run(compose + ["up", "--detach", "--wait", "--wait-timeout", "60"], timeout=120)
 
             service_ids = {
@@ -192,6 +204,20 @@ def test_real_compose_network_membership_and_internal_service_egress():
                 expect_success=True,
             )
 
+            # The two single-homed services must have no default route and must
+            # fail closed on an external destination from their own namespaces.
+            for service in ("anvil-rpc-adapter", "anvil"):
+                _docker_exec(
+                    service_ids[service],
+                    "import socket; rows=open('/proc/net/route',encoding='ascii').read().splitlines()[1:]; "
+                    "assert not any(line.split()[1]=='00000000' for line in rows), "
+                    "'internal-only service unexpectedly has a default route'; "
+                    "s=socket.socket(); s.settimeout(1); "
+                    "exec('try:\\n s.connect((\\\"8.8.8.8\\\",443))\\n'
+                    "except OSError:\\n pass\\nelse:\\n raise AssertionError('external egress unexpectedly succeeded')\\nfinally:\\n s.close()')",
+                    expect_success=True,
+                )
+
             # Isolation is asserted from Docker's live network state, not from a
             # failed connection to an arbitrary public IP (which could be down).
             # Both services have exactly one attachment, to a Docker Internal network.
@@ -200,14 +226,6 @@ def test_real_compose_network_membership_and_internal_service_egress():
             assert set(anvil_networks) == {f"{project}_fork-internal"}
 
             if firewall_runtime:
-                _run(
-                    [
-                        "sudo", "-n", sys.executable, str(FIREWALL_SCRIPT),
-                        "--apply", "--provider-cidr", "8.8.8.8/32",
-                    ]
-                )
-                firewall_applied = True
-
                 allowed_rule = (
                     'iifname "br-aegisforge" ip saddr 172.31.240.2 '
                     "ip daddr @approved_rpc_v4 tcp dport 443 ct state new"

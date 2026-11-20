@@ -110,13 +110,6 @@ def build_fork_snapshot_from_rpc(
     read-only gateway. This prevents labeling latest-state code as historical.
     """
     if (
-        isinstance(expected_fork_chain_id, bool)
-        or not isinstance(expected_fork_chain_id, int)
-        or expected_fork_chain_id <= 0
-    ):
-        raise ForkSnapshotError("fork_execution_chain_configuration_invalid")
-
-    if (
         not isinstance(expected_response_ids, tuple)
         or len(expected_response_ids) != 3
         or any(
@@ -435,6 +428,13 @@ def validate_fork_execution_rpc_observation(
         raise ForkSnapshotError("fork_snapshot_invalid") from exc
     if normalized != snapshot:
         raise ForkSnapshotError("fork_snapshot_invalid")
+
+    if (
+        isinstance(expected_fork_chain_id, bool)
+        or not isinstance(expected_fork_chain_id, int)
+        or expected_fork_chain_id <= 0
+    ):
+        raise ForkSnapshotError("fork_execution_chain_configuration_invalid")
 
     if (
         not isinstance(expected_response_ids, tuple)

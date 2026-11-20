@@ -139,7 +139,7 @@ def test_rpc_observation_rejects_fork_state_not_matching_snapshot(
             code_response=observed["code"],
             code_request=observed["request"],
             expected_fork_chain_id=31602,
-        expected_response_ids=("fork-chain", "fork-block", "fork-code"),
+            expected_response_ids=("fork-chain", "fork-block", "fork-code"),
         )
 
 
@@ -158,7 +158,7 @@ def test_rpc_observation_rejects_code_request_for_different_contract_or_block():
             code_response=observed["code"],
             code_request=observed["request"],
             expected_fork_chain_id=31602,
-        expected_response_ids=("fork-chain", "fork-block", "fork-code"),
+            expected_response_ids=("fork-chain", "fork-block", "fork-code"),
         )
 
 
@@ -177,7 +177,7 @@ def test_rpc_observation_rejects_response_id_mismatch():
             code_response=observed["code"],
             code_request=observed["request"],
             expected_fork_chain_id=31602,
-        expected_response_ids=("fork-chain", "fork-block", "fork-code"),
+            expected_response_ids=("fork-chain", "fork-block", "fork-code"),
         )
 
 

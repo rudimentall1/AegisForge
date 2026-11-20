@@ -74,3 +74,17 @@ def test_firewall_requires_at_least_one_approved_provider_network():
         pass
     else:
         raise AssertionError("empty provider allowlist must fail closed")
+
+
+def test_firewall_table_can_be_removed_without_provider_cidr(monkeypatch):
+    module = _load_module()
+    observed = {}
+
+    def fake_run(command, *, input_text=None):
+        observed["command"] = command
+        observed["input_text"] = input_text
+
+    monkeypatch.setattr(module, "_run", fake_run)
+    assert module.main(["--remove"]) == 0
+    assert observed["command"] == ["nft", "delete", "table", "inet", "aegisforge_gateway_egress"]
+    assert observed["input_text"] is None

@@ -96,3 +96,12 @@ Latest known repository facts at this checkpoint:
 - The PR comparison is 237 commits ahead and 0 behind its base, with 34 changed files.
 - The protected doctrine files checked in this cycle are not among the changed files.
 - The implementation changes remain unverified by an accessible successful CI result.
+
+
+## Foundry probe portability correction — 2026-11-20
+
+Implementation commit: `e9f83ac670002e530581fc47f54aa420e3ad4e2d`.
+
+A second review removed the Bash dependency as well as the Python dependency from the Foundry runtime checks. The Anvil container's route table is now read with `cat /proc/net/route` and parsed by the host-side pytest process. The test no longer assumes Bash, Python, curl, or netcat exists in the official Foundry image. The Adapter sidecar retains Python-based route and failed-connect checks. The namespace-level packet-path test remains responsible for the Anvil-to-Adapter TCP probe.
+
+This is a test portability correction only. It does not establish a passing Docker run or promote the runtime evidence state. The Docker runtime integration still requires a successful GitHub-hosted workflow result.

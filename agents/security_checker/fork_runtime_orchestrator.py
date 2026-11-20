@@ -140,6 +140,7 @@ def prepare_fork_runtime(
                 "fork_block_number": validated_plan["block_number"],
             },
         )
+        del resolved_compose
     except (ComposeConfigResolutionError, ComposeTopologyValidationError) as exc:
         raise ForkRuntimePreparationError(str(exc)) from exc
 

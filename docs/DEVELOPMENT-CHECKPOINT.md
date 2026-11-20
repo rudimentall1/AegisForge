@@ -340,3 +340,46 @@ Next:
 3. Keep all runtime and finding confirmation flags false until real finding-specific evidence is independently verified.
 
 PR #206 remains Draft, open, and unmerged. Base branch unchanged. No protected doctrine/policy files were modified. No VPS or production environment was used.
+
+
+## Finding-specific execution request contract — 2026-11-20
+
+Implementation commits:
+- Request contract regression tests first: `b14bd07c7251bdbbb67ea42e8d08d9875c5e6b5f`.
+- Contract implementation: `191698b979b1f4a968007b23929af0179878ba7e`.
+- Malformed-type validation hardening: `6a467d84f06fe5384900bbcfdbe20c9b6021326b`.
+
+Added:
+- `tests/test_finding_execution_contract.py`: deterministic identity, snapshot/plan binding, exploit-test allowlist, bounded preconditions, and confirmation-flag tamper tests.
+- `agents/security_checker/finding_execution_contract.py`: pure request builder/validator. It introduces no runtime execution, shell invocation, RPC call, or transaction submission.
+- Stable `finding_id` is derived from repository, commit SHA, source-tree digest, detector ID, source location, and target contract address.
+- Request binds to the existing validated fork plan and snapshot digest, including source chain, fork chain, exact block number/hash, contract address, and runtime bytecode digest.
+- Exploit artifacts are restricted to repository-owned `tests/fork_exploits/<slug>.t.sol` paths and a SHA-256 digest. Arbitrary paths, shell commands, and caller-selected runtime endpoints are not part of the contract.
+- Preconditions use a small typed vocabulary with strict value bounds and a maximum of 16 entries.
+- Execution policy caps timeout at 300 seconds and steps at 100,000; external network access and external transactions are explicitly disabled.
+- Validation recomputes the complete request and rejects unknown fields, changed bindings, policy overrides, or promotion of `dynamic_verified`/`confirmed`.
+
+Scope and limitations:
+- This is a request-contract layer only. It does not prove that the referenced source tree or test artifact bytes were fetched and hashed by a trusted runner; the caller-supplied digests must be bound to a later immutable checkout/artifact verification stage.
+- It does not execute the allowlisted Foundry test, collect an execution transcript, authenticate runtime provenance, or independently validate exploit results.
+- It is not connected to SecurityChecker's finding pipeline yet.
+- No status can be promoted: `dynamic_verified=false` and `confirmed=false` remain invariant.
+- The new pytest tests were authored before implementation, but were not executed in this environment. No test pass is claimed.
+- No Docker runtime, real RPC provider, wallet, live transaction, VPS, or production asset was used.
+
+CI observation:
+- Current pre-change head `986aa71c27baabf442583c2af1a966fc484bd50a` produced Foundry integration run `44721873135` and AegisForge CI run `44721873143`; both concluded `failure`.
+- Job summaries returned `steps: null`; step endpoints returned empty arrays; log downloads returned `BlobNotFound`. The failure cause remains unknown. No blind rerun was started.
+- CI for the new contract commits has not yet been assessed.
+
+Repository state at checkpoint:
+- PR #206 remains open, Draft, and unmerged.
+- Head branch: `feat/anvil-fork-research-engine`.
+- Base remains `feat/aegisforge-working-state-2026-11-18`.
+- Protected doctrine/policy files were not modified.
+
+Next:
+1. Add a separately validated execution-receipt contract bound to the request digest, observed runtime identity, workflow provenance, test artifact digest, and transcript digest.
+2. Require an independent validator observation; do not accept self-asserted result fields as proof.
+3. Verify source-tree and exploit-test bytes against the immutable commit before runtime execution.
+4. Only then design the narrow runner adapter and SecurityChecker consumption path. Keep all confirmation flags false until actual finding-specific execution and independent evidence validation exist.

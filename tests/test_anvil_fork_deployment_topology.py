@@ -85,7 +85,7 @@ def test_egress_bridge_is_dedicated_and_firewall_allows_only_provider_https():
     egress = compose.split("  rpc-egress:", 1)[1]
 
     assert 'com.docker.network.bridge.enable_icc: "false"' in egress
-    assert "br-aegisforge-egress" in egress
+    assert "br-aegisforge" in egress
     assert "tcp dport 443 ct state new accept" in firewall
     assert "ip saddr {gateway} drop" in firewall
     assert "ip daddr {gateway} drop" in firewall

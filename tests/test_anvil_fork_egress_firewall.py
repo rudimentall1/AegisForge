@@ -22,7 +22,7 @@ def test_firewall_rules_allow_only_approved_ipv4_rpc_destinations():
     rules = module.build_rules(
         gateway_ip="172.31.240.2",
         bridge_name="br-aegisforge-egress",
-        provider_networks=[ipaddress.ip_network("198.51.100.8/32")],
+        provider_networks=[ipaddress.ip_network("8.8.8.8/32")],
     )
 
     assert "table inet aegisforge_gateway_egress" in rules
@@ -57,7 +57,7 @@ def test_firewall_rules_do_not_flush_or_replace_other_host_firewall_state():
     rules = module.build_rules(
         gateway_ip="172.31.240.2",
         bridge_name="br-aegisforge-egress",
-        provider_networks=[ipaddress.ip_network("198.51.100.8/32")],
+        provider_networks=[ipaddress.ip_network("8.8.8.8/32")],
     )
 
     assert "flush ruleset" not in rules

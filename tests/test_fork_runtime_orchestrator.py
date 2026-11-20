@@ -48,6 +48,11 @@ def _resolved_compose(config, plan):
         "--fork-url", "http://anvil-rpc-adapter:8546",
         "--fork-block-number", str(plan["block_number"]),
     ]
+    for service in services.values():
+        if isinstance(service.get("networks"), list):
+            service["networks"] = {name: None for name in service["networks"]}
+    document["networks"]["fork-internal"]["name"] = "aegisforge-anvil-fork_fork-internal"
+    document["networks"]["rpc-egress"]["name"] = "aegisforge-anvil-fork_rpc-egress"
     return document
 
 

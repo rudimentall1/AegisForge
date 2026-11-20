@@ -14,8 +14,10 @@ on:
       - "agents/security_checker/fork_compose_validator.py"
       - "agents/security_checker/fork_compose_resolver.py"
       - "agents/security_checker/fork_runtime_evidence.py"
+      - "agents/security_checker/packet_path_evidence.py"
+      - "tests/test_packet_path_evidence.py"
       - "tests/test_fork_compose_resolver.py"
-      - "tests/test_fork_runtime_evidence.py"
+      - "tests/test_fork_runtime_evidence.py tests/test_packet_path_evidence.py"
       - "tests/test_fork_execution_plan.py"
       - "tests/test_fork_runtime_orchestrator.py"
       - "tests/test_fork_compose_validator.py"
@@ -143,8 +145,18 @@ jobs:
       - name: Verify real Docker Compose network and firewall isolation
         env:
           AEGISFORGE_DOCKER_FIREWALL_RUNTIME: "1"
+          AEGISFORGE_PACKET_PATH_RECEIPT_PATH: ${{ runner.temp }}/aegisforge-packet-path-receipt.json
         run: |
           python -m pytest -vv -s tests/test_anvil_fork_compose_runtime.py
+
+      - name: Upload disposable packet-path evidence receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packet-path-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aegisforge-packet-path-receipt.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Execute real Solidity test in isolated container
         run: |

@@ -157,10 +157,17 @@ def _validate_service_security(name: str, service: dict) -> None:
     )
 
 
-def validate_anvil_fork_compose(source: str) -> ComposeTopologyValidationReport:
-    """Validate the exact AegisForge Compose contract without side effects."""
+def validate_anvil_fork_compose(
+    source: str,
+    *,
+    foundry_image: str,
+) -> ComposeTopologyValidationReport:
+    """Validate Compose source and the resolved digest-pinned Foundry image."""
+
     if not isinstance(source, str) or not source or len(source.encode("utf-8")) > 262144:
         raise ComposeTopologyValidationError("compose_source_invalid")
+    if not isinstance(foundry_image, str) or not _DIGEST_IMAGE.fullmatch(foundry_image):
+        raise ComposeTopologyValidationError("foundry_image_not_digest_pinned")
 
     try:
         document = yaml.load(source, Loader=_UniqueKeyLoader)
@@ -184,8 +191,10 @@ def validate_anvil_fork_compose(source: str) -> ComposeTopologyValidationReport:
     for name, allowed_keys in _SERVICE_KEYS.items():
         service = services[name]
         _require(_is_mapping(service), f"{name}_service_invalid")
-        _require(set(service).issubset(allowed_keys), f"{name}_service_fields_invalid")
         _require("ports" not in service, "published_ports_forbidden")
+        if name == "anvil":
+            _require("environment" not in service, "anvil_environment_invalid")
+        _require(set(service).issubset(allowed_keys), f"{name}_service_fields_invalid")
         _validate_service_security(name, service)
 
     gateway = services["rpc-gateway"]
@@ -208,18 +217,8 @@ def validate_anvil_fork_compose(source: str) -> ComposeTopologyValidationReport:
         "adapter_entrypoint_invalid",
     )
     _require(
-        anvil.get("image") == FOUNDRY_IMAGE_VARIABLE
-        and isinstance(anvil.get("image"), str),
+        anvil.get("image") == FOUNDRY_IMAGE_VARIABLE,
         "foundry_image_reference_invalid",
-    )
-    _require(
-        isinstance(anvil.get("image"), str)
-        and anvil["image"] == FOUNDRY_IMAGE_VARIABLE,
-        "foundry_image_reference_invalid",
-    )
-    _require(
-        _DIGEST_IMAGE.fullmatch("foundry@sha256:" + "0" * 64) is not None,
-        "validator_digest_rule_invalid",
     )
     _require(
         anvil.get("entrypoint") == ["anvil"]
@@ -231,8 +230,19 @@ def validate_anvil_fork_compose(source: str) -> ComposeTopologyValidationReport:
         "anvil_environment_invalid",
     )
 
+    gateway_networks = gateway.get("networks")
     _require(
-        gateway.get("networks")
+        _is_mapping(gateway_networks)
+        and set(gateway_networks) == {"fork-internal", "rpc-egress"},
+        "gateway_network_boundary_invalid",
+    )
+    _require(
+        _is_mapping(gateway_networks["rpc-egress"])
+        and gateway_networks["rpc-egress"].get("gw_priority") == 1,
+        "gateway_egress_route_invalid",
+    )
+    _require(
+        gateway_networks
         == {
             "fork-internal": {"aliases": ["rpc-gateway"]},
             "rpc-egress": {"ipv4_address": "172.31.240.2", "gw_priority": 1},
@@ -270,8 +280,8 @@ def validate_anvil_fork_compose(source: str) -> ComposeTopologyValidationReport:
         _is_mapping(internal)
         and internal.get("internal") is True
         and internal.get("enable_ipv6") is False
-        and internal.get("ipam", {}).get("config")
-        == [{"subnet": "172.30.240.0/24"}]
+        and _is_mapping(internal.get("ipam"))
+        and internal["ipam"].get("config") == [{"subnet": "172.30.240.0/24"}]
         and set(internal) == {"internal", "enable_ipv6", "ipam"},
         "fork_internal_network_invalid",
     )
@@ -284,8 +294,8 @@ def validate_anvil_fork_compose(source: str) -> ComposeTopologyValidationReport:
             "com.docker.network.bridge.name": "br-aegisforge",
             "com.docker.network.bridge.enable_icc": "false",
         }
-        and egress.get("ipam", {}).get("config")
-        == [{"subnet": "172.31.240.0/28"}]
+        and _is_mapping(egress.get("ipam"))
+        and egress["ipam"].get("config") == [{"subnet": "172.31.240.0/28"}]
         and set(egress) == {"driver", "enable_ipv6", "driver_opts", "ipam"},
         "rpc_egress_network_invalid",
     )

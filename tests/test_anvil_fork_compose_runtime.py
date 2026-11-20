@@ -87,18 +87,24 @@ def _nft_ruleset_sha256() -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def _docker_tcp_connects(container_id: str, destination: str, port: int) -> bool:
-    probe = (
-        "import socket,sys\\n"
-        "s=socket.socket(); s.settimeout(1)\\n"
-        "try:\\n"
-        " s.connect((sys.argv[1],int(sys.argv[2])))\\n"
-        " print('CONNECTED')\\n"
-        "except OSError as exc:\\n"
-        " print('BLOCKED:'+type(exc).__name__)\\n"
-        "finally:\\n"
-        " s.close()\\n"
+def _docker_tcp_probe_script() -> str:
+    """Return executable Python source for a TCP probe inside a test container."""
+    return (
+        "import socket, sys\n"
+        "sock = socket.socket()\n"
+        "sock.settimeout(1)\n"
+        "try:\n"
+        "    sock.connect((sys.argv[1], int(sys.argv[2])))\n"
+        "    print('CONNECTED')\n"
+        "except OSError as exc:\n"
+        "    print('BLOCKED:' + type(exc).__name__)\n"
+        "finally:\n"
+        "    sock.close()\n"
     )
+
+
+def _docker_tcp_connects(container_id: str, destination: str, port: int) -> bool:
+    probe = _docker_tcp_probe_script()
     result = subprocess.run(
         [
             "docker", "exec", container_id, "python", "-c",
@@ -468,7 +474,7 @@ def test_real_compose_network_membership_and_internal_service_egress():
                 output_path = Path(receipt_path_value)
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 output_path.write_text(
-                    json.dumps(receipt, sort_keys=True, indent=2) + "\\n",
+                    json.dumps(receipt, sort_keys=True, indent=2) + "\n",
                     encoding="utf-8",
                 )
         finally:

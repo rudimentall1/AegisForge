@@ -77,3 +77,22 @@ Workflow observations:
 - No workflow result has yet been observed for implementation commit `de54875...`.
 
 The test now installs the firewall after Compose creates the network/containers but before `compose up` starts the Gateway. The integration test still needs a successful GitHub-hosted Docker run before its packet-path assertions can be treated as verified.
+
+
+## CI refresh — 2026-11-20
+
+The implementation commit `de54875db60d92aefcf75645e4cfc37915abad5c` produced:
+- Foundry runner integration run `44710310036`: `failure`.
+- AegisForge CI run `44710309999`: `failure`.
+
+The checkpoint-document commit `6621ad264b21ee6499dfaff94990805f7dd5daf3` produced:
+- Foundry runner integration run `44710338021`: `failure`.
+- AegisForge CI run `44710338004`: `failure`.
+
+For these attempts, GitHub again returned empty job-step summaries; log downloads returned `BlobNotFound`. The combined commit status endpoint also returned no status entries. The failure cause remains **unknown**. No test-level diagnosis is supported, and no rerun was initiated.
+
+Latest known repository facts at this checkpoint:
+- PR #206 remains listed as open; its description still identifies it as a Draft PR.
+- The PR comparison is 237 commits ahead and 0 behind its base, with 34 changed files.
+- The protected doctrine files checked in this cycle are not among the changed files.
+- The implementation changes remain unverified by an accessible successful CI result.

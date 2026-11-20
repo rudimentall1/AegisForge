@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -390,7 +391,32 @@ def validate_resolved_anvil_fork_compose(
     _require(
         isinstance(allowed_hosts, (list, tuple, set, frozenset))
         and bool(allowed_hosts)
-        and all(isinstance(host, str) and host for host in allowed_hosts),
+        and all(
+            isinstance(host, str)
+            and host
+            and host == host.strip()
+            and "/" not in host
+            and "*" not in host
+            for host in allowed_hosts
+        ),
+        "resolved_runtime_expectations_invalid",
+    )
+    try:
+        parsed_upstream = urlsplit(upstream_url)
+        upstream_port = parsed_upstream.port
+    except ValueError as exc:
+        raise ComposeTopologyValidationError(
+            "resolved_runtime_expectations_invalid"
+        ) from exc
+    normalized_hosts = {host.lower().rstrip(".") for host in allowed_hosts}
+    _require(
+        parsed_upstream.scheme == "https"
+        and parsed_upstream.hostname is not None
+        and parsed_upstream.hostname.lower().rstrip(".") in normalized_hosts
+        and parsed_upstream.username is None
+        and parsed_upstream.password is None
+        and upstream_port in (None, 443)
+        and not parsed_upstream.fragment,
         "resolved_runtime_expectations_invalid",
     )
     _require(

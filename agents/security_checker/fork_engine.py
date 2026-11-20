@@ -311,3 +311,80 @@ def collect_fork_snapshot(
         contract_address=contract_address,
         expected_response_ids=tuple(request["id"] for request in requests),
     )
+
+
+
+def validate_fork_execution_anchor(snapshot: dict, execution_anchor: dict) -> dict:
+    """Bind an observed fork execution to the exact collected snapshot.
+
+    This is an evidence-integrity check only. It does not establish that a
+    vulnerability is exploitable or that the execution is independently
+    verified.
+    """
+    if not isinstance(snapshot, dict) or snapshot.get("schema") != "aegisforge.fork_snapshot.v1":
+        raise ForkSnapshotError("fork_snapshot_invalid")
+    try:
+        normalized = build_fork_snapshot(
+            chain_id=snapshot["chain_id"],
+            block_number=snapshot["block_number"],
+            block_hash=snapshot["block_hash"],
+            contract_address=snapshot["contract_address"],
+            runtime_bytecode=snapshot["runtime_bytecode"],
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ForkSnapshotError("fork_snapshot_invalid") from exc
+    if normalized != snapshot:
+        raise ForkSnapshotError("fork_snapshot_invalid")
+
+    required = {
+        "chain_id",
+        "block_number",
+        "block_hash",
+        "contract_address",
+        "runtime_bytecode_sha256",
+    }
+    if not isinstance(execution_anchor, dict) or set(execution_anchor) != required:
+        raise ForkSnapshotError("fork_execution_anchor_invalid")
+
+    chain_id = execution_anchor["chain_id"]
+    block_number = execution_anchor["block_number"]
+    block_hash = execution_anchor["block_hash"]
+    contract_address = execution_anchor["contract_address"]
+    bytecode_hash = execution_anchor["runtime_bytecode_sha256"]
+    if (
+        isinstance(chain_id, bool)
+        or not isinstance(chain_id, int)
+        or chain_id <= 0
+        or isinstance(block_number, bool)
+        or not isinstance(block_number, int)
+        or block_number < 0
+        or not isinstance(block_hash, str)
+        or not _HASH_RE.fullmatch(block_hash)
+        or not isinstance(contract_address, str)
+        or not _ADDRESS_RE.fullmatch(contract_address)
+        or not isinstance(bytecode_hash, str)
+        or not re.fullmatch(r"[0-9a-fA-F]{64}", bytecode_hash)
+    ):
+        raise ForkSnapshotError("fork_execution_anchor_invalid")
+
+    if chain_id != normalized["chain_id"]:
+        raise ForkSnapshotError("fork_execution_chain_mismatch")
+    if (
+        block_number != normalized["block_number"]
+        or block_hash.lower() != normalized["block_hash"]
+    ):
+        raise ForkSnapshotError("fork_execution_block_mismatch")
+    if contract_address.lower() != normalized["contract_address"]:
+        raise ForkSnapshotError("fork_execution_contract_mismatch")
+    if bytecode_hash.lower() != normalized["runtime_bytecode_sha256"]:
+        raise ForkSnapshotError("fork_execution_bytecode_mismatch")
+
+    return {
+        "schema": "aegisforge.fork_execution_binding.v1",
+        "chain_id": normalized["chain_id"],
+        "block_number": normalized["block_number"],
+        "block_hash": normalized["block_hash"],
+        "contract_address": normalized["contract_address"],
+        "runtime_bytecode_sha256": normalized["runtime_bytecode_sha256"],
+        "snapshot_bound": True,
+    }

@@ -475,6 +475,10 @@ def validate_resolved_anvil_fork_compose(
             "resolved_privileged_mode_forbidden",
         )
         _require("ports" not in service, "resolved_published_ports_forbidden")
+        _require(
+            set(service) == _SERVICE_KEYS[name],
+            "resolved_compose_service_fields_invalid",
+        )
         _validate_service_security(name, service)
 
     gateway = services["rpc-gateway"]
@@ -559,6 +563,14 @@ def validate_resolved_anvil_fork_compose(
     egress = networks["rpc-egress"]
     _require(
         _is_mapping(internal)
+        and set(internal) in (
+            {"internal", "enable_ipv6", "ipam"},
+            {"internal", "enable_ipv6", "ipam", "name"},
+        )
+        and (
+            "name" not in internal
+            or internal.get("name") == "aegisforge-anvil-fork_fork-internal"
+        )
         and internal.get("internal") is True
         and internal.get("enable_ipv6") is False
         and _is_mapping(internal.get("ipam"))
@@ -569,6 +581,14 @@ def validate_resolved_anvil_fork_compose(
     )
     _require(
         _is_mapping(egress)
+        and set(egress) in (
+            {"driver", "enable_ipv6", "driver_opts", "ipam"},
+            {"driver", "enable_ipv6", "driver_opts", "ipam", "name"},
+        )
+        and (
+            "name" not in egress
+            or egress.get("name") == "aegisforge-anvil-fork_rpc-egress"
+        )
         and egress.get("driver") == "bridge"
         and egress.get("enable_ipv6") is False
         and _is_mapping(egress.get("driver_opts"))

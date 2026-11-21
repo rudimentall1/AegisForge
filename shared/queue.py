@@ -1029,7 +1029,8 @@ class TaskQueue:
                 result,
                 capability_intent,
                 allow_failed_parent,
-                research_case_id
+                research_case_id,
+                onchain_case_id
             FROM queue
             WHERE id = ?
             """,

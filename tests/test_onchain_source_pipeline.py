@@ -59,6 +59,11 @@ def test_source_researcher_reads_persisted_onchain_source_without_execution():
     assert {"low_level_call", "value_transfer", "delegatecall"} <= signals
     assert result.result["analysis_limits"]["source_executed"] is False
     assert result.result["analysis_limits"]["vulnerabilities_confirmed"] == 0
+    structural = result.result["structural_analysis"]
+    functions = {item["name"]: item for item in structural["functions"]}
+    assert {"withdraw", "upgrade"} <= set(functions)
+    assert "delegatecall" in functions["upgrade"]["external_calls"]
+    assert structural["analysis_limits"]["compiler_ast"] is False
 
 
 def test_crypto_analyst_turns_source_signals_into_unconfirmed_hypotheses():
@@ -81,6 +86,17 @@ def test_crypto_analyst_turns_source_signals_into_unconfirmed_hypotheses():
     assert analyzed.result["onchain_source_analysis"]["candidate_hypotheses"] >= 3
     assert analyzed.result["onchain_source_analysis"]["vulnerabilities_confirmed"] == 0
     assert all(item["finding"] is False for item in analyzed.result["hypotheses"])
+    assert analyzed.result["onchain_source_analysis"]["function_hypotheses"] >= 1
+    function_hypotheses = [
+        item for item in analyzed.result["hypotheses"]
+        if item.get("function")
+    ]
+    assert any(
+        item["function"]["name"] == "upgrade"
+        and "delegatecall" in item["external_calls"]
+        for item in function_hypotheses
+    )
+    assert all(item["status"] == "NEEDS_DEEPER_ANALYSIS" for item in function_hypotheses)
 
 
 def test_source_researcher_fails_closed_when_target_does_not_match_case():
@@ -120,6 +136,8 @@ def test_security_checker_scans_full_persisted_onchain_source_as_potential_risks
     assert review["finding_summary"]["total"] >= 2
     assert all(item["status"] == "POTENTIAL_RISK" for item in review["findings"])
     assert review["vulnerabilities_confirmed"] == 0
+    assert review["structural_review"]["independently_recomputed"] is True
+    assert review["structural_review"]["functions_analyzed"] >= 2
     assert checked.result["security_integrity"]["complete"] is True
 
 

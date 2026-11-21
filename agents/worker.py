@@ -930,6 +930,13 @@ class Worker:
                 if not isinstance(result_value, dict):
                     raise RuntimeError("research_case_result_must_be_object")
                 result_value["research_case_binding"] = research_case_binding(research_case)
+            elif onchain_research_case is not None:
+                if not isinstance(result_value, dict):
+                    raise RuntimeError("onchain_research_case_result_must_be_object")
+                from shared.onchain_research_case import onchain_case_binding
+                result_value["onchain_research_case_binding"] = onchain_case_binding(
+                    onchain_research_case
+                )
 
             if isinstance(result_value, dict):
                 result_value.setdefault("agent_id", self.agent_id)

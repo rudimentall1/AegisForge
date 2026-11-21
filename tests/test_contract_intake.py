@@ -133,8 +133,13 @@ def test_rpc_attestation_checks_chain_and_nonempty_deployed_code():
     def opener(request, timeout):
         payload = json.loads(request.data.decode())
         calls.append(payload["method"])
-        result = hex(8453) if payload["method"] == "eth_chainId" else "0x6001600055"
-        return FakeResponse({"jsonrpc": "2.0", "id": payload["id"], "result": result})
+        results = {
+            "eth_chainId": hex(8453),
+            "eth_blockNumber": hex(123456),
+            "eth_getBlockByNumber": {"hash": "0x" + "a" * 64},
+            "eth_getCode": "0x6001600055",
+        }
+        return FakeResponse({"jsonrpc": "2.0", "id": payload["id"], "result": results[payload["method"]]})
 
     intake = BlockscoutContractIntake(
         "https://base.blockscout.com/api/v2", chain_id=8453, opener=opener
@@ -144,7 +149,9 @@ def test_rpc_attestation_checks_chain_and_nonempty_deployed_code():
     assert attestation["chain_id"] == 8453
     assert attestation["deployed"] is True
     assert len(attestation["runtime_code_sha256"]) == 64
-    assert calls == ["eth_chainId", "eth_getCode"]
+    assert attestation["block_number"] == 123456
+    assert attestation["block_hash"] == "0x" + "a" * 64
+    assert calls == ["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getCode"]
 
 
 def test_rpc_attestation_fails_closed_on_wrong_chain_or_empty_code():
@@ -167,8 +174,13 @@ def test_intake_targets_only_accepts_verified_source_with_rpc_deployment_proof()
         if request.data:
             rpc = json.loads(request.data.decode())
             calls.append(rpc["method"])
-            result = hex(8453) if rpc["method"] == "eth_chainId" else "0x6001600055"
-            return FakeResponse({"jsonrpc": "2.0", "id": rpc["id"], "result": result})
+            results = {
+                "eth_chainId": hex(8453),
+                "eth_blockNumber": hex(123456),
+                "eth_getBlockByNumber": {"hash": "0x" + "a" * 64},
+                "eth_getCode": "0x6001600055",
+            }
+            return FakeResponse({"jsonrpc": "2.0", "id": rpc["id"], "result": results[rpc["method"]]})
         calls.append(request.full_url)
         if request.full_url.endswith("/smart-contracts?items_count=1"):
             return FakeResponse({
@@ -200,7 +212,10 @@ def test_intake_targets_only_accepts_verified_source_with_rpc_deployment_proof()
     assert accepted["candidate"].address == address
     assert accepted["source"].source_files["src/RealVault.sol"].startswith("pragma")
     assert accepted["deployment_attestation"]["deployed"] is True
-    assert calls[1:3] == ["eth_chainId", "eth_getCode"]
+    assert calls[1:5] == [
+        "eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getCode"
+    ]
+    assert accepted["deployment_attestation"]["block_number"] == 123456
 
 
 def test_source_acquisition_rejects_path_traversal():
@@ -240,14 +255,19 @@ def test_source_acquisition_parses_standard_json_input_string():
 
 
 def test_rpc_attestation_rejects_empty_runtime_code():
-    responses = iter([hex(8453), "0x"])
+    results = {
+        "eth_chainId": hex(8453),
+        "eth_blockNumber": hex(123456),
+        "eth_getBlockByNumber": {"hash": "0x" + "a" * 64},
+        "eth_getCode": "0x",
+    }
 
     def opener(request, timeout):
         payload = json.loads(request.data.decode())
         return FakeResponse({
             "jsonrpc": "2.0",
             "id": payload["id"],
-            "result": next(responses),
+            "result": results[payload["method"]],
         })
 
     intake = BlockscoutContractIntake(

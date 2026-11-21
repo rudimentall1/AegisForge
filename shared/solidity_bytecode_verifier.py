@@ -80,6 +80,8 @@ def _runtime_bytes(value: object) -> bytes | None:
 def verify_compiler_runtime_match(
     *,
     standard_json_input: str | None,
+    source_files: dict[str, str] | None,
+    compiled_input_sha256: str | None,
     compiler_output: dict[str, Any] | None,
     deployed_runtime_code: str | None,
     expected_compiler_version: str | None,
@@ -110,6 +112,21 @@ def verify_compiler_runtime_match(
         or not isinstance(standard_input.get("settings"), dict)
     ):
         return _incomplete("standard_json_input_incomplete")
+    if not isinstance(source_files, dict) or not source_files:
+        return _incomplete("source_file_mapping_missing")
+    standard_sources = standard_input["sources"]
+    normalized_sources = {}
+    for path, entry in standard_sources.items():
+        if not isinstance(path, str) or not isinstance(entry, dict) or not isinstance(entry.get("content"), str):
+            return _incomplete("standard_json_source_content_missing")
+        normalized_sources[path] = entry["content"]
+    if normalized_sources != source_files:
+        return _incomplete("standard_json_source_mapping_mismatch")
+    if not isinstance(compiled_input_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", compiled_input_sha256):
+        return _incomplete("compiled_input_digest_missing")
+    expected_input_digest = hashlib.sha256(standard_json_input.encode("utf-8")).hexdigest()
+    if compiled_input_sha256 != expected_input_digest:
+        return _incomplete("compiler_input_digest_mismatch")
     if not isinstance(contract_file, str) or not contract_file or not isinstance(contract_name, str) or not contract_name:
         return _incomplete("contract_identity_missing")
     if not _requests_deployed_bytecode(standard_input, contract_file, contract_name):

@@ -570,7 +570,7 @@ The Git ResearchCase execution admission remains separate. On-chain source agent
 
 ### Exact-head CI verification
 
-- CI run #2450 / ID `44900188975`: [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/44900188975), SUCCESS on code head `d79096c06b5265b2bb8cce77e6bae2e5bca94b2d`.
+- CI run #2463 / ID `44900188975`: [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/44900188975), SUCCESS on code head `d79096c06b5265b2bb8cce77e6bae2e5bca94b2d`.
 - Full Python/EVM suite: **2,076 passed, 2 skipped, 4 warnings, 30 subtests passed**.
 - Focused on-chain intake/source/compiler suite: **92 passed**.
 - The four existing ZIP duplicate-member warnings remain visible; this run is not warning-free.

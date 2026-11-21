@@ -398,3 +398,6 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 
 
 - Follow-up verification update: the latest tested commit before this checkpoint note was `f59ef81fec28e205bd03ab5e125ec964c5f1e87d`. Actions run `44890185757` failed with job `136804103973` reporting `steps=[]`; a rerun created job `136804181500` and failed the same way with no steps. This is runner/job initialization failure evidence, not a test failure and not a pass. No Python tests executed.
+
+
+- Final Worker provenance addition: every successful on-chain agent result now carries `onchain_research_case_binding` with the immutable case digest. Latest observed CI run `44890248965` and rerun job `136804362034` again failed with `steps=[]`; no test code ran. Current implementation commit: `93fb52b2fa8e4ee04916c19205f3b53385ac16c0`.

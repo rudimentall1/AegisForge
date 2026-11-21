@@ -105,7 +105,16 @@ class CryptoAnalyst:
                     if entry.get("visibility") not in {"public", "external"}:
                         continue
                     entry_identity = (entry.get("path"), entry.get("name"))
-                    paths = walk_calls(entry, (entry_identity,))
+                    if entry_identity == identity and (
+                        entry.get("external_calls") or entry.get("state_write_candidates")
+                    ):
+                        paths = [[{
+                            "path": entry.get("path"),
+                            "function": entry.get("name"),
+                            "line": entry.get("line"),
+                        }]]
+                    else:
+                        paths = walk_calls(entry, (entry_identity,))
                     for path in paths:
                         if path and (path[-1]["path"], path[-1]["function"]) == identity:
                             entrypoints.append({
@@ -115,7 +124,7 @@ class CryptoAnalyst:
                             })
                             call_paths.append(path)
                 function_hypotheses.append({
-                    "hypothesis_id": "ONCHAIN-FUNCTION-" + str(function.get("name", "UNKNOWN")),
+                    "hypothesis_id": "ONCHAIN-FUNCTION-" + str(function.get("path", "UNKNOWN")) + ":" + str(function.get("name", "UNKNOWN")),
                     "status": "NEEDS_DEEPER_ANALYSIS",
                     "finding": False,
                     "function": {

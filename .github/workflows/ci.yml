@@ -375,6 +375,7 @@ jobs:
             tests/test_security_checker_offline.py \
             tests/test_worker_onchain_pipeline.py \
             tests/test_onchain_bytecode_verification.py \
+            tests/test_onchain_verification_store.py \
             tests/test_solidity_compiler.py \
             tests/test_sandbox.py \
             tests/test_solc_toolchain.py

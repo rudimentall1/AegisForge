@@ -16,6 +16,9 @@ def _target(address="0x" + "1" * 40):
             "src/Vault.sol": (
                 "contract Vault {\n"
                 " function withdraw() external {\n"
+                "   _send();\n"
+                " }\n"
+                " function _send() internal {\n"
                 "   (bool ok,) = msg.sender.call{value: 1}(\"\");\n"
                 " }\n"
                 " function upgrade(address impl) external {\n"
@@ -94,14 +97,17 @@ def test_crypto_analyst_turns_source_signals_into_unconfirmed_hypotheses():
     assert any(
         item["function"]["name"] == "upgrade"
         and "delegatecall" in item["external_calls"]
-        and item["external_call_sites"][0]["line"] == 6
+        and item["external_call_sites"][0]["line"] == 9
         for item in function_hypotheses
     )
     send_hypothesis = next(
         item for item in function_hypotheses
-        if item["function"]["name"] == "withdraw"
+        if item["function"]["name"] == "_send"
     )
     assert send_hypothesis["entrypoints"][0]["function"] == "withdraw"
+    assert [step["function"] for step in send_hypothesis["call_paths"][0]] == [
+        "withdraw", "_send"
+    ]
     assert all(item["status"] == "NEEDS_DEEPER_ANALYSIS" for item in function_hypotheses)
 
 

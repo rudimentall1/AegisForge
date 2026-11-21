@@ -590,16 +590,16 @@ class SourceResearcher:
                 task.status = "source_research_failed"
                 return task
             signal_patterns = {
-                "external_entrypoint": re.compile(r"\\b(external|public)\\b"),
-                "tx_origin": re.compile(r"\\btx\\s*\\.\\s*origin\\b"),
-                "delegatecall": re.compile(r"\\.\\s*delegatecall\\s*\\("),
-                "low_level_call": re.compile(r"\\.\\s*call\\s*(?:\\{|\\()"),
-                "value_transfer": re.compile(r"\\.\\s*call\\s*\\{\\s*value\\s*:"),
-                "selfdestruct": re.compile(r"\\bselfdestruct\\s*\\("),
-                "unchecked_arithmetic": re.compile(r"\\bunchecked\\s*\\{"),
-                "assembly": re.compile(r"\\bassembly\\b"),
-                "signature_recovery": re.compile(r"\\becrecover\\s*\\("),
-                "initialization": re.compile(r"\\b(initialize|reinitializer)\\s*\\("),
+                "external_entrypoint": re.compile(r"\b(external|public)\b"),
+                "tx_origin": re.compile(r"\btx\s*\.\s*origin\b"),
+                "delegatecall": re.compile(r"\.\s*delegatecall\s*\("),
+                "low_level_call": re.compile(r"\.\s*call\s*(?:\{|\()"),
+                "value_transfer": re.compile(r"\.\s*call\s*\{\s*value\s*:"),
+                "selfdestruct": re.compile(r"\bselfdestruct\s*\("),
+                "unchecked_arithmetic": re.compile(r"\bunchecked\s*\{"),
+                "assembly": re.compile(r"\bassembly\b"),
+                "signature_recovery": re.compile(r"\becrecover\s*\("),
+                "initialization": re.compile(r"\b(initialize|reinitializer)\s*\("),
             }
             source_records = []
             total_signal_count = 0

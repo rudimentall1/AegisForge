@@ -725,6 +725,7 @@ class SecurityChecker:
                         "expected_files": len(onchain_target.source_files),
                         "checked_files": files_scanned,
                         "complete": files_scanned == len(onchain_target.source_files),
+                        "structural_analysis_complete": independent_structure["analysis_complete"],
                     },
                 }
                 task.status = "security_checked"

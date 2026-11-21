@@ -1,7 +1,7 @@
 """Bounded offline solc compilation for an acquired on-chain source snapshot."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
@@ -283,20 +283,38 @@ def verify_onchain_target(
     """Compile and compare one immutable target record; never execute target code."""
     standard_json_input = getattr(target, "standard_json_input", None)
     source_files = dict(getattr(target, "source_files", {}))
+    configured_image = image if image is not None else os.getenv("AEGISFORGE_FOUNDRY_IMAGE", "").strip()
+    verified_image = configured_image if isinstance(configured_image, str) and _IMAGE_RE.fullmatch(configured_image) else ""
+    target_input_digest = getattr(target, "standard_json_input_sha256", "")
     try:
         parsed_input = json.loads(standard_json_input) if isinstance(standard_json_input, str) else None
     except (TypeError, json.JSONDecodeError):
         parsed_input = None
     standard_sources = parsed_input.get("sources") if isinstance(parsed_input, dict) else None
     if not isinstance(standard_sources, dict):
-        return CompilerRuntimeVerification("INCOMPLETE", "standard_json_source_mapping_missing")
+        return CompilerRuntimeVerification(
+            "INCOMPLETE",
+            "standard_json_source_mapping_missing",
+            standard_json_input_sha256=target_input_digest,
+            compiler_image=verified_image,
+        )
     normalized_sources = {}
     for path, entry in standard_sources.items():
         if not isinstance(path, str) or not isinstance(entry, dict) or not isinstance(entry.get("content"), str):
-            return CompilerRuntimeVerification("INCOMPLETE", "standard_json_source_content_missing")
+            return CompilerRuntimeVerification(
+                "INCOMPLETE",
+                "standard_json_source_content_missing",
+                standard_json_input_sha256=target_input_digest,
+                compiler_image=verified_image,
+            )
         normalized_sources[path] = entry["content"]
     if normalized_sources != source_files:
-        return CompilerRuntimeVerification("INCOMPLETE", "standard_json_source_mapping_mismatch")
+        return CompilerRuntimeVerification(
+            "INCOMPLETE",
+            "standard_json_source_mapping_mismatch",
+            standard_json_input_sha256=target_input_digest,
+            compiler_image=verified_image,
+        )
     compilation = compile_standard_json(
         standard_json_input,
         getattr(target, "compiler_version", None),
@@ -306,8 +324,13 @@ def verify_onchain_target(
         return CompilerRuntimeVerification(
             "INCOMPLETE",
             "compiler_" + compilation.status.lower() + ":" + compilation.reason,
+            compiler_version=compilation.compiler_version,
+            compiler_binary_sha256=compilation.compiler_binary_sha256,
+            standard_json_input_sha256=compilation.input_sha256 or target_input_digest,
+            compiler_image=verified_image,
+            isolation=compilation.isolation,
         )
-    return verify_compiler_runtime_match(
+    comparison = verify_compiler_runtime_match(
         standard_json_input=target.standard_json_input,
         source_files=dict(target.source_files),
         compiled_input_sha256=compilation.input_sha256,
@@ -319,4 +342,12 @@ def verify_onchain_target(
         contract_name=target.contract_name,
         proxy_type=target.proxy_type,
         implementations=target.implementations,
+    )
+    return replace(
+        comparison,
+        compiler_version=compilation.compiler_version,
+        compiler_binary_sha256=compilation.compiler_binary_sha256,
+        standard_json_input_sha256=compilation.input_sha256,
+        compiler_image=verified_image,
+        isolation=compilation.isolation,
     )

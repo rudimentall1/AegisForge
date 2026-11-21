@@ -25,6 +25,11 @@ class CompilerRuntimeVerification:
     reason: str
     compiled_runtime_sha256: str = ""
     deployed_runtime_sha256: str = ""
+    compiler_version: str = ""
+    compiler_binary_sha256: str = ""
+    standard_json_input_sha256: str = ""
+    compiler_image: str = ""
+    isolation: str = ""
 
 
 def _incomplete(reason: str) -> CompilerRuntimeVerification:

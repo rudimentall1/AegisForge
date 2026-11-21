@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path, PurePosixPath
 
 from shared.sandbox import SandboxError, SandboxLimits, run_in_container
+from shared.solc_toolchain import resolve_solc_binary
 
 
 MAX_SOURCE_FILES = 500
@@ -20,22 +21,6 @@ MAX_OUTPUT_BYTES = 512 * 1024
 MAX_COMPILER_BYTES = 128 * 1024 * 1024
 MAX_TIMEOUT_SECONDS = 300
 _TEST_PATH = "test/AegisForgeValidation.t.sol"
-
-
-def _resolve_solc_binary(version: str) -> Path | None:
-    configured_path = os.getenv("AEGISFORGE_SOLC_BINARY", "").strip()
-    if configured_path:
-        path = Path(configured_path).expanduser()
-    else:
-        try:
-            from solc_select.solc_select import artifact_path
-
-            path = Path(artifact_path(version)).expanduser()
-        except (ImportError, OSError, ValueError):
-            return None
-    if not path.is_file() or not os.access(path, os.X_OK):
-        return None
-    return path
 
 
 def _probe_solc_binary(path: Path, expected_version: str) -> str:
@@ -232,7 +217,7 @@ def run_foundry_test(
         return _result("COMPILER_UNAVAILABLE", "linux_compiler_artifact_required")
 
     compiler_installed = False
-    compiler_path = _resolve_solc_binary(compiler_version)
+    compiler_path = resolve_solc_binary(compiler_version)
     if compiler_path is None:
         auto_install = os.getenv("AEGISFORGE_AUTO_INSTALL_SOLC", "0").strip().lower()
         if auto_install in {"1", "true", "yes"}:
@@ -253,7 +238,7 @@ def run_foundry_test(
             if install.returncode != 0:
                 return _result("COMPILER_UNAVAILABLE", "solc_install_failed")
             compiler_installed = True
-            compiler_path = _resolve_solc_binary(compiler_version)
+            compiler_path = resolve_solc_binary(compiler_version)
     if compiler_path is None:
         return _result("COMPILER_UNAVAILABLE", "required_solc_binary_not_installed")
 

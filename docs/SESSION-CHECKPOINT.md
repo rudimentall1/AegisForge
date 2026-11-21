@@ -539,3 +539,204 @@ The Git ResearchCase execution admission remains separate. On-chain source agent
 - No source-to-runtime equivalence has been established.
 - No on-chain exploit or transaction has been executed.
 - No PR has been merged.
+
+
+## 32. Compiler-backed on-chain source/runtime verification foundation — 2026-11-21
+
+**Working branch:** `feat/onchain-bytecode-verification`  
+**Code head verified by CI:** `d79096c06b5265b2bb8cce77e6bae2e5bca94b2d`  
+**PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211), OPEN, DRAFT, stacked on PR #210. Do not merge without explicit approval.
+
+### Implemented
+
+- `BlockscoutContractIntake.attest_deployment()` now returns the exact runtime bytecode received from `eth_getCode` at the EIP-1898-pinned block hash, as well as its SHA-256 digest.
+- `OnchainTargetRecord` and `OnchainTargetStore` persist runtime bytecode. The record validates that its bytes hash to the independently stored runtime digest. Existing SQLite databases are migrated with an empty runtime field; legacy records without bytes remain unverified.
+- Extracted `shared/solc_toolchain.py` and updated the existing Foundry runner to use the same shared solc resolver. This removes the previous dependency from the shared compiler layer into the agent layer.
+- Added `shared/solidity_compiler.py`:
+  - accepts only preserved Solidity Standard JSON input with embedded source content;
+  - bounds input to 8 MiB, source bundle to 4 MiB, and source count to 500;
+  - rejects remote URL-only sources and unsafe source paths before compilation;
+  - resolves the configured compiler, checks exact version and commit when available, and hashes the exact binary bytes;
+  - runs `solc --standard-json` with the exact preserved input through a digest-pinned Foundry container, network disabled, bounded output, timeout, read-only workspace, and file-backed stdin;
+  - `verify_onchain_target()` refuses to compile when the Standard JSON source map differs from the exact source map analyzed by the agents.
+- Added `shared/solidity_bytecode_verifier.py`:
+  - binds compiler output to the exact Standard JSON input SHA-256, compiler version, contract file/name, and exact source map;
+  - requires deployed-bytecode output selection;
+  - compares complete runtime bytes exactly, including metadata bytes;
+  - returns `VERIFIED` only on exact equality, `MISMATCH` on runtime mismatch, and `INCOMPLETE` when evidence is missing or unsupported.
+- Immutable references, unresolved library links, and proxy/implementation ambiguity are deliberately `INCOMPLETE`; no reference ranges are silently masked.
+- Extended `shared.sandbox.run_in_container()` with bounded, workspace-only file-backed stdin for Standard JSON input. The input file is size-limited and must resolve inside the read-only workspace.
+- Added tests for runtime persistence and legacy schema migration, digest substitution, exact and mismatching runtime bytes, source/input/compiler-version/settings binding, remote and unsafe source rejection, immutable/library/proxy cases, shared solc resolution, compiler failure states, and sandbox stdin.
+
+### Exact-head CI verification
+
+- CI run #2463 / ID `44900188975`: [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/44900188975), SUCCESS on code head `d79096c06b5265b2bb8cce77e6bae2e5bca94b2d`.
+- Full Python/EVM suite: **2,076 passed, 2 skipped, 4 warnings, 30 subtests passed**.
+- Focused on-chain intake/source/compiler suite: **92 passed**.
+- The four existing ZIP duplicate-member warnings remain visible; this run is not warning-free.
+- Bubblewrap fixture acceptance and the EVM Key Forensics evidence workflow completed successfully.
+- The CI run validates mocked compiler-container orchestration and deterministic comparison behavior. It does **not** prove that a real solc binary has compiled a live target or that any deployed contract has passed source/runtime equivalence.
+
+### Current hard limits
+
+- The compiler verifier is not yet wired into the Worker orchestration or an execution-admission gate.
+- Compiler verification results are not yet persisted as a separate immutable evidence record tied to target ID and block hash.
+- The CI compiler tests stub the container boundary; a real solc compiler invocation and deployed synthetic fixture remain outstanding.
+- Runtime matching is not yet proven for constructor immutables, linked libraries, or proxy implementation logic. These states remain fail-closed.
+- The Foundry Docker container is not a microVM security boundary. No acquired target code is executed and no transactions are submitted by this work.
+- No live-chain vulnerability has been confirmed.
+
+### Next engineering slice
+
+1. Add a real-toolchain integration fixture using an explicitly configured solc binary and digest-pinned container. Prove a known exact match and a one-byte runtime mismatch end to end.
+2. Persist compiler verification evidence immutably: target ID, chain/address/block hash, source and Standard JSON digests, compiler version/commit, compiler binary digest, compiler-input digest, compiled runtime digest, deployed runtime digest, status, and reason.
+3. Add a separate typed `OnchainExecutionAdmission`; do not reuse or weaken Git-only admission. Require persisted on-chain case/target binding, fresh reviewed scope, explicit authorization reference, pinned block hash, and `VERIFIED` source/runtime equivalence before any deployed exploit reproduction.
+4. Preserve `SOURCE_ONLY`, `NOT_RUN`, and `INCONCLUSIVE`; a local harness pass must not automatically confirm a deployed vulnerability.
+5. Demonstrate one real, authorized target end-to-end with positive and negative controls before claiming autonomous live-chain vulnerability discovery.
+
+
+
+## 33. Real solc + Anvil deployment equivalence proven — 2026-11-21
+
+**Working branch:** `feat/onchain-bytecode-verification`  
+**Verified implementation head:** `868b8cf89c9ec0519959d211734a97a5aef40a68`  
+**PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211), OPEN, DRAFT, stacked on PR #210. Do not merge without explicit approval.
+
+### Real integration fixture
+
+Added `tests/test_solidity_compiler_anvil_integration.py`, opt-in and run in a dedicated CI step with actual toolchain artifacts:
+
+- Downloads official Solidity `0.8.24+commit.e11b9ed9` Linux AMD64 compiler and verifies SHA-256 `fb03a29a517452b9f12bcf459ef37d0a543765bb3bbc911e70a87d6a37c30d5f` before use.
+- Pulls a digest-pinned Foundry image `ghcr.io/foundry-rs/foundry@sha256:97390dbfb6bd54d86e0817ba2900ee01cd522405631997b7d967eb149a7affde`.
+- Starts a local Anvil chain (31337) from that image.
+- Sends the exact Solidity Standard JSON input through the real `compile_standard_json()` path. The actual `solc` binary runs inside the digest-pinned, networkless Docker sandbox; the host does not execute the target contract.
+- Deploys the compiler-produced creation bytecode to Anvil using a local unlocked test account.
+- Reads deployed runtime bytecode using `eth_getCode` at the receipt's exact block hash via EIP-1898.
+- Constructs an `OnchainTargetRecord` with the acquired source, compiler version, Standard JSON input, block number/hash, runtime bytes and runtime digest.
+- Calls the production `verify_onchain_target()` path and proves:
+  - exact deployed runtime -> `VERIFIED / runtime_bytecode_exact_match`;
+  - one-byte runtime mutation with recomputed evidence digest -> `MISMATCH / runtime_bytecode_mismatch`.
+
+This is the first real compiler + local EVM deployment proof. It is not a mocked compiler output or mocked RPC result.
+
+### CI verification
+
+- CI run #2470 / ID `44900955670`: [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/44900955670), SUCCESS on implementation head `868b8cf89c9ec0519959d211734a97a5aef40a68`.
+- Full Python/EVM suite: **2,076 passed, 3 skipped, 4 warnings, 30 subtests passed**.
+- Focused on-chain source/compiler suite: **92 passed**.
+- Real solc + Anvil integration: **1 passed** (exact match and one-byte mismatch assertions in the same end-to-end test).
+- Bubblewrap fixture acceptance and the EVM Key Forensics evidence workflow completed successfully.
+- The opt-in integration test is skipped in the ordinary hermetic full-suite run and explicitly executed by the dedicated provisioned CI step.
+
+### Current limits
+
+- Proven against a synthetic local Anvil deployment, not yet against a third-party live deployed contract.
+- Constructor immutables, linked libraries and proxy/implementation equivalence remain fail-closed as `INCOMPLETE`.
+- Compiler verification is not yet wired into Worker orchestration or a separate typed `OnchainExecutionAdmission`.
+- Compiler verification evidence is not yet persisted as a distinct immutable verification record.
+- Docker isolation is not a microVM guarantee. No arbitrary target contract behavior was executed by this verifier and no transaction was submitted to a public network.
+- No live-chain vulnerability has been confirmed.
+
+### Next engineering slice
+
+1. Persist the compiler verification outcome as an immutable record keyed to target ID and pinned block hash, including source digest, Standard JSON digest, compiler version/commit and binary digest, compiled runtime digest, deployed runtime digest, status and reason.
+2. Add a typed `OnchainExecutionAdmission` separate from Git-only admission. Require persisted target/case binding, fresh reviewed scope, explicit authorization reference, pinned block hash and persisted `VERIFIED` status.
+3. Keep `SOURCE_ONLY`, `NOT_RUN` and `INCONCLUSIVE` distinct. A local harness result must not automatically confirm a deployed vulnerability.
+4. Add positive/negative controls and one explicitly authorized external target before claiming live-chain vulnerability discovery.
+
+
+
+## 34. Append-only verification evidence and verify-and-persist service — 2026-11-21
+
+**Working branch:** `feat/onchain-bytecode-verification`  
+**Verified implementation head:** `394d0b045b79f3abbf9b47df9dd93aba503095bd`  
+**PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211), OPEN, DRAFT, stacked on PR #210. Do not merge without explicit approval.
+
+### Implemented
+
+- Added `shared/onchain_verification_store.py` with:
+  - immutable `OnchainVerificationRecord` bound to target ID, chain, address, block number/hash, source digest, Standard JSON input digest and deployed runtime digest;
+  - compiler version, compiler binary SHA-256, compiled runtime SHA-256, compiler image digest, isolation type, status and reason;
+  - deterministic verification ID derived from canonical evidence;
+  - strict state invariants: `VERIFIED` requires matching runtime digests and complete compiler provenance; `MISMATCH` requires different runtime digests; `INCOMPLETE` can preserve partial evidence without inventing compiler proof;
+  - SQLite append-only ledger with UPDATE and DELETE triggers; duplicate identical evidence is idempotent;
+  - target binding checks against the persisted immutable `OnchainTargetStore` row before insertion.
+- Extended `CompilerRuntimeVerification` to retain compiler version, compiler binary digest, Standard JSON digest, compiler image and isolation metadata.
+- Added `OnchainVerificationStore.verify_and_persist()`: loads the persisted target, runs the production `verify_onchain_target()` path, builds an evidence record and returns the persisted row. This is now the single service entry point for compiler verification plus evidence persistence.
+- Updated the real Anvil integration test to call `verify_and_persist()`, then read the persisted evidence back from SQLite. The same test still proves exact runtime `VERIFIED` and one-byte mutation `MISMATCH`.
+- Added tests for target/block binding, digest drift, idempotency, incomplete compiler evidence, state invariants, append-only SQL triggers and verify-and-persist orchestration.
+
+### CI verification
+
+- CI run #2482 / ID `44901518474`: [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/44901518474), SUCCESS on implementation head `394d0b045b79f3abbf9b47df9dd93aba503095bd`.
+- Full Python/EVM suite: **2,085 passed, 3 skipped, 4 warnings, 30 subtests passed**.
+- Focused on-chain source/compiler/evidence suite: **101 passed**.
+- Real solc + Anvil integration: **1 passed**, including persisted verification evidence, exact runtime match and one-byte mismatch.
+- Bubblewrap fixture acceptance and EVM Key Forensics evidence workflow completed successfully.
+
+### Current limits
+
+- Evidence persistence is available as a service API but is not yet invoked by the Worker orchestration.
+- No typed `OnchainExecutionAdmission` exists yet; Git-only execution admission remains unchanged.
+- No exploit reproduction is yet admitted for deployed targets. Immutable constructor values, linked libraries and proxy/implementation equivalence remain fail-closed.
+- The Anvil fixture is synthetic and local. No third-party live contract has passed this verifier and no public-network transaction has been submitted.
+- Docker is a constrained container boundary, not a microVM guarantee.
+- No live-chain vulnerability has been confirmed.
+
+### Next engineering slice
+
+1. Implement a separate typed `OnchainExecutionAdmission`, without changing or weakening Git-only `TargetExecutionAdmission`.
+2. Require the persisted `OnchainResearchCase`, persisted `OnchainTargetRecord`, current scope review, explicit authorization reference, exact chain/address/block hash binding, and a persisted latest verification record with status `VERIFIED`.
+3. Reject missing, stale, mismatched, `MISMATCH`, or `INCOMPLETE` evidence. Preserve `SOURCE_ONLY`, `NOT_RUN` and `INCONCLUSIVE` as distinct execution outcomes.
+4. Only after this gate, connect the existing fixed-profile Foundry runner through a dedicated isolated execution boundary with positive and negative controls. A local harness pass is not automatically a confirmed deployed vulnerability.
+
+
+
+## 35. Separate typed on-chain execution admission gate — 2026-11-21
+
+**Working branch:** `feat/onchain-bytecode-verification`  
+**Verified implementation head:** `3a65554dd3fd991a62e4a40d95351bbcd438a84e`  
+**PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211), OPEN, DRAFT, stacked on PR #210. Do not merge without explicit approval.
+
+### Implemented
+
+- Added `shared/onchain_execution_admission.py`, independent of Git-backed `shared/target_execution_admission.py`.
+- Added typed, identity-only `OnchainExecutionRequest` and fixed `FOUNDRY_REPRODUCTION` profile. The request accepts only case ID, target ID, pinned block hash, verification ID and the explicit authorization reference. It cannot carry source code, harness code, arbitrary argv, RPC endpoints or transaction data.
+- Added `AdmittedOnchainExecution` with persisted case, target and verification evidence. The initial assurance is always `NOT_RUN`; admission itself does not run Foundry or execute target code.
+- Admission requires:
+  - the registered `OnchainResearchCase` and persisted `OnchainTargetRecord`;
+  - exact case-to-target identity and requested block-hash binding;
+  - exact authorization-reference equality with the registered case;
+  - explicit `exploit_reproduction` in the case's allowed techniques;
+  - scope review no older than 30 days and not dated in the future;
+  - verification evidence from the same SQLite connection as the case/target registry;
+  - the requested verification ID to be the latest append-only verification record for that target;
+  - latest verification status exactly `VERIFIED`, with source/input/runtime digests matching the pinned target.
+- Uses a SQLite `BEGIN IMMEDIATE` transaction while checking latest evidence, preventing a newer mismatch/incomplete record from racing the admission check.
+- Extended `OnchainResearchCase.allowed_techniques` to include `exploit_reproduction`. Existing on-chain queue role restrictions remain: on-chain case tasks cannot be enqueued as the Git `lab_runner`.
+- Added `OnchainVerificationStore.latest_for_target()`, ordered by SQLite append row, so a newer `MISMATCH` or `INCOMPLETE` record supersedes an older `VERIFIED` record.
+
+### Tests and CI
+
+- CI run #2493 / ID `44901992780`: [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/44901992780), SUCCESS on implementation head `3a65554dd3fd991a62e4a40d95351bbcd438a84e`.
+- Full Python/EVM suite: **2,095 passed, 3 skipped, 4 warnings, 30 subtests passed**.
+- Focused on-chain source/compiler/evidence/admission suite: **111 passed**.
+- Real solc + Anvil integration: **1 passed**, still proving exact runtime, one-byte mismatch and persisted evidence.
+- Admission tests cover successful admission, incomplete/latest evidence, older VERIFIED evidence superseded by newer incomplete evidence, stale/future scope review, missing exploit authorization, authorization-reference substitution, block-hash substitution, untyped requests and cross-database evidence.
+
+### Current limits
+
+- This is an authorization/admission gate only. It does not invoke the Foundry runner.
+- No on-chain execution task is yet orchestrated by Worker; the existing queue still intentionally prevents on-chain cases from using the Git `lab_runner`.
+- No arbitrary target code or generated harness has been executed through this gate.
+- The local Anvil fixture remains synthetic. No third-party live deployed contract has passed verification and no public-network transaction has been submitted.
+- Docker remains a constrained container boundary, not a microVM guarantee.
+- No live-chain vulnerability has been confirmed.
+
+### Next engineering slice
+
+1. Define a separate persisted on-chain execution request/round record; do not reuse Git `ResearchCase` or its `lab_runner` admission.
+2. Add a dedicated on-chain runner adapter that consumes only `AdmittedOnchainExecution` plus a bounded, case-bound harness artifact, and uses the fixed digest-pinned, networkless Foundry profile.
+3. Preserve `NOT_RUN`, `INCONCLUSIVE`, `SOURCE_ONLY` and local-only execution observations. Positive and negative controls must both pass before the result is considered a valid reproduction observation.
+4. Keep the result explicitly local-harness evidence; do not label it a confirmed deployed vulnerability without independent deployed-state validation.
+

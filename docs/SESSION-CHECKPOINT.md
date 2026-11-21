@@ -428,6 +428,7 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 
 ## Verification — NOT PASSED
 
+- Added `workflow_dispatch` to `.github/workflows/ci.yml` so the current draft branch can be manually validated from the GitHub Actions UI.
 - The last known GitHub Actions run `44890299159` completed with failure and job `136806540311` reported `steps: null`. No test step was executed.
 - Current head `b5f5d5e` has no Actions run and no commit status returned by GitHub. A local checkout attempt was unavailable because this runtime could not resolve `github.com`.
 - 47 test functions are present across the intake/store, on-chain case/pipeline, and structural-analysis test files, but they have **not** been executed. Do not describe the implementation as tested or passing.

@@ -285,6 +285,11 @@ def run_in_container(
         raise SandboxError("source_root_invalid") from exc
     if not root.is_dir():
         raise SandboxError("source_root_not_directory")
+    if entrypoint is not None and (
+        not isinstance(entrypoint, str)
+        or not re.fullmatch(r"[A-Za-z0-9_./-]+", entrypoint)
+    ):
+        raise SandboxError("container_entrypoint_invalid")
     input_file = None
     if stdin_path is not None:
         try:
@@ -297,11 +302,6 @@ def run_in_container(
             raise
         except (OSError, TypeError, ValueError) as exc:
             raise SandboxError("stdin_path_invalid") from exc
-    if entrypoint is not None and (
-        not isinstance(entrypoint, str)
-        or not re.fullmatch(r"[A-Za-z0-9_./-]+", entrypoint)
-    ):
-        raise SandboxError("container_entrypoint_invalid")
 
     container_name = f"aegisforge-run-{uuid.uuid4().hex}"
     docker_command = [

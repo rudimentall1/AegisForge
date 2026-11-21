@@ -133,10 +133,15 @@ def test_rpc_attestation_checks_chain_and_nonempty_deployed_code():
     def opener(request, timeout):
         payload = json.loads(request.data.decode())
         calls.append(payload["method"])
+        if payload["method"] == "eth_getCode":
+            assert payload["params"][1] == {
+                "blockHash": "0x" + "a" * 64,
+                "requireCanonical": True,
+            }
         results = {
             "eth_chainId": hex(8453),
             "eth_blockNumber": hex(123456),
-            "eth_getBlockByNumber": {"hash": "0x" + "a" * 64},
+            "eth_getBlockByNumber": {"number": hex(123456), "hash": "0x" + "a" * 64},
             "eth_getCode": "0x6001600055",
         }
         return FakeResponse({"jsonrpc": "2.0", "id": payload["id"], "result": results[payload["method"]]})
@@ -177,7 +182,7 @@ def test_intake_targets_only_accepts_verified_source_with_rpc_deployment_proof()
             results = {
                 "eth_chainId": hex(8453),
                 "eth_blockNumber": hex(123456),
-                "eth_getBlockByNumber": {"hash": "0x" + "a" * 64},
+                "eth_getBlockByNumber": {"number": hex(123456), "hash": "0x" + "a" * 64},
                 "eth_getCode": "0x6001600055",
             }
             return FakeResponse({"jsonrpc": "2.0", "id": rpc["id"], "result": results[rpc["method"]]})
@@ -258,7 +263,7 @@ def test_rpc_attestation_rejects_empty_runtime_code():
     results = {
         "eth_chainId": hex(8453),
         "eth_blockNumber": hex(123456),
-        "eth_getBlockByNumber": {"hash": "0x" + "a" * 64},
+        "eth_getBlockByNumber": {"number": hex(123456), "hash": "0x" + "a" * 64},
         "eth_getCode": "0x",
     }
 

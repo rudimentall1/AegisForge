@@ -201,3 +201,16 @@ def test_intake_targets_only_accepts_verified_source_with_rpc_deployment_proof()
     assert accepted["source"].source_files["src/RealVault.sol"].startswith("pragma")
     assert accepted["deployment_attestation"]["deployed"] is True
     assert calls[1:3] == ["eth_chainId", "eth_getCode"]
+
+
+def test_source_acquisition_rejects_path_traversal():
+    intake = BlockscoutContractIntake(
+        "https://base.blockscout.com/api/v2",
+        chain_id=8453,
+        opener=lambda *_args, **_kwargs: FakeResponse({
+            "is_verified": True,
+            "source_code": {"../outside.sol": {"content": "contract Outside {}"}},
+        }),
+    )
+    with pytest.raises(ContractIntakeError, match="contract_source_path_invalid"):
+        intake.fetch_verified_source("0x" + "9" * 40)

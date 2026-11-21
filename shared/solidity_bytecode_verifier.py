@@ -166,13 +166,13 @@ def verify_compiler_runtime_match(
     if not isinstance(deployed_output, dict):
         return _incomplete("compiler_deployed_bytecode_missing")
 
-    immutable_references = deployed_output.get("immutableReferences") or {}
+    immutable_references = deployed_output.get("immutableReferences", {})
     if not isinstance(immutable_references, dict):
         return _incomplete("immutable_references_invalid")
     if immutable_references:
         return _incomplete("immutable_references_require_constructor_reconstruction")
 
-    link_references = deployed_output.get("linkReferences") or {}
+    link_references = deployed_output.get("linkReferences", {})
     if not isinstance(link_references, dict):
         return _incomplete("library_link_references_invalid")
     if link_references:

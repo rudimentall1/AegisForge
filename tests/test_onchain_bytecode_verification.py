@@ -38,6 +38,8 @@ def _compiler_output(runtime="6001600055", *, immutable=None, links=None):
 def _verify(**overrides):
     args = {
         "standard_json_input": _standard_input(),
+        "source_files": {"src/Vault.sol": "pragma solidity ^0.8.24; contract Vault {}"},
+        "compiled_input_sha256": hashlib.sha256(_standard_input().encode("utf-8")).hexdigest(),
         "compiler_output": _compiler_output(),
         "deployed_runtime_code": "0x6001600055",
         "expected_compiler_version": "0.8.24",
@@ -147,3 +149,24 @@ def test_target_store_rejects_runtime_code_digest_substitution():
             source_files={"src/Vault.sol": "contract Vault {}"},
             source_provider="blockscout_v2",
         )
+
+
+
+def test_compiler_result_cannot_be_bound_to_different_agent_source():
+    result = _verify(source_files={"src/Vault.sol": "contract AttackerControlled {}"})
+    assert result.status == "INCOMPLETE"
+    assert result.reason == "standard_json_source_mapping_mismatch"
+
+
+def test_remote_only_standard_json_sources_are_not_verified():
+    payload = json.loads(_standard_input())
+    payload["sources"]["src/Vault.sol"] = {"urls": ["ipfs://untrusted-source"]}
+    result = _verify(standard_json_input=json.dumps(payload))
+    assert result.status == "INCOMPLETE"
+    assert result.reason == "standard_json_source_content_missing"
+
+
+def test_compiler_output_must_be_bound_to_exact_input_digest():
+    result = _verify(compiled_input_sha256="f" * 64)
+    assert result.status == "INCOMPLETE"
+    assert result.reason == "compiler_input_digest_mismatch"

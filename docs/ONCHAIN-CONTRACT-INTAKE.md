@@ -104,3 +104,42 @@ Do not attach an `OnchainTargetRecord` directly to a Git `ResearchCase`. The lat
 The next slice must introduce a separate immutable `OnchainResearchCase` that references `target_id` and records explicit authorization/scope evidence. A verified public contract is a research candidate, not permission to test it. Queue tasks must bind to either a Git ResearchCase or an on-chain research case, never both; parent/child task inheritance must preserve that binding.
 
 At the Worker boundary, resolve the on-chain case and target record from the existing SQLite database, then pass a typed read-only target context to source-research agents. Do not put source bytes in queue descriptions, capability intent, or task result payloads. Do not route this context into the Git-only target execution admission or Foundry runner. Initial integration is non-executing source research only; any future fork/harness execution requires its own explicit admission contract and reviewed isolation backend.
+
+
+## Working source-research pipeline
+
+The current branch now includes a separate `OnchainResearchCase` contract. It binds an immutable `target_id` to a reviewed scope URL/digest, review date, authorization reference, hypothesis, invariant, and falsification criteria. Registration fails unless the referenced immutable target already exists in `OnchainTargetStore`.
+
+Queue tasks carry a dedicated `onchain_case_id` column. Git and on-chain case IDs are mutually exclusive; child tasks inherit the same on-chain case; cross-case rebinding is rejected. Evidence observations inherit the on-chain case ID. The Git `ResearchCase` and its Foundry admission remain unchanged.
+
+Worker resolves both the case and full target record from SQLite and passes the read-only source bundle to agents. The automatic on-chain path is:
+
+1. `source_researcher`: bounded lexical triage of all stored Solidity files; records source-file digests and line-level signals.
+2. `crypto_analyst`: converts signals into falsifiable review hypotheses; does not mark findings confirmed.
+3. `security_checker`: independently applies its source-pattern rules to the persisted source bundle and records potential risks.
+
+All three stages are offline/read-only. The on-chain case cannot be assigned to `lab_runner`; no Foundry, Anvil, shell, RPC writes, or transactions are invoked. Pattern matches are leads, not confirmed vulnerabilities.
+
+## Explicit-address CLI
+
+To start a source-only case for one contract that is already within the reviewed program scope:
+
+```bash
+export AEGISFORGE_RPC_URL="https://YOUR_CHAIN_RPC"
+python scripts/aegisforge_onchain_research.py \
+  --chain-id 8453 \
+  --address 0xYOUR_IN_SCOPE_CONTRACT \
+  --scope-url "https://YOUR_PROGRAM_SCOPE_URL" \
+  --scope-digest YOUR_REVIEWED_SCOPE_SHA256 \
+  --scope-reviewed-on 2026-11-21 \
+  --authorization-reference "https://YOUR_PROGRAM_AUTHORIZATION_URL" \
+  --hypothesis "Describe a falsifiable security hypothesis" \
+  --expected-invariant "Describe the invariant that must always hold" \
+  --falsification-criteria "Describe what would disprove the hypothesis"
+```
+
+The CLI intentionally accepts one explicit address instead of crawling a chain and treating arbitrary public contracts as authorized targets. It persists the acquired source/provenance, registers the case, and queues the first Worker task. It prints the target, case, and task IDs. Run it from the repository root with the normal AegisForge Python environment and configured database path.
+
+## Verification boundary
+
+New coverage was added for case validation/tamper detection, target-backed registration, queue/Worker binding, child inheritance, evidence lineage, agent source triage, hypothesis generation, independent SecurityChecker review, and role-scoped offline capabilities. CI runner assignment remains unreliable; do not treat these tests as passing until a runner executes them.

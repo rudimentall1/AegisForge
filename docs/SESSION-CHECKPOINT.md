@@ -409,7 +409,7 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 **Updated:** 2026-11-21  
 **Repository:** `rudimentall1/AegisForge`  
 **Working branch:** `feat/onchain-contract-intake`  
-**Latest known head before this checkpoint update:** `04e59f7bc2de8be8ea89f4e40bd86bdebfca7ad0`  
+**Latest code/test head before this checkpoint update:** `b5f5d5eba24d91329e8a3e74c38240fd2f514382`  
 **PR:** [#208](https://github.com/rudimentall1/AegisForge/pull/208), OPEN, DRAFT, not merged.
 
 ## Implemented in this continuation
@@ -429,8 +429,8 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 ## Verification — NOT PASSED
 
 - The last known GitHub Actions run `44890299159` completed with failure and job `136806540311` reported `steps: null`. No test step was executed.
-- GitHub Actions has not returned a run for the latest Contents-API commits. A local checkout attempt was unavailable because this runtime could not resolve `github.com`.
-- Therefore the new tests have **not** been executed. Do not describe the implementation as tested or passing.
+- Current head `b5f5d5e` has no Actions run and no commit status returned by GitHub. A local checkout attempt was unavailable because this runtime could not resolve `github.com`.
+- 47 test functions are present across the intake/store, on-chain case/pipeline, and structural-analysis test files, but they have **not** been executed. Do not describe the implementation as tested or passing.
 - PR #208 remains Draft. Do not merge.
 
 ## Current technical limits

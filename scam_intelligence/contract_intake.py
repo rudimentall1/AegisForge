@@ -367,9 +367,18 @@ class BlockscoutContractIntake:
         block_hash = block["hash"]
         if not re.fullmatch(r"0x[0-9a-fA-F]{64}", block_hash):
             raise ContractIntakeError("rpc_block_hash_invalid")
+        try:
+            returned_block_number = int(block.get("number"), 16)
+        except (TypeError, ValueError) as exc:
+            raise ContractIntakeError("rpc_block_number_missing_or_invalid") from exc
+        if returned_block_number != block_number:
+            raise ContractIntakeError("rpc_block_number_mismatch")
 
-        # Read code at the pinned block, not the moving "latest" tag.
-        code = rpc_call("eth_getCode", [address, hex(block_number)])
+        # EIP-1898 binds eth_getCode to the exact block hash. A number-only
+        # query could silently read a replacement block after a chain reorg.
+        code = rpc_call("eth_getCode", [
+            address, {"blockHash": block_hash, "requireCanonical": True}
+        ])
         if not isinstance(code, str) or not code.startswith("0x") or len(code) <= 2 or len(code) % 2 != 0:
             raise ContractIntakeError("rpc_contract_code_empty_or_invalid")
         try:

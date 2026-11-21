@@ -785,10 +785,12 @@ class TaskQueue:
             raise ValueError("git_and_onchain_case_binding_mutually_exclusive")
 
         if role in CASE_REQUIRED_ROLES:
-            if role == "lab_runner" and (not research_case_id or onchain_case_id):
+            if role == "lab_runner" and onchain_case_id:
                 raise ValueError("git_research_case_required_for_lab_runner")
-            if role in {"source_researcher", "crypto_analyst"} and not (research_case_id or onchain_case_id):
-                raise ValueError(f"research_case_or_onchain_case_required_for_role:{role}")
+            if not research_case_id and not onchain_case_id:
+                raise ValueError(f"research_case_id_required_for_role:{role}")
+            if role == "lab_runner" and not research_case_id:
+                raise ValueError(f"research_case_id_required_for_role:{role}")
 
         if research_case_id is not None:
             case_payload = self.get_research_case(research_case_id)

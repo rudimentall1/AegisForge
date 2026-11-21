@@ -654,6 +654,9 @@ class SourceResearcher:
                 "source_summary": {
                     "files_analyzed": len(source_records),
                     "signals_detected": sum(len(item["signals"]) for item in source_records),
+                    "structural_functions": structural_analysis["summary"]["functions_analyzed"],
+                    "structural_call_edges": structural_analysis["summary"]["call_edges"],
+                    "structural_analysis_complete": structural_analysis["analysis_complete"],
                 },
                 "analysis_limits": {
                     "method": "bounded lexical triage plus structural function/call inventory",

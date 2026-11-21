@@ -111,7 +111,11 @@ def _top_level_state_names(masked: str) -> set:
     for index, char in enumerate(masked):
         if char == "{":
             depth += 1
+            if depth == 1:
+                start = index + 1
         elif char == "}":
+            if depth == 1:
+                start = index + 1
             depth = max(0, depth - 1)
         elif char == ";" and depth == 1:
             statement = masked[start:index].strip()
@@ -126,9 +130,6 @@ def _top_level_state_names(masked: str) -> set:
             )
             if match:
                 names.add(match.group(1))
-        elif char == "{" and depth == 1:
-            # A contract-level function/modifier/struct body is not a state declaration.
-            start = index + 1
     return names
 
 
@@ -252,18 +253,19 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
             "modifiers": [item["name"] for item in modifier_blocks],
         })
 
-    known_functions = {item["name"] for item in all_functions}
-    known_modifiers = {
-        name for item in files for name in item["modifiers"]
-    }
+    functions_by_file_and_name = {}
+    for item in all_functions:
+        functions_by_file_and_name.setdefault((item["path"], item["name"]), []).append(item)
+    known_modifiers = {name for item in files for name in item["modifiers"]}
     for function in all_functions:
         raw_calls = function.pop("_raw_calls", [])
         function["calls"] = [
-            name for name in raw_calls if name in known_functions
+            name for name in raw_calls
+            if len(functions_by_file_and_name.get((function["path"], name), [])) == 1
         ]
         function["unresolved_calls"] = [
             name for name in raw_calls
-            if name not in known_functions and name not in known_modifiers
+            if name not in function["calls"] and name not in known_modifiers
         ][:100]
 
     call_graph = [

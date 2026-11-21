@@ -350,3 +350,47 @@ class BlockscoutContractIntake:
             "runtime_code_sha256": hashlib.sha256(code_bytes).hexdigest(),
             "attestation_source": "configured_evm_rpc_eth_getCode_latest",
         }
+
+
+    def intake_targets(
+        self,
+        rpc_url: str,
+        *,
+        limit: int = 25,
+        min_transactions: int = 10,
+    ) -> dict:
+        """Discover, source, and RPC-attest a bounded batch of real targets.
+
+        Rejected candidates are returned with a machine-readable reason; one
+        bad explorer record never aborts the remaining batch. Only accepted
+        entries contain source files and a positive deployment attestation.
+        """
+        candidates = self.discover_verified_contracts(
+            limit=limit,
+            min_transactions=min_transactions,
+        )
+        accepted = []
+        rejected = []
+        for candidate in candidates:
+            try:
+                attestation = self.attest_deployment(rpc_url, candidate.address)
+                source = self.fetch_verified_source(candidate.address)
+                accepted.append({
+                    "candidate": candidate,
+                    "source": source,
+                    "deployment_attestation": attestation,
+                })
+            except ContractIntakeError as exc:
+                rejected.append({
+                    "chain_id": self.chain_id,
+                    "address": candidate.address,
+                    "reason": str(exc),
+                })
+        return {
+            "chain_id": self.chain_id,
+            "discovered": len(candidates),
+            "accepted": accepted,
+            "rejected": rejected,
+            "source_provider": "blockscout_v2",
+            "deployment_verifier": "configured_evm_rpc",
+        }

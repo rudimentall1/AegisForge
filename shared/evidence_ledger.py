@@ -10,6 +10,8 @@ class EvidenceLedger:
 
     MAX_ATOM_VALUE_BYTES = 8192
     MAX_OBSERVATIONS = 5000
+    MAX_LOCAL_EXPERIMENT_RECORDS = 10_000
+    MAX_LOCAL_EXPERIMENT_STORAGE_BYTES = 512 * 1024 * 1024
 
     def __init__(self, db):
         self.db = db
@@ -58,6 +60,8 @@ class EvidenceLedger:
             self.db.execute("ALTER TABLE evidence_observations ADD COLUMN case_id TEXT")
         if "round_id" not in observation_columns:
             self.db.execute("ALTER TABLE evidence_observations ADD COLUMN round_id TEXT")
+        if "round_spec_id" not in observation_columns:
+            self.db.execute("ALTER TABLE evidence_observations ADD COLUMN round_spec_id TEXT")
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_evidence_observations_task
             ON evidence_observations(task_id)
@@ -78,6 +82,33 @@ class EvidenceLedger:
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_evidence_contradictions_last_seen
             ON evidence_contradictions(last_seen)
+        """)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS local_experiment_records (
+                record_digest TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                round_id TEXT NOT NULL,
+                round_spec_id TEXT,
+                task_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                input_bytes BLOB NOT NULL,
+                stdout_bytes BLOB NOT NULL,
+                stderr_bytes BLOB NOT NULL
+            )
+        """)
+        local_experiment_columns = {
+            row[1] for row in self.db.execute(
+                "PRAGMA table_info(local_experiment_records)"
+            )
+        }
+        if "round_spec_id" not in local_experiment_columns:
+            self.db.execute(
+                "ALTER TABLE local_experiment_records ADD COLUMN round_spec_id TEXT"
+            )
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_local_experiment_case_round
+            ON local_experiment_records(case_id, round_id, created_at)
         """)
         self.db.commit()
 
@@ -300,6 +331,189 @@ class EvidenceLedger:
             "ledger_result": result,
         }
 
+    def record_local_experiment(self, record, artifacts, observed_at=None, commit=True):
+        """Persist a bounded experiment atomically against authoritative case/task state.
+
+        Queue identity, terminal task state, target revision, and storage budgets
+        are checked under a SQLite write reservation. Concurrent writers therefore
+        cannot race the count/byte quota checks. This method never executes argv.
+        """
+        from shared.local_experiment import verify_experiment_record
+
+        report = verify_experiment_record(record, artifacts)
+        if report.get("status") != "PASS":
+            raise ValueError("local_experiment_record_invalid")
+        task_id = record["task_id"]
+        canonical = json.dumps(
+            record, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            allow_nan=False,
+        )
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        now = observed_at or datetime.now(timezone.utc).isoformat()
+        artifact_names = ("input.bin", "stdout.bin", "stderr.bin")
+        incoming_size = sum(len(artifacts[name]) for name in artifact_names)
+
+        # If the caller already has a transaction, protect this operation with a
+        # savepoint and preserve the caller's transaction semantics. Otherwise,
+        # BEGIN IMMEDIATE reserves the writer before any authoritative reads.
+        had_transaction = self.db.in_transaction
+        savepoint = "aegisforge_local_experiment_record"
+        if had_transaction:
+            self.db.execute(f"SAVEPOINT {savepoint}")
+        else:
+            self.db.execute("BEGIN IMMEDIATE")
+
+        try:
+            queue_columns = {
+                row[1] for row in self.db.execute("PRAGMA table_info(queue)")
+            }
+            required = {"id", "research_case_id", "round_id", "status"}
+            if not required.issubset(queue_columns):
+                raise ValueError("local_experiment_queue_binding_schema_missing")
+            queue_has_round_spec = "round_spec_id" in queue_columns
+            spec_select = "round_spec_id" if queue_has_round_spec else "NULL AS round_spec_id"
+            row = self.db.execute(
+                f"SELECT research_case_id, round_id, status, {spec_select} "
+                "FROM queue WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("local_experiment_task_not_found")
+            if row[0] != record["case_id"] or row[1] != record["round_id"]:
+                raise ValueError("local_experiment_task_identity_mismatch")
+            if row[2] not in {"completed", "failed"}:
+                raise ValueError("local_experiment_task_not_terminal")
+            task_round_spec_id = row[3]
+            record_round_spec_id = record.get("round_spec_id")
+            if record_round_spec_id is not None and not queue_has_round_spec:
+                raise ValueError("local_experiment_round_spec_schema_missing")
+
+            case_tables = {
+                item[0] for item in self.db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            if "research_cases" not in case_tables:
+                raise ValueError("local_experiment_registered_case_required")
+            case_row = self.db.execute(
+                "SELECT payload FROM research_cases WHERE case_id = ?",
+                (record["case_id"],),
+            ).fetchone()
+            if case_row is None:
+                raise ValueError("local_experiment_registered_case_required")
+            try:
+                case_payload = json.loads(case_row[0])
+            except (TypeError, ValueError) as exc:
+                raise ValueError("local_experiment_registered_case_invalid") from exc
+            if (
+                not isinstance(case_payload, dict)
+                or case_payload.get("target_repository") != record["target_repository"]
+                or str(case_payload.get("target_commit", "")).lower()
+                   != record["target_commit"]
+            ):
+                raise ValueError("local_experiment_target_identity_mismatch")
+
+            planned_rounds = case_payload.get("rounds", [])
+            if not isinstance(planned_rounds, list):
+                raise ValueError("local_experiment_registered_case_invalid")
+            declared_round_spec_ids = set()
+            for planned_round in planned_rounds:
+                if (
+                    not isinstance(planned_round, dict)
+                    or not isinstance(planned_round.get("round_id"), str)
+                    or not planned_round["round_id"].strip()
+                    or planned_round["round_id"] in declared_round_spec_ids
+                ):
+                    raise ValueError("local_experiment_registered_case_invalid")
+                declared_round_spec_ids.add(planned_round["round_id"])
+
+            case_has_planned_rounds = bool(declared_round_spec_ids)
+            if case_has_planned_rounds:
+                if not queue_has_round_spec:
+                    raise ValueError("local_experiment_round_spec_schema_missing")
+                if record_round_spec_id is None:
+                    raise ValueError("local_experiment_round_spec_required")
+                if record_round_spec_id not in declared_round_spec_ids:
+                    raise ValueError("local_experiment_round_spec_not_declared_in_case")
+                if task_round_spec_id != record_round_spec_id:
+                    raise ValueError("local_experiment_task_round_spec_identity_mismatch")
+
+                if "research_case_rounds" not in case_tables:
+                    raise ValueError("local_experiment_round_registry_binding_required")
+                registry_columns = {
+                    item[1] for item in self.db.execute(
+                        "PRAGMA table_info(research_case_rounds)"
+                    )
+                }
+                if not {"case_id", "round_id", "round_spec_id"}.issubset(registry_columns):
+                    raise ValueError("local_experiment_round_registry_binding_required")
+                registry_row = self.db.execute(
+                    """SELECT round_spec_id FROM research_case_rounds
+                       WHERE case_id = ? AND round_id = ?""",
+                    (record["case_id"], record["round_id"]),
+                ).fetchone()
+                if registry_row is None:
+                    raise ValueError("local_experiment_round_registry_binding_required")
+                if registry_row[0] != record_round_spec_id:
+                    raise ValueError("local_experiment_round_registry_identity_mismatch")
+            else:
+                if record_round_spec_id is not None:
+                    raise ValueError("local_experiment_round_spec_not_declared_in_case")
+                if task_round_spec_id is not None:
+                    raise ValueError("local_experiment_task_round_spec_identity_mismatch")
+
+            usage = self.db.execute(
+                """SELECT COUNT(*),
+                          COALESCE(SUM(length(input_bytes) + length(stdout_bytes) + length(stderr_bytes)), 0)
+                   FROM local_experiment_records"""
+            ).fetchone()
+            if usage[0] >= self.MAX_LOCAL_EXPERIMENT_RECORDS:
+                raise ValueError("local_experiment_record_count_limit_exceeded")
+            if usage[1] + incoming_size > self.MAX_LOCAL_EXPERIMENT_STORAGE_BYTES:
+                raise ValueError("local_experiment_storage_limit_exceeded")
+
+            try:
+                self.db.execute(
+                    """INSERT INTO local_experiment_records
+                       (record_digest, case_id, round_id, round_spec_id, task_id, created_at,
+                        record_json, input_bytes, stdout_bytes, stderr_bytes)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        digest, record["case_id"], record["round_id"], record_round_spec_id,
+                        task_id, now, canonical, artifacts["input.bin"], artifacts["stdout.bin"],
+                        artifacts["stderr.bin"],
+                    ),
+                )
+            except Exception as exc:
+                raise ValueError("local_experiment_record_persistence_failed") from exc
+
+            if commit:
+                self.db.commit()
+            elif had_transaction:
+                self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+            # When no transaction existed and commit=False, leave the newly
+            # opened transaction for the caller to commit or roll back.
+            return {
+                "record_digest": digest,
+                "case_id": record["case_id"],
+                "round_id": record["round_id"],
+                "round_spec_id": record_round_spec_id,
+                "task_id": task_id,
+                "experiment_status": report["experiment_status"],
+                "stored_artifacts": report["checked_artifacts"],
+            }
+        except Exception:
+            try:
+                if had_transaction:
+                    self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+                elif self.db.in_transaction:
+                    self.db.rollback()
+            except Exception:
+                # Preserve the original validation/database failure.
+                pass
+            raise
+
     def record_observation(self, task_id, role, atom, observed_at=None, commit=True):
         """Record one bounded task-level evidence/audit observation.
 
@@ -330,31 +544,35 @@ class EvidenceLedger:
         atom_id = self.atom_id(normalized_atom)
         case_id = None
         round_id = None
+        round_spec_id = None
         try:
             queue_columns = {
                 row[1] for row in self.db.execute("PRAGMA table_info(queue)")
             }
             if {"id", "research_case_id"}.issubset(queue_columns):
-                round_select = ", round_id" if "round_id" in queue_columns else ""
+                selected = ["research_case_id"]
+                for column in ("round_id", "round_spec_id"):
+                    if column in queue_columns:
+                        selected.append(column)
                 case_row = self.db.execute(
-                    f"SELECT research_case_id{round_select} FROM queue WHERE id = ?",
+                    f"SELECT {', '.join(selected)} FROM queue WHERE id = ?",
                     (task_id,),
                 ).fetchone()
-                case_id = case_row[0] if case_row else None
-                round_id = (
-                    case_row[1]
-                    if case_row and "round_id" in queue_columns
-                    else None
-                )
+                if case_row:
+                    case_id = case_row[0]
+                    offsets = {name: index for index, name in enumerate(selected)}
+                    round_id = case_row[offsets["round_id"]] if "round_id" in offsets else None
+                    round_spec_id = case_row[offsets["round_spec_id"]] if "round_spec_id" in offsets else None
         except Exception:
             # Standalone/legacy databases may not contain a compatible queue.
             case_id = None
             round_id = None
+            round_spec_id = None
         self.db.execute(
             """INSERT OR IGNORE INTO evidence_observations
-               (atom_id, task_id, role, observed_at, case_id, round_id)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (atom_id, task_id, role, now, case_id, round_id),
+               (atom_id, task_id, role, observed_at, case_id, round_id, round_spec_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (atom_id, task_id, role, now, case_id, round_id, round_spec_id),
         )
         self.db.execute(
             """DELETE FROM evidence_observations

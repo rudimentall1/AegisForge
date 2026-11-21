@@ -142,6 +142,8 @@ Agent names in code do not automatically mean every role has the target responsi
 - Support counter-tests: expected-safe control case, boundary values, alternative sequence, and regression checks.
 - Keep live-chain interaction disabled by default; require explicit authorization and safe test mode.
 
+**Current execution boundary:** `shared.synthetic_fixture_runner` now tests actual stdout/stderr capture for a single repository-owned synthetic fixture in a child process. It applies POSIX CPU, address-space, file-size, open-file and core-dump limits, an overall timeout, output caps, a minimal environment, and a temporary working directory. It accepts only fixed fixture modes and never executes dossier-provided argv. It does **not** enforce network isolation or filesystem isolation and is not an approved runner for target code. Full sandboxing and clean-checkout target reproduction remain unfinished.
+
 **Acceptance rule:** compilation is not reproduction. A passing test only establishes the behavior asserted by that test. The test must connect attacker capability and preconditions to an in-scope security impact.
 
 ### 3.7 Hypothesis, invariant, and impact model
@@ -177,6 +179,10 @@ A code difference, unusual state, test failure, or static-analysis warning is a 
 - Provenance statements whose wording matches what was actually verified.
 
 Hashes make artifacts tamper-evident only relative to a trusted recorded digest. A GitHub Actions attestation can identify a workflow-produced artifact under its stated claims; it does not by itself prove that source produced a binary, that the experiment is valid, or that a vulnerability exists.
+
+**Implemented package trust layers:** `shared.research_case_evidence_package` schema v2 can embed detached Ed25519 execution attestations and structurally bind each signed record digest to an included experiment record. Offline verification reports package integrity separately from attestation verification. A signature is accepted only against a caller-supplied, out-of-band trusted public key; a package-provided key is not a trust root. Optional durable replay protection consumes a package's `(signer_id, nonce)` set atomically in SQLite and requires the same replay database across the intended verification domain. Schema v1 packages remain readable.
+
+The combined package and all ZIP member metadata remain unsigned. A valid Ed25519 signature verifies signed claims under the configured key, not the truth of those claims, the honesty of the runner, or the existence of a vulnerability. Replay protection prevents re-accepting a nonce in its configured registry; it is not distributed when verifiers use different databases.
 
 ### 3.9 Independent verifier and reproduction runner
 
@@ -373,5 +379,7 @@ The current investigation of operator migration/effective-balance accounting has
 - [AegisForge README](../README.md)
 - [EVM Key Forensics overview](EVM-KEY-FORENSICS.md)
 - [Source provenance notes](evm-key-forensics-source-provenance.md)
+- [Execution Attestation trust boundary](execution-attestation.md)
+- [Local Experiment Evidence and Portable Case Packages](local-experiment-evidence.md)
 - [SSV Network Bug Bounty](https://immunefi.com/bug-bounty/ssvnetwork/information/)
 - [SSV Network scope](https://immunefi.com/bug-bounty/ssvnetwork/scope/)

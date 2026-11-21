@@ -214,3 +214,44 @@ def test_source_acquisition_rejects_path_traversal():
     )
     with pytest.raises(ContractIntakeError, match="contract_source_path_invalid"):
         intake.fetch_verified_source("0x" + "9" * 40)
+
+
+def test_source_acquisition_parses_standard_json_input_string():
+    standard_json = json.dumps({
+        "language": "Solidity",
+        "sources": {
+            "src/Router.sol": {"content": "contract Router {}"},
+            "src/Pair.sol": {"content": "contract Pair {}"},
+        },
+        "settings": {"optimizer": {"enabled": True, "runs": 200}},
+    })
+    intake = BlockscoutContractIntake(
+        "https://base.blockscout.com/api/v2",
+        chain_id=8453,
+        opener=lambda *_args, **_kwargs: FakeResponse({
+            "is_verified": True,
+            "source_code": standard_json,
+        }),
+    )
+
+    source = intake.fetch_verified_source("0x" + "8" * 40)
+
+    assert set(source.source_files) == {"src/Router.sol", "src/Pair.sol"}
+
+
+def test_rpc_attestation_rejects_empty_runtime_code():
+    responses = iter([hex(8453), "0x"])
+
+    def opener(request, timeout):
+        payload = json.loads(request.data.decode())
+        return FakeResponse({
+            "jsonrpc": "2.0",
+            "id": payload["id"],
+            "result": next(responses),
+        })
+
+    intake = BlockscoutContractIntake(
+        "https://base.blockscout.com/api/v2", chain_id=8453, opener=opener
+    )
+    with pytest.raises(ContractIntakeError, match="rpc_contract_code_empty_or_invalid"):
+        intake.attest_deployment("https://rpc.example", "0x" + "7" * 40)

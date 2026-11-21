@@ -409,7 +409,7 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 **Updated:** 2026-11-21  
 **Repository:** `rudimentall1/AegisForge`  
 **Working branch:** `feat/onchain-contract-intake`  
-**Latest code/test head before this checkpoint update:** `b5f5d5eba24d91329e8a3e74c38240fd2f514382`  
+**Latest code/test head before this checkpoint update:** `d45d09a511ae790104839d348569e18c19677a85`  
 **PR:** [#208](https://github.com/rudimentall1/AegisForge/pull/208), OPEN, DRAFT, not merged.
 
 ## Implemented in this continuation

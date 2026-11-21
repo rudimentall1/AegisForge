@@ -205,3 +205,12 @@ def test_store_rejects_mismatched_source_and_rpc_coordinates():
 
     with pytest.raises(OnchainTargetError, match="intake_chain_id_mismatch"):
         store.put_intake_item(item)
+
+
+def test_record_source_map_is_immutable_after_digest_creation():
+    record = _record()
+
+    with pytest.raises(TypeError):
+        record.source_files["src/Injected.sol"] = "contract Injected {}"
+
+    assert record.source_sha256 == _record().source_sha256

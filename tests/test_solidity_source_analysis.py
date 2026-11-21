@@ -82,3 +82,27 @@ def test_rejects_unbalanced_function_body_as_incomplete_analysis():
     assert result["analysis_complete"] is False
     assert result["errors"]
     assert result["analysis_limits"]["vulnerabilities_confirmed"] == 0
+
+def test_detects_inline_authorization_when_owner_precedes_sender():
+    source = """
+    contract Vault {
+        address owner;
+        function withdraw() external {
+            require(owner == msg.sender, "not owner");
+        }
+    }
+    """
+    result = analyze_solidity_sources({"Vault.sol": source})
+    fn = next(item for item in result["functions"] if item["name"] == "withdraw")
+    assert any(
+        item["kind"] == "inline_sender_check"
+        for item in fn["authorization_signals"]
+    )
+
+
+def test_fails_closed_on_unterminated_source_literal():
+    source = 'contract Broken { string note = "unterminated; function run() external {}'
+    result = analyze_solidity_sources({"Broken.sol": source})
+    assert result["analysis_complete"] is False
+    assert result["errors"][0]["error"] == "unterminated_comment_or_string"
+

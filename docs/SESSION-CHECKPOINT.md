@@ -363,3 +363,20 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - Updated `docs/ONCHAIN-CONTRACT-INTAKE.md` with the store integration example and explicit statement that Worker/ResearchCase integration is still missing.
 - Current branch includes the above changes; latest Actions run observed before these later commits (`44888508243`) again failed before steps with `runner_id=0` and no assigned runner. No tests have executed in CI. Do not mark this milestone test-passing.
 - Next: add an explicit on-chain target binding to the case/queue model without weakening Git-based ResearchCase invariants, then add a narrow Worker handoff that loads the persisted target by ID. Do not start target code execution; source must remain inert until the existing admission and approved microVM/fixed-profile controls authorize it.
+
+
+
+## 29. Worker handoff boundary review — 2026-11-21
+
+- Re-read the live branch implementations of `shared/research_case.py`, `shared/queue.py`, `shared/target_execution_admission.py`, `agents/worker.py`, and `shared/onchain_target_store.py`.
+- Confirmed the existing extension points:
+  - `TaskQueue.register_research_case()/get_research_case()` persist and resolve only the Git-centric `ResearchCase` contract.
+  - `TaskQueue.add()` inherits and enforces `research_case_id`, `round_id`, and `round_spec_id` across parent/child tasks. `capability_intent` is deliberately capped at 8 KiB.
+  - `Worker.run_once()` claims the task, resolves its ResearchCase and planned RoundSpec, calls `validate_worker_case_binding()`, then constructs the common `Task.payload` and dispatches through `TechniqueRegistry`.
+  - `validate_worker_case_binding()` requires a ResearchCase for `source_researcher`, `crypto_analyst`, and `lab_runner`; simply attaching an on-chain target ID would still be rejected or, if bypassed, would weaken a security boundary.
+  - `admit_target_execution()` independently resolves only Git ResearchCase + runtime round state and must remain Git-specific. It must not be tricked into accepting an on-chain target as a fake repository/commit.
+- Therefore the correct integration is a distinct typed `OnchainResearchCase` registry and task binding, not optional EVM fields bolted onto `ResearchCase`. The on-chain case must bind an immutable `target_id` plus explicit authorization/scope evidence and a reviewed scope digest; public visibility or verified source alone is not authorization to perform security testing.
+- Worker should resolve the on-chain case and `OnchainTargetRecord` from the same SQLite database and expose a typed, read-only target context in `Task.payload`. Source bytes must be loaded from `OnchainTargetStore`, never copied into queue descriptions, capability intent, or task result metadata.
+- First integration stage should permit non-executing source research only. It must not route on-chain cases into the Git-only `target_execution_admission`, Foundry runner, or arbitrary subprocess. A separate on-chain execution admission contract is required before any fork/harness execution.
+- No production code was changed in this review. No target source was executed and no vulnerability finding was claimed.
+- Next implementation slice: TDD for immutable `OnchainResearchCase` validation/registration, mutually exclusive Git/on-chain task bindings with parent inheritance, and Worker target resolution tests. Only after those pass should agent dispatch be enabled.

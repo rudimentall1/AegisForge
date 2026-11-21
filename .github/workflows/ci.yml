@@ -320,6 +320,9 @@ jobs:
             shared/onchain_research_case.py \
             shared/onchain_target_store.py \
             shared/solidity_source_analysis.py \
+            shared/solidity_bytecode_verifier.py \
+            shared/solidity_compiler.py \
+            shared/sandbox.py \
             shared/queue.py \
             tests
       - name: Run focused on-chain source tests
@@ -330,4 +333,7 @@ jobs:
             tests/test_onchain_research_case.py \
             tests/test_solidity_source_analysis.py \
             tests/test_security_checker_offline.py \
-            tests/test_worker_onchain_pipeline.py
+            tests/test_worker_onchain_pipeline.py \
+            tests/test_onchain_bytecode_verification.py \
+            tests/test_solidity_compiler.py \
+            tests/test_sandbox.py

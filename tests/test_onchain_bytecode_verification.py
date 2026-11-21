@@ -174,3 +174,27 @@ def test_compiler_output_must_be_bound_to_exact_input_digest():
     result = _verify(compiled_input_sha256="f" * 64)
     assert result.status == "INCOMPLETE"
     assert result.reason == "compiler_input_digest_mismatch"
+
+
+
+def test_target_store_migrates_legacy_schema_with_empty_runtime_code():
+    db = sqlite3.connect(":memory:")
+    db.execute("""
+        CREATE TABLE onchain_targets (
+            target_id TEXT PRIMARY KEY,
+            chain_id INTEGER NOT NULL,
+            address TEXT NOT NULL,
+            block_number INTEGER NOT NULL,
+            block_hash TEXT NOT NULL,
+            runtime_code_sha256 TEXT NOT NULL,
+            source_sha256 TEXT NOT NULL,
+            source_provider TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            source_files_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (chain_id, address, block_hash)
+        )
+    """)
+    OnchainTargetStore(db)
+    columns = {row[1] for row in db.execute("PRAGMA table_info(onchain_targets)")}
+    assert "runtime_code" in columns

@@ -101,7 +101,10 @@ def compile_standard_json(
     """Compile exact preserved Standard JSON input in a networkless container."""
     if not isinstance(standard_json_input, str) or not standard_json_input:
         return _result("INCOMPLETE", "standard_json_input_missing")
-    input_bytes = standard_json_input.encode("utf-8")
+    try:
+        input_bytes = standard_json_input.encode("utf-8")
+    except UnicodeEncodeError:
+        return _result("INCOMPLETE", "standard_json_input_encoding_invalid")
     if len(input_bytes) > _MAX_INPUT_BYTES:
         return _result("INPUT_TOO_LARGE", "standard_json_input_too_large")
     try:
@@ -125,7 +128,7 @@ def compile_standard_json(
             or not source_path
             or source_path.startswith("/")
             or "\\" in source_path
-            or "\\x00" in source_path
+            or "\x00" in source_path
             or any(part in {"", ".", ".."} for part in source_path.split("/"))
         ):
             return _result("INCOMPLETE", "standard_json_source_path_invalid")
@@ -278,8 +281,24 @@ def verify_onchain_target(
     image: str | None = None,
 ) -> CompilerRuntimeVerification:
     """Compile and compare one immutable target record; never execute target code."""
+    standard_json_input = getattr(target, "standard_json_input", None)
+    source_files = dict(getattr(target, "source_files", {}))
+    try:
+        parsed_input = json.loads(standard_json_input) if isinstance(standard_json_input, str) else None
+    except (TypeError, json.JSONDecodeError):
+        parsed_input = None
+    standard_sources = parsed_input.get("sources") if isinstance(parsed_input, dict) else None
+    if not isinstance(standard_sources, dict):
+        return CompilerRuntimeVerification("INCOMPLETE", "standard_json_source_mapping_missing")
+    normalized_sources = {}
+    for path, entry in standard_sources.items():
+        if not isinstance(path, str) or not isinstance(entry, dict) or not isinstance(entry.get("content"), str):
+            return CompilerRuntimeVerification("INCOMPLETE", "standard_json_source_content_missing")
+        normalized_sources[path] = entry["content"]
+    if normalized_sources != source_files:
+        return CompilerRuntimeVerification("INCOMPLETE", "standard_json_source_mapping_mismatch")
     compilation = compile_standard_json(
-        getattr(target, "standard_json_input", None),
+        standard_json_input,
         getattr(target, "compiler_version", None),
         image=image,
     )

@@ -383,7 +383,7 @@ class OnchainVerificationStore:
             return None
         row = self.db.execute(
             """
-            SELECT record_json FROM onchain_verifications
+            SELECT verification_id, record_json FROM onchain_verifications
             WHERE target_id = ?
             ORDER BY rowid DESC
             LIMIT 1
@@ -392,8 +392,8 @@ class OnchainVerificationStore:
         ).fetchone()
         if row is None:
             return None
-        record = self._from_json(row[0])
-        if record.verification_id == "":
+        record = self._from_json(row[1])
+        if record.verification_id != row[0]:
             raise OnchainVerificationError("verification_record_digest_mismatch")
         return record
 

@@ -25,7 +25,7 @@ def test_compiler_runs_exact_standard_json_input_in_networkless_container(monkey
     binary.write_bytes(b"trusted test compiler fixture")
     observed = {}
 
-    monkeypatch.setattr(compiler, "_resolve_solc_binary", lambda version: binary)
+    monkeypatch.setattr(compiler, "resolve_solc_binary", lambda version: binary)
     monkeypatch.setattr(compiler, "_read_compiler_version", lambda path: "0.8.24+commit.e11b9ed9")
 
     output = {"contracts": {"src/Vault.sol": {"Vault": {"evm": {"deployedBytecode": {"object": "60016000"}}}}}}
@@ -80,7 +80,7 @@ def test_compiler_rejects_wrong_solc_commit(monkeypatch, tmp_path):
 
     binary = tmp_path / "solc"
     binary.write_bytes(b"compiler fixture")
-    monkeypatch.setattr(compiler, "_resolve_solc_binary", lambda version: binary)
+    monkeypatch.setattr(compiler, "resolve_solc_binary", lambda version: binary)
     monkeypatch.setattr(compiler, "_read_compiler_version", lambda path: "0.8.24+commit.deadbeef")
     monkeypatch.setattr(compiler, "run_in_container", lambda *args, **kwargs: None)
     result = compile_standard_json(_input(), "0.8.24+commit.e11b9ed9", image=_IMAGE)
@@ -91,7 +91,7 @@ def test_compiler_rejects_wrong_solc_commit(monkeypatch, tmp_path):
 def test_compiler_fails_closed_when_compiler_binary_is_missing(monkeypatch):
     import shared.solidity_compiler as compiler
 
-    monkeypatch.setattr(compiler, "_resolve_solc_binary", lambda version: None)
+    monkeypatch.setattr(compiler, "resolve_solc_binary", lambda version: None)
     result = compile_standard_json(_input(), "0.8.24", image=_IMAGE)
     assert result.status == "COMPILER_UNAVAILABLE"
     assert result.reason == "required_solc_binary_not_installed"
@@ -108,7 +108,7 @@ def test_compiler_reports_truncated_output(monkeypatch, tmp_path):
 
     binary = tmp_path / "solc"
     binary.write_bytes(b"compiler fixture")
-    monkeypatch.setattr(compiler, "_resolve_solc_binary", lambda version: binary)
+    monkeypatch.setattr(compiler, "resolve_solc_binary", lambda version: binary)
     monkeypatch.setattr(compiler, "_read_compiler_version", lambda path: "0.8.24")
     monkeypatch.setattr(
         compiler,

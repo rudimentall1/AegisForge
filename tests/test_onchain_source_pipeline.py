@@ -95,3 +95,29 @@ def test_source_researcher_fails_closed_when_target_does_not_match_case():
     result = SourceResearcher(github=object()).run(task)
     assert result.status == "source_research_failed"
     assert result.result["error"] == "onchain_target_missing_or_mismatched"
+
+
+def test_security_checker_scans_full_persisted_onchain_source_as_potential_risks():
+    from agents.security_checker.agent import SecurityChecker
+    target = _target()
+    case = _case(target)
+    source_task = Task(
+        task_id="task-source",
+        description="Review Base Vault source",
+        payload={"onchain_research_case": case, "onchain_target": target},
+    )
+    source_result = SourceResearcher(github=object()).run(source_task)
+    analysis_task = Task(
+        task_id="task-analysis",
+        description="Analyze source leads",
+        payload={"onchain_research_case": case, "onchain_target": target},
+        result=source_result.result,
+    )
+    checked = SecurityChecker().run(analysis_task)
+    review = checked.result["onchain_security_review"]
+    assert checked.status == "security_checked"
+    assert review["files_scanned"] == 1
+    assert review["finding_summary"]["total"] >= 2
+    assert all(item["status"] == "POTENTIAL_RISK" for item in review["findings"])
+    assert review["vulnerabilities_confirmed"] == 0
+    assert checked.result["security_integrity"]["complete"] is True

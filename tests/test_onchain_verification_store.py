@@ -194,19 +194,19 @@ def test_verify_and_persist_runs_verifier_and_persists_its_evidence(monkeypatch)
     db = sqlite3.connect(":memory:")
     targets, target = _target(db)
     verifications = OnchainVerificationStore(targets)
-    image = "ghcr.io/foundry-rs/foundry@sha256:" + "c" * 64
+    expected_image = "ghcr.io/foundry-rs/foundry@sha256:" + "c" * 64
 
     def fake_verify(actual_target, contract_file, *, image=None):
         assert actual_target.target_id == target.target_id
         assert contract_file == "src/Vault.sol"
-        assert image == image
+        assert image == expected_image
         return SimpleNamespace(
             status="VERIFIED",
             reason="runtime_bytecode_exact_match",
             compiled_runtime_sha256=target.runtime_code_sha256,
             compiler_version="0.8.24+commit.e11b9ed9",
             compiler_binary_sha256="d" * 64,
-            compiler_image=image,
+            compiler_image=expected_image,
             isolation="container",
         )
 
@@ -214,7 +214,7 @@ def test_verify_and_persist_runs_verifier_and_persists_its_evidence(monkeypatch)
     persisted = verifications.verify_and_persist(
         target.target_id,
         "src/Vault.sol",
-        image=image,
+        image=expected_image,
     )
 
     assert persisted.status == "VERIFIED"

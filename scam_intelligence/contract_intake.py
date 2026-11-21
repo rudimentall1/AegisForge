@@ -245,6 +245,15 @@ class BlockscoutContractIntake:
                 if isinstance(path, str) and isinstance(text, str) and text.strip():
                     files[path] = text
 
+        for path in files:
+            if (
+                not path
+                or path.startswith("/")
+                or "\\\\" in path
+                or "\\x00" in path
+                or any(part in {"", ".", ".."} for part in path.split("/"))
+            ):
+                raise ContractIntakeError("contract_source_path_invalid")
         total = sum(len(text.encode("utf-8")) for text in files.values())
         if total > _MAX_SOURCE_BYTES:
             raise ContractIntakeError("contract_source_too_large")

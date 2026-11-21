@@ -74,6 +74,8 @@ class CryptoAnalyst:
                     return []
                 paths = []
                 for callee_name in current.get("calls", []):
+                    if len(paths) >= 25:
+                        break
                     callee = resolve_callee(current, callee_name)
                     if callee is None:
                         continue
@@ -87,10 +89,41 @@ class CryptoAnalyst:
                     ]
                     if callee.get("external_calls") or callee.get("state_write_candidates"):
                         paths.append(next_path)
-                    paths.extend(walk_calls(callee, next_trail, depth + 1))
+                    if len(paths) < 25:
+                        paths.extend(
+                            walk_calls(callee, next_trail, depth + 1)[:25 - len(paths)]
+                        )
                 return paths[:25]
 
+            entrypoint_paths = {}
+            for entry in structural_functions:
+                if entry.get("visibility") not in {"public", "external"}:
+                    continue
+                entry_identity = (entry.get("path"), entry.get("name"))
+                entry_ref = {
+                    "path": entry.get("path"),
+                    "function": entry.get("name"),
+                    "line": entry.get("line"),
+                }
+                if entry.get("external_calls") or entry.get("state_write_candidates"):
+                    entrypoint_paths.setdefault(entry_identity, []).append({
+                        "entrypoint": entry_ref,
+                        "path": [entry_ref],
+                    })
+                for path in walk_calls(entry, (entry_identity,)):
+                    if not path:
+                        continue
+                    sink_identity = (path[-1]["path"], path[-1]["function"])
+                    bucket = entrypoint_paths.setdefault(sink_identity, [])
+                    path_key = tuple((step["path"], step["function"]) for step in path)
+                    if len(bucket) < 25 and all(
+                        tuple((step["path"], step["function"]) for step in item["path"]) != path_key
+                        for item in bucket
+                    ):
+                        bucket.append({"entrypoint": entry_ref, "path": path})
+
             function_hypotheses = []
+            function_hypotheses_truncated = False
             for function in structural_functions:
                 if not (
                     function.get("external_calls")
@@ -98,31 +131,11 @@ class CryptoAnalyst:
                     or function.get("unresolved_calls")
                 ):
                     continue
+                if len(function_hypotheses) >= 500:
+                    function_hypotheses_truncated = True
+                    break
                 identity = (function.get("path"), function.get("name"))
-                entrypoints = []
-                call_paths = []
-                for entry in structural_functions:
-                    if entry.get("visibility") not in {"public", "external"}:
-                        continue
-                    entry_identity = (entry.get("path"), entry.get("name"))
-                    if entry_identity == identity and (
-                        entry.get("external_calls") or entry.get("state_write_candidates")
-                    ):
-                        paths = [[{
-                            "path": entry.get("path"),
-                            "function": entry.get("name"),
-                            "line": entry.get("line"),
-                        }]]
-                    else:
-                        paths = walk_calls(entry, (entry_identity,))
-                    for path in paths:
-                        if path and (path[-1]["path"], path[-1]["function"]) == identity:
-                            entrypoints.append({
-                                "path": entry.get("path"),
-                                "function": entry.get("name"),
-                                "line": entry.get("line"),
-                            })
-                            call_paths.append(path)
+                reachable = entrypoint_paths.get(identity, [])
                 function_hypotheses.append({
                     "hypothesis_id": "ONCHAIN-FUNCTION-" + str(function.get("path", "UNKNOWN")) + ":" + str(function.get("name", "UNKNOWN")),
                     "status": "NEEDS_DEEPER_ANALYSIS",
@@ -134,8 +147,8 @@ class CryptoAnalyst:
                         "visibility": function.get("visibility"),
                         "modifiers": function.get("modifiers", []),
                     },
-                    "entrypoints": entrypoints[:25],
-                    "call_paths": call_paths[:25],
+                    "entrypoints": [item["entrypoint"] for item in reachable],
+                    "call_paths": [item["path"] for item in reachable],
                     "external_calls": function.get("external_calls", []),
                     "external_call_sites": function.get("external_call_sites", []),
                     "state_write_candidates": function.get("state_write_candidates", []),
@@ -157,6 +170,7 @@ class CryptoAnalyst:
                 "onchain_source_analysis": {
                     "candidate_hypotheses": len(hypotheses),
                     "function_hypotheses": len(function_hypotheses),
+                    "function_hypotheses_truncated": function_hypotheses_truncated,
                     "structural_functions": len(structural_functions),
                     "structural_analysis_complete": structural.get("analysis_complete", False),
                     "lexical_signals": len(signal_rows),

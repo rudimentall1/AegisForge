@@ -9,12 +9,14 @@ from dataclasses import replace
 import hashlib
 import json
 import os
+import sqlite3
 import time
 import urllib.request
 
 import pytest
 
-from shared.onchain_target_store import OnchainTargetRecord
+from shared.onchain_target_store import OnchainTargetRecord, OnchainTargetStore
+from shared.onchain_verification_store import OnchainVerificationRecord, OnchainVerificationStore
 from shared.solidity_compiler import verify_onchain_target
 
 
@@ -132,6 +134,24 @@ def test_real_solc_matches_anvil_deployment_and_detects_one_byte_drift():
     exact = verify_onchain_target(target, _SOURCE_PATH)
     assert exact.status == "VERIFIED", exact.reason
     assert exact.reason == "runtime_bytecode_exact_match"
+
+    evidence_db = sqlite3.connect(":memory:")
+    target_store = OnchainTargetStore(evidence_db)
+    target_store.put(target)
+    verification_store = OnchainVerificationStore(target_store)
+    evidence = OnchainVerificationRecord.from_target(
+        target,
+        status=exact.status,
+        reason=exact.reason,
+        compiler_version=compilation.compiler_version,
+        compiler_binary_sha256=compilation.compiler_binary_sha256,
+        compiled_runtime_sha256=exact.compiled_runtime_sha256,
+        compiler_image=os.environ["AEGISFORGE_FOUNDRY_IMAGE"],
+        isolation=compilation.isolation,
+    )
+    verification_id = verification_store.put(evidence)
+    assert verification_store.get(verification_id) == evidence
+    assert verification_store.list_for_target(target.target_id) == [evidence]
 
     mutated = bytearray(runtime_bytes)
     mutated[0] ^= 0x01

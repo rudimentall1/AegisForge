@@ -79,6 +79,8 @@ class OnchainTargetRecord:
     proxy_type: str | None = None
     implementations: tuple[str, ...] = ()
     source_sha256: str = ""
+    standard_json_input: str | None = None
+    standard_json_input_sha256: str = ""
     target_id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -146,6 +148,25 @@ class OnchainTargetRecord:
                 raise OnchainTargetError("source_sha256_mismatch")
         object.__setattr__(self, "source_sha256", actual_source_sha256)
 
+        if self.standard_json_input is not None:
+            if not isinstance(self.standard_json_input, str):
+                raise OnchainTargetError("standard_json_input_invalid")
+            standard_json_bytes = self.standard_json_input.encode("utf-8")
+            if len(standard_json_bytes) > 8 * 1024 * 1024:
+                raise OnchainTargetError("standard_json_input_too_large")
+            try:
+                standard_json = json.loads(self.standard_json_input)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise OnchainTargetError("standard_json_input_invalid") from exc
+            if not isinstance(standard_json, dict) or not isinstance(standard_json.get("sources"), dict):
+                raise OnchainTargetError("standard_json_input_invalid")
+            standard_json_digest = hashlib.sha256(standard_json_bytes).hexdigest()
+            if self.standard_json_input_sha256 and self.standard_json_input_sha256 != standard_json_digest:
+                raise OnchainTargetError("standard_json_input_sha256_mismatch")
+            object.__setattr__(self, "standard_json_input_sha256", standard_json_digest)
+        elif self.standard_json_input_sha256:
+            raise OnchainTargetError("standard_json_input_missing")
+
         identity = {
             "chain_id": self.chain_id,
             "address": self.address,
@@ -153,6 +174,7 @@ class OnchainTargetRecord:
             "block_hash": self.block_hash,
             "runtime_code_sha256": self.runtime_code_sha256,
             "source_sha256": self.source_sha256,
+            "standard_json_input_sha256": self.standard_json_input_sha256,
             "source_provider": self.source_provider,
             "compiler_version": self.compiler_version,
             "contract_name": self.contract_name,
@@ -202,6 +224,8 @@ class OnchainTargetStore:
             "contract_name": record.contract_name,
             "proxy_type": record.proxy_type,
             "implementations": list(record.implementations),
+            "standard_json_input": record.standard_json_input,
+            "standard_json_input_sha256": record.standard_json_input_sha256,
         }
 
     def put(self, record: OnchainTargetRecord) -> str:
@@ -302,6 +326,8 @@ class OnchainTargetStore:
                 contract_name=source.contract_name,
                 proxy_type=source.proxy_type,
                 implementations=tuple(source.implementations),
+                standard_json_input=getattr(source, "standard_json_input", None),
+                standard_json_input_sha256=getattr(source, "standard_json_input_sha256", ""),
             )
         except (AttributeError, KeyError, TypeError) as exc:
             raise OnchainTargetError("intake_item_incomplete") from exc
@@ -335,6 +361,8 @@ class OnchainTargetStore:
             contract_name=metadata["contract_name"],
             proxy_type=metadata["proxy_type"],
             implementations=tuple(metadata["implementations"]),
+            standard_json_input=metadata.get("standard_json_input"),
+            standard_json_input_sha256=metadata.get("standard_json_input_sha256", ""),
         )
 
     def get(self, target_id: str) -> OnchainTargetRecord | None:

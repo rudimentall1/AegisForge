@@ -185,14 +185,20 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
         state_names = _top_level_state_names(masked)
         file_functions = []
         for block in function_blocks:
-            header = block["header"]
+            header = re.sub(r"\breturns\s*\([^)]*\)", " ", block["header"])
+            parameter_end = header.find(")")
+            modifier_tail = header[parameter_end + 1:] if parameter_end >= 0 else ""
             modifier_names = re.findall(
                 r"\b([A-Za-z_]\w*)\s*(?:\([^)]*\))?",
-                re.sub(r"\b(?:function|returns|public|external|internal|private|pure|view|payable|virtual|override|memory|calldata|storage)\b", " ", header),
+                modifier_tail,
             )
             modifier_names = [
                 name for name in modifier_names
-                if name not in _IGNORED_CALLS and name not in {"returns"}
+                if name not in {
+                    "public", "external", "internal", "private", "pure",
+                    "view", "payable", "virtual", "override", "returns",
+                    "memory", "calldata", "storage",
+                }
             ]
             external_calls = []
             for call in _EXTERNAL_CALL_RE.finditer(block["masked_body"]):
@@ -216,17 +222,18 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
                     "kind": "inline_sender_check",
                     "line": block["line"] + block["masked_body"][:auth_match.start()].count("\n"),
                 })
-            calls = []
+            raw_calls = []
             for call in _CALL_RE.finditer(block["masked_body"]):
                 name = call.group(1)
-                if name not in _IGNORED_CALLS and name not in calls:
-                    calls.append(name)
+                if name not in _IGNORED_CALLS and name not in raw_calls:
+                    raw_calls.append(name)
             record = {
                 "path": path,
                 "name": block["name"],
                 "line": block["line"],
                 "modifiers": modifier_names,
-                "calls": calls,
+                "_raw_calls": raw_calls,
+                "calls": [],
                 "external_calls": external_calls,
                 "state_write_candidates": writes,
                 "authorization_signals": auth_signals,
@@ -246,18 +253,13 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
         name for item in files for name in item["modifiers"]
     }
     for function in all_functions:
+        raw_calls = function.pop("_raw_calls", [])
         function["calls"] = [
-            name for name in function["calls"] if name in known_functions
+            name for name in raw_calls if name in known_functions
         ]
         function["unresolved_calls"] = [
-            name for name in _CALL_RE.findall(
-                _mask_non_code(source_files[function["path"]][
-                    source_files[function["path"]].find(function["name"])
-                :])
-            )
-            if name not in _IGNORED_CALLS
-            and name not in known_functions
-            and name not in known_modifiers
+            name for name in raw_calls
+            if name not in known_functions and name not in known_modifiers
         ][:100]
 
     call_graph = [

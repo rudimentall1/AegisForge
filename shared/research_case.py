@@ -59,7 +59,7 @@ class RoundSpec:
     expected_evidence_atoms: tuple[str, ...]
     falsification_criteria: str
     priority: int = 0
-    disclosure_deadline_days: int = 90
+    disclosure_deadline_days: int | None = None
     target_source_paths: tuple[str, ...] = ()
     foundry_source_root: str = "src"
     test_harness_source: str = ""
@@ -153,6 +153,13 @@ class RoundSpec:
 
         if not isinstance(self.priority, int) or isinstance(self.priority, bool):
             raise CaseValidationError("round_priority_invalid")
+        if self.disclosure_deadline_days is None:
+            # Keep the legacy 90-day default for ordinary techniques while
+            # applying the shorter default to disclosure-sensitive techniques.
+            default_days = 60 if self.technique in {
+                "source_pattern", "crypto_primitive_analysis", "differential_revision"
+            } else 90
+            object.__setattr__(self, "disclosure_deadline_days", default_days)
         if (
             not isinstance(self.disclosure_deadline_days, int)
             or isinstance(self.disclosure_deadline_days, bool)

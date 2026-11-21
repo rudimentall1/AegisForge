@@ -61,8 +61,12 @@ class CryptoAnalyst:
                 if isinstance(item, dict)
             ]
             functions_by_name = {}
+            functions_by_identity = {}
             for item in structural_functions:
                 functions_by_name.setdefault(item.get("name"), []).append(item)
+                functions_by_identity.setdefault(
+                    (item.get("path"), item.get("name")), item
+                )
 
             def resolve_callee(caller, callee_name):
                 candidates = functions_by_name.get(callee_name, [])
@@ -84,7 +88,11 @@ class CryptoAnalyst:
                         continue
                     next_trail = trail + (identity,)
                     next_path = [
-                        {"path": item.get("path"), "function": item.get("name"), "line": item.get("line")}
+                        {
+                            "path": item[0],
+                            "function": item[1],
+                            "line": functions_by_identity.get(item, {}).get("line"),
+                        }
                         for item in next_trail
                     ]
                     if callee.get("external_calls") or callee.get("state_write_candidates"):

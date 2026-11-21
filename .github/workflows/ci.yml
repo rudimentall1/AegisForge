@@ -328,4 +328,6 @@ jobs:
             tests/test_onchain_standard_json_provenance.py \
             tests/test_onchain_source_pipeline.py \
             tests/test_onchain_research_case.py \
-            tests/test_solidity_source_analysis.py
+            tests/test_solidity_source_analysis.py \
+            tests/test_security_checker_offline.py \
+            tests/test_worker_onchain_pipeline.py

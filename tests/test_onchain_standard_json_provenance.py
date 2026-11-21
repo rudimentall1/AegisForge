@@ -56,6 +56,15 @@ def test_intake_canonicalizes_standard_json_object_without_losing_settings():
     assert parsed["sources"] == payload["sources"]
 
 
+def test_intake_extracts_files_from_string_encoded_standard_json():
+    payload = _standard_json()
+    raw = json.dumps(payload, separators=(",", ":"))
+    files = BlockscoutContractIntake._normalize_sources({"source_code": raw})
+    assert files == {
+        "src/Vault.sol": "pragma solidity ^0.8.24; contract Vault {}"
+    }
+
+
 def test_intake_does_not_mistake_plain_solidity_for_standard_json():
     assert BlockscoutContractIntake._standard_json_input(
         {"source_code": "pragma solidity ^0.8.24; contract Vault {}"}

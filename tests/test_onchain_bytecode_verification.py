@@ -198,3 +198,16 @@ def test_target_store_migrates_legacy_schema_with_empty_runtime_code():
     OnchainTargetStore(db)
     columns = {row[1] for row in db.execute("PRAGMA table_info(onchain_targets)")}
     assert "runtime_code" in columns
+
+
+
+def test_optimizer_setting_substitution_invalidates_compiler_input_binding():
+    payload = json.loads(_standard_input())
+    payload["settings"]["optimizer"]["runs"] = 999
+    changed_input = json.dumps(payload)
+    result = _verify(
+        standard_json_input=changed_input,
+        compiled_input_sha256=hashlib.sha256(_standard_input().encode("utf-8")).hexdigest(),
+    )
+    assert result.status == "INCOMPLETE"
+    assert result.reason == "compiler_input_digest_mismatch"

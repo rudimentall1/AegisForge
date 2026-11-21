@@ -169,6 +169,7 @@ class RoundSpec:
                 "round_disclosure_deadline_days_out_of_range:7..180"
             )
         short_deadline_techniques = {
+            "source_pattern",
             "crypto_primitive_analysis",
             "differential_revision",
         }

@@ -451,6 +451,7 @@ class BlockscoutContractIntake:
             "deployed": True,
             "runtime_code_bytes": len(code_bytes),
             "runtime_code_sha256": hashlib.sha256(code_bytes).hexdigest(),
+            "runtime_code": "0x" + code_bytes.hex(),
             "attestation_source": "configured_evm_rpc_pinned_block",
         }
 

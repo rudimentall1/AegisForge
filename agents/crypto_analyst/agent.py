@@ -137,7 +137,9 @@ class CryptoAnalyst:
                     "entrypoints": entrypoints[:25],
                     "call_paths": call_paths[:25],
                     "external_calls": function.get("external_calls", []),
+                    "external_call_sites": function.get("external_call_sites", []),
                     "state_write_candidates": function.get("state_write_candidates", []),
+                    "state_write_sites": function.get("state_write_sites", []),
                     "authorization_signals": function.get("authorization_signals", []),
                     "unresolved_calls": function.get("unresolved_calls", []),
                     "question": (

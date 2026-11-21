@@ -3,7 +3,7 @@
 This module is the first real-target acquisition adapter for AegisForge. It uses
 Blockscout v2 to discover recently verified contracts and retrieve their source,
 then uses a separately configured EVM JSON-RPC endpoint to independently check
-the expected chain ID and that runtime bytecode exists at the address.
+the expected chain ID, pin a block number/hash, and read runtime bytecode at that block.
 
 ## Supported initial networks
 
@@ -42,7 +42,7 @@ The intake returns a bounded batch with:
 - explorer-discovered verified contract metadata;
 - normalized Solidity source files and a deterministic SHA-256 source digest;
 - compiler version, optimizer flag, EVM version, ABI and proxy implementation metadata when supplied by Blockscout;
-- RPC chain-ID and deployed-runtime-code attestation;
+- RPC chain-ID and deployed-runtime-code attestation pinned to a specific block number and block hash;
 - per-address rejection reasons for candidates that fail source or RPC checks.
 
 ## Security and evidence boundaries
@@ -50,7 +50,7 @@ The intake returns a bounded batch with:
 - Read-only only: no transaction submission, wallet access, or target execution.
 - Explorer metadata is untrusted input. Source file paths and response sizes are bounded.
 - RPC attestation proves the configured endpoint reports the expected chain and non-empty
-  runtime bytecode at `latest`; it does not prove the explorer's source matches that bytecode.
+  runtime bytecode at the recorded block number/hash; it does not prove the explorer's source matches that bytecode.
 - A source digest identifies the acquired bytes; it is not a cryptographic proof of
   explorer authenticity or compiler reproducibility.
 - Proxy implementation addresses are recorded as metadata but are not recursively

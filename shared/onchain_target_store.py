@@ -89,6 +89,7 @@ class OnchainTargetRecord:
     runtime_code_sha256: str
     source_files: dict[str, str]
     source_provider: str
+    runtime_code: str = ""
     compiler_version: str = ""
     contract_name: str = ""
     proxy_type: str | None = None
@@ -128,6 +129,16 @@ class OnchainTargetRecord:
                 raise OnchainTargetError(f"{field_name}_invalid")
             object.__setattr__(self, field_name, value.lower())
 
+        if self.runtime_code:
+            if not isinstance(self.runtime_code, str):
+                raise OnchainTargetError("runtime_code_invalid")
+            normalized_runtime = self.runtime_code[2:] if self.runtime_code.startswith("0x") else self.runtime_code
+            if not normalized_runtime or len(normalized_runtime) % 2 or not re.fullmatch(r"[0-9a-fA-F]+", normalized_runtime):
+                raise OnchainTargetError("runtime_code_invalid")
+            runtime_bytes = bytes.fromhex(normalized_runtime)
+            if hashlib.sha256(runtime_bytes).hexdigest() != self.runtime_code_sha256:
+                raise OnchainTargetError("runtime_code_sha256_mismatch")
+            object.__setattr__(self, "runtime_code", "0x" + normalized_runtime.lower())
         if not isinstance(self.source_provider, str) or not self.source_provider.strip():
             raise OnchainTargetError("source_provider_required")
         for field_name in ("compiler_version", "contract_name"):
@@ -218,6 +229,7 @@ class OnchainTargetStore:
                 block_number INTEGER NOT NULL,
                 block_hash TEXT NOT NULL,
                 runtime_code_sha256 TEXT NOT NULL,
+                runtime_code TEXT NOT NULL DEFAULT '',
                 source_sha256 TEXT NOT NULL,
                 source_provider TEXT NOT NULL,
                 metadata_json TEXT NOT NULL,
@@ -226,6 +238,9 @@ class OnchainTargetStore:
                 UNIQUE (chain_id, address, block_hash)
             )
         """)
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(onchain_targets)")}
+        if "runtime_code" not in columns:
+            self.db.execute("ALTER TABLE onchain_targets ADD COLUMN runtime_code TEXT NOT NULL DEFAULT ''")
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_onchain_targets_address_block
             ON onchain_targets(chain_id, address, block_number DESC)
@@ -251,7 +266,7 @@ class OnchainTargetStore:
         with self.db:
             existing = self.db.execute(
                 """
-                SELECT target_id, runtime_code_sha256, source_sha256,
+                SELECT target_id, runtime_code_sha256, runtime_code, source_sha256,
                        source_provider, metadata_json, source_files_json
                 FROM onchain_targets
                 WHERE chain_id = ? AND address = ? AND block_hash = ?
@@ -262,6 +277,7 @@ class OnchainTargetStore:
                 expected = (
                     record.target_id,
                     record.runtime_code_sha256,
+                    record.runtime_code,
                     record.source_sha256,
                     record.source_provider,
                     metadata_json,
@@ -275,9 +291,9 @@ class OnchainTargetStore:
                 """
                 INSERT INTO onchain_targets (
                     target_id, chain_id, address, block_number, block_hash,
-                    runtime_code_sha256, source_sha256, source_provider,
+                    runtime_code_sha256, runtime_code, source_sha256, source_provider,
                     metadata_json, source_files_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.target_id,
@@ -286,6 +302,7 @@ class OnchainTargetStore:
                     record.block_number,
                     record.block_hash,
                     record.runtime_code_sha256,
+                    record.runtime_code,
                     record.source_sha256,
                     record.source_provider,
                     metadata_json,
@@ -334,6 +351,7 @@ class OnchainTargetStore:
                 block_number=attestation["block_number"],
                 block_hash=attestation["block_hash"],
                 runtime_code_sha256=attestation["runtime_code_sha256"],
+                runtime_code=attestation.get("runtime_code", ""),
                 source_files=source.source_files,
                 source_sha256=source.source_sha256,
                 source_provider="blockscout_v2",
@@ -357,6 +375,7 @@ class OnchainTargetStore:
             block_number,
             block_hash,
             runtime_code_sha256,
+            runtime_code,
             source_sha256,
             source_provider,
             metadata_json,
@@ -369,6 +388,7 @@ class OnchainTargetStore:
             block_number=block_number,
             block_hash=block_hash,
             runtime_code_sha256=runtime_code_sha256,
+            runtime_code=runtime_code,
             source_sha256=source_sha256,
             source_provider=source_provider,
             source_files=json.loads(source_files_json),
@@ -386,7 +406,7 @@ class OnchainTargetStore:
         row = self.db.execute(
             """
             SELECT target_id, chain_id, address, block_number, block_hash,
-                   runtime_code_sha256, source_sha256, source_provider,
+                   runtime_code_sha256, runtime_code, source_sha256, source_provider,
                    metadata_json, source_files_json
             FROM onchain_targets WHERE target_id = ?
             """,
@@ -406,7 +426,7 @@ class OnchainTargetStore:
         row = self.db.execute(
             """
             SELECT target_id, chain_id, address, block_number, block_hash,
-                   runtime_code_sha256, source_sha256, source_provider,
+                   runtime_code_sha256, runtime_code, source_sha256, source_provider,
                    metadata_json, source_files_json
             FROM onchain_targets
             WHERE chain_id = ? AND address = ?

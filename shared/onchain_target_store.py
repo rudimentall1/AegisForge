@@ -129,11 +129,16 @@ class OnchainTargetRecord:
                 raise OnchainTargetError(f"{field_name}_invalid")
             object.__setattr__(self, field_name, value.lower())
 
+        if not isinstance(self.runtime_code, str):
+            raise OnchainTargetError("runtime_code_invalid")
         if self.runtime_code:
-            if not isinstance(self.runtime_code, str):
-                raise OnchainTargetError("runtime_code_invalid")
             normalized_runtime = self.runtime_code[2:] if self.runtime_code.startswith("0x") else self.runtime_code
-            if not normalized_runtime or len(normalized_runtime) % 2 or not re.fullmatch(r"[0-9a-fA-F]+", normalized_runtime):
+            if (
+                not normalized_runtime
+                or len(normalized_runtime) % 2
+                or len(normalized_runtime) > 2 * 1024 * 1024
+                or not re.fullmatch(r"[0-9a-fA-F]+", normalized_runtime)
+            ):
                 raise OnchainTargetError("runtime_code_invalid")
             runtime_bytes = bytes.fromhex(normalized_runtime)
             if hashlib.sha256(runtime_bytes).hexdigest() != self.runtime_code_sha256:

@@ -11,7 +11,22 @@ import hashlib
 import json
 import re
 import sqlite3
-from types import MappingProxyType
+class FrozenDict(dict):
+    """A JSON-serializable dictionary that rejects mutation."""
+
+    def _immutable(self, *args, **kwargs):
+        raise TypeError("source_files_immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+    __ior__ = _immutable
+
+
 from typing import Any
 
 
@@ -135,7 +150,7 @@ class OnchainTargetRecord:
         object.__setattr__(self, "implementations", tuple(normalized_implementations))
 
         files = _validate_source_files(self.source_files)
-        object.__setattr__(self, "source_files", MappingProxyType(files))
+        object.__setattr__(self, "source_files", FrozenDict(files))
         actual_source_sha256 = hashlib.sha256(
             _canonical_json(files).encode("utf-8")
         ).hexdigest()

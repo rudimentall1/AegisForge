@@ -354,3 +354,102 @@ def test_queue_rejects_forensic_task_for_non_ready_case_before_enqueue(tmp_path)
         queue.add("draft case task", role="crypto_analyst", research_case_id=case.case_id)
     assert queue.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 0
     queue.db.close()
+
+
+def test_round_spec_normalizes_and_binds_target_solidity_paths():
+    spec = RoundSpec(
+        round_id="round-source-paths",
+        technique="runtime_probe",
+        hypothesis="A Solidity invariant can be violated.",
+        expected_evidence_atoms=("positive_control",),
+        falsification_criteria="The negative control preserves the invariant.",
+        target_source_paths=["src/Vault.sol", "contracts/Proxy.sol"],
+    )
+    assert spec.target_source_paths == ("src/Vault.sol", "contracts/Proxy.sol")
+
+
+@pytest.mark.parametrize("path", [
+    "../Vault.sol", "/etc/passwd", "src\\\\Vault.sol", "foundry.toml",
+    "src//Vault.sol", "src/./Vault.sol", "src/../Vault.sol",
+])
+def test_round_spec_rejects_unsafe_target_solidity_paths(path):
+    with pytest.raises(CaseValidationError, match="round_target_source_path_invalid"):
+        RoundSpec(
+            round_id="round-invalid-source",
+            technique="runtime_probe",
+            hypothesis="A Solidity invariant can be violated.",
+            expected_evidence_atoms=("positive_control",),
+            falsification_criteria="The negative control preserves the invariant.",
+            target_source_paths=(path,),
+        )
+
+
+def test_legacy_research_case_binding_without_source_paths_remains_verifiable():
+    case = valid_case(rounds=[{
+        "round_id": "legacy-round",
+        "technique": "source_pattern",
+        "hypothesis": "A falsifiable hypothesis.",
+        "expected_evidence_atoms": ["source reference"],
+        "falsification_criteria": "A counter-test disproves the claim.",
+    }])
+    binding = research_case_binding(case)
+    binding["case"]["rounds"][0].pop("target_source_paths")
+    canonical = json.dumps(
+        binding["case"], sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    binding["case_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    restored = verify_research_case_binding(binding)
+    assert "target_source_paths" not in restored["rounds"][0]
+
+
+def test_round_spec_requires_foundry_harness_and_exact_compiler_version():
+    with pytest.raises(CaseValidationError, match="round_foundry_harness_and_solc_version_required_together"):
+        RoundSpec(
+            round_id="foundry-missing-solc",
+            technique="runtime_probe",
+            hypothesis="A bounded runtime hypothesis.",
+            expected_evidence_atoms=("positive_control",),
+            falsification_criteria="A negative control preserves the invariant.",
+            target_source_paths=("src/Vault.sol",),
+            test_harness_source="contract Harness {}",
+        )
+    with pytest.raises(CaseValidationError, match="round_solc_version_invalid"):
+        RoundSpec(
+            round_id="foundry-invalid-solc",
+            technique="runtime_probe",
+            hypothesis="A bounded runtime hypothesis.",
+            expected_evidence_atoms=("positive_control",),
+            falsification_criteria="A negative control preserves the invariant.",
+            test_harness_source="contract Harness {}",
+            solc_version="latest",
+        )
+
+
+def test_round_spec_rejects_oversized_foundry_harness():
+    with pytest.raises(CaseValidationError, match="round_test_harness_source_too_large"):
+        RoundSpec(
+            round_id="foundry-large-harness",
+            technique="runtime_probe",
+            hypothesis="A bounded runtime hypothesis.",
+            expected_evidence_atoms=("positive_control",),
+            falsification_criteria="A negative control preserves the invariant.",
+            test_harness_source="x" * (256 * 1024 + 1),
+            solc_version="0.8.24",
+        )
+
+
+def test_round_spec_rejects_unpinned_foundry_image():
+    with pytest.raises(CaseValidationError, match="round_foundry_image_digest_required"):
+        RoundSpec(
+            round_id="foundry-image-unpinned",
+            technique="runtime_probe",
+            hypothesis="A bounded runtime hypothesis.",
+            expected_evidence_atoms=("positive_control",),
+            falsification_criteria="A negative control preserves the invariant.",
+            test_harness_source="contract Harness {}",
+            solc_version="0.8.24",
+            foundry_image="ghcr.io/foundry-rs/foundry:stable",
+            positive_control_test="testPositiveControl",
+            negative_control_test="testNegativeControl",
+        )

@@ -52,7 +52,9 @@ class CapabilityPolicy:
         "model_researcher": {"model_research", "research"},
         "source_researcher": {"research", "read_public_docs"},
         "crypto_analyst": {"analyze", "inspect_evidence"},
-        "lab_runner": {"run_synthetic_lab", "inspect_evidence", "verify"},
+        "lab_runner": {
+            "run_synthetic_lab", "run_foundry_test", "inspect_evidence", "verify"
+        },
     }
 
     SENSITIVE_ACTIONS = {"modify_code", "deploy", "publish", "delete", "transfer", "release", "api_request", "mcp_tool_call"}
@@ -116,7 +118,35 @@ class CapabilityPolicy:
             return {"decision": CapabilityDecision.BLOCK, "reason": "network_disabled"}
         if intent.requires_filesystem and not self.filesystem_allowed:
             return {"decision": CapabilityDecision.BLOCK, "reason": "filesystem_disabled"}
-        if (intent.action in self.SENSITIVE_ACTIONS or not intent.read_only or intent.irreversible
-                or intent.financial or intent.privileged or intent.evidence_required):
+        foundry_parameters = intent.parameters or {}
+        docker_runtime_authorized = (
+            intent.action == "run_foundry_test"
+            and intent.privileged
+            and foundry_parameters.get("docker_runtime_authorized") is True
+            and foundry_parameters.get("network_disabled") is True
+            and foundry_parameters.get("real_wallet_material") is False
+            and foundry_parameters.get("source_commit_pinned") is True
+            and foundry_parameters.get("harness_case_bound") is True
+            and foundry_parameters.get("container_image_digest_pinned") is True
+            and foundry_parameters.get("target_checkout_read_only") is True
+            and bool(intent.target)
+            and intent.resource == "pinned_solidity_target"
+            and intent.destination == "isolated_container"
+            and intent.data_scope == "case_bound_solidity_source"
+            and intent.read_only
+            and intent.requires_shell
+            and intent.requires_filesystem
+            and not intent.requires_network
+            and not intent.financial
+            and not intent.irreversible
+        )
+        if (
+            intent.action in self.SENSITIVE_ACTIONS
+            or not intent.read_only
+            or intent.irreversible
+            or intent.financial
+            or (intent.privileged and not docker_runtime_authorized)
+            or intent.evidence_required
+        ):
             return {"decision": CapabilityDecision.REQUIRE_EVIDENCE, "reason": "evidence_required_for_sensitive_action"}
         return {"decision": CapabilityDecision.ALLOW, "reason": "policy_pass"}

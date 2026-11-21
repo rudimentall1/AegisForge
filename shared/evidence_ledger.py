@@ -1,8 +1,42 @@
 import hashlib
 import json
 import os
+import re
 import tempfile
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
+
+
+def _canonical_repository_slug(value):
+    """Normalize owner/repository and explicit HTTPS GitHub repository URLs."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = value.strip()
+    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
+        return value.lower()
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "github.com"
+        or parsed.port is not None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) != 2:
+        return None
+    slug = "/".join(parts)
+    if slug.endswith(".git"):
+        slug = slug[:-4]
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", slug):
+        return None
+    return slug.lower()
 
 
 class EvidenceLedger:
@@ -407,7 +441,9 @@ class EvidenceLedger:
                 raise ValueError("local_experiment_registered_case_invalid") from exc
             if (
                 not isinstance(case_payload, dict)
-                or case_payload.get("target_repository") != record["target_repository"]
+                or _canonical_repository_slug(case_payload.get("target_repository"))
+                   != _canonical_repository_slug(record["target_repository"])
+                or _canonical_repository_slug(record["target_repository"]) is None
                 or str(case_payload.get("target_commit", "")).lower()
                    != record["target_commit"]
             ):

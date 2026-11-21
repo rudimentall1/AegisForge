@@ -1,4 +1,5 @@
 import json
+import os
 
 from shared.capability_policy import ActionIntent
 
@@ -125,11 +126,62 @@ def build_action_intent(role: str, task, agent_id: str = ""):
     values = default_capability_intent(role)
     if agent_id:
         values["agent_id"] = agent_id
+    payload = getattr(task, "payload", {}) or {}
+    round_spec = payload.get("round_spec")
+    foundry_planned = (
+        role == "lab_runner"
+        and round_spec is not None
+        and any((
+            getattr(round_spec, "target_source_paths", ()),
+            getattr(round_spec, "test_harness_source", ""),
+            getattr(round_spec, "solc_version", ""),
+            getattr(round_spec, "positive_control_test", ""),
+            getattr(round_spec, "negative_control_test", ""),
+        ))
+    )
     explicit = _explicit_intent(task)
 
     for key, value in explicit.items():
         if key in INTENT_FIELDS:
             values[key] = value
+
+    if foundry_planned:
+        research_case = payload.get("research_case")
+        target = ""
+        if research_case is not None:
+            target = (
+                f"{getattr(research_case, 'target_repository', '')}@"
+                f"{getattr(research_case, 'target_commit', '')}"
+            )
+        # The persisted round plan, not caller-supplied task intent, determines
+        # the minimum capabilities needed by the Foundry adapter.
+        docker_runtime_authorized = (
+            os.getenv("AEGISFORGE_DOCKER_RUNTIME_AUTHORIZED", "").strip() == "1"
+        )
+        values.update({
+            "action": "run_foundry_test",
+            "target": target,
+            "resource": "pinned_solidity_target",
+            "destination": "isolated_container",
+            "data_scope": "case_bound_solidity_source",
+            "requires_network": False,
+            "requires_shell": True,
+            "requires_filesystem": True,
+            "read_only": True,
+            "irreversible": False,
+            "financial": False,
+            "privileged": True,
+            "evidence_required": False,
+            "parameters": {
+                "docker_runtime_authorized": docker_runtime_authorized,
+                "network_disabled": True,
+                "real_wallet_material": False,
+                "source_commit_pinned": True,
+                "harness_case_bound": True,
+                "container_image_digest_pinned": True,
+                "target_checkout_read_only": True,
+            },
+        })
 
     values["role"] = role
     values.setdefault("action", "")

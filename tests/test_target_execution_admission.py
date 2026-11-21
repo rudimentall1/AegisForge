@@ -22,13 +22,13 @@ def queue(tmp_path, monkeypatch):
     value.db.close()
 
 
-def make_case(*, planned=False):
+def make_case(*, planned=False, technique="runtime_probe"):
     rounds = ()
     if planned:
         rounds = (
             RoundSpec(
                 round_id="planned-solidity-test",
-                technique="source_pattern",
+                technique=technique,
                 hypothesis="A bounded synthetic Solidity hypothesis",
                 expected_evidence_atoms=("source-pattern-present",),
                 falsification_criteria="The pinned source does not contain the pattern",
@@ -48,6 +48,7 @@ def make_case(*, planned=False):
         expected_invariant="The fixture preserves the invariant",
         falsification_criteria="Reject if the invariant changes",
         execution_mode=ExecutionMode.LOCAL,
+        allowed_techniques=("runtime_probe", "source_pattern"),
         rounds=rounds,
     )
 
@@ -87,6 +88,7 @@ def test_admission_resolves_target_only_from_registered_case(queue):
     assert admitted.research_case.target_repository == case.target_repository
     assert admitted.research_case.target_commit == case.target_commit
     assert admitted.round_spec == case.rounds[0]
+    assert admitted.round_spec.technique == "runtime_probe"
     assert admitted.execution_assurance == "NOT_RUN"
 
 
@@ -155,3 +157,37 @@ def test_admission_rejects_untyped_request_and_unknown_profile(queue):
     _, _, task_id = make_running_lab_task(queue)
     with pytest.raises(TargetExecutionAdmissionError, match="adapter_profile_not_allowed"):
         admit_target_execution(queue, TargetExecutionRequest(task_id, "arbitrary-shell"))
+
+
+def test_foundry_admission_rejects_non_runtime_round_technique(queue):
+    case = make_case(planned=True, technique="source_pattern")
+    queue.register_research_case(case)
+    started = start_case_round(queue, case.case_id, case.rounds[0].round_id)
+    child_id = queue.add(
+        "wrong technique for Foundry",
+        role="lab_runner",
+        parent_task_id=started["root_task_id"],
+    )
+    queue.db.execute(
+        "UPDATE queue SET status='completed', result='{}', finished_at='2026-11-14T00:00:00+00:00' WHERE id=?",
+        (started["root_task_id"],),
+    )
+    queue.db.commit()
+    claimed = queue.claim("admission-test-worker", role="lab_runner")
+    assert claimed[0] == child_id
+
+    with pytest.raises(TargetExecutionAdmissionError, match="adapter_technique_mismatch"):
+        admit_target_execution(
+            queue,
+            TargetExecutionRequest(child_id, AdapterProfile.FOUNDRY_TEST),
+        )
+
+
+def test_foundry_admission_requires_an_explicit_planned_round(queue):
+    _, _, task_id = make_running_lab_task(queue, planned=False)
+
+    with pytest.raises(TargetExecutionAdmissionError, match="planned_round_spec_binding_missing"):
+        admit_target_execution(
+            queue,
+            TargetExecutionRequest(task_id, AdapterProfile.FOUNDRY_TEST),
+        )

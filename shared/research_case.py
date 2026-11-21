@@ -16,6 +16,11 @@ from urllib.parse import urlparse
 
 _COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_SOURCE_PATH_RE = re.compile(r"^[A-Za-z0-9_.@+/-]+$")
+_FOUNDRY_ROOT_RE = re.compile(r"^[A-Za-z0-9_.@+/-]+$")
+_FOUNDRY_IMAGE_RE = re.compile(
+    r"^ghcr\.io/foundry-rs/foundry@sha256:[0-9a-f]{64}$"
+)
 
 
 class CaseValidationError(ValueError):
@@ -55,6 +60,13 @@ class RoundSpec:
     falsification_criteria: str
     priority: int = 0
     disclosure_deadline_days: int = 90
+    target_source_paths: tuple[str, ...] = ()
+    foundry_source_root: str = "src"
+    test_harness_source: str = ""
+    solc_version: str = ""
+    foundry_image: str = ""
+    positive_control_test: str = ""
+    negative_control_test: str = ""
 
     def __post_init__(self) -> None:
         for field_name in ("round_id", "technique", "hypothesis", "falsification_criteria"):
@@ -69,6 +81,76 @@ class RoundSpec:
             raise CaseValidationError("round_expected_evidence_atoms_required")
         if any(not isinstance(atom, str) or not atom.strip() for atom in atoms):
             raise CaseValidationError("round_expected_evidence_atoms_invalid")
+
+        paths = self.target_source_paths
+        if isinstance(paths, list):
+            paths = tuple(paths)
+            object.__setattr__(self, "target_source_paths", paths)
+        if not isinstance(paths, tuple):
+            raise CaseValidationError("round_target_source_paths_invalid")
+        if len(paths) > 500:
+            raise CaseValidationError("round_target_source_path_count_exceeded")
+        for path in paths:
+            if (
+                not isinstance(path, str)
+                or not path
+                or not _SOURCE_PATH_RE.fullmatch(path)
+                or len(path) > 1024
+                or not path.lower().endswith(".sol")
+                or path.startswith("/")
+                or "\\" in path
+                or any(part in {"", ".", ".."} for part in path.split("/"))
+            ):
+                raise CaseValidationError("round_target_source_path_invalid")
+        if len(set(paths)) != len(paths):
+            raise CaseValidationError("round_target_source_path_duplicate")
+
+        source_root = self.foundry_source_root
+        if (
+            not isinstance(source_root, str)
+            or not source_root
+            or len(source_root) > 512
+            or not _FOUNDRY_ROOT_RE.fullmatch(source_root)
+            or source_root.startswith("/")
+            or "\\" in source_root
+            or any(part in {"", ".", ".."} for part in source_root.split("/"))
+        ):
+            raise CaseValidationError("round_foundry_source_root_invalid")
+
+        harness = self.test_harness_source
+        if not isinstance(harness, str) or "\x00" in harness:
+            raise CaseValidationError("round_test_harness_source_invalid")
+        if harness and not harness.strip():
+            raise CaseValidationError("round_test_harness_source_invalid")
+        try:
+            harness_bytes = harness.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise CaseValidationError("round_test_harness_source_invalid") from exc
+        if len(harness_bytes) > 256 * 1024:
+            raise CaseValidationError("round_test_harness_source_too_large")
+        if not isinstance(self.solc_version, str):
+            raise CaseValidationError("round_solc_version_invalid")
+        if self.solc_version and not re.fullmatch(r"\d+\.\d+\.\d+", self.solc_version):
+            raise CaseValidationError("round_solc_version_invalid")
+        if bool(harness) != bool(self.solc_version):
+            raise CaseValidationError("round_foundry_harness_and_solc_version_required_together")
+        if not isinstance(self.foundry_image, str):
+            raise CaseValidationError("round_foundry_image_invalid")
+        if harness and not _FOUNDRY_IMAGE_RE.fullmatch(self.foundry_image):
+            raise CaseValidationError("round_foundry_image_digest_required")
+        if not harness and self.foundry_image:
+            raise CaseValidationError("round_foundry_image_requires_test_harness")
+        controls = (self.positive_control_test, self.negative_control_test)
+        if any(not isinstance(name, str) for name in controls):
+            raise CaseValidationError("round_foundry_control_test_names_invalid")
+        if harness:
+            if any(not re.fullmatch(r"test[A-Za-z0-9_]+", name) for name in controls):
+                raise CaseValidationError("round_foundry_control_test_names_required")
+            if controls[0] == controls[1]:
+                raise CaseValidationError("round_foundry_control_test_names_must_differ")
+        elif any(controls):
+            raise CaseValidationError("round_foundry_controls_require_test_harness")
+
         if not isinstance(self.priority, int) or isinstance(self.priority, bool):
             raise CaseValidationError("round_priority_invalid")
         if (
@@ -114,8 +196,6 @@ class ResearchCase:
     rounds: tuple[RoundSpec, ...] = ()
 
     def __post_init__(self) -> None:
-        # JSON-loaded case records naturally contain lists/dicts. Normalize them
-        # into the immutable tuple/dataclass representation before validation.
         allowed = self.allowed_techniques
         if isinstance(allowed, list):
             allowed = tuple(allowed)
@@ -188,7 +268,6 @@ class ResearchCase:
         if parsed.scheme != "https" or not parsed.netloc:
             raise CaseValidationError("scope_url must be an absolute HTTPS URL")
 
-        # Accept GitHub owner/repository identifiers or HTTPS repository URLs.
         repo = self.target_repository
         if not (re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
                 or (repo.startswith("https://") and urlparse(repo).netloc)):
@@ -207,7 +286,6 @@ class ResearchCase:
             except ValueError as exc:
                 raise CaseValidationError("Unsupported case status") from exc
 
-        # This contract intentionally has no live-mainnet mode.
         if self.execution_mode not in {
             ExecutionMode.LOCAL,
             ExecutionMode.AUTHORIZED_FORK,
@@ -229,9 +307,6 @@ def validate_task_binding(case: ResearchCase | None, task_case_id: str | None) -
     return case
 
 
-# These roles perform security-research operations whose outputs must be
-# traceable to one immutable case. Generic orchestration/business tasks remain
-# compatible with legacy queue records.
 CASE_REQUIRED_ROLES = frozenset({"source_researcher", "crypto_analyst", "lab_runner"})
 
 
@@ -280,14 +355,23 @@ def verify_research_case_binding(binding: dict) -> dict:
         raise CaseValidationError("research_case_binding_payload_missing")
     if payload.get("case_id") != binding.get("case_id"):
         raise CaseValidationError("research_case_binding_id_mismatch")
-    # A matching digest only proves that the envelope is internally consistent:
-    # anyone can recompute it. Validate the payload against the actual case
-    # contract before treating it as a usable provenance record.
     try:
         case = ResearchCase(**payload)
         normalized_payload = json.loads(json.dumps(asdict(case), default=str))
         normalized_payload["execution_mode"] = case.execution_mode.value
         normalized_payload["status"] = case.status.value
+        # Bindings created before explicit Foundry inputs existed remain verifiable.
+        original_rounds = payload.get("rounds", [])
+        if isinstance(original_rounds, list):
+            for index, original_round in enumerate(original_rounds):
+                if isinstance(original_round, dict):
+                    for field_name in (
+                        "target_source_paths", "foundry_source_root",
+                        "test_harness_source", "solc_version", "foundry_image",
+                        "positive_control_test", "negative_control_test"
+                    ):
+                        if field_name not in original_round:
+                            normalized_payload["rounds"][index].pop(field_name, None)
         if normalized_payload != payload:
             raise CaseValidationError("research_case_binding_payload_invalid")
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)

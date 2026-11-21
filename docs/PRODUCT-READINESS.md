@@ -67,3 +67,31 @@ These are not MVP blockers and must not distract from closing the release blocke
 ## Exit rule
 
 The MVP is **release-candidate ready** only when every release blocker has evidence linked from this checklist and CI is green on the exact candidate commit. It is not “100% ready” merely because documentation is complete or a benchmark test passes. Remaining product risks must be listed explicitly.
+
+
+## Current Foundry implementation status — not acceptance evidence
+
+The current feature branch adds a case-bound LabRunner route for planned
+`runtime_probe` rounds:
+
+- ResearchCase binds repository/commit, source paths and source root, complete
+  harness, exact solc version, digest-pinned Foundry image, and positive/negative
+  control test names.
+- Admission checks the registered case, round identity, reviewed scope
+  envelope, GitHub origin, and exact target commit. Solidity bytes come from
+  Git objects, not the mutable worktree.
+- The Worker routes this plan to a network-disabled Docker execution adapter
+  only when `AEGISFORGE_DOCKER_RUNTIME_AUTHORIZED=1` is explicitly configured.
+- The Worker persists pass, fail, partial, timeout, and not-run observations
+  through the existing local experiment Evidence Ledger. It never sets
+  `dynamic_verified` or `vulnerability_confirmed` to true.
+- The generated Foundry project does not yet reproduce the target's original
+  `foundry.toml`, optimizer/EVM settings, arbitrary libraries, or network
+  dependencies. A passing harness is not a confirmed finding.
+
+This path has unit, mocked integration, and an opt-in real
+Worker-to-Foundry-to-Evidence end-to-end test authored. None has been verified
+as passing: GitHub Actions has repeatedly failed before assigning a runner
+(`runner_id=0`, no steps), and the opt-in test requires a dedicated configured
+Docker host. This implementation does not close the end-to-end or
+reproducible-evidence blockers.

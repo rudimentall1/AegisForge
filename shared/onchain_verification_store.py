@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import re
-import sqlite3
 from typing import Any
 
 from shared.onchain_target_store import OnchainTargetRecord, OnchainTargetStore
@@ -13,7 +12,7 @@ from shared.onchain_target_store import OnchainTargetRecord, OnchainTargetStore
 
 _ADDRESS_RE = re.compile(r"^0x[0-9a-f]{40}$")
 _HASH32_RE = re.compile(r"^[0-9a-f]{64}$")
-_IMAGE_RE = re.compile(r"^ghcr\\.io/foundry-rs/foundry@sha256:[0-9a-f]{64}$")
+_IMAGE_RE = re.compile(r"^ghcr\.io/foundry-rs/foundry@sha256:[0-9a-f]{64}$")
 _ALLOWED_STATUSES = {"VERIFIED", "MISMATCH", "INCOMPLETE"}
 
 

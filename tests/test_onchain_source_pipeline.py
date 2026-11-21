@@ -5,10 +5,10 @@ from agents.crypto_analyst.agent import CryptoAnalyst
 from shared.onchain_research_case import OnchainResearchCase
 
 
-def _target():
+def _target(address="0x" + "1" * 40):
     return OnchainTargetRecord(
         chain_id=8453,
-        address="0x" + "1" * 40,
+        address=address,
         block_number=123,
         block_hash="0x" + "2" * 64,
         runtime_code_sha256="3" * 64,
@@ -86,7 +86,7 @@ def test_crypto_analyst_turns_source_signals_into_unconfirmed_hypotheses():
 def test_source_researcher_fails_closed_when_target_does_not_match_case():
     target = _target()
     case = _case(target)
-    other = _target()
+    other = _target(address="0x" + "4" * 40)
     task = Task(
         task_id="task-mismatch",
         description="Review mismatched target",

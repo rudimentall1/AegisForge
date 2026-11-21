@@ -193,3 +193,20 @@ def test_evidence_observations_inherit_onchain_case_id(tmp_path):
     ).fetchone()
     assert row == (case.case_id,)
     queue.db.close()
+
+
+def test_onchain_task_graph_can_chain_independent_security_checker(tmp_path):
+    from shared.queue import TaskQueue
+    queue = TaskQueue(db_path=tmp_path / "onchain-graph.sqlite")
+    target = _register_target(queue)
+    case = valid_case(target_id=target.target_id)
+    queue.register_onchain_research_case(case)
+    source_task = queue.add("source triage", role="source_researcher", onchain_case_id=case.case_id)
+    crypto_task = queue.add("crypto analysis", role="crypto_analyst", parent_task_id=source_task)
+    security_task = queue.add("independent security review", role="security_checker", parent_task_id=crypto_task)
+    rows = queue.db.execute(
+        "SELECT onchain_case_id FROM queue WHERE id IN (?, ?, ?) ORDER BY created_at",
+        (source_task, crypto_task, security_task),
+    ).fetchall()
+    assert rows == [(case.case_id,), (case.case_id,), (case.case_id,)]
+    queue.db.close()

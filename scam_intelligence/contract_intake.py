@@ -26,6 +26,13 @@ class ContractIntakeError(ValueError):
     """Discovery or source intake failed closed."""
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Do not let an upstream redirect move a trusted request to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class DiscoveredContract:
     chain_id: int
@@ -93,7 +100,7 @@ class BlockscoutContractIntake:
         self.base_url = base_url.rstrip("/")
         self.chain_id = chain_id
         self.timeout = timeout
-        self._opener = opener or urllib.request.urlopen
+        self._opener = opener or urllib.request.build_opener(_NoRedirectHandler()).open
 
     @staticmethod
     def _validate_address(address: str) -> str:
@@ -211,7 +218,14 @@ class BlockscoutContractIntake:
 
         if isinstance(source, str):
             if source.strip():
-                files[str(file_path)] = source
+                try:
+                    standard_json = json.loads(source)
+                except json.JSONDecodeError:
+                    standard_json = None
+                if isinstance(standard_json, dict) and isinstance(standard_json.get("sources"), dict):
+                    source = standard_json
+                else:
+                    files[str(file_path)] = source
         elif isinstance(source, dict):
             # Blockscout may expose standard-json source objects or a path map.
             nested = source.get("sources") if isinstance(source.get("sources"), dict) else source

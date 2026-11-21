@@ -249,8 +249,8 @@ class BlockscoutContractIntake:
             if (
                 not path
                 or path.startswith("/")
-                or "\\\\" in path
-                or "\\x00" in path
+                or "\\" in path
+                or "\x00" in path
                 or any(part in {"", ".", ".."} for part in path.split("/"))
             ):
                 raise ContractIntakeError("contract_source_path_invalid")

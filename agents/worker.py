@@ -582,15 +582,30 @@ class Worker:
                 ) from exc
 
         research_case_id = task_row[12] if len(task_row) > 12 else None
+        onchain_case_id = task_row[13] if len(task_row) > 13 else None
         research_case = None
+        onchain_research_case = None
+        onchain_target = None
         try:
-            if research_case_id is not None:
-                research_case = self.queue.get_research_case(research_case_id)
-            validate_worker_case_binding(
-                self.role,
-                research_case,
-                research_case_id,
-            )
+            if research_case_id and onchain_case_id:
+                raise ValueError("git_and_onchain_case_binding_mutually_exclusive")
+            if onchain_case_id:
+                if self.role not in {"source_researcher", "crypto_analyst"}:
+                    raise ValueError("onchain_case_role_not_permitted")
+                onchain_research_case = self.queue.get_onchain_research_case(onchain_case_id)
+                from shared.onchain_research_case import validate_onchain_task_binding
+                validate_onchain_task_binding(onchain_research_case, onchain_case_id)
+                onchain_target = self.queue.get_onchain_target(onchain_research_case.target_id)
+                if onchain_target is None or onchain_target.target_id != onchain_research_case.target_id:
+                    raise ValueError("onchain_target_not_registered_or_mismatched")
+            else:
+                if research_case_id is not None:
+                    research_case = self.queue.get_research_case(research_case_id)
+                validate_worker_case_binding(
+                    self.role,
+                    research_case,
+                    research_case_id,
+                )
         except (TypeError, ValueError) as exc:
             error = {
                 "error": str(exc),
@@ -647,6 +662,9 @@ class Worker:
                     "capability_intent": capability_intent,
                     "research_case_id": research_case_id,
                     "research_case": research_case,
+                    "onchain_research_case": onchain_research_case,
+                    "onchain_target": onchain_target,
+                    "onchain_case_id": onchain_case_id,
                     "round_spec": round_spec,
                     "technique": technique,
                 },

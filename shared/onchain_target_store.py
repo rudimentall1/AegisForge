@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from types import MappingProxyType
 from typing import Any
 
 
@@ -132,7 +133,7 @@ class OnchainTargetRecord:
         object.__setattr__(self, "implementations", tuple(normalized_implementations))
 
         files = _validate_source_files(self.source_files)
-        object.__setattr__(self, "source_files", files)
+        object.__setattr__(self, "source_files", MappingProxyType(files))
         actual_source_sha256 = hashlib.sha256(
             _canonical_json(files).encode("utf-8")
         ).hexdigest()
@@ -207,7 +208,7 @@ class OnchainTargetStore:
         if not isinstance(record, OnchainTargetRecord):
             raise OnchainTargetError("onchain_target_record_required")
         metadata_json = _canonical_json(self._metadata(record))
-        source_files_json = _canonical_json(record.source_files)
+        source_files_json = _canonical_json(dict(record.source_files))
         with self.db:
             existing = self.db.execute(
                 """
@@ -267,17 +268,24 @@ class OnchainTargetStore:
             raise OnchainTargetError("deployment_not_attested")
 
         try:
-            coordinates = (
+            chain_ids = (
                 candidate.chain_id,
-                candidate.address.lower(),
                 source.chain_id,
-                source.address.lower(),
                 attestation.get("chain_id"),
-                str(attestation.get("address", "")).lower(),
+            )
+            addresses = (
+                candidate.address,
+                source.address,
+                attestation.get("address"),
             )
         except AttributeError as exc:
             raise OnchainTargetError("intake_item_invalid") from exc
-        if len(set(coordinates[::2])) != 1 or len(set(coordinates[1::2])) != 1:
+        if (
+            any(type(value) is not int or value <= 0 for value in chain_ids)
+            or len(set(chain_ids)) != 1
+            or any(not isinstance(value, str) or not _ADDRESS_RE.fullmatch(value) for value in addresses)
+            or len({value.lower() for value in addresses}) != 1
+        ):
             raise OnchainTargetError("intake_chain_id_mismatch_or_address_mismatch")
 
         try:

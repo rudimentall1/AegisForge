@@ -171,3 +171,25 @@ def test_queue_rejects_onchain_child_rebound_to_another_case(tmp_path):
     with pytest.raises(ValueError, match="onchain_case_parent_mismatch"):
         queue.add("cross-case child", role="crypto_analyst", parent_task_id=parent, onchain_case_id=second.case_id)
     queue.db.close()
+
+
+def test_evidence_observations_inherit_onchain_case_id(tmp_path):
+    from shared.evidence_ledger import EvidenceLedger
+    from shared.queue import TaskQueue
+    queue = TaskQueue(db_path=tmp_path / "onchain-evidence.sqlite")
+    target = _register_target(queue)
+    case = valid_case(target_id=target.target_id)
+    queue.register_onchain_research_case(case)
+    task_id = queue.add(
+        "review source",
+        role="source_researcher",
+        onchain_case_id=case.case_id,
+    )
+    ledger = EvidenceLedger(queue.db)
+    ledger.record_observation(task_id, "source_researcher", "source_signal:delegatecall")
+    row = queue.db.execute(
+        "SELECT case_id FROM evidence_observations WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()
+    assert row == (case.case_id,)
+    queue.db.close()

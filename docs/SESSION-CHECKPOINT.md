@@ -401,3 +401,47 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 
 
 - Final Worker provenance addition: every successful on-chain agent result now carries `onchain_research_case_binding` with the immutable case digest. Latest observed CI run `44890248965` and rerun job `136804362034` again failed with `steps=[]`; no test code ran. Current implementation commit: `93fb52b2fa8e4ee04916c19205f3b53385ac16c0`.
+
+---
+
+# Current checkpoint — PR #208 on-chain source reasoning
+
+**Updated:** 2026-11-21  
+**Repository:** `rudimentall1/AegisForge`  
+**Working branch:** `feat/onchain-contract-intake`  
+**Latest known head before this checkpoint update:** `04e59f7bc2de8be8ea89f4e40bd86bdebfca7ad0`  
+**PR:** [#208](https://github.com/rudimentall1/AegisForge/pull/208), OPEN, DRAFT, not merged.
+
+## Implemented in this continuation
+
+- Added `shared/solidity_source_analysis.py`, a bounded Solidity source structural pass.
+- Inventories function bodies, modifiers, visibility and mutability.
+- Builds conservative same-file call edges only where the callee name is unambiguous.
+- Records external-call and state-write candidate sites with exact file/line/excerpt evidence.
+- Detects syntactic authorization signals from modifier names and common inline sender/owner checks.
+- Fails closed on unterminated comments/strings and unbalanced source/function braces.
+- `SourceResearcher` now attaches structural analysis to the on-chain source result.
+- `CryptoAnalyst` emits function-level `NEEDS_DEEPER_ANALYSIS` hypotheses and bounded call paths from public/external entrypoints to relevant internal functions.
+- `SecurityChecker` independently recomputes structural analysis from the immutable target source bundle and records operation-site evidence.
+- Added `tests/test_solidity_source_analysis.py` and expanded `tests/test_onchain_source_pipeline.py` to assert function inventory, call edges, operation line references, function hypotheses, independent recomputation, and malformed-source handling.
+- Updated `docs/ONCHAIN-CONTRACT-INTAKE.md` with current implementation and limitations.
+
+## Verification — NOT PASSED
+
+- The last known GitHub Actions run `44890299159` completed with failure and job `136806540311` reported `steps: null`. No test step was executed.
+- GitHub Actions has not returned a run for the latest Contents-API commits. A local checkout attempt was unavailable because this runtime could not resolve `github.com`.
+- Therefore the new tests have **not** been executed. Do not describe the implementation as tested or passing.
+- PR #208 remains Draft. Do not merge.
+
+## Current technical limits
+
+This is not a Solidity compiler AST, Slither, formal control-flow analysis, or bytecode-equivalence proof. Overloads, cross-file/inherited dispatch, assembly semantics, storage aliasing, proxy context, and compiler transformations are unresolved. State-write and authorization signals are syntactic candidates only. No deployed contract code is executed; no fork or transaction is started; no vulnerability is confirmed.
+
+## Next actions
+
+1. Restore a working CI execution path and run the focused tests, then the full suite.
+2. Fix all actual test failures before extending the analyzer.
+3. Add compiler-backed AST/source-map ingestion (prefer pinned solc standard JSON output where compiler version and input are available); retain the current bounded parser only as fallback/triage.
+4. Extend call-graph analysis with overload-aware function identity and cross-file/import resolution.
+5. Only then design a separate authorization/admission gate for fixed-block Anvil fork reproduction. Never route on-chain cases into the existing Git Foundry path by default.
+

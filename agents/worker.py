@@ -595,6 +595,7 @@ class Worker:
                 "destination": "internal",
                 "data_scope": "public_source_code",
                 "requires_network": False,
+                "requires_filesystem": False,
                 "read_only": True,
                 "irreversible": False,
                 "financial": False,

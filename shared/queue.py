@@ -728,10 +728,10 @@ class TaskQueue:
         if parent_task_id:
             parent_columns = {row[1] for row in self.db.execute("PRAGMA table_info(queue)")}
             parent_select = "SELECT research_case_id, round_id"
-            if "onchain_case_id" in parent_columns:
-                parent_select += ", onchain_case_id"
             if "round_spec_id" in parent_columns:
                 parent_select += ", round_spec_id"
+            if "onchain_case_id" in parent_columns:
+                parent_select += ", onchain_case_id"
             parent_row = self.db.execute(
                 parent_select + " FROM queue WHERE id = ?", (parent_task_id,)
             ).fetchone()

@@ -227,10 +227,14 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
                 name = call.group(1)
                 if name not in _IGNORED_CALLS and name not in raw_calls:
                     raw_calls.append(name)
+            visibility_match = re.search(r"\b(public|external|internal|private)\b", header)
+            mutability_match = re.search(r"\b(pure|view|payable)\b", header)
             record = {
                 "path": path,
                 "name": block["name"],
                 "line": block["line"],
+                "visibility": visibility_match.group(1) if visibility_match else "default",
+                "mutability": mutability_match.group(1) if mutability_match else "nonpayable",
                 "modifiers": modifier_names,
                 "_raw_calls": raw_calls,
                 "calls": [],

@@ -34,18 +34,17 @@ def test_worker_executes_complete_onchain_source_pipeline_with_case_binding(
             block_hash="0x" + "2" * 64,
             runtime_code_sha256="3" * 64,
             source_files={
-                "src/Vault.sol": (
-                    "contract Vault {\\n"
-                    " function withdraw() external { _send(); }\\n"
-                    " function _send() internal {\\n"
-                    "   (bool ok,) = msg.sender.call{value: 1}(\\\"\\");\\n"
-                    " }\\n"
-                    " function upgrade(address impl) external {\\n"
-                    "   (bool ok,) = impl.delegatecall(\\\"\\");\\n"
-                    " }\\n"
-                    "}\\n"
-                )
-            },
+                "src/Vault.sol": """contract Vault {
+ function withdraw() external { _send(); }
+ function _send() internal {
+   (bool ok,) = msg.sender.call{value: 1}("");
+ }
+ function upgrade(address impl) external {
+   (bool ok,) = impl.delegatecall("");
+ }
+}
+"""
+
             source_provider="blockscout_v2",
             compiler_version="0.8.24",
             contract_name="Vault",

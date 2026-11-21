@@ -446,3 +446,40 @@ This is not a Solidity compiler AST, Slither, formal control-flow analysis, or b
 4. Extend call-graph analysis with overload-aware function identity and cross-file/import resolution.
 5. Only then design a separate authorization/admission gate for fixed-block Anvil fork reproduction. Never route on-chain cases into the existing Git Foundry path by default.
 
+
+
+---
+
+## Continuation checkpoint — Standard JSON intake regression and focused CI
+
+**Updated:** 2026-11-21  
+**Working branch:** `feat/onchain-contract-intake`  
+**Latest observed branch commit:** `bde0c7c9f0eb387d6e59f7a19828a952d7b15951`  
+**PR:** [#208](https://github.com/rudimentall1/AegisForge/pull/208), OPEN, DRAFT, not merged.
+
+### Regression found and fixed
+
+- Found a concrete bug in `BlockscoutContractIntake._normalize_sources`: when Blockscout returned Standard JSON as a JSON-encoded string, the code parsed it into a dict but never entered the dict extraction branch. This left the source file map empty and caused valid Standard JSON contracts to be rejected as `contract_source_empty`.
+- Added a regression test first in `tests/test_onchain_standard_json_provenance.py`.
+- Fixed the normalizer to process the parsed dict after string decoding.
+- The regression test now asserts that the Solidity source path and content are extracted from a string-encoded Standard JSON payload.
+
+### Focused CI
+
+- Added `.github/workflows/onchain-source-tests.yml`.
+- It runs only the on-chain intake/source reasoning test set, with Python 3.10, dependency installation, compileall, and focused pytest.
+- This is intentionally separate from the broad legacy CI workflow, which currently has a recurring GitHub Actions job-initialization failure (`steps: null`).
+- The new workflow has not yet produced a confirmed run. Do not treat its existence as verification.
+
+### Current verification
+
+- Standard JSON provenance test file now contains 9 test functions.
+- Total authored test functions in the previously reported relevant suites: 56.
+- No test has yet been executed successfully in this environment.
+- The broad CI still cannot provide a usable job log or step list. The latest observed failure is infrastructure/job initialization, not an observed pytest failure.
+
+### Next actions
+
+1. Obtain a real run of the focused workflow and inspect its job steps/logs.
+2. Fix any failures it actually reports; then run the complete repository suite.
+3. Continue with pinned solc compiler AST and source maps only after the source intake and persistence tests are green.

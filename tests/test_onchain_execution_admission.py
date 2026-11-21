@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 import hashlib
 import json
 import sqlite3
@@ -47,7 +47,8 @@ def _target():
     )
 
 
-def _case(target, *, reviewed_on="2026-11-21", techniques=("source_pattern", "exploit_reproduction")):
+def _case(target, *, reviewed_on=None, techniques=("source_pattern", "exploit_reproduction")):
+    reviewed_on = reviewed_on or date.today().isoformat()
     return OnchainResearchCase(
         case_id="case-" + reviewed_on + "-" + "-".join(techniques),
         target_id=target.target_id,
@@ -115,7 +116,6 @@ def test_admission_requires_explicit_scope_authorization_and_latest_verified_evi
         queue,
         verification_store,
         _request(case, target, verification),
-        today=date(2026, 11, 21),
     )
 
     assert admitted.case.case_id == case.case_id
@@ -140,7 +140,6 @@ def test_admission_rejects_incomplete_verification(admission_context):
             queue,
             verification_store,
             _request(case, target, incomplete),
-            today=date(2026, 11, 21),
         )
 
 
@@ -164,7 +163,7 @@ def test_admission_rejects_old_verified_record_after_new_incomplete_record(admis
 
 def test_admission_rejects_stale_scope_review(admission_context):
     queue, _, target, case, verification_store, verification = admission_context
-    stale_case = _case(target, reviewed_on="2026-10-01")
+    stale_case = _case(target, reviewed_on=(date.today() - timedelta(days=31)).isoformat())
     queue.register_onchain_research_case(stale_case)
 
     with pytest.raises(OnchainExecutionAdmissionError, match="scope_review_stale"):
@@ -178,7 +177,7 @@ def test_admission_rejects_stale_scope_review(admission_context):
 
 def test_admission_rejects_future_scope_review(admission_context):
     queue, _, target, case, verification_store, verification = admission_context
-    future_case = _case(target, reviewed_on="2026-11-22")
+    future_case = _case(target, reviewed_on=(date.today() + timedelta(days=1)).isoformat())
     queue.register_onchain_research_case(future_case)
 
     with pytest.raises(OnchainExecutionAdmissionError, match="scope_review_in_future"):

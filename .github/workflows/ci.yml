@@ -339,3 +339,9 @@ jobs:
             tests/test_solidity_compiler.py \
             tests/test_sandbox.py \
             tests/test_solc_toolchain.py
+
+      - name: Run real solc and Anvil source/runtime integration
+        env:
+          AEGISFORGE_RUN_REAL_SOLC_INTEGRATION: "1"
+        run: |
+          python -m pytest -q --tb=short tests/test_solidity_compiler_anvil_integration.py

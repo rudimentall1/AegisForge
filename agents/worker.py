@@ -602,7 +602,7 @@ class Worker:
             if research_case_id and onchain_case_id:
                 raise ValueError("git_and_onchain_case_binding_mutually_exclusive")
             if onchain_case_id:
-                if self.role not in {"source_researcher", "crypto_analyst"}:
+                if self.role not in {"source_researcher", "crypto_analyst", "security_checker"}:
                     raise ValueError("onchain_case_role_not_permitted")
                 onchain_research_case = self.queue.get_onchain_research_case(onchain_case_id)
                 from shared.onchain_research_case import validate_onchain_task_binding
@@ -956,6 +956,27 @@ class Worker:
                 if result_value.get("execution_adapter") == "foundry_test":
                     task.result.pop("stdout", None)
                     task.result.pop("stderr", None)
+
+            if onchain_case_id and self.role in {"source_researcher", "crypto_analyst"}:
+                next_role = (
+                    "crypto_analyst" if self.role == "source_researcher"
+                    else "security_checker"
+                )
+                next_task_id = self.queue.add(
+                    description=(
+                        f"Continue on-chain case {onchain_case_id}: independently "
+                        f"review parent {task_id} and its source evidence."
+                    ),
+                    role=next_role,
+                    parent_task_id=task_id,
+                )
+                result_value = dict(result_value)
+                result_value["onchain_pipeline_next_task"] = {
+                    "task_id": next_task_id,
+                    "role": next_role,
+                    "status": "pending",
+                }
+                task.result = dict(result_value)
 
             self.memory.save_task(task)
 

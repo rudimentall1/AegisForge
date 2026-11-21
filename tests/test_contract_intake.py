@@ -157,3 +157,47 @@ def test_rpc_attestation_fails_closed_on_wrong_chain_or_empty_code():
     )
     with pytest.raises(ContractIntakeError, match="rpc_chain_id_mismatch"):
         intake.attest_deployment("https://rpc.example", "0x" + "e" * 40)
+
+
+def test_intake_targets_only_accepts_verified_source_with_rpc_deployment_proof():
+    address = "0x" + "f" * 40
+    calls = []
+
+    def opener(request, timeout):
+        if request.data:
+            rpc = json.loads(request.data.decode())
+            calls.append(rpc["method"])
+            result = hex(8453) if rpc["method"] == "eth_chainId" else "0x6001600055"
+            return FakeResponse({"jsonrpc": "2.0", "id": rpc["id"], "result": result})
+        calls.append(request.full_url)
+        if request.full_url.endswith("/smart-contracts?items_count=1"):
+            return FakeResponse({
+                "items": [{
+                    "address": {"hash": address, "is_verified": True, "name": "RealVault"},
+                    "transactions_count": 500,
+                }],
+                "next_page_params": None,
+            })
+        return FakeResponse({
+            "is_verified": True,
+            "name": "RealVault",
+            "compiler_version": "v0.8.24+commit.e11b9ed9",
+            "source_code": "pragma solidity ^0.8.24; contract RealVault {}",
+            "file_path": "src/RealVault.sol",
+        })
+
+    intake = BlockscoutContractIntake(
+        "https://base.blockscout.com/api/v2", chain_id=8453, opener=opener
+    )
+    result = intake.intake_targets(
+        "https://rpc.example", limit=1, min_transactions=100
+    )
+
+    assert result["discovered"] == 1
+    assert len(result["accepted"]) == 1
+    assert result["rejected"] == []
+    accepted = result["accepted"][0]
+    assert accepted["candidate"].address == address
+    assert accepted["source"].source_files["src/RealVault.sol"].startswith("pragma")
+    assert accepted["deployment_attestation"]["deployed"] is True
+    assert calls[1:3] == ["eth_chainId", "eth_getCode"]

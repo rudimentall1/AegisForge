@@ -116,6 +116,27 @@ def compile_standard_json(
         or not isinstance(standard_input.get("settings"), dict)
     ):
         return _result("INCOMPLETE", "standard_json_input_incomplete")
+    if len(standard_input["sources"]) > 500:
+        return _result("INPUT_TOO_LARGE", "source_file_count_exceeded")
+    source_bytes = 0
+    for source_path, source_entry in standard_input["sources"].items():
+        if (
+            not isinstance(source_path, str)
+            or not source_path
+            or source_path.startswith("/")
+            or "\\" in source_path
+            or "\\x00" in source_path
+            or any(part in {"", ".", ".."} for part in source_path.split("/"))
+        ):
+            return _result("INCOMPLETE", "standard_json_source_path_invalid")
+        if not isinstance(source_entry, dict) or not isinstance(source_entry.get("content"), str):
+            return _result("INCOMPLETE", "standard_json_source_content_missing")
+        try:
+            source_bytes += len(source_entry["content"].encode("utf-8"))
+        except UnicodeEncodeError:
+            return _result("INCOMPLETE", "standard_json_source_content_invalid")
+        if source_bytes > 4 * 1024 * 1024:
+            return _result("INPUT_TOO_LARGE", "standard_json_source_bundle_too_large")
     if not _requests_deployed_bytecode(standard_input):
         return _result("INCOMPLETE", "deployed_bytecode_output_not_requested")
     expected = _version_parts(compiler_version)

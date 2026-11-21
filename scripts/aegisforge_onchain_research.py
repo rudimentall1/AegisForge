@@ -84,6 +84,7 @@ def main(argv=None):
             "case_id": case.case_id,
             "task_id": task_id,
             "source_sha256": source.source_sha256,
+            "standard_json_input_sha256": source.standard_json_input_sha256,
             "runtime_code_sha256": attestation["runtime_code_sha256"],
             "execution": "not_started",
         }, sort_keys=True, indent=2))

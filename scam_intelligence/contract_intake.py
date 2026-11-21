@@ -58,8 +58,28 @@ class VerifiedContractSource:
     proxy_type: str | None = None
     implementations: tuple[str, ...] = ()
     source_sha256: str = field(default="")
+    standard_json_input: str | None = None
+    standard_json_input_sha256: str = ""
 
     def __post_init__(self):
+        if self.standard_json_input is not None:
+            if not isinstance(self.standard_json_input, str):
+                raise ContractIntakeError("standard_json_input_invalid")
+            raw_standard_json = self.standard_json_input.encode("utf-8")
+            if len(raw_standard_json) > 8 * 1024 * 1024:
+                raise ContractIntakeError("standard_json_input_too_large")
+            try:
+                parsed_standard_json = json.loads(self.standard_json_input)
+            except json.JSONDecodeError as exc:
+                raise ContractIntakeError("standard_json_input_invalid") from exc
+            if not isinstance(parsed_standard_json, dict) or not isinstance(parsed_standard_json.get("sources"), dict):
+                raise ContractIntakeError("standard_json_input_invalid")
+            digest = hashlib.sha256(raw_standard_json).hexdigest()
+            if self.standard_json_input_sha256 and self.standard_json_input_sha256 != digest:
+                raise ContractIntakeError("standard_json_input_sha256_mismatch")
+            object.__setattr__(self, "standard_json_input_sha256", digest)
+        elif self.standard_json_input_sha256:
+            raise ContractIntakeError("standard_json_input_missing")
         if not self.source_sha256:
             canonical = json.dumps(
                 self.source_files,
@@ -211,6 +231,35 @@ class BlockscoutContractIntake:
         return found
 
     @staticmethod
+    def _standard_json_input(payload: dict) -> str | None:
+        """Preserve the exact explorer-supplied Standard JSON bytes when available."""
+        source = payload.get("source_code")
+        candidate = None
+        if isinstance(source, str):
+            try:
+                parsed = json.loads(source)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict) and isinstance(parsed.get("sources"), dict):
+                candidate = source
+        elif isinstance(source, dict) and isinstance(source.get("sources"), dict):
+            candidate = json.dumps(
+                source, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+        if candidate is None:
+            return None
+        encoded = candidate.encode("utf-8")
+        if len(encoded) > 8 * 1024 * 1024:
+            raise ContractIntakeError("standard_json_input_too_large")
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            raise ContractIntakeError("standard_json_input_invalid") from exc
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("sources"), dict):
+            raise ContractIntakeError("standard_json_input_invalid")
+        return candidate
+
+    @staticmethod
     def _normalize_sources(payload: dict) -> dict[str, str]:
         source = payload.get("source_code")
         file_path = payload.get("file_path") or payload.get("file_name") or "Contract.sol"
@@ -280,6 +329,7 @@ class BlockscoutContractIntake:
         )
         if payload.get("is_verified") is False:
             raise ContractIntakeError("contract_source_not_verified")
+        standard_json_input = self._standard_json_input(payload)
         files = self._normalize_sources(payload)
         if not files:
             raise ContractIntakeError("contract_source_empty")
@@ -309,6 +359,11 @@ class BlockscoutContractIntake:
             abi=payload.get("abi"),
             proxy_type=payload.get("proxy_type"),
             implementations=tuple(implementation_addresses),
+            standard_json_input=standard_json_input,
+            standard_json_input_sha256=(
+                hashlib.sha256(standard_json_input.encode("utf-8")).hexdigest()
+                if standard_json_input is not None else ""
+            ),
         )
 
     def attest_deployment(self, rpc_url: str, address: str) -> dict:

@@ -95,3 +95,12 @@ small capability-intent field, register immutable chain/address/block/source
 provenance, and hand the resulting target to the existing research-case and
 evidence workflow. Until that is implemented and exercised end-to-end, AegisForge
 must not claim autonomous on-chain vulnerability discovery.
+
+
+## Worker integration contract (next implementation slice)
+
+Do not attach an `OnchainTargetRecord` directly to a Git `ResearchCase`. The latter requires a repository and full commit SHA, and its admission path resolves pinned Git objects. An EVM contract is identified by chain/address/block/runtime-code hash and acquired source digest; fabricating Git identity would corrupt provenance.
+
+The next slice must introduce a separate immutable `OnchainResearchCase` that references `target_id` and records explicit authorization/scope evidence. A verified public contract is a research candidate, not permission to test it. Queue tasks must bind to either a Git ResearchCase or an on-chain research case, never both; parent/child task inheritance must preserve that binding.
+
+At the Worker boundary, resolve the on-chain case and target record from the existing SQLite database, then pass a typed read-only target context to source-research agents. Do not put source bytes in queue descriptions, capability intent, or task result payloads. Do not route this context into the Git-only target execution admission or Foundry runner. Initial integration is non-executing source research only; any future fork/harness execution requires its own explicit admission contract and reviewed isolation backend.

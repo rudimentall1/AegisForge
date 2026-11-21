@@ -602,21 +602,23 @@ class SourceResearcher:
                 "initialization": re.compile(r"\\b(initialize|reinitializer)\\s*\\("),
             }
             source_records = []
+            total_signal_count = 0
             for path, source_text in onchain_target.source_files.items():
                 lines = source_text.splitlines()
                 signals = []
                 for line_number, line in enumerate(lines, 1):
+                    if total_signal_count >= 500 or len(signals) >= 25:
+                        break
                     for signal, pattern in signal_patterns.items():
                         if pattern.search(line):
                             signals.append({
                                 "signal": signal,
                                 "line": line_number,
-                                "excerpt": line.strip()[:400],
+                                "excerpt": line.strip()[:300],
                             })
-                            if len(signals) >= 100:
+                            total_signal_count += 1
+                            if total_signal_count >= 500 or len(signals) >= 25:
                                 break
-                    if len(signals) >= 100:
-                        break
                 source_records.append({
                     "path": path,
                     "sha256": hashlib.sha256(source_text.encode("utf-8")).hexdigest(),

@@ -487,3 +487,14 @@ This is not a Solidity compiler AST, Slither, formal control-flow analysis, or b
 ### CI wiring correction
 
 The standalone on-chain workflow was removed because a workflow introduced only on the PR head is not a reliable pull-request trigger when it is absent from the base branch. The focused test job now lives in the existing `.github/workflows/ci.yml` instead. This avoids creating a workflow that appears configured but never runs for PR #208.
+
+
+## Latest verification update — focused job also blocked before steps
+
+- PR head after the Standard JSON fix, focused CI job, and checkpoint update: `6865f49b09d47dc9ddb4085982521fbf76233f60`.
+- Workflow run: `44892786010`.
+- Both jobs (`136812006792` broad CI and `136812006657` focused on-chain job) failed before step initialization with `steps: null`.
+- Retried the focused job; retry job `136812049679` also completed as failure with `steps: []`.
+- No checkout, dependency install, compileall, or pytest step executed. This is still a GitHub Actions runner/job initialization failure, not a reported test failure and not a pass.
+- Standard JSON string regression is fixed in source and covered by a test, but that test remains unexecuted.
+- Do not begin compiler-AST implementation until this focused suite has an actual execution result. Do not merge PR #208.

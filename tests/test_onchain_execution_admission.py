@@ -157,7 +157,6 @@ def test_admission_rejects_old_verified_record_after_new_incomplete_record(admis
             queue,
             verification_store,
             _request(case, target, verified),
-            today=date(2026, 11, 21),
         )
 
 
@@ -171,7 +170,6 @@ def test_admission_rejects_stale_scope_review(admission_context):
             queue,
             verification_store,
             _request(stale_case, target, verification),
-            today=date(2026, 11, 21),
         )
 
 
@@ -185,7 +183,6 @@ def test_admission_rejects_future_scope_review(admission_context):
             queue,
             verification_store,
             _request(future_case, target, verification),
-            today=date(2026, 11, 21),
         )
 
 
@@ -199,7 +196,6 @@ def test_admission_rejects_case_without_exploit_reproduction_authorization(admis
             queue,
             verification_store,
             _request(source_only_case, target, verification),
-            today=date(2026, 11, 21),
         )
 
 
@@ -216,7 +212,6 @@ def test_admission_rejects_authorization_reference_substitution(admission_contex
                 verification,
                 authorization_reference="https://example.com/other-authorization",
             ),
-            today=date(2026, 11, 21),
         )
 
 
@@ -228,7 +223,6 @@ def test_admission_rejects_block_hash_substitution(admission_context):
             queue,
             verification_store,
             _request(case, target, verification, block_hash="0x" + "3" * 64),
-            today=date(2026, 11, 21),
         )
 
 
@@ -236,7 +230,7 @@ def test_admission_rejects_untyped_request(admission_context):
     queue, _, _, _, verification_store, _ = admission_context
 
     with pytest.raises(OnchainExecutionAdmissionError, match="typed_request_required"):
-        admit_onchain_execution(queue, verification_store, {}, today=date(2026, 11, 21))
+        admit_onchain_execution(queue, verification_store, {})
 
 
 def test_admission_rejects_verification_store_on_different_database(admission_context):
@@ -252,6 +246,5 @@ def test_admission_rejects_verification_store_on_different_database(admission_co
             queue,
             other_verifications,
             _request(case, target, verification),
-            today=date(2026, 11, 21),
         )
     other_db.close()

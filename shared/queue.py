@@ -1031,8 +1031,7 @@ class TaskQueue:
                 result,
                 capability_intent,
                 allow_failed_parent,
-                research_case_id,
-                onchain_case_id
+                research_case_id
             FROM queue
             WHERE id = ?
             """,
@@ -2384,7 +2383,10 @@ class TaskQueue:
             self._sync_research_case_round_lifecycle(task_id)
             self.db.commit()
 
-            return self.get(task_id)
+            # Preserve the historical 13-column get() contract while the
+            # worker claim row carries the separate on-chain case binding.
+            claimed = self.get(task_id)
+            return (*claimed, row[13] if len(row) > 13 else None)
 
         except Exception:
             self.db.rollback()

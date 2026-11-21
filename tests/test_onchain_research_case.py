@@ -147,7 +147,7 @@ def test_queue_rejects_cross_binding_and_onchain_lab_execution(tmp_path):
     target = _register_target(queue)
     case = valid_case(target_id=target.target_id)
     queue.register_onchain_research_case(case)
-    with pytest.raises(ValueError, match="onchain_case_role_not_permitted"):
+    with pytest.raises(ValueError, match="git_research_case_required_for_lab_runner"):
         queue.add("run target", role="lab_runner", onchain_case_id=case.case_id)
     with pytest.raises(ValueError, match="mutually_exclusive"):
         queue.add(

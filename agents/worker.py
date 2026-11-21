@@ -24,6 +24,12 @@ from shared.agent_identity import AgentIdentity
 from shared.agent_authority import AgentAuthorityRegistry
 from shared.evidence_ledger import EvidenceLedger
 from shared.lab_experiment_persistence import persist_synthetic_lab_experiment
+from shared.foundry_experiment_persistence import persist_foundry_lab_experiment
+from shared.target_execution_admission import (
+    AdapterProfile,
+    TargetExecutionRequest,
+    run_admitted_foundry_round,
+)
 from shared.result_codec import encode
 from shared.capability_grant import CapabilityGrant, CapabilityGrantError
 from shared.capability_signing import CapabilitySigner, CapabilitySignatureError
@@ -780,6 +786,32 @@ class Worker:
 
 
             if (
+                self.role == "lab_runner"
+                and technique == "runtime_probe"
+                and round_spec is not None
+                and any((
+                    getattr(round_spec, "target_source_paths", ()),
+                    getattr(round_spec, "test_harness_source", ""),
+                    getattr(round_spec, "solc_version", ""),
+                    getattr(round_spec, "positive_control_test", ""),
+                    getattr(round_spec, "negative_control_test", ""),
+                ))
+            ):
+                checkout_root = os.environ.get(
+                    "AEGISFORGE_TARGET_CHECKOUT_ROOT", ""
+                ).strip()
+                if not checkout_root:
+                    raise RuntimeError("foundry_target_checkout_root_not_configured")
+                result = run_admitted_foundry_round(
+                    self.queue,
+                    TargetExecutionRequest(
+                        task_id=task_id,
+                        adapter_profile=AdapterProfile.FOUNDRY_TEST,
+                    ),
+                    checkout_root=checkout_root,
+                )
+                result["research_track"] = "foundry_runtime_probe"
+            elif (
                 technique
                 and self.role in {"source_researcher", "crypto_analyst", "lab_runner"}
             ):
@@ -868,7 +900,15 @@ class Worker:
                 result_value.setdefault("agent_id", self.agent_id)
                 result_value.setdefault("agent_identity", self.agent_identity.to_dict())
 
-            task.result = result_value
+            task_result_for_memory = result_value
+            if (
+                isinstance(result_value, dict)
+                and result_value.get("execution_adapter") == "foundry_test"
+            ):
+                task_result_for_memory = dict(result_value)
+                task_result_for_memory.pop("stdout", None)
+                task_result_for_memory.pop("stderr", None)
+            task.result = task_result_for_memory
             task.status = SUCCESS_STATUSES[self.role]
 
             execution_task_id = self._enqueue_execution_handoff(
@@ -882,7 +922,10 @@ class Worker:
                     "role": "executor",
                     "status": "pending",
                 }
-                task.result = result_value
+                task.result = dict(result_value)
+                if result_value.get("execution_adapter") == "foundry_test":
+                    task.result.pop("stdout", None)
+                    task.result.pop("stderr", None)
 
             self.memory.save_task(task)
 
@@ -891,25 +934,38 @@ class Worker:
                 result=result_value,
             )
 
-            # Persist only the repository-owned synthetic LabRunner experiment.
-            # The queue task must be terminal first because the ledger checks
+            # Persist LabRunner execution evidence only after the queue task is
+            # terminal because the ledger checks
             # authoritative task/case/round identity before accepting evidence.
             if self.role == "lab_runner" and research_case is not None:
                 try:
                     ledger = getattr(self, "evidence_ledger", None)
                     if ledger is None:
                         ledger = EvidenceLedger(self.queue.db)
-                    evidence_ref = persist_synthetic_lab_experiment(
-                        queue=self.queue,
-                        ledger=ledger,
-                        task_id=task_id,
-                        role=self.role,
-                        research_case=research_case,
-                        round_spec=round_spec,
-                        result_value=result_value,
-                    )
+                    if result_value.get("execution_adapter") == "foundry_test":
+                        evidence_ref = persist_foundry_lab_experiment(
+                            queue=self.queue,
+                            ledger=ledger,
+                            task_id=task_id,
+                            role=self.role,
+                            research_case=research_case,
+                            round_spec=round_spec,
+                            result_value=result_value,
+                        )
+                    else:
+                        evidence_ref = persist_synthetic_lab_experiment(
+                            queue=self.queue,
+                            ledger=ledger,
+                            task_id=task_id,
+                            role=self.role,
+                            research_case=research_case,
+                            round_spec=round_spec,
+                            result_value=result_value,
+                        )
                     if evidence_ref is not None:
                         result_value = dict(result_value)
+                        result_value.pop("stdout", None)
+                        result_value.pop("stderr", None)
                         result_value["local_experiment_evidence"] = evidence_ref
                         self.queue.db.execute(
                             "UPDATE queue SET result = ? WHERE id = ? AND status = 'completed'",

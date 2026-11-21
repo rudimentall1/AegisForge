@@ -1,0 +1,26 @@
+name: Foundry EVM exploit benchmark
+on:
+  push:
+    paths:
+      - "foundry.toml"
+      - "benchmark/**"
+      - ".github/workflows/foundry-benchmark.yml"
+  pull_request:
+    paths:
+      - "foundry.toml"
+      - "benchmark/**"
+      - ".github/workflows/foundry-benchmark.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reentrancy-positive-and-negative-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Execute real EVM benchmark
+        run: forge test --match-contract ReentrancyBenchmarkTest -vvv

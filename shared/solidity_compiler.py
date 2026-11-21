@@ -138,13 +138,6 @@ def compile_standard_json(
     if not compiler_bytes or len(compiler_bytes) > _MAX_COMPILER_BYTES:
         return _result("COMPILER_UNAVAILABLE", "required_solc_binary_size_invalid")
     compiler_digest = hashlib.sha256(compiler_bytes).hexdigest()
-    actual_version = _read_compiler_version(compiler)
-    actual = _version_parts(actual_version)
-    if actual is None:
-        return _result("COMPILER_UNAVAILABLE", "required_solc_binary_probe_failed")
-    if actual[0] != expected[0] or (expected[1] is not None and expected[1] != actual[1]):
-        return _result("COMPILER_VERSION_MISMATCH", "required_solc_binary_version_mismatch")
-
     input_digest = hashlib.sha256(input_bytes).hexdigest()
     try:
         with tempfile.TemporaryDirectory(prefix="aegisforge-solc-") as temporary:
@@ -154,6 +147,23 @@ def compile_standard_json(
             compiler_copy = compiler_dir / "solc"
             compiler_copy.write_bytes(compiler_bytes)
             compiler_copy.chmod(0o555)
+            actual_version = _read_compiler_version(compiler_copy)
+            actual = _version_parts(actual_version)
+            if actual is None:
+                return _result(
+                    "COMPILER_UNAVAILABLE",
+                    "required_solc_binary_probe_failed",
+                    input_sha256=input_digest,
+                    compiler_binary_sha256=compiler_digest,
+                )
+            if actual[0] != expected[0] or (expected[1] is not None and expected[1] != actual[1]):
+                return _result(
+                    "COMPILER_VERSION_MISMATCH",
+                    "required_solc_binary_version_mismatch",
+                    compiler_version=actual_version,
+                    input_sha256=input_digest,
+                    compiler_binary_sha256=compiler_digest,
+                )
             input_path = root / "standard-input.json"
             input_path.write_bytes(input_bytes)
             input_path.chmod(0o444)

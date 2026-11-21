@@ -275,7 +275,8 @@ class BlockscoutContractIntake:
                     source = standard_json
                 else:
                     files[str(file_path)] = source
-        elif isinstance(source, dict):
+
+        if isinstance(source, dict):
             # Blockscout may expose standard-json source objects or a path map.
             nested = source.get("sources") if isinstance(source.get("sources"), dict) else source
             for path, value in nested.items():

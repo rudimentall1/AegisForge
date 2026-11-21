@@ -539,3 +539,58 @@ The Git ResearchCase execution admission remains separate. On-chain source agent
 - No source-to-runtime equivalence has been established.
 - No on-chain exploit or transaction has been executed.
 - No PR has been merged.
+
+
+## 32. Compiler-backed on-chain source/runtime verification foundation — 2026-11-21
+
+**Working branch:** `feat/onchain-bytecode-verification`  
+**Code head verified by CI:** `d79096c06b5265b2bb8cce77e6bae2e5bca94b2d`  
+**PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211), OPEN, DRAFT, stacked on PR #210. Do not merge without explicit approval.
+
+### Implemented
+
+- `BlockscoutContractIntake.attest_deployment()` now returns the exact runtime bytecode received from `eth_getCode` at the EIP-1898-pinned block hash, as well as its SHA-256 digest.
+- `OnchainTargetRecord` and `OnchainTargetStore` persist runtime bytecode. The record validates that its bytes hash to the independently stored runtime digest. Existing SQLite databases are migrated with an empty runtime field; legacy records without bytes remain unverified.
+- Extracted `shared/solc_toolchain.py` and updated the existing Foundry runner to use the same shared solc resolver. This removes the previous dependency from the shared compiler layer into the agent layer.
+- Added `shared/solidity_compiler.py`:
+  - accepts only preserved Solidity Standard JSON input with embedded source content;
+  - bounds input to 8 MiB, source bundle to 4 MiB, and source count to 500;
+  - rejects remote URL-only sources and unsafe source paths before compilation;
+  - resolves the configured compiler, checks exact version and commit when available, and hashes the exact binary bytes;
+  - runs `solc --standard-json` with the exact preserved input through a digest-pinned Foundry container, network disabled, bounded output, timeout, read-only workspace, and file-backed stdin;
+  - `verify_onchain_target()` refuses to compile when the Standard JSON source map differs from the exact source map analyzed by the agents.
+- Added `shared/solidity_bytecode_verifier.py`:
+  - binds compiler output to the exact Standard JSON input SHA-256, compiler version, contract file/name, and exact source map;
+  - requires deployed-bytecode output selection;
+  - compares complete runtime bytes exactly, including metadata bytes;
+  - returns `VERIFIED` only on exact equality, `MISMATCH` on runtime mismatch, and `INCOMPLETE` when evidence is missing or unsupported.
+- Immutable references, unresolved library links, and proxy/implementation ambiguity are deliberately `INCOMPLETE`; no reference ranges are silently masked.
+- Extended `shared.sandbox.run_in_container()` with bounded, workspace-only file-backed stdin for Standard JSON input. The input file is size-limited and must resolve inside the read-only workspace.
+- Added tests for runtime persistence and legacy schema migration, digest substitution, exact and mismatching runtime bytes, source/input/compiler-version/settings binding, remote and unsafe source rejection, immutable/library/proxy cases, shared solc resolution, compiler failure states, and sandbox stdin.
+
+### Exact-head CI verification
+
+- CI run #2450 / ID `44900188975`: [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/44900188975), SUCCESS on code head `d79096c06b5265b2bb8cce77e6bae2e5bca94b2d`.
+- Full Python/EVM suite: **2,076 passed, 2 skipped, 4 warnings, 30 subtests passed**.
+- Focused on-chain intake/source/compiler suite: **92 passed**.
+- The four existing ZIP duplicate-member warnings remain visible; this run is not warning-free.
+- Bubblewrap fixture acceptance and the EVM Key Forensics evidence workflow completed successfully.
+- The CI run validates mocked compiler-container orchestration and deterministic comparison behavior. It does **not** prove that a real solc binary has compiled a live target or that any deployed contract has passed source/runtime equivalence.
+
+### Current hard limits
+
+- The compiler verifier is not yet wired into the Worker orchestration or an execution-admission gate.
+- Compiler verification results are not yet persisted as a separate immutable evidence record tied to target ID and block hash.
+- The CI compiler tests stub the container boundary; a real solc compiler invocation and deployed synthetic fixture remain outstanding.
+- Runtime matching is not yet proven for constructor immutables, linked libraries, or proxy implementation logic. These states remain fail-closed.
+- The Foundry Docker container is not a microVM security boundary. No acquired target code is executed and no transactions are submitted by this work.
+- No live-chain vulnerability has been confirmed.
+
+### Next engineering slice
+
+1. Add a real-toolchain integration fixture using an explicitly configured solc binary and digest-pinned container. Prove a known exact match and a one-byte runtime mismatch end to end.
+2. Persist compiler verification evidence immutably: target ID, chain/address/block hash, source and Standard JSON digests, compiler version/commit, compiler binary digest, compiler-input digest, compiled runtime digest, deployed runtime digest, status, and reason.
+3. Add a separate typed `OnchainExecutionAdmission`; do not reuse or weaken Git-only admission. Require persisted on-chain case/target binding, fresh reviewed scope, explicit authorization reference, pinned block hash, and `VERIFIED` source/runtime equivalence before any deployed exploit reproduction.
+4. Preserve `SOURCE_ONLY`, `NOT_RUN`, and `INCONCLUSIVE`; a local harness pass must not automatically confirm a deployed vulnerability.
+5. Demonstrate one real, authorized target end-to-end with positive and negative controls before claiming autonomous live-chain vulnerability discovery.
+

@@ -206,3 +206,58 @@ def test_container_runner_kills_container_after_timeout(monkeypatch, tmp_path):
     assert cleanup_commands[0][:2] == ["/usr/bin/docker", "kill"]
     assert cleanup_commands[1][:3] == ["/usr/bin/docker", "rm", "-f"]
     assert cleanup_commands[0][2] == cleanup_commands[1][3]
+
+
+def test_container_runner_streams_workspace_file_to_stdin(monkeypatch, tmp_path):
+    import shared.sandbox as sandbox
+
+    image = "ghcr.io/foundry-rs/foundry@sha256:" + ("b" * 64)
+    input_path = tmp_path / "compiler-input.json"
+    input_path.write_text('{"language":"Solidity"}', encoding="utf-8")
+    observed = {}
+
+    def fake_bounded_run(command, **kwargs):
+        observed["command"] = command
+        observed["stdin"] = kwargs["stdin_file"].read()
+        return sandbox.SandboxResult(
+            exit_code=0,
+            stdout_sha256=hashlib.sha256(b"{}").hexdigest(),
+            stderr_sha256=hashlib.sha256(b"").hexdigest(),
+            stdout_truncated=False,
+            stderr_truncated=False,
+            duration_seconds=0.1,
+            isolation="container",
+            stdout="{}",
+            stderr="",
+        )
+
+    monkeypatch.setattr(sandbox.shutil, "which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(sandbox, "_bounded_run", fake_bounded_run)
+    result = sandbox.run_in_container(
+        ["--standard-json"],
+        SandboxLimits(timeout_seconds=30, memory_mb=1024, cpu_cores=2),
+        tmp_path,
+        image=image,
+        entrypoint="/work/.aegisforge/solc",
+        stdin_path=input_path,
+    )
+    assert result.exit_code == 0
+    assert observed["stdin"] == b'{"language":"Solidity"}'
+    assert "-i" in observed["command"]
+
+
+def test_container_runner_rejects_stdin_outside_workspace(monkeypatch, tmp_path):
+    from shared.sandbox import run_in_container
+
+    image = "ghcr.io/foundry-rs/foundry@sha256:" + ("d" * 64)
+    outside = tmp_path.parent / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("shared.sandbox.shutil.which", lambda name: "/usr/bin/docker")
+    with pytest.raises(SandboxError, match="stdin_path_invalid"):
+        run_in_container(
+            ["--standard-json"],
+            SandboxLimits(),
+            tmp_path,
+            image=image,
+            stdin_path=outside,
+        )

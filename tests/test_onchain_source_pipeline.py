@@ -121,3 +121,34 @@ def test_security_checker_scans_full_persisted_onchain_source_as_potential_risks
     assert all(item["status"] == "POTENTIAL_RISK" for item in review["findings"])
     assert review["vulnerabilities_confirmed"] == 0
     assert checked.result["security_integrity"]["complete"] is True
+
+
+def test_onchain_agent_capabilities_are_role_scoped_and_offline():
+    from shared.action_intent import build_action_intent
+    from shared.capability_policy import CapabilityDecision, CapabilityPolicy
+    policy = CapabilityPolicy()
+    actions = {
+        "source_researcher": "research",
+        "crypto_analyst": "analyze",
+        "security_checker": "security_scan",
+    }
+    for role, action in actions.items():
+        task = Task(
+            task_id="capability-" + role,
+            description="Inspect persisted on-chain source",
+            payload={
+                "capability_intent": {
+                    "action": action,
+                    "resource": "persisted_onchain_source",
+                    "destination": "internal",
+                    "data_scope": "public_source_code",
+                    "requires_network": False,
+                    "read_only": True,
+                }
+            },
+        )
+        intent = build_action_intent(role, task)
+        decision = policy.check(intent)
+        assert decision["decision"] == CapabilityDecision.ALLOW
+        assert intent.requires_network is False
+        assert intent.read_only is True

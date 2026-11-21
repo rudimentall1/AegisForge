@@ -2331,7 +2331,8 @@ class TaskQueue:
                         q.result,
                         q.capability_intent,
                         q.allow_failed_parent,
-                        q.research_case_id
+                        q.research_case_id,
+                        q.onchain_case_id
                     FROM queue q
                     WHERE q.status = 'pending'
                       AND (

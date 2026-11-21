@@ -644,3 +644,49 @@ This is the first real compiler + local EVM deployment proof. It is not a mocked
 3. Keep `SOURCE_ONLY`, `NOT_RUN` and `INCONCLUSIVE` distinct. A local harness result must not automatically confirm a deployed vulnerability.
 4. Add positive/negative controls and one explicitly authorized external target before claiming live-chain vulnerability discovery.
 
+
+
+## 34. Append-only verification evidence and verify-and-persist service — 2026-11-21
+
+**Working branch:** `feat/onchain-bytecode-verification`  
+**Verified implementation head:** `394d0b045b79f3abbf9b47df9dd93aba503095bd`  
+**PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211), OPEN, DRAFT, stacked on PR #210. Do not merge without explicit approval.
+
+### Implemented
+
+- Added `shared/onchain_verification_store.py` with:
+  - immutable `OnchainVerificationRecord` bound to target ID, chain, address, block number/hash, source digest, Standard JSON input digest and deployed runtime digest;
+  - compiler version, compiler binary SHA-256, compiled runtime SHA-256, compiler image digest, isolation type, status and reason;
+  - deterministic verification ID derived from canonical evidence;
+  - strict state invariants: `VERIFIED` requires matching runtime digests and complete compiler provenance; `MISMATCH` requires different runtime digests; `INCOMPLETE` can preserve partial evidence without inventing compiler proof;
+  - SQLite append-only ledger with UPDATE and DELETE triggers; duplicate identical evidence is idempotent;
+  - target binding checks against the persisted immutable `OnchainTargetStore` row before insertion.
+- Extended `CompilerRuntimeVerification` to retain compiler version, compiler binary digest, Standard JSON digest, compiler image and isolation metadata.
+- Added `OnchainVerificationStore.verify_and_persist()`: loads the persisted target, runs the production `verify_onchain_target()` path, builds an evidence record and returns the persisted row. This is now the single service entry point for compiler verification plus evidence persistence.
+- Updated the real Anvil integration test to call `verify_and_persist()`, then read the persisted evidence back from SQLite. The same test still proves exact runtime `VERIFIED` and one-byte mutation `MISMATCH`.
+- Added tests for target/block binding, digest drift, idempotency, incomplete compiler evidence, state invariants, append-only SQL triggers and verify-and-persist orchestration.
+
+### CI verification
+
+- CI run #2482 / ID `44901518474`: [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/44901518474), SUCCESS on implementation head `394d0b045b79f3abbf9b47df9dd93aba503095bd`.
+- Full Python/EVM suite: **2,085 passed, 3 skipped, 4 warnings, 30 subtests passed**.
+- Focused on-chain source/compiler/evidence suite: **101 passed**.
+- Real solc + Anvil integration: **1 passed**, including persisted verification evidence, exact runtime match and one-byte mismatch.
+- Bubblewrap fixture acceptance and EVM Key Forensics evidence workflow completed successfully.
+
+### Current limits
+
+- Evidence persistence is available as a service API but is not yet invoked by the Worker orchestration.
+- No typed `OnchainExecutionAdmission` exists yet; Git-only execution admission remains unchanged.
+- No exploit reproduction is yet admitted for deployed targets. Immutable constructor values, linked libraries and proxy/implementation equivalence remain fail-closed.
+- The Anvil fixture is synthetic and local. No third-party live contract has passed this verifier and no public-network transaction has been submitted.
+- Docker is a constrained container boundary, not a microVM guarantee.
+- No live-chain vulnerability has been confirmed.
+
+### Next engineering slice
+
+1. Implement a separate typed `OnchainExecutionAdmission`, without changing or weakening Git-only `TargetExecutionAdmission`.
+2. Require the persisted `OnchainResearchCase`, persisted `OnchainTargetRecord`, current scope review, explicit authorization reference, exact chain/address/block hash binding, and a persisted latest verification record with status `VERIFIED`.
+3. Reject missing, stale, mismatched, `MISMATCH`, or `INCOMPLETE` evidence. Preserve `SOURCE_ONLY`, `NOT_RUN` and `INCONCLUSIVE` as distinct execution outcomes.
+4. Only after this gate, connect the existing fixed-profile Foundry runner through a dedicated isolated execution boundary with positive and negative controls. A local harness pass is not automatically a confirmed deployed vulnerability.
+

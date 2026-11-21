@@ -20,7 +20,9 @@ def test_builds_function_inventory_and_interprocedural_call_graph():
     assert "_send" in functions["withdraw"]["calls"]
     assert functions["withdraw"]["modifiers"] == ["onlyOwner"]
     assert functions["_send"]["external_calls"] == ["call"]
+    assert functions["_send"]["external_call_sites"][0]["line"] == 7
     assert functions["withdraw"]["line"] == 3
+    assert result["call_graph"]
 
 
 def test_reports_inline_authorization_and_state_write_candidates():
@@ -39,6 +41,11 @@ def test_reports_inline_authorization_and_state_write_candidates():
     fn = next(item for item in result["functions"] if item["name"] == "setOwner")
     assert fn["authorization_signals"]
     assert {"owner", "total"} <= set(fn["state_write_candidates"])
+    write_lines = {
+        item["state_variable"]: item["line"]
+        for item in fn["state_write_sites"]
+    }
+    assert write_lines == {"owner": 7, "total": 8}
 
 
 def test_ignores_function_like_text_inside_comments_and_strings():

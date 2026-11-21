@@ -625,6 +625,8 @@ class SourceResearcher:
                     "line_count": len(lines),
                     "signals": signals,
                 })
+            from shared.solidity_source_analysis import analyze_solidity_sources
+            structural_analysis = analyze_solidity_sources(dict(onchain_target.source_files))
             task.result = {
                 "research_track": "onchain_solidity_source_research",
                 "stage": "sources",
@@ -648,13 +650,16 @@ class SourceResearcher:
                     "falsification_criteria": onchain_case.falsification_criteria,
                 },
                 "source_files": source_records,
+                "structural_analysis": structural_analysis,
                 "source_summary": {
                     "files_analyzed": len(source_records),
                     "signals_detected": sum(len(item["signals"]) for item in source_records),
                 },
                 "analysis_limits": {
-                    "method": "bounded lexical source triage",
+                    "method": "bounded lexical triage plus structural function/call inventory",
                     "signals_are_findings": False,
+                    "compiler_ast": False,
+                    "structural_analysis_complete": structural_analysis["analysis_complete"],
                     "vulnerabilities_confirmed": 0,
                     "source_executed": False,
                     "rpc_used": False,

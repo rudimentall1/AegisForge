@@ -1,5 +1,10 @@
+import hashlib
 import json
+import sqlite3
 
+import pytest
+
+from shared.onchain_target_store import OnchainTargetError, OnchainTargetRecord, OnchainTargetStore
 from shared.solidity_bytecode_verifier import verify_compiler_runtime_match
 
 
@@ -106,3 +111,39 @@ def test_proxy_targets_are_not_misreported_as_implementation_verified():
     result = _verify(proxy_type="eip1967", implementations=("0x" + "2" * 40,))
     assert result.status == "INCOMPLETE"
     assert result.reason == "proxy_implementation_verification_required"
+
+
+
+def test_target_store_persists_exact_runtime_code_with_its_digest():
+    runtime = "0x6001600055"
+    runtime_digest = hashlib.sha256(bytes.fromhex(runtime[2:])).hexdigest()
+    record = OnchainTargetRecord(
+        chain_id=8453,
+        address="0x" + "1" * 40,
+        block_number=123,
+        block_hash="0x" + "2" * 64,
+        runtime_code_sha256=runtime_digest,
+        runtime_code=runtime,
+        source_files={"src/Vault.sol": "contract Vault {}"},
+        source_provider="blockscout_v2",
+    )
+    store = OnchainTargetStore(sqlite3.connect(":memory:"))
+    target_id = store.put(record)
+    restored = store.get(target_id)
+    assert restored is not None
+    assert restored.runtime_code == runtime
+    assert restored.runtime_code_sha256 == runtime_digest
+
+
+def test_target_store_rejects_runtime_code_digest_substitution():
+    with pytest.raises(OnchainTargetError, match="runtime_code_sha256_mismatch"):
+        OnchainTargetRecord(
+            chain_id=8453,
+            address="0x" + "1" * 40,
+            block_number=123,
+            block_hash="0x" + "2" * 64,
+            runtime_code_sha256="3" * 64,
+            runtime_code="0x6001600055",
+            source_files={"src/Vault.sol": "contract Vault {}"},
+            source_provider="blockscout_v2",
+        )

@@ -498,3 +498,44 @@ The standalone on-chain workflow was removed because a workflow introduced only 
 - No checkout, dependency install, compileall, or pytest step executed. This is still a GitHub Actions runner/job initialization failure, not a reported test failure and not a pass.
 - Standard JSON string regression is fixed in source and covered by a test, but that test remains unexecuted.
 - Do not begin compiler-AST implementation until this focused suite has an actual execution result. Do not merge PR #208.
+
+
+## 31. On-chain worker orchestration verified — 2026-11-21
+
+**Current implementation branch:** `fix/onchain-security-checker-offline`  
+**Current implementation head:** `ce372f57fb18e1e4457fbb34904f4f734c03c8e4`  
+**PR:** [#210](https://github.com/rudimentall1/AegisForge/pull/210), OPEN, DRAFT, not merged; based on `feat/onchain-contract-intake`.
+
+### CI verification
+
+- CI run #2435 / `44897880430` passed on the earlier compatibility-fix head: 2,046 passed, 2 skipped, 4 warnings, 30 subtests.
+- Added a real SQLite-backed Worker integration test at `tests/test_worker_onchain_pipeline.py`. It runs the actual `SourceResearcher`, `CryptoAnalyst`, and `SecurityChecker` agents in sequence through `Worker.run_once()`.
+- The test verifies parent/child task linkage, propagation of the immutable on-chain case ID and digest, independent structural review, and that no `lab_runner` task is created. It also fails if the on-chain SecurityChecker initializes the GitHub client.
+- Tightened the on-chain SecurityChecker capability intent to `requires_filesystem=False`; all three source-analysis roles remain offline and read-only.
+- Added the integration test to the existing focused CI job.
+- Exact-head CI run #2439 / `44898342309` completed SUCCESS on `ce372f57fb18e1e4457fbb34904f4f734c03c8e4`.
+- Focused on-chain job: **40 passed**.
+- Full Python/EVM suite: **2,047 passed, 2 skipped, 4 warnings, 30 subtests passed**.
+- PR #210 description updated with the exact verification results. Keep it Draft; do not merge without explicit approval.
+
+### Verified architecture state
+
+The non-executing on-chain path now runs end-to-end through:
+`persisted OnchainTargetRecord → registered OnchainResearchCase → source_researcher → crypto_analyst → security_checker → case-bound SQLite results`.
+
+The Git ResearchCase execution admission remains separate. On-chain source agents do not use GitHub, RPC, shell, LabRunner, or target execution. The worker integration test uses a synthetic local Solidity fixture and SQLite; it is not a live-chain test and does not prove a deployed-contract vulnerability.
+
+### Remaining hard boundary — exploit reproduction
+
+- Current on-chain agents produce lexical/structural leads and `POTENTIAL_RISK` patterns only. They do not confirm vulnerabilities.
+- Blockscout's verified-source label plus RPC-pinned runtime-code hash does **not** prove source-to-bytecode equivalence. The intake stores source and runtime hashes independently.
+- PR #207 already contains a case-bound Foundry runner and a real-EVM positive/negative reentrancy benchmark, but its `admit_target_execution()` resolves only Git `ResearchCase` records and pinned Git checkouts.
+- Do not route `OnchainResearchCase` into the Git-only admission path or weaken that path. Current on-chain case validation allows only `source_pattern` and `crypto_primitive_analysis`; the queue deliberately rejects on-chain `lab_runner` tasks.
+- Next engineering slice: design a separate typed `OnchainExecutionAdmission` that resolves only a persisted on-chain case/target, enforces a fresh reviewed scope and explicit authorization, pins the block hash, and refuses execution until compiler-backed source/runtime equivalence is established or the result is explicitly labelled source-only. Then reuse the existing fixed-profile Foundry runner with positive and negative controls in the isolated environment. Preserve `NOT_RUN`, `INCONCLUSIVE`, and `SOURCE_ONLY` states; a passing local harness alone must not mark a deployed vulnerability confirmed.
+
+### Do not claim
+
+- No live contract has been autonomously discovered and proven vulnerable by this pipeline.
+- No source-to-runtime equivalence has been established.
+- No on-chain exploit or transaction has been executed.
+- No PR has been merged.

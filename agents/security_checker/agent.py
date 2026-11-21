@@ -650,6 +650,86 @@ class SecurityChecker:
 
         try:
             parent = task.result or {}
+            payload = task.payload if isinstance(task.payload, dict) else {}
+            onchain_case = payload.get("onchain_research_case")
+            onchain_target = payload.get("onchain_target")
+            if onchain_case is not None or onchain_target is not None:
+                if (
+                    onchain_case is None
+                    or onchain_target is None
+                    or onchain_case.target_id != onchain_target.target_id
+                ):
+                    raise PipelineContractError("onchain_security_target_binding_invalid")
+                from shared.solidity_source_analysis import analyze_solidity_sources
+                independent_structure = analyze_solidity_sources(dict(onchain_target.source_files))
+                findings = []
+                files_scanned = 0
+                for path, source_text in onchain_target.source_files.items():
+                    findings.extend(self._scan_source(path, source_text))
+                    files_scanned += 1
+                summary = {
+                    "critical": sum(item["severity"] == "CRITICAL" for item in findings),
+                    "high": sum(item["severity"] == "HIGH" for item in findings),
+                    "medium": sum(item["severity"] == "MEDIUM" for item in findings),
+                    "low": sum(item["severity"] == "LOW" for item in findings),
+                    "total": len(findings),
+                }
+                task.result = {
+                    **parent,
+                    "agent": self.name,
+                    "security_analysis_type": "onchain_verified_source_pattern_review",
+                    "onchain_security_review": {
+                        "case_id": onchain_case.case_id,
+                        "target_id": onchain_target.target_id,
+                        "chain_id": onchain_target.chain_id,
+                        "address": onchain_target.address,
+                        "block_number": onchain_target.block_number,
+                        "block_hash": onchain_target.block_hash,
+                        "runtime_code_sha256": onchain_target.runtime_code_sha256,
+                        "source_sha256": onchain_target.source_sha256,
+                        "files_scanned": files_scanned,
+                        "structural_review": {
+                            "independently_recomputed": True,
+                            "analysis_complete": independent_structure["analysis_complete"],
+                            "functions_analyzed": independent_structure["summary"]["functions_analyzed"],
+                            "call_edges": independent_structure["summary"]["call_edges"],
+                            "functions_with_external_calls": independent_structure["summary"]["functions_with_external_calls"],
+                            "functions_with_state_write_candidates": independent_structure["summary"]["functions_with_state_write_candidates"],
+                            "functions_with_authorization_signals": independent_structure["summary"]["functions_with_authorization_signals"],
+                            "operation_sites": [
+                                {
+                                    "path": item["path"],
+                                    "function": item["name"],
+                                    "function_line": item["line"],
+                                    "external_call_sites": item["external_call_sites"],
+                                    "state_write_sites": item["state_write_sites"],
+                                    "authorization_signals": item["authorization_signals"],
+                                }
+                                for item in independent_structure["functions"]
+                                if item["external_call_sites"] or item["state_write_sites"]
+                            ][:250],
+                            "errors": independent_structure["errors"],
+                            "compiler_ast": False,
+                            "vulnerabilities_confirmed": 0,
+                        },
+                        "findings": findings,
+                        "finding_summary": summary,
+                        "finding_created": False,
+                        "vulnerabilities_confirmed": 0,
+                        "interpretation": (
+                            "Every item is a POTENTIAL_RISK pattern requiring manual "
+                            "control-flow, authorization, and exploitability review."
+                        ),
+                    },
+                    "security_integrity": {
+                        "expected_files": len(onchain_target.source_files),
+                        "checked_files": files_scanned,
+                        "complete": files_scanned == len(onchain_target.source_files),
+                        "structural_analysis_complete": independent_structure["analysis_complete"],
+                    },
+                }
+                task.status = "security_checked"
+                return task
 
             technical_reviews = parent.get(
                 "technical_review",

@@ -21,6 +21,175 @@ class CryptoAnalyst:
             else getattr(case, "target_repository", "")
         )
         case_repository = str(case_repository or "").strip().lower().rstrip("/")
+        if parent.get("research_track") == "onchain_solidity_source_research":
+            signal_rows = []
+            for source in parent.get("source_files", []):
+                if not isinstance(source, dict):
+                    continue
+                for signal in source.get("signals", []):
+                    if not isinstance(signal, dict):
+                        continue
+                    signal_rows.append({
+                        "path": source.get("path"),
+                        "line": signal.get("line"),
+                        "signal": signal.get("signal"),
+                        "excerpt": signal.get("excerpt"),
+                    })
+            grouped = {}
+            for row in signal_rows:
+                grouped.setdefault(row["signal"], []).append(row)
+            hypotheses = []
+            for signal_name, evidence in sorted(grouped.items()):
+                hypotheses.append({
+                    "hypothesis_id": "ONCHAIN-" + str(signal_name).upper(),
+                    "question": (
+                        "Does the observed " + str(signal_name)
+                        + " construct violate the case invariant under an attacker-controlled call sequence?"
+                    ),
+                    "status": "NEEDS_DEEPER_ANALYSIS",
+                    "evidence": evidence[:25],
+                    "finding": False,
+                    "requires": [
+                        "interprocedural control-flow review",
+                        "authorization and state-transition analysis",
+                        "counterexample or negative-control validation",
+                    ],
+                })
+            structural = parent.get("structural_analysis", {})
+            structural_functions = [
+                item for item in structural.get("functions", [])
+                if isinstance(item, dict)
+            ]
+            functions_by_name = {}
+            for item in structural_functions:
+                functions_by_name.setdefault(item.get("name"), []).append(item)
+
+            def resolve_callee(caller, callee_name):
+                candidates = functions_by_name.get(callee_name, [])
+                same_file = [item for item in candidates if item.get("path") == caller.get("path")]
+                return same_file[0] if same_file else (candidates[0] if len(candidates) == 1 else None)
+
+            def walk_calls(current, trail, depth=0):
+                if depth >= 8:
+                    return []
+                paths = []
+                for callee_name in current.get("calls", []):
+                    if len(paths) >= 25:
+                        break
+                    callee = resolve_callee(current, callee_name)
+                    if callee is None:
+                        continue
+                    identity = (callee.get("path"), callee.get("name"))
+                    if identity in trail:
+                        continue
+                    next_trail = trail + (identity,)
+                    next_path = [
+                        {"path": item.get("path"), "function": item.get("name"), "line": item.get("line")}
+                        for item in next_trail
+                    ]
+                    if callee.get("external_calls") or callee.get("state_write_candidates"):
+                        paths.append(next_path)
+                    if len(paths) < 25:
+                        paths.extend(
+                            walk_calls(callee, next_trail, depth + 1)[:25 - len(paths)]
+                        )
+                return paths[:25]
+
+            entrypoint_paths = {}
+            for entry in structural_functions:
+                if entry.get("visibility") not in {"public", "external"}:
+                    continue
+                entry_identity = (entry.get("path"), entry.get("name"))
+                entry_ref = {
+                    "path": entry.get("path"),
+                    "function": entry.get("name"),
+                    "line": entry.get("line"),
+                }
+                if entry.get("external_calls") or entry.get("state_write_candidates"):
+                    entrypoint_paths.setdefault(entry_identity, []).append({
+                        "entrypoint": entry_ref,
+                        "path": [entry_ref],
+                    })
+                for path in walk_calls(entry, (entry_identity,)):
+                    if not path:
+                        continue
+                    sink_identity = (path[-1]["path"], path[-1]["function"])
+                    bucket = entrypoint_paths.setdefault(sink_identity, [])
+                    path_key = tuple((step["path"], step["function"]) for step in path)
+                    if len(bucket) < 25 and all(
+                        tuple((step["path"], step["function"]) for step in item["path"]) != path_key
+                        for item in bucket
+                    ):
+                        bucket.append({"entrypoint": entry_ref, "path": path})
+
+            function_hypotheses = []
+            function_hypotheses_truncated = False
+            for function in structural_functions:
+                if not (
+                    function.get("external_calls")
+                    or function.get("state_write_candidates")
+                    or function.get("unresolved_calls")
+                ):
+                    continue
+                if len(function_hypotheses) >= 500:
+                    function_hypotheses_truncated = True
+                    break
+                identity = (function.get("path"), function.get("name"))
+                reachable = entrypoint_paths.get(identity, [])
+                function_hypotheses.append({
+                    "hypothesis_id": "ONCHAIN-FUNCTION-" + str(function.get("path", "UNKNOWN")) + ":" + str(function.get("name", "UNKNOWN")),
+                    "status": "NEEDS_DEEPER_ANALYSIS",
+                    "finding": False,
+                    "function": {
+                        "path": function.get("path"),
+                        "name": function.get("name"),
+                        "line": function.get("line"),
+                        "visibility": function.get("visibility"),
+                        "modifiers": function.get("modifiers", []),
+                    },
+                    "entrypoints": [item["entrypoint"] for item in reachable],
+                    "call_paths": [item["path"] for item in reachable],
+                    "external_calls": function.get("external_calls", []),
+                    "external_call_sites": function.get("external_call_sites", []),
+                    "state_write_candidates": function.get("state_write_candidates", []),
+                    "state_write_sites": function.get("state_write_sites", []),
+                    "authorization_signals": function.get("authorization_signals", []),
+                    "unresolved_calls": function.get("unresolved_calls", []),
+                    "question": (
+                        "Can an in-scope untrusted caller reach this external interaction or state mutation "
+                        "without satisfying the case invariant?"
+                    ),
+                    "expected_invariant": parent.get("case", {}).get("expected_invariant"),
+                    "falsification_criteria": parent.get("case", {}).get("falsification_criteria"),
+                })
+            hypotheses.extend(function_hypotheses)
+            result = dict(parent)
+            result.update({
+                "stage": "analysis",
+                "stage_history": list(parent.get("stage_history", [])) + ["analysis"],
+                "onchain_source_analysis": {
+                    "candidate_hypotheses": len(hypotheses),
+                    "function_hypotheses": len(function_hypotheses),
+                    "function_hypotheses_truncated": function_hypotheses_truncated,
+                    "structural_functions": len(structural_functions),
+                    "structural_analysis_complete": structural.get("analysis_complete", False),
+                    "lexical_signals": len(signal_rows),
+                    "finding_created": False,
+                    "vulnerabilities_confirmed": 0,
+                    "source_executed": False,
+                    "conclusion": (
+                        "CANDIDATES_FOR_REVIEW" if hypotheses else "NO_LEXICAL_CANDIDATES"
+                    ),
+                    "limitations": (
+                        "Lexical signals are triage leads, not vulnerabilities. "
+                        "No bytecode equivalence, runtime exploitability, or invariant violation is established."
+                    ),
+                },
+                "hypotheses": hypotheses,
+            })
+            task.result = result
+            task.status = "crypto_analyzed"
+            return task
         if parent.get("research_track") == "uniswap_v2_factory_fixture":
             from tools.evm_key_forensics.uniswap_v2_factory_source_pattern import (
                 PINNED_COMMIT,

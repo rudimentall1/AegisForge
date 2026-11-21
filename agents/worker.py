@@ -582,15 +582,47 @@ class Worker:
                 ) from exc
 
         research_case_id = task_row[12] if len(task_row) > 12 else None
+        onchain_case_id = task_row[13] if len(task_row) > 13 else None
+        if onchain_case_id:
+            onchain_action = {
+                "source_researcher": "research",
+                "crypto_analyst": "analyze",
+                "security_checker": "security_scan",
+            }.get(self.role, "")
+            capability_intent = {
+                "action": onchain_action,
+                "resource": "persisted_onchain_source",
+                "destination": "internal",
+                "data_scope": "public_source_code",
+                "requires_network": False,
+                "read_only": True,
+                "irreversible": False,
+                "financial": False,
+                "privileged": False,
+            }
         research_case = None
+        onchain_research_case = None
+        onchain_target = None
         try:
-            if research_case_id is not None:
-                research_case = self.queue.get_research_case(research_case_id)
-            validate_worker_case_binding(
-                self.role,
-                research_case,
-                research_case_id,
-            )
+            if research_case_id and onchain_case_id:
+                raise ValueError("git_and_onchain_case_binding_mutually_exclusive")
+            if onchain_case_id:
+                if self.role not in {"source_researcher", "crypto_analyst", "security_checker"}:
+                    raise ValueError("onchain_case_role_not_permitted")
+                onchain_research_case = self.queue.get_onchain_research_case(onchain_case_id)
+                from shared.onchain_research_case import validate_onchain_task_binding
+                validate_onchain_task_binding(onchain_research_case, onchain_case_id)
+                onchain_target = self.queue.get_onchain_target(onchain_research_case.target_id)
+                if onchain_target is None or onchain_target.target_id != onchain_research_case.target_id:
+                    raise ValueError("onchain_target_not_registered_or_mismatched")
+            else:
+                if research_case_id is not None:
+                    research_case = self.queue.get_research_case(research_case_id)
+                validate_worker_case_binding(
+                    self.role,
+                    research_case,
+                    research_case_id,
+                )
         except (TypeError, ValueError) as exc:
             error = {
                 "error": str(exc),
@@ -647,6 +679,9 @@ class Worker:
                     "capability_intent": capability_intent,
                     "research_case_id": research_case_id,
                     "research_case": research_case,
+                    "onchain_research_case": onchain_research_case,
+                    "onchain_target": onchain_target,
+                    "onchain_case_id": onchain_case_id,
                     "round_spec": round_spec,
                     "technique": technique,
                 },
@@ -895,6 +930,13 @@ class Worker:
                 if not isinstance(result_value, dict):
                     raise RuntimeError("research_case_result_must_be_object")
                 result_value["research_case_binding"] = research_case_binding(research_case)
+            elif onchain_research_case is not None:
+                if not isinstance(result_value, dict):
+                    raise RuntimeError("onchain_research_case_result_must_be_object")
+                from shared.onchain_research_case import onchain_case_binding
+                result_value["onchain_research_case_binding"] = onchain_case_binding(
+                    onchain_research_case
+                )
 
             if isinstance(result_value, dict):
                 result_value.setdefault("agent_id", self.agent_id)
@@ -926,6 +968,27 @@ class Worker:
                 if result_value.get("execution_adapter") == "foundry_test":
                     task.result.pop("stdout", None)
                     task.result.pop("stderr", None)
+
+            if onchain_case_id and self.role in {"source_researcher", "crypto_analyst"}:
+                next_role = (
+                    "crypto_analyst" if self.role == "source_researcher"
+                    else "security_checker"
+                )
+                next_task_id = self.queue.add(
+                    description=(
+                        f"Continue on-chain case {onchain_case_id}: independently "
+                        f"review parent {task_id} and its source evidence."
+                    ),
+                    role=next_role,
+                    parent_task_id=task_id,
+                )
+                result_value = dict(result_value)
+                result_value["onchain_pipeline_next_task"] = {
+                    "task_id": next_task_id,
+                    "role": next_role,
+                    "status": "pending",
+                }
+                task.result = dict(result_value)
 
             self.memory.save_task(task)
 

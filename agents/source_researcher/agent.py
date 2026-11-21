@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -575,6 +576,101 @@ class SourceResearcher:
         parent = dict(task.result or {})
         payload = task.payload if isinstance(task.payload, dict) else {}
         research_case = payload.get("research_case")
+        onchain_case = payload.get("onchain_research_case")
+        onchain_target = payload.get("onchain_target")
+        if onchain_case is not None:
+            if onchain_target is None or onchain_target.target_id != onchain_case.target_id:
+                task.result = {
+                    "research_track": "onchain_solidity_source_research",
+                    "stage": "sources",
+                    "error": "onchain_target_missing_or_mismatched",
+                    "source_executed": False,
+                    "finding_created": False,
+                }
+                task.status = "source_research_failed"
+                return task
+            signal_patterns = {
+                "external_entrypoint": re.compile(r"\b(external|public)\b"),
+                "tx_origin": re.compile(r"\btx\s*\.\s*origin\b"),
+                "delegatecall": re.compile(r"\.\s*delegatecall\s*\("),
+                "low_level_call": re.compile(r"\.\s*call\s*(?:\{|\()"),
+                "value_transfer": re.compile(r"\.\s*call\s*\{\s*value\s*:"),
+                "selfdestruct": re.compile(r"\bselfdestruct\s*\("),
+                "unchecked_arithmetic": re.compile(r"\bunchecked\s*\{"),
+                "assembly": re.compile(r"\bassembly\b"),
+                "signature_recovery": re.compile(r"\becrecover\s*\("),
+                "initialization": re.compile(r"\b(initialize|reinitializer)\s*\("),
+            }
+            source_records = []
+            total_signal_count = 0
+            for path, source_text in onchain_target.source_files.items():
+                lines = source_text.splitlines()
+                signals = []
+                for line_number, line in enumerate(lines, 1):
+                    if total_signal_count >= 500 or len(signals) >= 25:
+                        break
+                    for signal, pattern in signal_patterns.items():
+                        if pattern.search(line):
+                            signals.append({
+                                "signal": signal,
+                                "line": line_number,
+                                "excerpt": line.strip()[:300],
+                            })
+                            total_signal_count += 1
+                            if total_signal_count >= 500 or len(signals) >= 25:
+                                break
+                source_records.append({
+                    "path": path,
+                    "sha256": hashlib.sha256(source_text.encode("utf-8")).hexdigest(),
+                    "line_count": len(lines),
+                    "signals": signals,
+                })
+            from shared.solidity_source_analysis import analyze_solidity_sources
+            structural_analysis = analyze_solidity_sources(dict(onchain_target.source_files))
+            task.result = {
+                "research_track": "onchain_solidity_source_research",
+                "stage": "sources",
+                "target": {
+                    "target_id": onchain_target.target_id,
+                    "chain_id": onchain_target.chain_id,
+                    "address": onchain_target.address,
+                    "block_number": onchain_target.block_number,
+                    "block_hash": onchain_target.block_hash,
+                    "runtime_code_sha256": onchain_target.runtime_code_sha256,
+                    "source_sha256": onchain_target.source_sha256,
+                    "contract_name": onchain_target.contract_name,
+                    "compiler_version": onchain_target.compiler_version,
+                },
+                "case": {
+                    "case_id": onchain_case.case_id,
+                    "scope_digest": onchain_case.scope_digest,
+                    "authorization_reference": onchain_case.authorization_reference,
+                    "hypothesis": onchain_case.hypothesis,
+                    "expected_invariant": onchain_case.expected_invariant,
+                    "falsification_criteria": onchain_case.falsification_criteria,
+                },
+                "source_files": source_records,
+                "structural_analysis": structural_analysis,
+                "source_summary": {
+                    "files_analyzed": len(source_records),
+                    "signals_detected": sum(len(item["signals"]) for item in source_records),
+                    "structural_functions": structural_analysis["summary"]["functions_analyzed"],
+                    "structural_call_edges": structural_analysis["summary"]["call_edges"],
+                    "structural_analysis_complete": structural_analysis["analysis_complete"],
+                },
+                "analysis_limits": {
+                    "method": "bounded lexical triage plus structural function/call inventory",
+                    "signals_are_findings": False,
+                    "compiler_ast": False,
+                    "structural_analysis_complete": structural_analysis["analysis_complete"],
+                    "vulnerabilities_confirmed": 0,
+                    "source_executed": False,
+                    "rpc_used": False,
+                    "transactions_sent": False,
+                },
+            }
+            task.status = "source_researched"
+            return task
         target_repository = str(getattr(research_case, "target_repository", "") or "").strip().lower().rstrip("/")
         if target_repository in {
             "openzeppelin/openzeppelin-contracts",

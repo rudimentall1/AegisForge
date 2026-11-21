@@ -1,4 +1,10 @@
 from .unified import UnifiedTransactionCollector
+from .contract_intake import (
+    BlockscoutContractIntake,
+    ContractIntakeError,
+    DiscoveredContract,
+    VerifiedContractSource,
+)
 from .blockscout import BlockscoutCollector
 from .attribution import AttributionEngine
 from .case import case_to_dict, case_to_json, make_case_id

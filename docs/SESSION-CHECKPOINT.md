@@ -329,3 +329,172 @@ A clean checkout can run one pinned, authorized Solidity case using Foundry and 
 - The new decision document includes a read-only host capability probe and ten mandatory microVM acceptance conditions. No kernel modules, permissions, packages, services, or workflows were changed.
 - The execution pipeline remains intentionally unconnected: persisted admission gate exists, Docker reproduction prototype remains opt-in, and only the repository-owned synthetic fixture is approved for execution.
 - Latest documentation commit is `2e86d8c8c98a68c2aba31e7d4511d32bf17c2119`. CI for this documentation-only commit has not yet been observed. PR #196 remains DRAFT; issues #158, #80, #88, #116, #118, #100, and #67 remain OPEN. No merge or release-gate closure.
+
+
+## 27. Real EVM target intake vertical slice — 2026-11-21
+
+- Opened Draft PR #208: `feat/onchain-contract-intake` → `feat/first-foundry-exploit-benchmark`.
+- Current PR head at checkpoint update: `80faa4c60fa06e68dfd3cfb55c369d7821556c89`. PR remains OPEN and DRAFT; do not merge into #207/base branch automatically.
+- Added `scam_intelligence/contract_intake.py`: bounded Blockscout v2 verified-contract pagination, minimum transaction-count filter, address validation, multi-file and Standard JSON source normalization, source SHA-256, compiler/ABI/proxy metadata, source-size and path-traversal checks, and per-target rejection reporting.
+- Initial explorer instances documented: Ethereum (`eth.blockscout.com`, chain 1), Base (`base.blockscout.com`, chain 8453), Arbitrum One (`arbitrum.blockscout.com`, chain 42161).
+- Added independent configured-RPC attestation: chain ID check, block number/hash capture, and runtime-code hash. Hardened the code read to use EIP-1898 `blockHash` with `requireCanonical: true`, rather than querying by block number only; this prevents silently reading code from a replacement block after a reorg. The returned block number is also checked against the requested height.
+- Added `tests/test_contract_intake.py` with 10 test functions covering pagination/filtering, source normalization, unverified/empty source, malformed addresses, path traversal, Standard JSON, chain mismatch, empty runtime code, pinned-block attestation, and the combined intake path. These tests are authored but **not yet executed**.
+- Added `docs/ONCHAIN-CONTRACT-INTAKE.md` describing usage and trust boundaries.
+- Latest observed Actions run for this PR (run ID `44888335495`, triggered on test/code head `aafad2b818cf16204051432afb788ad39dc9095e`) failed before any job steps: runner ID 0, empty runner name, `steps=[]`. This is a GitHub runner assignment/infrastructure failure; it is neither a test failure nor a passing test result. The later documentation-only head `80faa4c...` has not been validated by CI.
+- Important limitation: this is acquisition only. It is not wired into Worker/ResearchCase/queue/SecurityChecker/LabRunner, does not recursively acquire proxy implementations, and does not prove explorer source corresponds to deployed bytecode. No autonomous vulnerability discovery claim is justified yet.
+- Next: implement a persisted, immutable target/source record that binds chain ID, address, pinned block hash, runtime-code hash, source digest, compiler metadata, and acquisition provider; then connect it to the existing admitted ResearchCase/Worker handoff without putting source bytes into the small capability-intent field. Preserve existing execution admission: downloaded source remains non-executable until the approved microVM/fixed-profile gate is satisfied. After integration, run focused tests locally/CI and perform one real read-only intake against Base or Arbitrum using configured RPC credentials; do not claim a vulnerability was found until the complete agent-to-evidence path produces independently validated evidence.
+
+
+### Integration boundary clarification (same milestone)
+
+- Inspected `shared/research_case.py`, `shared/queue.py`, `shared/target_execution_admission.py`, `shared/source_record_verifier.py`, `shared/evidence_ledger.py`, and `agents/worker.py`.
+- Confirmed `ResearchCase` is Git-source-centric: it requires `target_repository` plus a full 40-character `target_commit`, while the pinned source/execution admission path resolves Git worktrees. It has no first-class `chain_id`, contract address, block hash, runtime-code hash, or explorer source bundle fields.
+- Therefore the Blockscout intake result cannot safely be converted into a current `ResearchCase` by inventing a Git commit or overloading `capability_intent`. The latter is explicitly capped at 8 KiB and is not a source/artifact store.
+- Correct next design: add a distinct immutable `OnchainTargetRecord`/store in the existing SQLite database, with source bytes persisted separately from queue payloads and content-addressed by source digest. It must bind chain ID, normalized contract address, canonical block number/hash, runtime bytecode hash, source digest, provider, compiler metadata, and proxy metadata. Then extend the case/worker handoff through an explicit target-type binding rather than weakening Git-based ResearchCase invariants or execution admission.
+
+
+## 28. Immutable on-chain target persistence — 2026-11-21
+
+- Added `shared/onchain_target_store.py` with `OnchainTargetRecord` and insert-only `OnchainTargetStore`, using the existing SQLite connection but keeping full source bundles outside queue task/capability payloads.
+- The record binds chain ID, normalized contract address, block number/hash, runtime-code SHA-256, source-file map/source SHA-256, source provider, compiler version, contract name, proxy type, and implementation addresses. `target_id` is a deterministic SHA-256 over the identity metadata.
+- Source bundles are bounded to 4 MiB and 500 files; paths reject traversal, absolute paths, backslashes and NUL. Source mapping is read-only after record construction. A conflicting record for the same chain/address/block hash is rejected; exact duplicate insertion is idempotent.
+- Added `put_intake_item()` to validate agreement among Blockscout candidate, acquired source, and RPC deployment attestation before persistence. Chain IDs and contract addresses must agree; deployment must be positively attested.
+- Added `tests/test_onchain_target_store.py` for validation, source digest mismatch, immutable mapping, insert/retrieve, idempotency, conflicting snapshots, new block snapshots, and intake-to-store binding.
+- Updated `docs/ONCHAIN-CONTRACT-INTAKE.md` with the store integration example and explicit statement that Worker/ResearchCase integration is still missing.
+- Current branch includes the above changes; latest Actions run observed before these later commits (`44888508243`) again failed before steps with `runner_id=0` and no assigned runner. No tests have executed in CI. Do not mark this milestone test-passing.
+- Next: add an explicit on-chain target binding to the case/queue model without weakening Git-based ResearchCase invariants, then add a narrow Worker handoff that loads the persisted target by ID. Do not start target code execution; source must remain inert until the existing admission and approved microVM/fixed-profile controls authorize it.
+
+
+
+## 29. Worker handoff boundary review — 2026-11-21
+
+- Re-read the live branch implementations of `shared/research_case.py`, `shared/queue.py`, `shared/target_execution_admission.py`, `agents/worker.py`, and `shared/onchain_target_store.py`.
+- Confirmed the existing extension points:
+  - `TaskQueue.register_research_case()/get_research_case()` persist and resolve only the Git-centric `ResearchCase` contract.
+  - `TaskQueue.add()` inherits and enforces `research_case_id`, `round_id`, and `round_spec_id` across parent/child tasks. `capability_intent` is deliberately capped at 8 KiB.
+  - `Worker.run_once()` claims the task, resolves its ResearchCase and planned RoundSpec, calls `validate_worker_case_binding()`, then constructs the common `Task.payload` and dispatches through `TechniqueRegistry`.
+  - `validate_worker_case_binding()` requires a ResearchCase for `source_researcher`, `crypto_analyst`, and `lab_runner`; simply attaching an on-chain target ID would still be rejected or, if bypassed, would weaken a security boundary.
+  - `admit_target_execution()` independently resolves only Git ResearchCase + runtime round state and must remain Git-specific. It must not be tricked into accepting an on-chain target as a fake repository/commit.
+- Therefore the correct integration is a distinct typed `OnchainResearchCase` registry and task binding, not optional EVM fields bolted onto `ResearchCase`. The on-chain case must bind an immutable `target_id` plus explicit authorization/scope evidence and a reviewed scope digest; public visibility or verified source alone is not authorization to perform security testing.
+- Worker should resolve the on-chain case and `OnchainTargetRecord` from the same SQLite database and expose a typed, read-only target context in `Task.payload`. Source bytes must be loaded from `OnchainTargetStore`, never copied into queue descriptions, capability intent, or task result metadata.
+- First integration stage should permit non-executing source research only. It must not route on-chain cases into the Git-only `target_execution_admission`, Foundry runner, or arbitrary subprocess. A separate on-chain execution admission contract is required before any fork/harness execution.
+- No production code was changed in this review. No target source was executed and no vulnerability finding was claimed.
+- Committed the integration boundary to `docs/ONCHAIN-CONTRACT-INTAKE.md` in `06808eb0bc42bb8c7114ed255e19a526f80d6b45`; checkpoint review itself was committed in `329500c4f0a996153e3e3397c79f20080b081524`. This is documentation/design progress only; no tests were run and no CI result is claimed for these commits.
+- Next implementation slice: TDD for immutable `OnchainResearchCase` validation/registration, mutually exclusive Git/on-chain task bindings with parent inheritance, and Worker target resolution tests. Only after those pass should agent dispatch be enabled.
+
+
+## 30. On-chain source-research Worker path — 2026-11-21
+
+- Implemented `shared/onchain_research_case.py`: frozen typed case contract binds immutable target ID, HTTPS scope URL, scope SHA-256/review date, authorization reference, falsifiable hypothesis, invariant, falsification criteria, and a restricted source-only technique set. Added canonical digest binding and tamper verification.
+- Extended `TaskQueue` with `onchain_research_cases` registry, `onchain_case_id` queue migration, target-backed registration, target lookup, mutual exclusion from Git ResearchCase, parent/child inheritance, and case mismatch rejection. `source_researcher`, `crypto_analyst`, and `security_checker` are allowed; `lab_runner` remains Git-only.
+- Extended Worker claim resolution to load the registered on-chain case and immutable target record. It passes typed target context to agents and sets role-scoped offline capability intents. Git case validation and Git target admission remain unchanged.
+- Added a working non-executing agent chain: `source_researcher` performs bounded lexical triage over stored Solidity source; `crypto_analyst` converts signals into falsifiable, unconfirmed hypotheses; `security_checker` independently applies its existing source-pattern rules to the full persisted source bundle. Worker automatically enqueues the next agent as a child task; the case binding is inherited.
+- Extended EvidenceLedger observation lineage to store `COALESCE(research_case_id, onchain_case_id)`, so on-chain agent evidence is case-bound.
+- Added `scripts/aegisforge_onchain_research.py`: explicit single-address CLI; it fetches verified source, obtains RPC deployment attestation, persists the immutable target, registers the case, and queues the first source-research task. It deliberately does not crawl arbitrary chain contracts into a bug-bounty scope.
+- Added 18 test functions in `tests/test_onchain_research_case.py` and `tests/test_onchain_source_pipeline.py` for case validation, tamper detection, queue registration/claim/inheritance, role separation, evidence lineage, source triage, hypothesis generation, SecurityChecker review, and offline capability policy. Combined with 22 earlier intake/store test functions, this PR adds 40 test functions total.
+- Verification: CI run `44889956828` on an intermediate commit failed with no job steps; rerunning job `136803413922` also failed before steps were reported. The latest PR head at checkpoint time is `ee65eff40454e5dfb8e8ddd455a9e81208d9370f`; no CI run was returned for that exact head. No test suite has been executed. Do not claim passing tests.
+- PR #208 remains Draft and its description now documents the implementation and verification limits.
+- Current limitation: the on-chain path now ingests and triages real authorized source, creates candidate hypotheses, and produces independent potential-risk pattern reviews. It does not yet prove a vulnerability or run exploit reproduction. Next engineering priority is a bounded source-level reasoning stage that traces each candidate through modifiers, call graph, state writes, and access control, followed by authorized fork execution admission only after a separate scope gate exists.
+
+
+- Follow-up verification update: the latest tested commit before this checkpoint note was `f59ef81fec28e205bd03ab5e125ec964c5f1e87d`. Actions run `44890185757` failed with job `136804103973` reporting `steps=[]`; a rerun created job `136804181500` and failed the same way with no steps. This is runner/job initialization failure evidence, not a test failure and not a pass. No Python tests executed.
+
+
+- Final Worker provenance addition: every successful on-chain agent result now carries `onchain_research_case_binding` with the immutable case digest. Latest observed CI run `44890248965` and rerun job `136804362034` again failed with `steps=[]`; no test code ran. Current implementation commit: `93fb52b2fa8e4ee04916c19205f3b53385ac16c0`.
+
+---
+
+# Current checkpoint — PR #208 on-chain source reasoning
+
+**Updated:** 2026-11-21  
+**Repository:** `rudimentall1/AegisForge`  
+**Working branch:** `feat/onchain-contract-intake`  
+**Latest code/test head before this checkpoint update:** `d45d09a511ae790104839d348569e18c19677a85`  
+**PR:** [#208](https://github.com/rudimentall1/AegisForge/pull/208), OPEN, DRAFT, not merged.
+
+## Implemented in this continuation
+
+- Added `shared/solidity_source_analysis.py`, a bounded Solidity source structural pass.
+- Inventories function bodies, modifiers, visibility and mutability.
+- Builds conservative same-file call edges only where the callee name is unambiguous.
+- Records external-call and state-write candidate sites with exact file/line/excerpt evidence.
+- Detects syntactic authorization signals from modifier names and common inline sender/owner checks.
+- Fails closed on unterminated comments/strings and unbalanced source/function braces.
+- `SourceResearcher` now attaches structural analysis to the on-chain source result.
+- `CryptoAnalyst` emits function-level `NEEDS_DEEPER_ANALYSIS` hypotheses and bounded call paths from public/external entrypoints to relevant internal functions.
+- `SecurityChecker` independently recomputes structural analysis from the immutable target source bundle and records operation-site evidence.
+- Added `tests/test_solidity_source_analysis.py` and expanded `tests/test_onchain_source_pipeline.py` to assert function inventory, call edges, operation line references, function hypotheses, independent recomputation, and malformed-source handling.
+- Updated `docs/ONCHAIN-CONTRACT-INTAKE.md` with current implementation and limitations.
+
+## Verification — NOT PASSED
+
+- Added `workflow_dispatch` to `.github/workflows/ci.yml` so the current draft branch can be manually validated from the GitHub Actions UI.
+- The last known GitHub Actions run `44890299159` completed with failure and job `136806540311` reported `steps: null`. No test step was executed.
+- The latest PR head includes the manual `workflow_dispatch` trigger, but the latest run still failed before step initialization. A local checkout attempt was unavailable because this runtime could not resolve `github.com`.
+- 47 test functions are present across the intake/store, on-chain case/pipeline, and structural-analysis test files, but they have **not** been executed. Do not describe the implementation as tested or passing.
+- PR #208 remains Draft. Do not merge.
+
+## Current technical limits
+
+This is not a Solidity compiler AST, Slither, formal control-flow analysis, or bytecode-equivalence proof. Overloads, cross-file/inherited dispatch, assembly semantics, storage aliasing, proxy context, and compiler transformations are unresolved. State-write and authorization signals are syntactic candidates only. No deployed contract code is executed; no fork or transaction is started; no vulnerability is confirmed.
+
+## Next actions
+
+1. Restore a working CI execution path and run the focused tests, then the full suite.
+2. Fix all actual test failures before extending the analyzer.
+3. Add compiler-backed AST/source-map ingestion (prefer pinned solc standard JSON output where compiler version and input are available); retain the current bounded parser only as fallback/triage.
+4. Extend call-graph analysis with overload-aware function identity and cross-file/import resolution.
+5. Only then design a separate authorization/admission gate for fixed-block Anvil fork reproduction. Never route on-chain cases into the existing Git Foundry path by default.
+
+
+
+---
+
+## Continuation checkpoint — Standard JSON intake regression and focused CI
+
+**Updated:** 2026-11-21  
+**Working branch:** `feat/onchain-contract-intake`  
+**Latest observed branch commit:** `bde0c7c9f0eb387d6e59f7a19828a952d7b15951`  
+**PR:** [#208](https://github.com/rudimentall1/AegisForge/pull/208), OPEN, DRAFT, not merged.
+
+### Regression found and fixed
+
+- Found a concrete bug in `BlockscoutContractIntake._normalize_sources`: when Blockscout returned Standard JSON as a JSON-encoded string, the code parsed it into a dict but never entered the dict extraction branch. This left the source file map empty and caused valid Standard JSON contracts to be rejected as `contract_source_empty`.
+- Added a regression test first in `tests/test_onchain_standard_json_provenance.py`.
+- Fixed the normalizer to process the parsed dict after string decoding.
+- The regression test now asserts that the Solidity source path and content are extracted from a string-encoded Standard JSON payload.
+
+### Focused CI
+
+- Initially added a standalone workflow, then removed it after noticing it would not be present on the PR base branch and therefore could not reliably trigger for this pull request.
+- Added a separate `onchain-source-tests` job to the existing `.github/workflows/ci.yml`, which already exists on the PR base. It uses `ubuntu-24.04`, Python 3.10, compileall, and the four focused on-chain pytest files.
+- The new job has not yet produced a confirmed run. Do not treat the workflow edit as verification.
+
+### Current verification
+
+- Standard JSON provenance test file now contains 9 test functions.
+- Total authored test functions in the previously reported relevant suites: 56.
+- No test has yet been executed successfully in this environment.
+- The broad CI still cannot provide a usable job log or step list. The latest observed failure is infrastructure/job initialization, not an observed pytest failure.
+
+### Next actions
+
+1. Obtain a real run of the focused workflow and inspect its job steps/logs.
+2. Fix any failures it actually reports; then run the complete repository suite.
+3. Continue with pinned solc compiler AST and source maps only after the source intake and persistence tests are green.
+
+
+### CI wiring correction
+
+The standalone on-chain workflow was removed because a workflow introduced only on the PR head is not a reliable pull-request trigger when it is absent from the base branch. The focused test job now lives in the existing `.github/workflows/ci.yml` instead. This avoids creating a workflow that appears configured but never runs for PR #208.
+
+
+## Latest verification update — focused job also blocked before steps
+
+- PR head after the Standard JSON fix, focused CI job, and checkpoint update: `6865f49b09d47dc9ddb4085982521fbf76233f60`.
+- Workflow run: `44892786010`.
+- Both jobs (`136812006792` broad CI and `136812006657` focused on-chain job) failed before step initialization with `steps: null`.
+- Retried the focused job; retry job `136812049679` also completed as failure with `steps: []`.
+- No checkout, dependency install, compileall, or pytest step executed. This is still a GitHub Actions runner/job initialization failure, not a reported test failure and not a pass.
+- Standard JSON string regression is fixed in source and covered by a test, but that test remains unexecuted.
+- Do not begin compiler-AST implementation until this focused suite has an actual execution result. Do not merge PR #208.

@@ -586,7 +586,12 @@ class EvidenceLedger:
                 row[1] for row in self.db.execute("PRAGMA table_info(queue)")
             }
             if {"id", "research_case_id"}.issubset(queue_columns):
-                selected = ["research_case_id"]
+                case_expression = (
+                    "COALESCE(research_case_id, onchain_case_id)"
+                    if "onchain_case_id" in queue_columns
+                    else "research_case_id"
+                )
+                selected = [case_expression + " AS case_id"]
                 for column in ("round_id", "round_spec_id"):
                     if column in queue_columns:
                         selected.append(column)

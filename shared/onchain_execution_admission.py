@@ -183,5 +183,6 @@ def admit_onchain_execution(
             profile=request.profile,
         )
     except Exception:
-        db.rollback()
+        if db.in_transaction:
+            db.rollback()
         raise

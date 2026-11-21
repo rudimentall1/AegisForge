@@ -204,9 +204,11 @@ def test_onchain_task_graph_can_chain_independent_security_checker(tmp_path):
     source_task = queue.add("source triage", role="source_researcher", onchain_case_id=case.case_id)
     crypto_task = queue.add("crypto analysis", role="crypto_analyst", parent_task_id=source_task)
     security_task = queue.add("independent security review", role="security_checker", parent_task_id=crypto_task)
-    rows = queue.db.execute(
-        "SELECT onchain_case_id FROM queue WHERE id IN (?, ?, ?) ORDER BY created_at",
-        (source_task, crypto_task, security_task),
-    ).fetchall()
+    rows = [
+        queue.db.execute(
+            "SELECT onchain_case_id FROM queue WHERE id = ?", (task_id,)
+        ).fetchone()
+        for task_id in (source_task, crypto_task, security_task)
+    ]
     assert rows == [(case.case_id,), (case.case_id,), (case.case_id,)]
     queue.db.close()

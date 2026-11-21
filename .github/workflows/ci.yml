@@ -312,7 +312,7 @@ jobs:
           python -m pip install pytest
       - name: Provision pinned solc and Anvil fixture
         env:
-          FOUNDRY_IMAGE: ghcr.io/foundry-rs/foundry@sha256:9fc54287a92993d761073975ef36b87864ae292ac0785617cae7ebf922a4d1e1
+          FOUNDRY_IMAGE: ghcr.io/foundry-rs/foundry@sha256:97390dbfb6bd54d86e0817ba2900ee01cd522405631997b7d967eb149a7affde
           SOLC_SHA256: fb03a29a517452b9f12bcf459ef37d0a543765bb3bbc911e70a87d6a37c30d5f
         run: |
           set -euo pipefail

@@ -80,7 +80,11 @@ def test_wrong_compiler_version_is_incomplete():
 def test_missing_deployed_bytecode_output_selection_is_incomplete():
     payload = json.loads(_standard_input())
     payload["settings"]["outputSelection"] = {"*": {"*": ["abi"]}}
-    result = _verify(standard_json_input=json.dumps(payload))
+    raw_input = json.dumps(payload)
+    result = _verify(
+        standard_json_input=raw_input,
+        compiled_input_sha256=hashlib.sha256(raw_input.encode("utf-8")).hexdigest(),
+    )
     assert result.status == "INCOMPLETE"
     assert result.reason == "deployed_bytecode_output_not_requested"
 

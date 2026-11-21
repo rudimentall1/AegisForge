@@ -44,7 +44,7 @@ def test_worker_executes_complete_onchain_source_pipeline_with_case_binding(
  }
 }
 """
-
+            },
             source_provider="blockscout_v2",
             compiler_version="0.8.24",
             contract_name="Vault",

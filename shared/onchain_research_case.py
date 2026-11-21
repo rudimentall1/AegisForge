@@ -1,7 +1,8 @@
-"""Immutable authorization and provenance envelope for on-chain source research.
+"""Immutable authorization and provenance envelope for on-chain research.
 
-This is deliberately separate from the Git-centric ResearchCase. It authorizes
-non-executing source review only; it never grants RPC probing or target execution.
+This is deliberately separate from the Git-centric ResearchCase. It can authorize
+source review and explicitly scoped local exploit reproduction; it never grants
+public-network transactions or arbitrary target execution.
 """
 from __future__ import annotations
 
@@ -58,7 +59,14 @@ class OnchainResearchCase:
             object.__setattr__(self, "allowed_techniques", techniques)
         if not isinstance(techniques, tuple) or not techniques:
             raise OnchainResearchCaseError("allowed_techniques_required")
-        if any(item not in {"source_pattern", "crypto_primitive_analysis"} for item in techniques):
+        if any(
+            item not in {
+                "source_pattern",
+                "crypto_primitive_analysis",
+                "exploit_reproduction",
+            }
+            for item in techniques
+        ):
             raise OnchainResearchCaseError("onchain_technique_not_allowed")
         if len(set(techniques)) != len(techniques):
             raise OnchainResearchCaseError("duplicate_onchain_technique")

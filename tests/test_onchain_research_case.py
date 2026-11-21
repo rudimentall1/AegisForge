@@ -77,3 +77,97 @@ def test_task_binding_requires_matching_registered_case():
         validate_onchain_task_binding(None, case.case_id)
     with pytest.raises(OnchainResearchCaseError, match="mismatch"):
         validate_onchain_task_binding(case, "other-case")
+
+
+def _register_target(queue):
+    from shared.onchain_target_store import OnchainTargetRecord, OnchainTargetStore
+    record = OnchainTargetRecord(
+        chain_id=8453,
+        address="0x" + "1" * 40,
+        block_number=123,
+        block_hash="0x" + "2" * 64,
+        runtime_code_sha256="3" * 64,
+        source_files={"src/Vault.sol": "contract Vault { function withdraw() external {} }"},
+        source_provider="blockscout_v2",
+        compiler_version="0.8.24",
+        contract_name="Vault",
+    )
+    store = OnchainTargetStore(queue.db)
+    store.put(record)
+    return record
+
+
+def test_queue_registers_case_only_for_persisted_target(tmp_path):
+    from shared.queue import TaskQueue
+    queue = TaskQueue(db_path=tmp_path / "onchain.sqlite")
+    case = valid_case()
+    with pytest.raises(ValueError, match="onchain_target_not_registered"):
+        queue.register_onchain_research_case(case)
+    target = _register_target(queue)
+    case = valid_case(target_id=target.target_id)
+    assert queue.register_onchain_research_case(case) == case.case_id
+    assert queue.get_onchain_research_case(case.case_id) == case
+    assert queue.get_onchain_target(target.target_id).source_files["src/Vault.sol"].startswith("contract Vault")
+    queue.db.close()
+
+
+def test_queue_binds_onchain_case_to_worker_claim(tmp_path):
+    from shared.queue import TaskQueue
+    queue = TaskQueue(db_path=tmp_path / "onchain.sqlite")
+    target = _register_target(queue)
+    case = valid_case(target_id=target.target_id)
+    queue.register_onchain_research_case(case)
+    task_id = queue.add("review acquired Solidity source", role="source_researcher", onchain_case_id=case.case_id)
+    claimed = queue.claim("source-worker", role="source_researcher")
+    assert claimed[0] == task_id
+    assert claimed[12] is None
+    assert claimed[13] == case.case_id
+    queue.db.close()
+
+
+def test_onchain_case_binding_inherits_across_child_tasks(tmp_path):
+    from shared.queue import TaskQueue
+    queue = TaskQueue(db_path=tmp_path / "onchain.sqlite")
+    target = _register_target(queue)
+    case = valid_case(target_id=target.target_id)
+    queue.register_onchain_research_case(case)
+    parent = queue.add("source triage", role="source_researcher", onchain_case_id=case.case_id)
+    child = queue.add("crypto review", role="crypto_analyst", parent_task_id=parent)
+    stored = queue.db.execute(
+        "SELECT onchain_case_id FROM queue WHERE id = ?", (child,)
+    ).fetchone()
+    assert stored == (case.case_id,)
+    queue.db.close()
+
+
+def test_queue_rejects_cross_binding_and_onchain_lab_execution(tmp_path):
+    from shared.queue import TaskQueue
+    from shared.research_case import ResearchCase
+    queue = TaskQueue(db_path=tmp_path / "onchain.sqlite")
+    target = _register_target(queue)
+    case = valid_case(target_id=target.target_id)
+    queue.register_onchain_research_case(case)
+    with pytest.raises(ValueError, match="onchain_case_role_not_permitted"):
+        queue.add("run target", role="lab_runner", onchain_case_id=case.case_id)
+    with pytest.raises(ValueError, match="mutually_exclusive"):
+        queue.add(
+            "mixed provenance",
+            role="source_researcher",
+            research_case_id="git-case",
+            onchain_case_id=case.case_id,
+        )
+    queue.db.close()
+
+
+def test_queue_rejects_onchain_child_rebound_to_another_case(tmp_path):
+    from shared.queue import TaskQueue
+    queue = TaskQueue(db_path=tmp_path / "onchain.sqlite")
+    target = _register_target(queue)
+    first = valid_case(target_id=target.target_id)
+    second = valid_case(case_id="base-vault-review-002", target_id=target.target_id)
+    queue.register_onchain_research_case(first)
+    queue.register_onchain_research_case(second)
+    parent = queue.add("source triage", role="source_researcher", onchain_case_id=first.case_id)
+    with pytest.raises(ValueError, match="onchain_case_parent_mismatch"):
+        queue.add("cross-case child", role="crypto_analyst", parent_task_id=parent, onchain_case_id=second.case_id)
+    queue.db.close()

@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from typing import Any
 
-from agents.security_checker.foundry_runner import _resolve_solc_binary
+from shared.solc_toolchain import resolve_solc_binary
 from shared.sandbox import SandboxError, SandboxLimits, run_in_container
 from shared.solidity_bytecode_verifier import (
     CompilerRuntimeVerification,
@@ -128,7 +128,7 @@ def compile_standard_json(
     if not isinstance(configured_image, str) or not _IMAGE_RE.fullmatch(configured_image):
         return _result("RUNNER_NOT_CONFIGURED", "digest_pinned_foundry_image_required")
 
-    compiler = _resolve_solc_binary(expected[0])
+    compiler = resolve_solc_binary(expected[0])
     if compiler is None:
         return _result("COMPILER_UNAVAILABLE", "required_solc_binary_not_installed")
     try:

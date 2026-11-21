@@ -6,7 +6,6 @@ import pytest
 
 from scam_intelligence.contract_intake import (
     BlockscoutContractIntake,
-    ContractIntakeError,
     VerifiedContractSource,
 )
 from shared.onchain_target_store import OnchainTargetError, OnchainTargetRecord, OnchainTargetStore
@@ -46,7 +45,7 @@ def test_intake_preserves_exact_standard_json_string_bytes():
     raw = json.dumps(_standard_json(), separators=(",", ":")) + "\n"
     preserved = BlockscoutContractIntake._standard_json_input({"source_code": raw})
     assert preserved == raw
-    assert hashlib.sha256(preserved.encode("utf-8")).hexdigest()
+    assert hashlib.sha256(preserved.encode("utf-8")).hexdigest() == hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def test_intake_canonicalizes_standard_json_object_without_losing_settings():
@@ -100,3 +99,9 @@ def test_target_store_rejects_standard_json_digest_substitution():
 def test_target_store_rejects_malformed_standard_json_input():
     with pytest.raises(OnchainTargetError, match="standard_json_input_invalid"):
         _record('{"sources": []}')
+
+
+def test_target_store_rejects_oversized_standard_json_input():
+    raw = json.dumps({"sources": {}, "padding": "x" * (8 * 1024 * 1024)})
+    with pytest.raises(OnchainTargetError, match="standard_json_input_too_large"):
+        _record(raw)

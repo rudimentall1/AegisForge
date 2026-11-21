@@ -660,6 +660,8 @@ class SecurityChecker:
                     or onchain_case.target_id != onchain_target.target_id
                 ):
                     raise PipelineContractError("onchain_security_target_binding_invalid")
+                from shared.solidity_source_analysis import analyze_solidity_sources
+                independent_structure = analyze_solidity_sources(dict(onchain_target.source_files))
                 findings = []
                 files_scanned = 0
                 for path, source_text in onchain_target.source_files.items():
@@ -686,6 +688,18 @@ class SecurityChecker:
                         "runtime_code_sha256": onchain_target.runtime_code_sha256,
                         "source_sha256": onchain_target.source_sha256,
                         "files_scanned": files_scanned,
+                        "structural_review": {
+                            "independently_recomputed": True,
+                            "analysis_complete": independent_structure["analysis_complete"],
+                            "functions_analyzed": independent_structure["summary"]["functions_analyzed"],
+                            "call_edges": independent_structure["summary"]["call_edges"],
+                            "functions_with_external_calls": independent_structure["summary"]["functions_with_external_calls"],
+                            "functions_with_state_write_candidates": independent_structure["summary"]["functions_with_state_write_candidates"],
+                            "functions_with_authorization_signals": independent_structure["summary"]["functions_with_authorization_signals"],
+                            "errors": independent_structure["errors"],
+                            "compiler_ast": False,
+                            "vulnerabilities_confirmed": 0,
+                        },
                         "findings": findings,
                         "finding_summary": summary,
                         "finding_created": False,

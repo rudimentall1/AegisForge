@@ -19,8 +19,9 @@ _EXTERNAL_CALL_RE = re.compile(r"\.\s*(delegatecall|staticcall|call|transfer|sen
 _ASSIGNMENT_RE_TEMPLATE = r"\b{0}\b\s*(?:\[[^\]]+\]\s*)?(?:=|\+=|-=|\*=|/=|\+\+|--)"
 _AUTH_NAME_RE = re.compile(r"(?:only|owner|admin|role|auth|permission|manager|operator)", re.I)
 _AUTH_CHECK_RE = re.compile(
-    r"\b(?:require|assert)\s*\([^;]*(?:msg\s*\.\s*sender|tx\s*\.\s*origin)"
-    r"[^;]*(?:owner|admin|role|authorized|authority)",
+    r"\b(?:require|assert)\s*\([^;]*"
+    r"(?:(?:msg\s*\.\s*sender|tx\s*\.\s*origin)[^;]*(?:owner|admin|role|authorized|authority)"
+    r"|(?:owner|admin|role|authorized|authority)[^;]*(?:msg\s*\.\s*sender|tx\s*\.\s*origin))",
     re.I,
 )
 _IGNORED_CALLS = {
@@ -85,6 +86,8 @@ def _mask_non_code(source: str) -> str:
             elif ch != "\n":
                 out[i] = " "
         i += 1
+    if state in {"block_comment", "string"}:
+        raise ValueError("unterminated_comment_or_string")
     return "".join(out)
 
 
@@ -175,7 +178,21 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
         if len(source.encode("utf-8")) > 4 * 1024 * 1024:
             errors.append({"path": path, "error": "source_file_too_large"})
             continue
-        masked = _mask_non_code(source)
+        try:
+            masked = _mask_non_code(source)
+        except ValueError as exc:
+            errors.append({"path": path, "error": str(exc)})
+            continue
+        brace_depth = 0
+        for char in masked:
+            if char == "{":
+                brace_depth += 1
+            elif char == "}":
+                brace_depth -= 1
+                if brace_depth < 0:
+                    break
+        if brace_depth != 0:
+            errors.append({"path": path, "error": "unbalanced_source_braces"})
         function_blocks, function_errors = _extract_blocks(
             source, masked, _FUNCTION_RE, "function"
         )

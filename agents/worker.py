@@ -584,8 +584,13 @@ class Worker:
         research_case_id = task_row[12] if len(task_row) > 12 else None
         onchain_case_id = task_row[13] if len(task_row) > 13 else None
         if onchain_case_id:
+            onchain_action = {
+                "source_researcher": "research",
+                "crypto_analyst": "analyze",
+                "security_checker": "security_scan",
+            }.get(self.role, "")
             capability_intent = {
-                "action": "research",
+                "action": onchain_action,
                 "resource": "persisted_onchain_source",
                 "destination": "internal",
                 "data_scope": "public_source_code",

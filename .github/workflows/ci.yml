@@ -322,6 +322,7 @@ jobs:
             shared/solidity_source_analysis.py \
             shared/solidity_bytecode_verifier.py \
             shared/solidity_compiler.py \
+            shared/solc_toolchain.py \
             shared/sandbox.py \
             shared/queue.py \
             tests
@@ -336,4 +337,5 @@ jobs:
             tests/test_worker_onchain_pipeline.py \
             tests/test_onchain_bytecode_verification.py \
             tests/test_solidity_compiler.py \
-            tests/test_sandbox.py
+            tests/test_sandbox.py \
+            tests/test_solc_toolchain.py

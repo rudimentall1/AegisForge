@@ -799,7 +799,7 @@ class TaskQueue:
         if onchain_case_id is not None:
             onchain_case = self.get_onchain_research_case(onchain_case_id)
             validate_onchain_task_binding(onchain_case, onchain_case_id)
-            if role not in {"source_researcher", "crypto_analyst"}:
+            if role not in {"source_researcher", "crypto_analyst", "security_checker"}:
                 raise ValueError("onchain_case_role_not_permitted")
 
         if description is None:

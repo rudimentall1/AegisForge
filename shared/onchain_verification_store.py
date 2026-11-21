@@ -372,11 +372,30 @@ class OnchainVerificationStore:
             """
             SELECT record_json FROM onchain_verifications
             WHERE target_id = ?
-            ORDER BY created_at, verification_id
+            ORDER BY rowid
             """,
             (target_id,),
         ).fetchall()
         return [self._from_json(row[0]) for row in rows]
+
+    def latest_for_target(self, target_id: str) -> OnchainVerificationRecord | None:
+        if not isinstance(target_id, str) or not _HASH32_RE.fullmatch(target_id):
+            return None
+        row = self.db.execute(
+            """
+            SELECT record_json FROM onchain_verifications
+            WHERE target_id = ?
+            ORDER BY rowid DESC
+            LIMIT 1
+            """,
+            (target_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        record = self._from_json(row[0])
+        if record.verification_id == "":
+            raise OnchainVerificationError("verification_record_digest_mismatch")
+        return record
 
     def count(self) -> int:
         return int(self.db.execute("SELECT COUNT(*) FROM onchain_verifications").fetchone()[0])

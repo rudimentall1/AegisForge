@@ -208,7 +208,7 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
                 name = call.group(1)
                 if name not in external_calls:
                     external_calls.append(name)
-                relative_line = block["masked_body"][:call.start()].count("\\n")
+                relative_line = block["masked_body"][:call.start()].count("\n")
                 excerpt = body_lines[relative_line].strip()[:300] if relative_line < len(body_lines) else ""
                 external_call_sites.append({
                     "kind": name,
@@ -222,7 +222,7 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
                 for write in pattern.finditer(block["masked_body"]):
                     if name not in writes:
                         writes.append(name)
-                    relative_line = block["masked_body"][:write.start()].count("\\n")
+                    relative_line = block["masked_body"][:write.start()].count("\n")
                     excerpt = body_lines[relative_line].strip()[:300] if relative_line < len(body_lines) else ""
                     state_write_sites.append({
                         "state_variable": name,

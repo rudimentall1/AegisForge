@@ -155,8 +155,10 @@ class SecurityChecker:
 
         return owner, repo
 
-    def __init__(self):
-        self.github = GitHubClient()
+    def __init__(self, github=None):
+        # On-chain source review is deliberately offline. Defer authenticated
+        # GitHub client construction until the Git-repository review path.
+        self.github = github
 
     def _get(self, url, params=None):
         return self.github.get_json(
@@ -730,6 +732,11 @@ class SecurityChecker:
                 }
                 task.status = "security_checked"
                 return task
+
+            # The legacy Git research path needs GitHub API access; do not
+            # initialize credentials for the offline on-chain path above.
+            if self.github is None:
+                self.github = GitHubClient()
 
             technical_reviews = parent.get(
                 "technical_review",

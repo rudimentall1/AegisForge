@@ -696,6 +696,18 @@ class SecurityChecker:
                             "functions_with_external_calls": independent_structure["summary"]["functions_with_external_calls"],
                             "functions_with_state_write_candidates": independent_structure["summary"]["functions_with_state_write_candidates"],
                             "functions_with_authorization_signals": independent_structure["summary"]["functions_with_authorization_signals"],
+                            "operation_sites": [
+                                {
+                                    "path": item["path"],
+                                    "function": item["name"],
+                                    "function_line": item["line"],
+                                    "external_call_sites": item["external_call_sites"],
+                                    "state_write_sites": item["state_write_sites"],
+                                    "authorization_signals": item["authorization_signals"],
+                                }
+                                for item in independent_structure["functions"]
+                                if item["external_call_sites"] or item["state_write_sites"]
+                            ][:250],
                             "errors": independent_structure["errors"],
                             "compiler_ast": False,
                             "vulnerabilities_confirmed": 0,

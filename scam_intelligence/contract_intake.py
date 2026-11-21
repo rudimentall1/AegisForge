@@ -356,7 +356,20 @@ class BlockscoutContractIntake:
         if actual_chain_id != self.chain_id:
             raise ContractIntakeError("rpc_chain_id_mismatch")
 
-        code = rpc_call("eth_getCode", [address, "latest"])
+        block_hex = rpc_call("eth_blockNumber", [])
+        try:
+            block_number = int(block_hex, 16)
+        except (TypeError, ValueError) as exc:
+            raise ContractIntakeError("rpc_block_number_invalid") from exc
+        block = rpc_call("eth_getBlockByNumber", [hex(block_number), False])
+        if not isinstance(block, dict) or not isinstance(block.get("hash"), str):
+            raise ContractIntakeError("rpc_block_hash_missing")
+        block_hash = block["hash"]
+        if not re.fullmatch(r"0x[0-9a-fA-F]{64}", block_hash):
+            raise ContractIntakeError("rpc_block_hash_invalid")
+
+        # Read code at the pinned block, not the moving "latest" tag.
+        code = rpc_call("eth_getCode", [address, hex(block_number)])
         if not isinstance(code, str) or not code.startswith("0x") or len(code) <= 2 or len(code) % 2 != 0:
             raise ContractIntakeError("rpc_contract_code_empty_or_invalid")
         try:
@@ -368,10 +381,12 @@ class BlockscoutContractIntake:
         return {
             "chain_id": actual_chain_id,
             "address": address,
+            "block_number": block_number,
+            "block_hash": block_hash,
             "deployed": True,
             "runtime_code_bytes": len(code_bytes),
             "runtime_code_sha256": hashlib.sha256(code_bytes).hexdigest(),
-            "attestation_source": "configured_evm_rpc_eth_getCode_latest",
+            "attestation_source": "configured_evm_rpc_pinned_block",
         }
 
 

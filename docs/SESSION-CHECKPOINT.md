@@ -594,3 +594,53 @@ The Git ResearchCase execution admission remains separate. On-chain source agent
 4. Preserve `SOURCE_ONLY`, `NOT_RUN`, and `INCONCLUSIVE`; a local harness pass must not automatically confirm a deployed vulnerability.
 5. Demonstrate one real, authorized target end-to-end with positive and negative controls before claiming autonomous live-chain vulnerability discovery.
 
+
+
+## 33. Real solc + Anvil deployment equivalence proven — 2026-11-21
+
+**Working branch:** `feat/onchain-bytecode-verification`  
+**Verified implementation head:** `868b8cf89c9ec0519959d211734a97a5aef40a68`  
+**PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211), OPEN, DRAFT, stacked on PR #210. Do not merge without explicit approval.
+
+### Real integration fixture
+
+Added `tests/test_solidity_compiler_anvil_integration.py`, opt-in and run in a dedicated CI step with actual toolchain artifacts:
+
+- Downloads official Solidity `0.8.24+commit.e11b9ed9` Linux AMD64 compiler and verifies SHA-256 `fb03a29a517452b9f12bcf459ef37d0a543765bb3bbc911e70a87d6a37c30d5f` before use.
+- Pulls a digest-pinned Foundry image `ghcr.io/foundry-rs/foundry@sha256:97390dbfb6bd54d86e0817ba2900ee01cd522405631997b7d967eb149a7affde`.
+- Starts a local Anvil chain (31337) from that image.
+- Sends the exact Solidity Standard JSON input through the real `compile_standard_json()` path. The actual `solc` binary runs inside the digest-pinned, networkless Docker sandbox; the host does not execute the target contract.
+- Deploys the compiler-produced creation bytecode to Anvil using a local unlocked test account.
+- Reads deployed runtime bytecode using `eth_getCode` at the receipt's exact block hash via EIP-1898.
+- Constructs an `OnchainTargetRecord` with the acquired source, compiler version, Standard JSON input, block number/hash, runtime bytes and runtime digest.
+- Calls the production `verify_onchain_target()` path and proves:
+  - exact deployed runtime -> `VERIFIED / runtime_bytecode_exact_match`;
+  - one-byte runtime mutation with recomputed evidence digest -> `MISMATCH / runtime_bytecode_mismatch`.
+
+This is the first real compiler + local EVM deployment proof. It is not a mocked compiler output or mocked RPC result.
+
+### CI verification
+
+- CI run #2470 / ID `44900955670`: [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/44900955670), SUCCESS on implementation head `868b8cf89c9ec0519959d211734a97a5aef40a68`.
+- Full Python/EVM suite: **2,076 passed, 3 skipped, 4 warnings, 30 subtests passed**.
+- Focused on-chain source/compiler suite: **92 passed**.
+- Real solc + Anvil integration: **1 passed** (exact match and one-byte mismatch assertions in the same end-to-end test).
+- Bubblewrap fixture acceptance and the EVM Key Forensics evidence workflow completed successfully.
+- The opt-in integration test is skipped in the ordinary hermetic full-suite run and explicitly executed by the dedicated provisioned CI step.
+
+### Current limits
+
+- Proven against a synthetic local Anvil deployment, not yet against a third-party live deployed contract.
+- Constructor immutables, linked libraries and proxy/implementation equivalence remain fail-closed as `INCOMPLETE`.
+- Compiler verification is not yet wired into Worker orchestration or a separate typed `OnchainExecutionAdmission`.
+- Compiler verification evidence is not yet persisted as a distinct immutable verification record.
+- Docker isolation is not a microVM guarantee. No arbitrary target contract behavior was executed by this verifier and no transaction was submitted to a public network.
+- No live-chain vulnerability has been confirmed.
+
+### Next engineering slice
+
+1. Persist the compiler verification outcome as an immutable record keyed to target ID and pinned block hash, including source digest, Standard JSON digest, compiler version/commit and binary digest, compiled runtime digest, deployed runtime digest, status and reason.
+2. Add a typed `OnchainExecutionAdmission` separate from Git-only admission. Require persisted target/case binding, fresh reviewed scope, explicit authorization reference, pinned block hash and persisted `VERIFIED` status.
+3. Keep `SOURCE_ONLY`, `NOT_RUN` and `INCONCLUSIVE` distinct. A local harness result must not automatically confirm a deployed vulnerability.
+4. Add positive/negative controls and one explicitly authorized external target before claiming live-chain vulnerability discovery.
+

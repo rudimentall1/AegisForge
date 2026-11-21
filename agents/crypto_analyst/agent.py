@@ -21,6 +21,63 @@ class CryptoAnalyst:
             else getattr(case, "target_repository", "")
         )
         case_repository = str(case_repository or "").strip().lower().rstrip("/")
+        if parent.get("research_track") == "onchain_solidity_source_research":
+            signal_rows = []
+            for source in parent.get("source_files", []):
+                if not isinstance(source, dict):
+                    continue
+                for signal in source.get("signals", []):
+                    if not isinstance(signal, dict):
+                        continue
+                    signal_rows.append({
+                        "path": source.get("path"),
+                        "line": signal.get("line"),
+                        "signal": signal.get("signal"),
+                        "excerpt": signal.get("excerpt"),
+                    })
+            grouped = {}
+            for row in signal_rows:
+                grouped.setdefault(row["signal"], []).append(row)
+            hypotheses = []
+            for signal_name, evidence in sorted(grouped.items()):
+                hypotheses.append({
+                    "hypothesis_id": "ONCHAIN-" + str(signal_name).upper(),
+                    "question": (
+                        "Does the observed " + str(signal_name)
+                        + " construct violate the case invariant under an attacker-controlled call sequence?"
+                    ),
+                    "status": "NEEDS_DEEPER_ANALYSIS",
+                    "evidence": evidence[:25],
+                    "finding": False,
+                    "requires": [
+                        "interprocedural control-flow review",
+                        "authorization and state-transition analysis",
+                        "counterexample or negative-control validation",
+                    ],
+                })
+            result = dict(parent)
+            result.update({
+                "stage": "analysis",
+                "stage_history": list(parent.get("stage_history", [])) + ["analysis"],
+                "onchain_source_analysis": {
+                    "candidate_hypotheses": len(hypotheses),
+                    "lexical_signals": len(signal_rows),
+                    "finding_created": False,
+                    "vulnerabilities_confirmed": 0,
+                    "source_executed": False,
+                    "conclusion": (
+                        "CANDIDATES_FOR_REVIEW" if hypotheses else "NO_LEXICAL_CANDIDATES"
+                    ),
+                    "limitations": (
+                        "Lexical signals are triage leads, not vulnerabilities. "
+                        "No bytecode equivalence, runtime exploitability, or invariant violation is established."
+                    ),
+                },
+                "hypotheses": hypotheses,
+            })
+            task.result = result
+            task.status = "crypto_analyzed"
+            return task
         if parent.get("research_track") == "uniswap_v2_factory_fixture":
             from tools.evm_key_forensics.uniswap_v2_factory_source_pattern import (
                 PINNED_COMMIT,

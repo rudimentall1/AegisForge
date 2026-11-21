@@ -128,3 +128,80 @@ def test_store_rejects_non_record_values():
     store = OnchainTargetStore(sqlite3.connect(":memory:"))
     with pytest.raises(OnchainTargetError, match="onchain_target_record_required"):
         store.put({"chain_id": 8453})
+
+
+def test_store_persists_only_consistent_accepted_intake_item():
+    from types import SimpleNamespace
+
+    record_source = _record()
+    candidate = SimpleNamespace(
+        chain_id=8453,
+        address=record_source.address,
+        name="Vault",
+        transactions_count=100,
+        proxy_type=None,
+        implementations=(),
+    )
+    source = SimpleNamespace(
+        chain_id=8453,
+        address=record_source.address,
+        contract_name="Vault",
+        compiler_version="v0.8.24+commit.e11b9ed9",
+        source_files=record_source.source_files,
+        source_sha256=record_source.source_sha256,
+        proxy_type=None,
+        implementations=(),
+    )
+    attestation = {
+        "chain_id": 8453,
+        "address": record_source.address,
+        "block_number": 123456,
+        "block_hash": "0x" + "b" * 64,
+        "runtime_code_sha256": "c" * 64,
+        "deployed": True,
+    }
+    store = OnchainTargetStore(sqlite3.connect(":memory:"))
+
+    target_id = store.put_intake_item({
+        "candidate": candidate,
+        "source": source,
+        "deployment_attestation": attestation,
+    })
+
+    persisted = store.get(target_id)
+    assert persisted is not None
+    assert persisted.chain_id == 8453
+    assert persisted.address == candidate.address
+    assert persisted.source_sha256 == source.source_sha256
+    assert persisted.block_hash == attestation["block_hash"]
+
+
+def test_store_rejects_mismatched_source_and_rpc_coordinates():
+    from types import SimpleNamespace
+
+    source = _record()
+    item = {
+        "candidate": SimpleNamespace(chain_id=8453, address=source.address),
+        "source": SimpleNamespace(
+            chain_id=1,
+            address=source.address,
+            contract_name="Vault",
+            compiler_version="",
+            source_files=source.source_files,
+            source_sha256=source.source_sha256,
+            proxy_type=None,
+            implementations=(),
+        ),
+        "deployment_attestation": {
+            "chain_id": 8453,
+            "address": source.address,
+            "block_number": 1,
+            "block_hash": "0x" + "b" * 64,
+            "runtime_code_sha256": "c" * 64,
+            "deployed": True,
+        },
+    }
+    store = OnchainTargetStore(sqlite3.connect(":memory:"))
+
+    with pytest.raises(OnchainTargetError, match="intake_chain_id_mismatch"):
+        store.put_intake_item(item)

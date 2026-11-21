@@ -690,3 +690,53 @@ This is the first real compiler + local EVM deployment proof. It is not a mocked
 3. Reject missing, stale, mismatched, `MISMATCH`, or `INCOMPLETE` evidence. Preserve `SOURCE_ONLY`, `NOT_RUN` and `INCONCLUSIVE` as distinct execution outcomes.
 4. Only after this gate, connect the existing fixed-profile Foundry runner through a dedicated isolated execution boundary with positive and negative controls. A local harness pass is not automatically a confirmed deployed vulnerability.
 
+
+
+## 35. Separate typed on-chain execution admission gate — 2026-11-21
+
+**Working branch:** `feat/onchain-bytecode-verification`  
+**Verified implementation head:** `3a65554dd3fd991a62e4a40d95351bbcd438a84e`  
+**PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211), OPEN, DRAFT, stacked on PR #210. Do not merge without explicit approval.
+
+### Implemented
+
+- Added `shared/onchain_execution_admission.py`, independent of Git-backed `shared/target_execution_admission.py`.
+- Added typed, identity-only `OnchainExecutionRequest` and fixed `FOUNDRY_REPRODUCTION` profile. The request accepts only case ID, target ID, pinned block hash, verification ID and the explicit authorization reference. It cannot carry source code, harness code, arbitrary argv, RPC endpoints or transaction data.
+- Added `AdmittedOnchainExecution` with persisted case, target and verification evidence. The initial assurance is always `NOT_RUN`; admission itself does not run Foundry or execute target code.
+- Admission requires:
+  - the registered `OnchainResearchCase` and persisted `OnchainTargetRecord`;
+  - exact case-to-target identity and requested block-hash binding;
+  - exact authorization-reference equality with the registered case;
+  - explicit `exploit_reproduction` in the case's allowed techniques;
+  - scope review no older than 30 days and not dated in the future;
+  - verification evidence from the same SQLite connection as the case/target registry;
+  - the requested verification ID to be the latest append-only verification record for that target;
+  - latest verification status exactly `VERIFIED`, with source/input/runtime digests matching the pinned target.
+- Uses a SQLite `BEGIN IMMEDIATE` transaction while checking latest evidence, preventing a newer mismatch/incomplete record from racing the admission check.
+- Extended `OnchainResearchCase.allowed_techniques` to include `exploit_reproduction`. Existing on-chain queue role restrictions remain: on-chain case tasks cannot be enqueued as the Git `lab_runner`.
+- Added `OnchainVerificationStore.latest_for_target()`, ordered by SQLite append row, so a newer `MISMATCH` or `INCOMPLETE` record supersedes an older `VERIFIED` record.
+
+### Tests and CI
+
+- CI run #2493 / ID `44901992780`: [AegisForge CI](https://github.com/rudimentall1/AegisForge/actions/runs/44901992780), SUCCESS on implementation head `3a65554dd3fd991a62e4a40d95351bbcd438a84e`.
+- Full Python/EVM suite: **2,095 passed, 3 skipped, 4 warnings, 30 subtests passed**.
+- Focused on-chain source/compiler/evidence/admission suite: **111 passed**.
+- Real solc + Anvil integration: **1 passed**, still proving exact runtime, one-byte mismatch and persisted evidence.
+- Admission tests cover successful admission, incomplete/latest evidence, older VERIFIED evidence superseded by newer incomplete evidence, stale/future scope review, missing exploit authorization, authorization-reference substitution, block-hash substitution, untyped requests and cross-database evidence.
+
+### Current limits
+
+- This is an authorization/admission gate only. It does not invoke the Foundry runner.
+- No on-chain execution task is yet orchestrated by Worker; the existing queue still intentionally prevents on-chain cases from using the Git `lab_runner`.
+- No arbitrary target code or generated harness has been executed through this gate.
+- The local Anvil fixture remains synthetic. No third-party live deployed contract has passed verification and no public-network transaction has been submitted.
+- Docker remains a constrained container boundary, not a microVM guarantee.
+- No live-chain vulnerability has been confirmed.
+
+### Next engineering slice
+
+1. Define a separate persisted on-chain execution request/round record; do not reuse Git `ResearchCase` or its `lab_runner` admission.
+2. Add a dedicated on-chain runner adapter that consumes only `AdmittedOnchainExecution` plus a bounded, case-bound harness artifact, and uses the fixed digest-pinned, networkless Foundry profile.
+3. Preserve `NOT_RUN`, `INCONCLUSIVE`, `SOURCE_ONLY` and local-only execution observations. Positive and negative controls must both pass before the result is considered a valid reproduction observation.
+4. Keep the result explicitly local-harness evidence; do not label it a confirmed deployed vulnerability without independent deployed-state validation.
+

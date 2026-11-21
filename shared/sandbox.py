@@ -295,7 +295,7 @@ def run_in_container(
         try:
             resolved_stdin = Path(stdin_path).resolve(strict=True)
             resolved_stdin.relative_to(root)
-            if not resolved_stdin.is_file():
+            if not resolved_stdin.is_file() or resolved_stdin.stat().st_size > 8 * 1024 * 1024:
                 raise SandboxError("stdin_path_invalid")
             input_file = resolved_stdin.open("rb")
         except SandboxError:

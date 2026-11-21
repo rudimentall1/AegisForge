@@ -254,6 +254,51 @@ class OnchainTargetStore:
             )
         return record.target_id
 
+    def put_intake_item(self, item: dict) -> str:
+        """Validate one accepted acquisition item and persist its immutable target."""
+        if not isinstance(item, dict):
+            raise OnchainTargetError("intake_item_invalid")
+        candidate = item.get("candidate")
+        source = item.get("source")
+        attestation = item.get("deployment_attestation")
+        if not isinstance(attestation, dict):
+            raise OnchainTargetError("deployment_attestation_required")
+        if attestation.get("deployed") is not True:
+            raise OnchainTargetError("deployment_not_attested")
+
+        try:
+            coordinates = (
+                candidate.chain_id,
+                candidate.address.lower(),
+                source.chain_id,
+                source.address.lower(),
+                attestation.get("chain_id"),
+                str(attestation.get("address", "")).lower(),
+            )
+        except AttributeError as exc:
+            raise OnchainTargetError("intake_item_invalid") from exc
+        if len(set(coordinates[::2])) != 1 or len(set(coordinates[1::2])) != 1:
+            raise OnchainTargetError("intake_chain_id_mismatch_or_address_mismatch")
+
+        try:
+            record = OnchainTargetRecord(
+                chain_id=candidate.chain_id,
+                address=candidate.address,
+                block_number=attestation["block_number"],
+                block_hash=attestation["block_hash"],
+                runtime_code_sha256=attestation["runtime_code_sha256"],
+                source_files=source.source_files,
+                source_sha256=source.source_sha256,
+                source_provider="blockscout_v2",
+                compiler_version=source.compiler_version,
+                contract_name=source.contract_name,
+                proxy_type=source.proxy_type,
+                implementations=tuple(source.implementations),
+            )
+        except (AttributeError, KeyError, TypeError) as exc:
+            raise OnchainTargetError("intake_item_incomplete") from exc
+        return self.put(record)
+
     @staticmethod
     def _from_row(row) -> OnchainTargetRecord:
         (

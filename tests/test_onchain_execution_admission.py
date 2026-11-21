@@ -49,7 +49,7 @@ def _target():
 
 def _case(target, *, reviewed_on="2026-11-21", techniques=("source_pattern", "exploit_reproduction")):
     return OnchainResearchCase(
-        case_id="authorized-vault-review",
+        case_id="case-" + reviewed_on + "-" + "-".join(techniques),
         target_id=target.target_id,
         scope_url="https://example.com/security-scope",
         scope_digest=hashlib.sha256(b"reviewed-scope").hexdigest(),
@@ -135,7 +135,7 @@ def test_admission_rejects_incomplete_verification(admission_context):
     )
     verification_store.put(incomplete)
 
-    with pytest.raises(OnchainExecutionAdmissionError, match="verification_record_not_latest"):
+    with pytest.raises(OnchainExecutionAdmissionError, match="verification_status_not_verified:INCOMPLETE"):
         admit_onchain_execution(
             queue,
             verification_store,

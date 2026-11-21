@@ -316,6 +316,36 @@ class OnchainVerificationStore:
             )
         return record.verification_id
 
+    def verify_and_persist(
+        self,
+        target_id: str,
+        contract_file: str,
+        *,
+        image: str | None = None,
+    ) -> OnchainVerificationRecord:
+        """Run the production compiler verifier and append its result to the ledger."""
+        target = self.target_store.get(target_id)
+        if target is None:
+            raise OnchainVerificationError("verification_target_missing")
+        from shared.solidity_compiler import verify_onchain_target
+
+        result = verify_onchain_target(target, contract_file, image=image)
+        record = OnchainVerificationRecord.from_target(
+            target,
+            status=result.status,
+            reason=result.reason,
+            compiler_version=result.compiler_version,
+            compiler_binary_sha256=result.compiler_binary_sha256,
+            compiled_runtime_sha256=result.compiled_runtime_sha256,
+            compiler_image=result.compiler_image,
+            isolation=result.isolation,
+        )
+        verification_id = self.put(record)
+        persisted = self.get(verification_id)
+        if persisted is None:
+            raise OnchainVerificationError("verification_persistence_failed")
+        return persisted
+
     @staticmethod
     def _from_json(record_json: str) -> OnchainVerificationRecord:
         payload = json.loads(record_json)

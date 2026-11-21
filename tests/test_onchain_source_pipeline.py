@@ -94,8 +94,14 @@ def test_crypto_analyst_turns_source_signals_into_unconfirmed_hypotheses():
     assert any(
         item["function"]["name"] == "upgrade"
         and "delegatecall" in item["external_calls"]
+        and item["external_call_sites"][0]["line"] == 6
         for item in function_hypotheses
     )
+    send_hypothesis = next(
+        item for item in function_hypotheses
+        if item["function"]["name"] == "withdraw"
+    )
+    assert send_hypothesis["entrypoints"][0]["function"] == "withdraw"
     assert all(item["status"] == "NEEDS_DEEPER_ANALYSIS" for item in function_hypotheses)
 
 
@@ -138,6 +144,11 @@ def test_security_checker_scans_full_persisted_onchain_source_as_potential_risks
     assert review["vulnerabilities_confirmed"] == 0
     assert review["structural_review"]["independently_recomputed"] is True
     assert review["structural_review"]["functions_analyzed"] >= 2
+    assert any(
+        site["function"] == "upgrade"
+        and site["external_call_sites"][0]["kind"] == "delegatecall"
+        for site in review["structural_review"]["operation_sites"]
+    )
     assert checked.result["security_integrity"]["complete"] is True
 
 

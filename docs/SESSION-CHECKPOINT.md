@@ -466,10 +466,9 @@ This is not a Solidity compiler AST, Slither, formal control-flow analysis, or b
 
 ### Focused CI
 
-- Added `.github/workflows/onchain-source-tests.yml`.
-- It runs only the on-chain intake/source reasoning test set, with Python 3.10, dependency installation, compileall, and focused pytest.
-- This is intentionally separate from the broad legacy CI workflow, which currently has a recurring GitHub Actions job-initialization failure (`steps: null`).
-- The new workflow has not yet produced a confirmed run. Do not treat its existence as verification.
+- Initially added a standalone workflow, then removed it after noticing it would not be present on the PR base branch and therefore could not reliably trigger for this pull request.
+- Added a separate `onchain-source-tests` job to the existing `.github/workflows/ci.yml`, which already exists on the PR base. It uses `ubuntu-24.04`, Python 3.10, compileall, and the four focused on-chain pytest files.
+- The new job has not yet produced a confirmed run. Do not treat the workflow edit as verification.
 
 ### Current verification
 
@@ -483,3 +482,8 @@ This is not a Solidity compiler AST, Slither, formal control-flow analysis, or b
 1. Obtain a real run of the focused workflow and inspect its job steps/logs.
 2. Fix any failures it actually reports; then run the complete repository suite.
 3. Continue with pinned solc compiler AST and source maps only after the source intake and persistence tests are green.
+
+
+### CI wiring correction
+
+The standalone on-chain workflow was removed because a workflow introduced only on the PR head is not a reliable pull-request trigger when it is absent from the base branch. The focused test job now lives in the existing `.github/workflows/ci.yml` instead. This avoids creating a workflow that appears configured but never runs for PR #208.

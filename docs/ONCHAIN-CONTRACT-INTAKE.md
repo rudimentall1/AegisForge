@@ -143,3 +143,24 @@ The CLI intentionally accepts one explicit address instead of crawling a chain a
 ## Verification boundary
 
 New coverage was added for case validation/tamper detection, target-backed registration, queue/Worker binding, child inheritance, evidence lineage, agent source triage, hypothesis generation, independent SecurityChecker review, and role-scoped offline capabilities. CI runner assignment remains unreliable; do not treat these tests as passing until a runner executes them.
+
+## Structural source analysis (current PR #208 head)
+
+The on-chain Worker path is now integrated through the existing queue and Evidence Ledger. After source acquisition, the current chain is:
+
+1. `source_researcher` performs bounded lexical triage and invokes `shared.solidity_source_analysis`.
+2. The structural pass inventories Solidity functions and modifiers, visibility/mutability, same-file unambiguous function-call edges, external-call sites, state-write candidates, and authorization signals. Operation evidence includes file paths and line numbers.
+3. `crypto_analyst` derives function-level hypotheses and bounded call paths from public/external entrypoints to functions containing external interactions or state writes. Every hypothesis remains `NEEDS_DEEPER_ANALYSIS`; none is a finding.
+4. `security_checker` independently recomputes the structural inventory from the persisted source bundle and records its own operation-site evidence alongside existing pattern checks.
+
+### Explicit limitations
+
+- This is a bounded lexical/structural parser, **not** a Solidity compiler AST, Slither analysis, formal control-flow proof, or interprocedural data-flow engine.
+- Calls with ambiguous same-file names are not linked. Cross-file/inherited dispatch, overload resolution, function pointers, assembly semantics, storage aliasing, proxy/delegatecall context, and compiler transformations are not resolved.
+- State writes are candidates based on declared state-variable names and assignment-like syntax; shadowing and complex storage expressions can cause false positives or omissions.
+- Authorization signals are syntactic hints only. A modifier name such as `onlyOwner` does not prove the modifier is safe or consistently applied.
+- Source-to-runtime-bytecode equivalence remains unverified. No contract source is executed, no fork is started, and no transaction is sent.
+- `vulnerabilities_confirmed` remains zero. The output is a better-targeted research queue, not an autonomous vulnerability verdict.
+
+The next validation gate is to execute the focused Python tests and then the full suite on a functioning runner. Only after those pass should the next implementation slice add compiler-backed AST/source-map analysis and a separately admitted, fixed-block fork reproduction path.
+

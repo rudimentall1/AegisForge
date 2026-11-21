@@ -128,3 +128,48 @@ def test_compiler_reports_truncated_output(monkeypatch, tmp_path):
     result = compile_standard_json(_input(), "0.8.24", image=_IMAGE)
     assert result.status == "OUTPUT_TRUNCATED"
     assert result.reason == "compiler_output_truncated"
+
+
+
+def test_compiler_rejects_remote_source_urls_before_execution(monkeypatch):
+    import shared.solidity_compiler as compiler
+
+    called = []
+    monkeypatch.setattr(compiler, "run_in_container", lambda *args, **kwargs: called.append(True))
+    payload = json.loads(_input())
+    payload["sources"]["src/Vault.sol"] = {"urls": ["https://example.invalid/Vault.sol"]}
+    result = compile_standard_json(json.dumps(payload), "0.8.24", image=_IMAGE)
+    assert result.status == "INCOMPLETE"
+    assert result.reason == "standard_json_source_content_missing"
+    assert called == []
+
+
+def test_compiler_rejects_traversal_source_paths_before_execution(monkeypatch):
+    import shared.solidity_compiler as compiler
+
+    called = []
+    monkeypatch.setattr(compiler, "run_in_container", lambda *args, **kwargs: called.append(True))
+    payload = json.loads(_input())
+    payload["sources"] = {"../escape.sol": {"content": "contract Escape {}"}}
+    result = compile_standard_json(json.dumps(payload), "0.8.24", image=_IMAGE)
+    assert result.status == "INCOMPLETE"
+    assert result.reason == "standard_json_source_path_invalid"
+    assert called == []
+
+
+def test_target_verification_rejects_agent_source_mismatch_before_compilation(monkeypatch):
+    from types import SimpleNamespace
+
+    import shared.solidity_compiler as compiler
+
+    called = []
+    monkeypatch.setattr(compiler, "compile_standard_json", lambda *args, **kwargs: called.append(True))
+    target = SimpleNamespace(
+        standard_json_input=_input(),
+        source_files={"src/Vault.sol": "contract Different {}"},
+        compiler_version="0.8.24",
+    )
+    result = compiler.verify_onchain_target(target, "src/Vault.sol", image=_IMAGE)
+    assert result.status == "INCOMPLETE"
+    assert result.reason == "standard_json_source_mapping_mismatch"
+    assert called == []

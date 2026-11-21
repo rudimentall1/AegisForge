@@ -583,6 +583,18 @@ class Worker:
 
         research_case_id = task_row[12] if len(task_row) > 12 else None
         onchain_case_id = task_row[13] if len(task_row) > 13 else None
+        if onchain_case_id:
+            capability_intent = {
+                "action": "research",
+                "resource": "persisted_onchain_source",
+                "destination": "internal",
+                "data_scope": "public_source_code",
+                "requires_network": False,
+                "read_only": True,
+                "irreversible": False,
+                "financial": False,
+                "privileged": False,
+            }
         research_case = None
         onchain_research_case = None
         onchain_target = None

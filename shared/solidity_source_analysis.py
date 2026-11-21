@@ -202,14 +202,33 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
                 }
             ]
             external_calls = []
+            external_call_sites = []
+            body_lines = block["body"].splitlines()
             for call in _EXTERNAL_CALL_RE.finditer(block["masked_body"]):
                 name = call.group(1)
                 if name not in external_calls:
                     external_calls.append(name)
+                relative_line = block["masked_body"][:call.start()].count("\\n")
+                excerpt = body_lines[relative_line].strip()[:300] if relative_line < len(body_lines) else ""
+                external_call_sites.append({
+                    "kind": name,
+                    "line": block["line"] + relative_line,
+                    "excerpt": excerpt,
+                })
             writes = []
+            state_write_sites = []
             for name in sorted(state_names):
-                if re.search(_ASSIGNMENT_RE_TEMPLATE.format(re.escape(name)), block["masked_body"]):
-                    writes.append(name)
+                pattern = re.compile(_ASSIGNMENT_RE_TEMPLATE.format(re.escape(name)))
+                for write in pattern.finditer(block["masked_body"]):
+                    if name not in writes:
+                        writes.append(name)
+                    relative_line = block["masked_body"][:write.start()].count("\\n")
+                    excerpt = body_lines[relative_line].strip()[:300] if relative_line < len(body_lines) else ""
+                    state_write_sites.append({
+                        "state_variable": name,
+                        "line": block["line"] + relative_line,
+                        "excerpt": excerpt,
+                    })
             auth_signals = []
             for name in modifier_names:
                 if _AUTH_NAME_RE.search(name):
@@ -240,7 +259,9 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
                 "_raw_calls": raw_calls,
                 "calls": [],
                 "external_calls": external_calls,
+                "external_call_sites": external_call_sites[:100],
                 "state_write_candidates": writes,
+                "state_write_sites": state_write_sites[:100],
                 "authorization_signals": auth_signals,
                 "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
             }

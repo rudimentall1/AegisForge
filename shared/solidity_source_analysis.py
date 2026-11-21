@@ -10,6 +10,10 @@ import re
 from typing import Dict, Iterable, List, Tuple
 
 
+_MAX_FUNCTIONS = 2000
+_MAX_CALLS_PER_FUNCTION = 100
+
+
 _FUNCTION_RE = re.compile(
     r"\bfunction\s+([A-Za-z_]\w*)\s*\(([^)]*)\)([^;{}]*)\{"
 )
@@ -202,6 +206,11 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
         errors.extend(dict(item, path=path) for item in function_errors + modifier_errors)
         state_names = _top_level_state_names(masked)
         file_functions = []
+        remaining_function_slots = max(0, _MAX_FUNCTIONS - len(all_functions))
+        function_limit_hit = len(function_blocks) > remaining_function_slots
+        if function_limit_hit:
+            errors.append({"path": path, "error": "function_count_limit_exceeded"})
+            function_blocks = function_blocks[:remaining_function_slots]
         for block in function_blocks:
             header = re.sub(r"\breturns\s*\([^)]*\)", " ", block["header"])
             parameter_end = header.find(")")
@@ -264,6 +273,8 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
                 name = call.group(1)
                 if name not in _IGNORED_CALLS and name not in raw_calls:
                     raw_calls.append(name)
+                    if len(raw_calls) >= _MAX_CALLS_PER_FUNCTION:
+                        break
             visibility_match = re.search(r"\b(public|external|internal|private)\b", header)
             mutability_match = re.search(r"\b(pure|view|payable)\b", header)
             record = {
@@ -290,6 +301,8 @@ def analyze_solidity_sources(source_files: Dict[str, str]) -> dict:
             "functions": len(file_functions),
             "modifiers": [item["name"] for item in modifier_blocks],
         })
+        if function_limit_hit:
+            break
 
     functions_by_file_and_name = {}
     for item in all_functions:

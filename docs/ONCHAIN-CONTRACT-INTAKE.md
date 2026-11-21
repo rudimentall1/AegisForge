@@ -46,6 +46,34 @@ The intake returns a bounded batch with:
 - RPC chain-ID and deployed-runtime-code attestation pinned to a specific block number and block hash;
 - per-address rejection reasons for candidates that fail source or RPC checks.
 
+## Immutable target persistence
+
+Acquisition results can be persisted separately from queue task payloads:
+
+```python
+from shared.queue import TaskQueue
+from shared.onchain_target_store import OnchainTargetStore
+
+queue = TaskQueue()
+targets = OnchainTargetStore(queue.db)
+
+for item in batch["accepted"]:
+    target_id = targets.put_intake_item(item)
+    stored = targets.get(target_id)
+    print(stored.chain_id, stored.address, stored.block_hash, stored.source_sha256)
+```
+
+The store is insert-only and content-addresses each snapshot from its chain/address,
+block, runtime-code digest, source digest, provider, and compiler/proxy metadata.
+A second, conflicting source snapshot for the same chain/address/block hash is
+rejected. Source maps are immutable after record construction. The source bundle
+is stored in dedicated SQLite columns, not in the queue's bounded
+`capability_intent` field.
+
+This does not yet make the record a ResearchCase or enqueue agent work. The current
+ResearchCase contract is Git-repository/commit-centric; a separate explicit
+on-chain case binding is still required before Worker integration.
+
 ## Security and evidence boundaries
 
 - Read-only only: no transaction submission, wallet access, or target execution.

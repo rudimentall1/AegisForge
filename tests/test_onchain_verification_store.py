@@ -183,3 +183,40 @@ def test_verification_rows_cannot_be_updated_or_deleted():
             "DELETE FROM onchain_verifications WHERE verification_id = ?",
             (verification_id,),
         )
+
+
+
+def test_verify_and_persist_runs_verifier_and_persists_its_evidence(monkeypatch):
+    from types import SimpleNamespace
+
+    import shared.solidity_compiler as compiler
+
+    db = sqlite3.connect(":memory:")
+    targets, target = _target(db)
+    verifications = OnchainVerificationStore(targets)
+    image = "ghcr.io/foundry-rs/foundry@sha256:" + "c" * 64
+
+    def fake_verify(actual_target, contract_file, *, image=None):
+        assert actual_target.target_id == target.target_id
+        assert contract_file == "src/Vault.sol"
+        assert image == image
+        return SimpleNamespace(
+            status="VERIFIED",
+            reason="runtime_bytecode_exact_match",
+            compiled_runtime_sha256=target.runtime_code_sha256,
+            compiler_version="0.8.24+commit.e11b9ed9",
+            compiler_binary_sha256="d" * 64,
+            compiler_image=image,
+            isolation="container",
+        )
+
+    monkeypatch.setattr(compiler, "verify_onchain_target", fake_verify)
+    persisted = verifications.verify_and_persist(
+        target.target_id,
+        "src/Vault.sol",
+        image=image,
+    )
+
+    assert persisted.status == "VERIFIED"
+    assert persisted.compiler_binary_sha256 == "d" * 64
+    assert verifications.get(persisted.verification_id) == persisted

@@ -98,10 +98,13 @@ def _artifact_check(artifact: FirecrackerArtifact) -> bool:
     try:
         if not _artifact_present(artifact):
             return False
-        payload = artifact.path.read_bytes()
+        digest = hashlib.sha256()
+        with artifact.path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
     except OSError:
         return False
-    return hashlib.sha256(payload).hexdigest() == artifact.sha256
+    return digest.hexdigest() == artifact.sha256
 
 
 def _executable_check(artifact: FirecrackerArtifact) -> bool:

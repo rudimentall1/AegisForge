@@ -286,3 +286,50 @@ The branch contains `shared/reproduction_contract.py` and `shared/reproduction_r
 - Do not execute target repositories through `shared.sandbox.run_in_sandbox`; its process mode is not a security boundary and its Docker mode is weaker than this prototype.
 - Before enabling any untrusted target execution: integrate persisted case/task/round admission, replace arbitrary request-supplied argv/env with fixed server-owned adapter profiles, select and verify a disposable VM/microVM backend, and add real adversarial host-isolation acceptance on the deployment runner.
 - Until those conditions pass, the supported execution path remains the repository-owned synthetic fixture. Issue #158 remains OPEN.
+
+## 17. Firecracker backend decision and host preflight — 2026-11-22
+
+### Decision
+
+Select **Firecracker microVM + its matching Jailer** as the first production-boundary candidate for hostile public Solidity harnesses. Do not treat the current Docker runner as an equivalent fallback.
+
+Rationale:
+- Firecracker provides a KVM-backed guest-kernel boundary; its own threat model treats guest vCPU code as malicious and layers host-side seccomp, cgroups, namespaces and privilege dropping around the VMM.
+- Production guidance requires using the matching Jailer (or an equally restrictive process boundary), retaining Firecracker's default seccomp filters, and keeping host/guest kernels and host microcode patched.
+- The microVM must have no network interface for this profile. Source and toolchain inputs are immutable/read-only; output is a separately bounded artifact channel. Do not expose host sockets, credentials, Docker socket, production RPC, wallets, or host writable paths.
+- Firecracker's Jailer setup is a privileged host operation. Keep that privilege in a dedicated, narrowly scoped host service; do not run the API, Worker, model agents, or task-provided code as root.
+
+Primary upstream references:
+- Firecracker getting started / KVM and Jailer requirements: https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md
+- Production host setup and Jailer/seccomp/cgroup guidance: https://github.com/firecracker-microvm/firecracker/blob/main/docs/prod-host-setup.md
+- Firecracker threat model and sandboxing design: https://github.com/firecracker-microvm/firecracker/blob/main/docs/design.md
+- Firecracker release policy: https://github.com/firecracker-microvm/firecracker/blob/main/docs/RELEASE_POLICY.md
+
+### Deployment consequence
+
+Do not rely on GitHub-hosted Actions as the Firecracker execution host. GitHub documents nested virtualization as technically possible but unsupported and without stability or compatibility guarantees: https://docs.github.com/en/actions/concepts/runners/github-hosted-runners#nested-virtualization. Use CI for deterministic unit/contract tests; require a separately managed Linux KVM host (prefer dedicated bare metal or a cloud metal instance) for real microVM acceptance. A failed or unavailable KVM preflight must return NOT_RUN; never fall back to Docker or process isolation.
+
+### Initial version candidate
+
+At this checkpoint the upstream release policy lists Firecracker v1.18.0 as the current supported release (released 2026-11-09, support window ending 2027-05-09). Treat 1.18.0 only as the initial evaluation candidate. Before enabling execution, pin and independently verify the exact Firecracker and matching Jailer release artifact digests, guest kernel digest, and rootfs digest; confirm the release is still supported at deployment time. Do not pin floating tags or infer artifact integrity from a version string.
+
+### Host preflight implementation
+
+Added:
+- `shared/onchain_firecracker_host.py`
+- `tests/test_onchain_firecracker_host.py`
+
+The preflight is deliberately non-executing. It checks Linux architecture, root privilege required for the Jailer setup phase, accessible character-device `/dev/kvm`, cgroup v2 CPU/memory/pids controllers, executable Firecracker/Jailer artifacts, and exact SHA-256 matches for both binaries, guest kernel and rootfs. It returns READY/NOT_READY with named checks and a deterministic profile digest.
+
+A READY report means only that these host prerequisites and local artifact hashes match the operator-supplied profile. It does **not** prove Firecracker was securely launched, guest network is disabled, mounts are read-only, guest agent is trustworthy, cleanup works, or hostile code is contained. No VM or harness is started by this module.
+
+### Required before runner implementation
+
+1. Obtain and verify official Firecracker v1.18.0 release artifacts and matching Jailer; record release provenance and SHA-256 values.
+2. Build a minimal guest kernel/rootfs with only the fixed Foundry runner and required offline toolchain. Pin both image digests.
+3. Implement a dedicated privileged Jailer service with a narrow typed API; no user-controlled paths, argv, environment, kernel args, drives, or network configuration.
+4. Prove guest network absence, no host credentials/sockets, read-only source/toolchain, bounded output drive, CPU/memory/pids/disk/time limits, timeout kill, and destruction of VM plus scratch storage.
+5. Run adversarial acceptance on the actual dedicated KVM host. CI mocks alone do not satisfy this gate.
+6. Only then connect the existing typed on-chain admission and round store to the VM adapter, with a signed/verified guest execution receipt and independent result verification.
+
+Until these gates pass, the on-chain execution round remains NOT_RUN and the dedicated runner remains unavailable. The existing Docker Foundry prototype stays isolated and is not used for arbitrary public targets.

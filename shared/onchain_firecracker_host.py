@@ -87,14 +87,21 @@ def _is_character_device(path: Path) -> bool:
         return False
 
 
+def _artifact_present(artifact: FirecrackerArtifact) -> bool:
+    try:
+        return artifact.path.is_file() and artifact.path.stat().st_size > 0
+    except OSError:
+        return False
+
+
 def _artifact_check(artifact: FirecrackerArtifact) -> bool:
     try:
-        if not artifact.path.is_file():
+        if not _artifact_present(artifact):
             return False
         payload = artifact.path.read_bytes()
     except OSError:
         return False
-    return bool(payload) and hashlib.sha256(payload).hexdigest() == artifact.sha256
+    return hashlib.sha256(payload).hexdigest() == artifact.sha256
 
 
 def _executable_check(artifact: FirecrackerArtifact) -> bool:
@@ -142,6 +149,7 @@ def inspect_firecracker_host(
         ("guest_kernel", profile.guest_kernel),
         ("guest_rootfs", profile.guest_rootfs),
     ):
+        checks.append((f"{name}_present", _artifact_present(artifact)))
         checks.append((f"{name}_sha256", _artifact_check(artifact)))
     checks.append(("firecracker_executable", _executable_check(profile.firecracker)))
     checks.append(("jailer_executable", _executable_check(profile.jailer)))

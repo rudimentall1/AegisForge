@@ -333,3 +333,17 @@ A READY report means only that these host prerequisites and local artifact hashe
 6. Only then connect the existing typed on-chain admission and round store to the VM adapter, with a signed/verified guest execution receipt and independent result verification.
 
 Until these gates pass, the on-chain execution round remains NOT_RUN and the dedicated runner remains unavailable. The existing Docker Foundry prototype stays isolated and is not used for arbitrary public targets.
+
+
+## 18. Operator-driven Firecracker host preflight CLI — 2026-11-22
+
+Added a non-executing host inspection entry point:
+
+- `scripts/check_firecracker_host.py` reads an operator-supplied JSON profile and calls `inspect_firecracker_host()`.
+- The profile must contain exactly the Firecracker version and four artifact entries: Firecracker, matching Jailer, guest kernel, and guest rootfs. Each entry requires an absolute path and a lowercase 64-character SHA-256 digest.
+- Duplicate JSON keys, missing/unknown keys, relative paths, placeholder digests, malformed JSON, unreadable files, and malformed versions fail closed.
+- The CLI emits a machine-readable JSON report. Exit code 0 means only host prerequisites and local artifact digests passed; exit code 2 means NOT_READY or INVALID_PROFILE.
+- The JSON Schema is `docs/schemas/firecracker-host-profile.schema.json`; `docs/examples/firecracker-host-profile.example.json` is intentionally a non-runnable template with placeholder digests. Replace every placeholder only after independently verifying official artifact provenance and hashes.
+- Example invocation on the dedicated Linux KVM host: `sudo python scripts/check_firecracker_host.py --profile /etc/aegisforge/firecracker-host.json`.
+
+The command does not download artifacts, verify publisher signatures, launch Firecracker/Jailer, start a guest, or execute Foundry/target code. It does not establish microVM isolation or authorize runner activation. CI can validate its parsing/report contract, but real host acceptance still requires the dedicated KVM machine.

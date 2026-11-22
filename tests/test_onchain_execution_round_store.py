@@ -253,3 +253,25 @@ def test_round_rows_and_events_cannot_be_rewritten(context):
             "DELETE FROM onchain_execution_round_events WHERE round_id = ?",
             (record.round_id,),
         )
+
+
+def test_round_outcome_rejects_non_string_status(context):
+    queue, verifications, request, rounds = context
+    record = rounds.create_round(queue, verifications, request, _bundle())
+
+    with pytest.raises(OnchainExecutionRoundError, match="round_outcome_status_invalid"):
+        rounds.record_outcome(record.round_id, ["REPRODUCED"], "a" * 64)
+
+
+def test_round_event_foreign_key_rejects_orphan_events(context):
+    queue, verifications, request, rounds = context
+
+    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY constraint failed"):
+        rounds.db.execute(
+            """
+            INSERT INTO onchain_execution_round_events
+                (event_id, round_id, status, evidence_sha256, created_at)
+            VALUES (?, ?, 'NOT_RUN', NULL, ?)
+            """,
+            ("e" * 64, "f" * 64, "2026-11-22T00:00:00+00:00"),
+        )

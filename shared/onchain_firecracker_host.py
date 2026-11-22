@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import json
 import os
 from pathlib import Path
 import platform
@@ -30,7 +31,7 @@ class FirecrackerArtifact:
     sha256: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.path, Path):
+        if not isinstance(self.path, Path) or not self.path.is_absolute():
             raise FirecrackerHostProfileError("firecracker_artifact_path_invalid")
         if not isinstance(self.sha256, str) or not _SHA256_RE.fullmatch(self.sha256):
             raise FirecrackerHostProfileError("firecracker_artifact_digest_invalid")
@@ -60,7 +61,6 @@ class FirecrackerHostProfile:
             "guest_kernel": self.guest_kernel.sha256,
             "guest_rootfs": self.guest_rootfs.sha256,
         }
-        import json
         canonical = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(canonical).hexdigest()
 

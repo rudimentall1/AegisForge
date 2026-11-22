@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegisforge.dev/schemas/firecracker-host-profile-v1.json",
+  "title": "AegisForge Firecracker Host Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "artifacts"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["firecracker", "jailer", "guest_kernel", "guest_rootfs"],
+      "properties": {
+        "firecracker": { "$ref": "#/$defs/artifact" },
+        "jailer": { "$ref": "#/$defs/artifact" },
+        "guest_kernel": { "$ref": "#/$defs/artifact" },
+        "guest_rootfs": { "$ref": "#/$defs/artifact" }
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^/" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

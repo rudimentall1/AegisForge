@@ -41,7 +41,7 @@ def configured_compiler(monkeypatch, tmp_path):
     compiler = tmp_path / "solc"
     compiler.write_bytes(b"synthetic-solidity-compiler-binary")
     compiler.chmod(0o555)
-    monkeypatch.setattr(runner, "_resolve_solc_binary", lambda version: compiler)
+    monkeypatch.setattr(runner, "resolve_solc_binary", lambda version: compiler)
     monkeypatch.setattr(runner, "_probe_solc_binary", lambda path, version: "OK")
 
 
@@ -366,7 +366,7 @@ def test_foundry_runner_rejects_malformed_test_status_type(monkeypatch):
 def test_foundry_runner_requires_compiler_binary_when_not_installed(monkeypatch):
     import agents.security_checker.foundry_runner as runner
 
-    monkeypatch.setattr(runner, "_resolve_solc_binary", lambda version: None)
+    monkeypatch.setattr(runner, "resolve_solc_binary", lambda version: None)
     monkeypatch.delenv("AEGISFORGE_AUTO_INSTALL_SOLC", raising=False)
 
     result = run_foundry_test(
@@ -394,7 +394,7 @@ def test_foundry_runner_installs_compiler_only_with_explicit_opt_in(
     monkeypatch.setenv("AEGISFORGE_AUTO_INSTALL_SOLC", "1")
     monkeypatch.setattr(
         runner,
-        "_resolve_solc_binary",
+        "resolve_solc_binary",
         lambda version: None if not observed["install_commands"] else compiler,
     )
     monkeypatch.setattr(runner, "_probe_solc_binary", lambda path, version: "OK")

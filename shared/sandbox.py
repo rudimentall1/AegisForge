@@ -79,13 +79,14 @@ def _bounded_run(
     max_output_bytes: int,
     preexec_fn=None,
     isolation: str,
+    stdin_file=None,
 ) -> SandboxResult:
     started = time.monotonic()
     try:
         process = subprocess.Popen(
             command,
             cwd=str(cwd),
-            stdin=subprocess.DEVNULL,
+            stdin=stdin_file if stdin_file is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=False,
@@ -257,6 +258,7 @@ def run_in_container(
     *,
     image: str,
     entrypoint: str | None = None,
+    stdin_path: Path | None = None,
 ) -> SandboxResult:
     """Run a command in a digest-pinned, networkless Docker container.
 
@@ -288,6 +290,18 @@ def run_in_container(
         or not re.fullmatch(r"[A-Za-z0-9_./-]+", entrypoint)
     ):
         raise SandboxError("container_entrypoint_invalid")
+    input_file = None
+    if stdin_path is not None:
+        try:
+            resolved_stdin = Path(stdin_path).resolve(strict=True)
+            resolved_stdin.relative_to(root)
+            if not resolved_stdin.is_file() or resolved_stdin.stat().st_size > 8 * 1024 * 1024:
+                raise SandboxError("stdin_path_invalid")
+            input_file = resolved_stdin.open("rb")
+        except SandboxError:
+            raise
+        except (OSError, TypeError, ValueError) as exc:
+            raise SandboxError("stdin_path_invalid") from exc
 
     container_name = f"aegisforge-run-{uuid.uuid4().hex}"
     docker_command = [
@@ -295,6 +309,7 @@ def run_in_container(
         "run",
         "--rm",
         "--init",
+        *(["-i"] if input_file is not None else []),
         "--name",
         container_name,
         "--pull=never",
@@ -318,29 +333,34 @@ def run_in_container(
         docker_command.append(f"--entrypoint={entrypoint}")
     docker_command.extend([image, *argv])
     try:
-        return _bounded_run(
-            docker_command,
-            cwd=root,
-            timeout_seconds=limits.timeout_seconds,
-            max_output_bytes=limits.max_output_bytes,
-            isolation="container",
-        )
-    except SandboxError as exc:
-        if str(exc) == "execution_timeout":
-            for cleanup_command in (
-                [docker, "kill", container_name],
-                [docker, "rm", "-f", container_name],
-            ):
-                try:
-                    subprocess.run(
-                        cleanup_command,
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=5,
-                        check=False,
-                        shell=False,
-                    )
-                except (OSError, subprocess.TimeoutExpired):
-                    pass
-        raise
+        try:
+            return _bounded_run(
+                docker_command,
+                cwd=root,
+                timeout_seconds=limits.timeout_seconds,
+                max_output_bytes=limits.max_output_bytes,
+                isolation="container",
+                stdin_file=input_file,
+            )
+        except SandboxError as exc:
+            if str(exc) == "execution_timeout":
+                for cleanup_command in (
+                    [docker, "kill", container_name],
+                    [docker, "rm", "-f", container_name],
+                ):
+                    try:
+                        subprocess.run(
+                            cleanup_command,
+                            stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=5,
+                            check=False,
+                            shell=False,
+                        )
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+            raise
+    finally:
+        if input_file is not None:
+            input_file.close()

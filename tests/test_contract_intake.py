@@ -156,6 +156,7 @@ def test_rpc_attestation_checks_chain_and_nonempty_deployed_code():
     assert len(attestation["runtime_code_sha256"]) == 64
     assert attestation["block_number"] == 123456
     assert attestation["block_hash"] == "0x" + "a" * 64
+    assert attestation["runtime_code"] == "0x6001600055"
     assert calls == ["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getCode"]
 
 

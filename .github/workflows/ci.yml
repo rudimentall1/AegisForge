@@ -310,6 +310,45 @@ jobs:
             python -m pip install -r requirements.txt
           fi
           python -m pip install pytest
+      - name: Provision pinned solc and Anvil fixture
+        env:
+          FOUNDRY_IMAGE: ghcr.io/foundry-rs/foundry@sha256:97390dbfb6bd54d86e0817ba2900ee01cd522405631997b7d967eb149a7affde
+          SOLC_SHA256: fb03a29a517452b9f12bcf459ef37d0a543765bb3bbc911e70a87d6a37c30d5f
+        run: |
+          set -euo pipefail
+          solc_path=/usr/local/bin/solc-0.8.24
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.24+commit.e11b9ed9" \
+            --output "$solc_path"
+          echo "$SOLC_SHA256  $solc_path" | sha256sum --check --status
+          chmod 0755 "$solc_path"
+          "$solc_path" --version
+          docker pull "$FOUNDRY_IMAGE"
+          docker run --detach --name aegisforge-anvil \
+            --publish 127.0.0.1:8545:8545 \
+            --entrypoint anvil \
+            "$FOUNDRY_IMAGE" \
+            --host 0.0.0.0 --port 8545 --chain-id 31337
+          echo "AEGISFORGE_SOLC_BINARY=$solc_path" >> "$GITHUB_ENV"
+          echo "AEGISFORGE_FOUNDRY_IMAGE=$FOUNDRY_IMAGE" >> "$GITHUB_ENV"
+          echo "AEGISFORGE_ANVIL_RPC_URL=http://127.0.0.1:8545" >> "$GITHUB_ENV"
+          ready=0
+          for attempt in $(seq 1 30); do
+            response="$(curl --silent --show-error --max-time 2 \
+              --header 'Content-Type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
+              http://127.0.0.1:8545 || true)"
+            if [[ "$response" == *'"result":"0x7a69"'* ]]; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs aegisforge-anvil || true
+            echo "Anvil did not become ready on chain ID 31337" >&2
+            exit 1
+          fi
       - name: Compile on-chain pipeline modules
         run: |
           python -m compileall -q \
@@ -318,8 +357,15 @@ jobs:
             agents/security_checker/agent.py \
             scam_intelligence/contract_intake.py \
             shared/onchain_research_case.py \
+            shared/onchain_execution_admission.py \
+            shared/onchain_execution_round_store.py \
+            shared/onchain_firecracker_host.py \
             shared/onchain_target_store.py \
             shared/solidity_source_analysis.py \
+            shared/solidity_bytecode_verifier.py \
+            shared/solidity_compiler.py \
+            shared/solc_toolchain.py \
+            shared/sandbox.py \
             shared/queue.py \
             tests
       - name: Run focused on-chain source tests
@@ -328,6 +374,23 @@ jobs:
             tests/test_onchain_standard_json_provenance.py \
             tests/test_onchain_source_pipeline.py \
             tests/test_onchain_research_case.py \
+            tests/test_onchain_execution_admission.py \
+            tests/test_onchain_execution_round_store.py \
+            tests/test_onchain_firecracker_host.py \
             tests/test_solidity_source_analysis.py \
             tests/test_security_checker_offline.py \
-            tests/test_worker_onchain_pipeline.py
+            tests/test_worker_onchain_pipeline.py \
+            tests/test_onchain_bytecode_verification.py \
+            tests/test_onchain_verification_store.py \
+            tests/test_solidity_compiler.py \
+            tests/test_sandbox.py \
+            tests/test_solc_toolchain.py
+
+      - name: Run real solc and Anvil source/runtime integration
+        env:
+          AEGISFORGE_RUN_REAL_SOLC_INTEGRATION: "1"
+        run: |
+          python -m pytest -q --tb=short tests/test_solidity_compiler_anvil_integration.py
+      - name: Stop Anvil fixture
+        if: always()
+        run: docker rm --force aegisforge-anvil || true

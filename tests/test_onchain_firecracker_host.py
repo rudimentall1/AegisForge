@@ -161,3 +161,10 @@ def test_host_probe_hashes_large_artifacts_in_bounded_chunks(host_profile, monke
     report = inspect_firecracker_host(host_profile, kvm_device=kvm, cgroup_root=cgroup)
 
     assert report.ready is True
+
+
+def test_artifact_profile_requires_absolute_operator_paths():
+    from shared.onchain_firecracker_host import FirecrackerHostProfileError
+
+    with pytest.raises(FirecrackerHostProfileError, match="firecracker_artifact_path_invalid"):
+        FirecrackerArtifact(path=__import__("pathlib").Path("relative/firecracker"), sha256="a" * 64)

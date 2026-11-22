@@ -146,3 +146,18 @@ def test_host_probe_rejects_missing_guest_kernel(host_profile, monkeypatch, tmp_
 
     assert report.ready is False
     assert "guest_kernel_present" in report.failed_checks
+
+
+def test_host_probe_hashes_large_artifacts_in_bounded_chunks(host_profile, monkeypatch, tmp_path):
+    import shared.onchain_firecracker_host as host
+
+    kvm, cgroup = _host(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        host.Path,
+        "read_bytes",
+        lambda self: (_ for _ in ()).throw(AssertionError("unbounded read_bytes is forbidden")),
+    )
+
+    report = inspect_firecracker_host(host_profile, kvm_device=kvm, cgroup_root=cgroup)
+
+    assert report.ready is True

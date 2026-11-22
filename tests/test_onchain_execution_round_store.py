@@ -1,3 +1,4 @@
+from datetime import date
 import hashlib
 import json
 import sqlite3
@@ -5,7 +6,10 @@ import sqlite3
 import pytest
 
 import shared.queue as queue_module
-from shared.onchain_execution_admission import OnchainExecutionRequest
+from shared.onchain_execution_admission import (
+    OnchainExecutionAdmissionError,
+    OnchainExecutionRequest,
+)
 from shared.onchain_research_case import OnchainResearchCase
 from shared.onchain_target_store import OnchainTargetRecord, OnchainTargetStore
 from shared.onchain_verification_store import (
@@ -46,9 +50,9 @@ def _target():
     )
 
 
-def _bundle():
+def _bundle(primary="contract PrimaryControl {}"):
     return OnchainHarnessBundle(
-        primary_harness="contract PrimaryControl {}",
+        primary_harness=primary,
         positive_control="contract PositiveControl {}",
         negative_control="contract NegativeControl {}",
     )
@@ -66,7 +70,7 @@ def context(tmp_path, monkeypatch):
         target_id=target.target_id,
         scope_url="https://example.com/security-scope",
         scope_digest=hashlib.sha256(b"scope").hexdigest(),
-        scope_reviewed_on=__import__("datetime").date.today().isoformat(),
+        scope_reviewed_on=date.today().isoformat(),
         authorization_reference="https://example.com/authorization/round-001",
         hypothesis="A bounded local harness may violate the protected-state invariant",
         expected_invariant="Unauthorized callers cannot change protected state",
@@ -111,6 +115,8 @@ def test_round_is_created_from_persisted_admission_and_starts_not_run(context):
     assert record.authorization_reference == request.authorization_reference
     assert record.harness_sha256 == _bundle().sha256
     assert record.profile == "foundry_reproduction"
+    assert record.confirmed is False
+    assert record.evidence_scope == "LOCAL_HARNESS_ONLY"
     assert rounds.get_round(record.round_id) == record
 
 
@@ -127,11 +133,7 @@ def test_identical_round_request_is_idempotent(context):
 def test_changed_harness_creates_a_distinct_round(context):
     queue, verifications, request, rounds = context
     first = rounds.create_round(queue, verifications, request, _bundle())
-    changed = OnchainHarnessBundle(
-        primary_harness="contract ChangedPrimary {}",
-        positive_control="contract PositiveControl {}",
-        negative_control="contract NegativeControl {}",
-    )
+    changed = _bundle("contract ChangedPrimary {}")
 
     second = rounds.create_round(queue, verifications, request, changed)
 
@@ -155,7 +157,16 @@ def test_harness_bundle_requires_both_independent_controls():
         )
 
 
-def test_harness_bundle_enforces_per_artifact_and_total_size_limits():
+def test_harness_bundle_rejects_duplicate_control_artifacts():
+    with pytest.raises(OnchainExecutionRoundError, match="harness_controls_must_be_distinct"):
+        OnchainHarnessBundle(
+            primary_harness="contract Same {}",
+            positive_control="contract Same {}",
+            negative_control="contract Different {}",
+        )
+
+
+def test_harness_bundle_enforces_per_artifact_size_limit():
     with pytest.raises(OnchainExecutionRoundError, match="harness_artifact_too_large"):
         OnchainHarnessBundle(
             primary_harness="x" * (256 * 1024 + 1),
@@ -173,25 +184,50 @@ def test_round_creation_rejects_non_admissible_verification(context):
     )
     verifications.put(incomplete)
 
-    with pytest.raises(Exception, match="verification_record_not_latest"):
+    with pytest.raises(OnchainExecutionAdmissionError, match="verification_record_not_latest"):
         rounds.create_round(queue, verifications, request, _bundle())
 
 
-def test_round_statuses_are_distinct_and_append_only(context):
+def test_round_outcome_statuses_remain_distinct(context):
+    queue, verifications, request, rounds = context
+
+    for index, status in enumerate(("INCONCLUSIVE", "SOURCE_ONLY", "NOT_REPRODUCED", "REPRODUCED")):
+        record = rounds.create_round(
+            queue,
+            verifications,
+            request,
+            _bundle(f"contract PrimaryControl{index} {{}}"),
+        )
+        evidence_digest = hashlib.sha256(status.encode("ascii")).hexdigest()
+        updated = rounds.record_outcome(record.round_id, status, evidence_digest)
+
+        assert updated.status == status
+        assert updated.evidence_sha256 == evidence_digest
+        assert updated.confirmed is False
+        assert updated.evidence_scope == "LOCAL_HARNESS_ONLY"
+        assert rounds.record_outcome(record.round_id, status, evidence_digest) == updated
+
+    assert rounds.count() == 4
+
+
+def test_round_outcome_rejects_unknown_status_and_invalid_digest(context):
     queue, verifications, request, rounds = context
     record = rounds.create_round(queue, verifications, request, _bundle())
 
-    for status in ("INCONCLUSIVE", "SOURCE_ONLY", "NOT_REPRODUCED", "REPRODUCED"):
-        db = sqlite3.connect(":memory:")
-        isolated = OnchainExecutionRoundStore(db)
-        assert isolated.count() == 0
-        db.close()
+    with pytest.raises(OnchainExecutionRoundError, match="round_outcome_status_invalid"):
+        rounds.record_outcome(record.round_id, "CONFIRMED", "a" * 64)
+    with pytest.raises(OnchainExecutionRoundError, match="round_evidence_sha256_invalid"):
+        rounds.record_outcome(record.round_id, "REPRODUCED", "not-a-digest")
 
+
+def test_round_outcome_cannot_be_changed_after_terminal_status(context):
+    queue, verifications, request, rounds = context
+    record = rounds.create_round(queue, verifications, request, _bundle())
     evidence_digest = hashlib.sha256(b"runner-evidence").hexdigest()
+
     updated = rounds.record_outcome(record.round_id, "REPRODUCED", evidence_digest)
 
     assert updated.status == "REPRODUCED"
-    assert rounds.get_round(record.round_id).status == "REPRODUCED"
     with pytest.raises(OnchainExecutionRoundError, match="round_outcome_already_recorded"):
         rounds.record_outcome(record.round_id, "NOT_REPRODUCED", evidence_digest)
 
@@ -199,9 +235,21 @@ def test_round_statuses_are_distinct_and_append_only(context):
 def test_round_rows_and_events_cannot_be_rewritten(context):
     queue, verifications, request, rounds = context
     record = rounds.create_round(queue, verifications, request, _bundle())
+    evidence_digest = hashlib.sha256(b"runner-evidence").hexdigest()
+    rounds.record_outcome(record.round_id, "REPRODUCED", evidence_digest)
 
     with pytest.raises(sqlite3.IntegrityError, match="onchain_execution_round_immutable"):
         rounds.db.execute(
-            "UPDATE onchain_execution_rounds SET status = 'REPRODUCED' WHERE round_id = ?",
+            "UPDATE onchain_execution_rounds SET case_id = 'rewritten' WHERE round_id = ?",
+            (record.round_id,),
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="onchain_execution_round_event_immutable"):
+        rounds.db.execute(
+            "UPDATE onchain_execution_round_events SET status = 'NOT_REPRODUCED' WHERE round_id = ?",
+            (record.round_id,),
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="onchain_execution_round_event_immutable"):
+        rounds.db.execute(
+            "DELETE FROM onchain_execution_round_events WHERE round_id = ?",
             (record.round_id,),
         )

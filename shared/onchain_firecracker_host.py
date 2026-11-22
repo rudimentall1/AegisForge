@@ -140,7 +140,11 @@ def inspect_firecracker_host(
 
     controllers_path = cgroup_root / "cgroup.controllers"
     try:
-        controllers = set(controllers_path.read_text(encoding="ascii").split())
+        with controllers_path.open("r", encoding="ascii") as source:
+            controller_text = source.read(4096)
+            if len(controller_text) >= 4096:
+                raise OSError("cgroup_controller_list_too_large")
+        controllers = set(controller_text.split())
         cgroup_ok = _REQUIRED_CGROUP_CONTROLLERS.issubset(controllers)
     except (OSError, UnicodeError):
         cgroup_ok = False

@@ -3,15 +3,15 @@
 **Updated:** 2026-11-22
 **Repository:** https://github.com/rudimentall1/AegisForge  
 **Working branch:** `feat/onchain-bytecode-verification`  
-**Latest implementation commit:** `182d8b41510c753a43e00e43459eabca42d40119`  
+**Latest implementation commit:** `a82e9649d0bb12482211d5a1cdfe8b67dd321052`  
 **PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211) — OPEN, DRAFT, not merged  
 **Release gate:** [Issue #158](https://github.com/rudimentall1/AegisForge/issues/158) — OPEN
 
 ## 1. Where we stopped (verified repository state)
 
-- PR #211 currently has 86 commits and 31 changed files before the host CLI commits; latest observed PR head at checkpoint refresh: `182d8b41510c753a43e00e43459eabca42d40119`; base: `fix/onchain-security-checker-offline`.
+- PR #211 currently has 88 commits and 31 changed files; latest observed PR head at checkpoint refresh: `1634dc6bab08e9bf43e3eab88fab91bd384527d1`; base: `fix/onchain-security-checker-offline`.
 - PR remains OPEN and DRAFT. Latest observed PR metadata reports `mergeable: true`; this is not approval to merge. Keep Draft until release gate #158 is satisfied.
-- Latest completed exact-head validation: CI #2513 / ID `44994130339` on `401e8af9ed8562fe0ae0bdec9207bf23a94b1ea3` — SUCCESS. The subsequent host CLI changes require a new exact-head CI run. Full suite: 2,119 passed, 3 skipped, 4 warnings, 30 subtests; focused on-chain suite: 135 passed; real solc + Anvil integration: 1 passed.
+- Latest completed implementation validation: CI #2516 / ID `44995176902` on `182d8b41510c753a43e00e43459eabca42d40119` — SUCCESS. Full suite: 2,130 passed, 3 skipped, 4 warnings, 30 subtests; focused on-chain suite: 135 passed; real solc + Anvil integration: 1 passed. A subsequent docs/checkpoint-only commit is awaiting its own exact-head CI.
 - Issue #158 remains open. Its acceptance contract still requires one clean-runner, local-only path from immutable Research Case registration through bounded experiment, evidence export, independent verification, adversarial rejection tests, and honest machine-readable statuses.
 - `docs/SESSION-CHECKPOINT.md` is maintained on this PR branch as the handoff record.
 - `README.md`, `docs/ARCHITECTURE.md`, and `docs/PRODUCT-READINESS.md` all explicitly say release readiness and commercial fit are not established.
@@ -784,5 +784,5 @@ This is the first real compiler + local EVM deployment proof. It is not a mocked
 - Added `scripts/check_firecracker_host.py`: strict operator JSON profile loader, duplicate-key rejection, exact key sets, absolute artifact paths, version and SHA-256 validation, JSON output, and fail-closed exit codes.
 - Added `docs/schemas/firecracker-host-profile.schema.json` and the intentionally non-runnable `docs/examples/firecracker-host-profile.example.json` template. Placeholder digests are not valid input.
 - Added `tests/test_check_firecracker_host_cli.py` for valid profiles, malformed/placeholder digests, relative paths, unknown/missing keys, duplicate JSON keys, READY/NOT_READY exit behavior, and invalid-profile JSON output.
-- Latest implementation commit at checkpoint creation: `182d8b41510c753a43e00e43459eabca42d40119`; CI for the exact final head is still required.
+- Latest implementation commit: `a82e9649d0bb12482211d5a1cdfe8b67dd321052`; validated by CI #2516 / run ID `44995176902` (full suite 2,130 passed; focused on-chain 135 passed; real solc + Anvil integration 1 passed). PR head at checkpoint refresh: `1634dc6bab08e9bf43e3eab88fab91bd384527d1`; docs-only changes still require exact-head CI.
 - The CLI is non-executing. READY proves only host prerequisites and local artifact digest matches; it does not prove release provenance, secure VM launch, guest isolation, or hostile-code containment.

@@ -3,15 +3,15 @@
 **Updated:** 2026-11-22
 **Repository:** https://github.com/rudimentall1/AegisForge  
 **Working branch:** `feat/onchain-bytecode-verification`  
-**Latest implementation commit:** `d1f0d95430cf12452635b34590ae8434e7403ca3`  
+**Latest implementation commit:** `182d8b41510c753a43e00e43459eabca42d40119`  
 **PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211) — OPEN, DRAFT, not merged  
 **Release gate:** [Issue #158](https://github.com/rudimentall1/AegisForge/issues/158) — OPEN
 
 ## 1. Where we stopped (verified repository state)
 
-- PR #211 currently has 81 commits and 27 changed files; latest PR head: `d1f0d95430cf12452635b34590ae8434e7403ca3`; base: `fix/onchain-security-checker-offline`.
+- PR #211 currently has 86 commits and 31 changed files before the host CLI commits; latest observed PR head at checkpoint refresh: `182d8b41510c753a43e00e43459eabca42d40119`; base: `fix/onchain-security-checker-offline`.
 - PR remains OPEN and DRAFT. Latest observed PR metadata reports `mergeable: true`; this is not approval to merge. Keep Draft until release gate #158 is satisfied.
-- Latest exact-head validation: CI #2512 / ID `44993983795` on `d1f0d95430cf12452635b34590ae8434e7403ca3` — SUCCESS. Full suite: 2,119 passed, 3 skipped, 4 warnings, 30 subtests; focused on-chain suite: 135 passed; real solc + Anvil integration: 1 passed.
+- Latest completed exact-head validation: CI #2513 / ID `44994130339` on `401e8af9ed8562fe0ae0bdec9207bf23a94b1ea3` — SUCCESS. The subsequent host CLI changes require a new exact-head CI run. Full suite: 2,119 passed, 3 skipped, 4 warnings, 30 subtests; focused on-chain suite: 135 passed; real solc + Anvil integration: 1 passed.
 - Issue #158 remains open. Its acceptance contract still requires one clean-runner, local-only path from immutable Research Case registration through bounded experiment, evidence export, independent verification, adversarial rejection tests, and honest machine-readable statuses.
 - `docs/SESSION-CHECKPOINT.md` is maintained on this PR branch as the handoff record.
 - `README.md`, `docs/ARCHITECTURE.md`, and `docs/PRODUCT-READINESS.md` all explicitly say release readiness and commercial fit are not established.
@@ -777,3 +777,12 @@ This is the first real compiler + local EVM deployment proof. It is not a mocked
 - TDD found and corrected a host-probe issue: cgroup controller reading indirectly used `Path.read_bytes()`, violating the bounded-artifact-read test. The cgroup file is now read through a bounded 4 KiB stream; artifact digests are streamed in bounded 1 MiB chunks.
 - PR #211 remains OPEN, DRAFT, mergeable and unmerged. No Firecracker binary has been launched; no microVM, guest, Foundry harness, Worker integration, or public-chain transaction has been executed.
 - **Next gate:** provision a dedicated Linux KVM host; verify official Firecracker/Jailer release provenance and exact digests; build and pin a minimal guest kernel/rootfs with a fixed offline Foundry agent; then implement the narrowly scoped Jailer service and adversarial host-isolation acceptance. Do not fall back to Docker/process isolation if any preflight or VM control fails.
+
+
+## 39. Firecracker host preflight CLI — 2026-11-22
+
+- Added `scripts/check_firecracker_host.py`: strict operator JSON profile loader, duplicate-key rejection, exact key sets, absolute artifact paths, version and SHA-256 validation, JSON output, and fail-closed exit codes.
+- Added `docs/schemas/firecracker-host-profile.schema.json` and the intentionally non-runnable `docs/examples/firecracker-host-profile.example.json` template. Placeholder digests are not valid input.
+- Added `tests/test_check_firecracker_host_cli.py` for valid profiles, malformed/placeholder digests, relative paths, unknown/missing keys, duplicate JSON keys, READY/NOT_READY exit behavior, and invalid-profile JSON output.
+- Latest implementation commit at checkpoint creation: `182d8b41510c753a43e00e43459eabca42d40119`; CI for the exact final head is still required.
+- The CLI is non-executing. READY proves only host prerequisites and local artifact digest matches; it does not prove release provenance, secure VM launch, guest isolation, or hostile-code containment.

@@ -108,6 +108,7 @@ class OnchainExecutionRoundStore:
         if not isinstance(db, sqlite3.Connection):
             raise OnchainExecutionRoundError("sqlite_connection_required")
         self.db = db
+        self.db.execute("PRAGMA foreign_keys = ON")
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS onchain_execution_rounds (
                 round_id TEXT PRIMARY KEY,
@@ -279,7 +280,7 @@ class OnchainExecutionRoundStore:
         """Append one terminal assessment; a local reproduction is never 'confirmed'."""
         if not isinstance(round_id, str) or not _HASH32_RE.fullmatch(round_id):
             raise OnchainExecutionRoundError("round_id_invalid")
-        if status not in _FINAL_STATUSES:
+        if not isinstance(status, str) or status not in _FINAL_STATUSES:
             raise OnchainExecutionRoundError("round_outcome_status_invalid")
         digest = _validate_digest(evidence_sha256, "round_evidence_sha256")
 

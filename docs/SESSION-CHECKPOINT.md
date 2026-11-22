@@ -1,10 +1,10 @@
 # Session Checkpoint — AegisForge
 
-**Updated:** 2026-11-15
+**Updated:** 2026-11-22
 **Repository:** https://github.com/rudimentall1/AegisForge  
-**Working branch:** `feat/persist-local-experiment-evidence-main`  
-**Latest implementation commit:** `9189d21ae56514ca1757fd4c2f4b4e2097870cc0`  
-**PR:** [#196](https://github.com/rudimentall1/AegisForge/pull/196) — OPEN, DRAFT, not merged  
+**Working branch:** `feat/onchain-bytecode-verification`  
+**Latest implementation commit:** `3afe4cc6013571792a1e06d32a600dcc65f133a3`  
+**PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211) — OPEN, DRAFT, not merged  
 **Release gate:** [Issue #158](https://github.com/rudimentall1/AegisForge/issues/158) — OPEN
 
 ## 1. Where we stopped (verified repository state)
@@ -752,3 +752,13 @@ This is the first real compiler + local EVM deployment proof. It is not a mocked
 - CI run #2497 / ID `44991258541`: **SUCCESS** on head `2a903dfffe93a8b0d48810df0d00d63109bf76d9`. Full suite: **2,106 passed, 3 skipped, 4 warnings, 30 subtests passed**. Focused on-chain source/compiler/admission suite: **111 passed**. Real solc + Anvil integration: **1 passed**.
 - PR #211 remains OPEN, DRAFT and unmerged. No runner or Worker orchestration has been added. No target harness was executed by this round-store work.
 - **Isolation blocker remains:** `shared/sandbox.py` explicitly documents Docker as a container boundary, not a complete hostile-code sandbox; the Docker daemon/runtime remains a privileged boundary. Do not execute untrusted generated harnesses through the current Docker adapter. Next: select and validate a disposable VM/microVM backend, then implement the fixed-profile runner with positive/negative control execution and evidence capture.
+
+
+## 37. Execution-round hardening and current CI — 2026-11-22
+
+- Added negative tests for malformed (non-string) outcome status and orphan round events. CI #2499 / ID `44991403578` reproduced both defects: unhashable status raised raw `TypeError`, and SQLite foreign keys were not enabled on the shared connection.
+- Fixed the boundary: `record_outcome()` now rejects non-string statuses with `OnchainExecutionRoundError`; `OnchainExecutionRoundStore` enables SQLite foreign-key enforcement before creating the round/event schema.
+- CI #2500 / ID `44991500554`: **SUCCESS** on code head `3afe4cc6013571792a1e06d32a600dcc65f133a3`. Full suite: **2,108 passed, 3 skipped, 4 warnings, 30 subtests passed**. Focused on-chain source/compiler/admission suite: **111 passed**. Real solc + Anvil integration: **1 passed**.
+- The previous CI #2497 / ID `44991258541` remains the full validation of the core round-store behavior; #2500 additionally covers the two hardening regressions.
+- `record_outcome()` is a persistence boundary, not proof that a runner actually executed. Until the dedicated runner and its independently verifiable receipt are implemented, do not treat a stored terminal label or caller-supplied evidence digest as trusted execution attestation. `REPRODUCED` remains local-only and unconfirmed.
+- PR #211 remains OPEN and DRAFT. No merge, runner execution, Worker integration, live-chain reproduction, or public-chain transaction occurred.

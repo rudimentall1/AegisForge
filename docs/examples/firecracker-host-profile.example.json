@@ -1,0 +1,21 @@
+{
+  "version": "1.18.0",
+  "artifacts": {
+    "firecracker": {
+      "path": "/opt/firecracker/v1.18.0/firecracker",
+      "sha256": "REPLACE_WITH_OFFICIALLY_VERIFIED_FIRECRACKER_SHA256"
+    },
+    "jailer": {
+      "path": "/opt/firecracker/v1.18.0/jailer",
+      "sha256": "REPLACE_WITH_OFFICIALLY_VERIFIED_MATCHING_JAILER_SHA256"
+    },
+    "guest_kernel": {
+      "path": "/opt/aegisforge/guest/vmlinux",
+      "sha256": "REPLACE_WITH_VERIFIED_GUEST_KERNEL_SHA256"
+    },
+    "guest_rootfs": {
+      "path": "/opt/aegisforge/guest/rootfs.ext4",
+      "sha256": "REPLACE_WITH_VERIFIED_GUEST_ROOTFS_SHA256"
+    }
+  }
+}

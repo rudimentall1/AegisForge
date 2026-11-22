@@ -145,4 +145,4 @@ def test_host_probe_rejects_missing_guest_kernel(host_profile, monkeypatch, tmp_
     report = inspect_firecracker_host(host_profile, kvm_device=kvm, cgroup_root=cgroup)
 
     assert report.ready is False
-    assert "guest_kernel_missing" in report.failed_checks
+    assert "guest_kernel_present" in report.failed_checks

@@ -3,15 +3,15 @@
 **Updated:** 2026-11-22
 **Repository:** https://github.com/rudimentall1/AegisForge  
 **Working branch:** `feat/onchain-bytecode-verification`  
-**Latest implementation commit:** `3afe4cc6013571792a1e06d32a600dcc65f133a3`  
+**Latest implementation commit:** `d1f0d95430cf12452635b34590ae8434e7403ca3`  
 **PR:** [#211](https://github.com/rudimentall1/AegisForge/pull/211) — OPEN, DRAFT, not merged  
 **Release gate:** [Issue #158](https://github.com/rudimentall1/AegisForge/issues/158) — OPEN
 
 ## 1. Where we stopped (verified repository state)
 
-- PR #196 currently has 319 commits, 57 changed files; latest PR head: `ba8a145720b5dfd7752ec85b7fac1b3a19fa72bb` (checkpoint-only commit); latest implementation/test head: `9189d21ae56514ca1757fd4c2f4b4e2097870cc0`; base: `0adfc88c41e8c48c8ed25f2b25ef8db67cab5370`.
+- PR #211 currently has 81 commits and 27 changed files; latest PR head: `d1f0d95430cf12452635b34590ae8434e7403ca3`; base: `fix/onchain-security-checker-offline`.
 - PR remains OPEN and DRAFT. Latest observed PR metadata reports `mergeable: true`; this is not approval to merge. Keep Draft until release gate #158 is satisfied.
-- Historical CI run #1615 is retained below for chronology; current code verification is CI #1680 / ID `43677460311` (see section 22). The latest checkpoint-only commit `b4f070b...` has no workflow run returned yet.
+- Latest exact-head validation: CI #2512 / ID `44993983795` on `d1f0d95430cf12452635b34590ae8434e7403ca3` — SUCCESS. Full suite: 2,119 passed, 3 skipped, 4 warnings, 30 subtests; focused on-chain suite: 135 passed; real solc + Anvil integration: 1 passed.
 - Issue #158 remains open. Its acceptance contract still requires one clean-runner, local-only path from immutable Research Case registration through bounded experiment, evidence export, independent verification, adversarial rejection tests, and honest machine-readable statuses.
 - `docs/SESSION-CHECKPOINT.md` is maintained on this PR branch as the handoff record.
 - `README.md`, `docs/ARCHITECTURE.md`, and `docs/PRODUCT-READINESS.md` all explicitly say release readiness and commercial fit are not established.
@@ -762,3 +762,18 @@ This is the first real compiler + local EVM deployment proof. It is not a mocked
 - The previous CI #2497 / ID `44991258541` remains the full validation of the core round-store behavior; #2500 additionally covers the two hardening regressions.
 - `record_outcome()` is a persistence boundary, not proof that a runner actually executed. Until the dedicated runner and its independently verifiable receipt are implemented, do not treat a stored terminal label or caller-supplied evidence digest as trusted execution attestation. `REPRODUCED` remains local-only and unconfirmed.
 - PR #211 remains OPEN and DRAFT. No merge, runner execution, Worker integration, live-chain reproduction, or public-chain transaction occurred.
+
+
+## 38. Firecracker microVM host preflight and backend decision — 2026-11-22
+
+- Added `shared/onchain_firecracker_host.py` and `tests/test_onchain_firecracker_host.py`.
+- The new host preflight is deliberately non-executing: it never starts Firecracker, Jailer, a guest, Foundry, or target code.
+- It validates Linux host and supported architecture; root privilege needed for the Jailer setup phase; `/dev/kvm` character-device identity and read/write access; cgroup v2 `cpu`, `memory`, and `pids` controllers; absolute operator-supplied artifact paths; executable Firecracker and Jailer binaries; non-empty pinned Firecracker/Jailer/guest-kernel/rootfs artifacts; and exact SHA-256 values.
+- Artifact hashing is streamed in 1 MiB chunks rather than loading the guest rootfs into memory. Cgroup controller metadata is read with a 4 KiB bound. Missing artifacts and digest mismatches are separately reported.
+- Added focused CI coverage for the round store and Firecracker host preflight in `.github/workflows/ci.yml`.
+- Backend decision documented in `docs/PINNED-TARGET-EXECUTION-ADAPTER-DESIGN.md`: Firecracker + matching Jailer is the first candidate for hostile public harness execution. GitHub-hosted Actions are not a guaranteed Firecracker host because nested virtualization is unsupported; use CI for unit/contract tests and a dedicated Linux KVM host for real microVM acceptance.
+- Firecracker v1.18.0 is only the initial evaluation candidate based on the upstream release policy at this checkpoint. Official release binary hashes, matching Jailer hashes, guest kernel/rootfs digests, and deployment host have not yet been acquired or verified.
+- CI #2512 / ID `44993983795` on exact head `d1f0d95430cf12452635b34590ae8434e7403ca3`: **SUCCESS**. Full suite: **2,119 passed, 3 skipped, 4 warnings, 30 subtests passed**. Focused on-chain suite: **135 passed**. Real solc + Anvil integration: **1 passed**.
+- TDD found and corrected a host-probe issue: cgroup controller reading indirectly used `Path.read_bytes()`, violating the bounded-artifact-read test. The cgroup file is now read through a bounded 4 KiB stream; artifact digests are streamed in bounded 1 MiB chunks.
+- PR #211 remains OPEN, DRAFT, mergeable and unmerged. No Firecracker binary has been launched; no microVM, guest, Foundry harness, Worker integration, or public-chain transaction has been executed.
+- **Next gate:** provision a dedicated Linux KVM host; verify official Firecracker/Jailer release provenance and exact digests; build and pin a minimal guest kernel/rootfs with a fixed offline Foundry agent; then implement the narrowly scoped Jailer service and adversarial host-isolation acceptance. Do not fall back to Docker/process isolation if any preflight or VM control fails.

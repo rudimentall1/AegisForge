@@ -1,32 +1,44 @@
 # Project Context — my-project
 
-## Purpose
+## Purpose and status
 
-This file is the durable context entrypoint for work inside `my-project/`. Keep it factual and update it when the project structure, architecture, dependencies, or implementation status changes.
+This directory is an isolated bootstrap scaffold requested inside [rudimentall1/AegisForge](https://github.com/rudimentall1/AegisForge). It is **not** the AegisForge product runtime and currently provides no user-facing capability.
 
-## Parent repository
+The repository audit confirms that AegisForge already has a substantial Python implementation for agent orchestration, task queueing, Research Case binding, bounded execution, evidence capture, verification, and EVM Key Forensics. Do not recreate those capabilities here.
 
-- Repository: [rudimentall1/AegisForge](https://github.com/rudimentall1/AegisForge)
-- Product: AegisForge — EVM Key Forensics.
-- Parent implementation is primarily Python; its pinned dependencies are listed in the repository-root `requirements.txt`.
-- The parent README describes a research workflow based on registered research cases, bounded experiments, evidence capture, and independent verification.
-- Parent architecture and release acceptance are documented in `../docs/ARCHITECTURE.md` and `../docs/PRODUCT-READINESS.md`.
+No separate product problem, domain ownership, public API, or integration contract has been approved for `my-project/`. Keep it deliberately inert until a concrete purpose and acceptance contract are agreed.
 
-## Scope of this directory
+## Parent repository facts
 
-- `my-project/` is a newly introduced, isolated subproject scaffold.
-- It has its own package manifest, source directory, and test directory.
-- No integration with the parent Python runtime, task queue, research-case store, or evidence ledger is established by this scaffold.
-- The exact product responsibilities and integration contract for this subproject have not yet been approved. Do not invent them.
+- Product focus: AegisForge — EVM Key Forensics.
+- Main implementation language: Python.
+- Runtime entrypoints include `aegisforge.py`, `run.py`, and `agents/worker.py`.
+- Agent implementations live under `agents/`; orchestration lives under `orchestrator/`.
+- Shared task, Research Case, capability, execution, evidence, verification, and recovery components live under `shared/`.
+- EVM Key Forensics tools and fixtures live under `tools/evm_key_forensics/` and `tests/`.
+- Main persistence is SQLite through the shared queue/ledger components.
+- Root dependencies are pinned in `../requirements.txt`; this Node package does not contribute to that Python dependency set.
+- Canonical project direction: `../docs/MASTER_CONTEXT.md`.
+- Architecture: `../docs/ARCHITECTURE.md`.
+- Product acceptance: `../docs/PRODUCT-READINESS.md`.
 
-## Initial technical baseline
+These are repository-structure observations, not a claim that the full product workflow is release-ready.
 
-- Runtime/tooling: Node.js with native ECMAScript modules and the built-in Node test runner.
-- Third-party runtime dependencies: none declared in the initial scaffold.
-- Package is private and is not intended for publication.
-- `src/index.js` exports only minimal package metadata; it is a scaffold marker, not product functionality.
-- `tests/index.test.js` checks that minimal export.
-- Node version compatibility has not yet been verified in CI. Select and pin a supported Node LTS version before adding runtime-dependent functionality.
+## Current technical baseline
+
+- Runtime/tooling: Node.js ECMAScript modules.
+- Package manager: npm.
+- Third-party dependencies: none.
+- `package.json` is private and contains only `test` and `check` scripts.
+- `src/index.js` exports static scaffold metadata only.
+- `tests/index.test.js` checks that metadata export.
+- No parent CI job currently runs this Node package.
+- The Node test and syntax commands have not yet been executed in a Node runtime in this task.
+- No Node LTS version policy has been selected or pinned.
+
+## Integration boundary
+
+There is no integration with the parent Python runtime, task queue, Research Case registry, execution gate, sandbox, or evidence ledger. Do not add one by importing parent internals or creating a parallel implementation. An integration requires a documented interface, threat model, ownership boundary, and end-to-end tests.
 
 ## Directory map
 
@@ -47,14 +59,16 @@ my-project/
 
 ## Verified status
 
-- [x] Initial directory and documentation scaffold added.
-- [x] Minimal Node ESM package manifest added.
-- [x] Minimal source entrypoint and test added.
-- [ ] Local Node test execution — not yet run in this GitHub-only change.
-- [ ] CI workflow for this subproject.
-- [ ] Product scope and parent-integration contract.
-- [ ] Node LTS version policy.
+- [x] Requested directory and documentation scaffold exists on this PR branch.
+- [x] Mandatory working rules exist at repository root and in this directory.
+- [x] Minimal private Node ESM package exists without third-party dependencies.
+- [x] Source entrypoint and native Node test are present.
+- [ ] Run `npm test` in a real Node runtime.
+- [ ] Run `npm run check` in a real Node runtime.
+- [ ] Select a supported Node LTS version before runtime-dependent implementation.
+- [ ] Define the product problem, domain ownership, API, and acceptance criteria.
+- [ ] Decide whether integration is justified; do not assume that it is.
 
-## Working rules
+## Source of truth
 
-Follow `AGENTS.md`. Before implementation, inspect the current code and documentation. Keep assumptions labelled, update docs with significant changes, and verify documentation before closing each task.
+The parent product's current direction and verified implementation status are maintained in `../docs/MASTER_CONTEXT.md`. This file describes only the current state and boundary of `my-project/`.

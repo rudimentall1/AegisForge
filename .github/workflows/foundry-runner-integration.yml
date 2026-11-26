@@ -35,12 +35,10 @@ on:
     paths:
       - "agents/security_checker/fork_compose_validator.py"
       - "agents/security_checker/fork_compose_resolver.py"
-      - "agents/security_checker/fork_runtime_evidence.py"
       - "agents/security_checker/fork_runtime_orchestrator.py"
       - "tests/test_fork_compose_validator.py"
       - "tests/test_fork_compose_resolver.py"
       - "tests/test_fork_runtime_orchestrator.py"
-      - "requirements.txt"
       - "agents/security_checker/foundry_runner.py"
       - "shared/sandbox.py"
       - "tests/test_foundry_dynamic_runner_integration.py"

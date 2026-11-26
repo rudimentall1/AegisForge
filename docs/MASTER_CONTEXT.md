@@ -1,84 +1,99 @@
 # AegisForge — Master Context
 
-**Canonical project context.** Update this file when product direction, verified implementation status, or priorities change. Architecture and research-track documents should link here and must not maintain conflicting priorities.
+**Canonical project context.** Update this file when product direction, verified implementation status, or priorities change. Architecture and research-track documents must not maintain conflicting priorities.
 
 ## Product direction
 
-AegisForge is a reproducible security-research and forensic evidence platform. Its primary workflow binds an authorized target and immutable source revision to a falsifiable hypothesis, controlled experiment, counter-tests, evidence artifacts, and an independently reviewable conclusion.
+AegisForge is a reproducible security-research and forensic evidence platform. Its primary product focus remains **EVM Key Forensics**: bind an authorized target and immutable source revision to a falsifiable hypothesis, controlled experiment, counter-tests, evidence artifacts, and an independently reviewable conclusion.
 
-**EVM Key Forensics is the product focus.** The immediate goal is to finish a dependable, reproducible forensic workflow and ship an honest MVP. Active SSV bounty hunting is paused; it is not the current delivery priority. Historical EVM key-generation research, including the Profanity benchmark, is the proving track, but synthetic demonstrations must not be presented as historical runtime reproduction.
+This is not a claim that the end-to-end workflow is release-ready. The product-readiness checklist remains the acceptance authority. Active SSV bounty hunting is paused; do not resume it as a delivery priority without an explicit decision.
 
-## Decisions
+## Architecture principles
 
 1. Evidence takes precedence over agent confidence, source-pattern matches, and CI success.
-2. AI agents propose and investigate hypotheses. Deterministic tests and independent review establish what the evidence supports.
-3. Research Case is the shared control-plane contract for target identity, scope, hypothesis, execution mode, and evidence linkage.
-4. Existing agent roles should be reused. Do not add new agents or duplicate evidence systems before validating a concrete gap.
-5. SQLite remains the initial persistence layer until concurrency or customer requirements justify a change.
-6. Preserve explicit outcomes: `CONFIRMED`, `REJECTED`, `INCONCLUSIVE`, `OUT_OF_SCOPE`, and `NOT_REPRODUCED`.
-7. Never claim a vulnerability, source-to-binary provenance, or individual-wallet exposure without the corresponding reproducible evidence.
-8. Capability and execution controls are supporting infrastructure for controlled experiments, not the product's primary positioning.
+2. AI agents propose and investigate hypotheses. Deterministic tools and independent review establish only what their evidence supports.
+3. Research Case is the control-plane contract for target identity, scope, hypothesis, execution mode, and evidence linkage.
+4. Reuse existing agent roles and canonical evidence components. Do not add agents or duplicate evidence systems without a demonstrated gap.
+5. SQLite remains the initial persistence layer until measured concurrency or customer requirements justify a change.
+6. Preserve distinct outcomes: `CONFIRMED`, `REJECTED`, `INCONCLUSIVE`, `OUT_OF_SCOPE`, and `NOT_REPRODUCED`.
+7. Never claim vulnerability, source-to-binary provenance, or individual-wallet exposure without the corresponding reproducible evidence.
+8. Capability and execution controls support controlled research; they are not a substitute for a useful product workflow.
 9. No live state-changing actions or testing outside explicitly authorized scope. Prefer pinned local forks, testnets, or bounded environments.
 
-## Current implementation (verify against main before relying on it)
+## Verified main-branch implementation
 
-- ResearchCase contract and SQLite registry exist in the main-branch implementation reviewed in `docs/ARCHITECTURE.md`.
-- Case-linked queue tasks are validated by Worker.
-- Evidence observations can carry a case ID.
-- Git-object source-pin verification and EVM Key Forensics evidence tooling exist.
-- Historical source-classification benchmarks and regression tests exist.
-- Evidence ledger, experiment dossier, proof/evidence manifest tooling, and CI workflows exist.
-- Documentation describes architecture, evidence limitations, and the legacy agent plan.
+The following components are present on the reviewed `main` snapshot (commit `386157479ef35a45e61ffb6d1004cf3da724e368`, 2026-11-26):
 
-These statements describe implementation components, not proof that the full end-to-end research workflow is complete.
+- Python CLI and role-based agent runtime under `aegisforge.py`, `agents/`, and `model_research/`.
+- Task orchestration and task graph under `orchestrator/`, backed by the SQLite queue in `shared/queue.py`.
+- Research Case contract and case-binding checks in `shared/research_case.py`; the current required-role set is limited to `source_researcher`, `crypto_analyst`, and `lab_runner`.
+- Capability, signed intent, authority, execution-gate, executor registry, and execution-attempt components under `shared/`.
+- Evidence ledger, manifests, dossiers, proof bundles, verification, replay, and recovery components under `shared/`.
+- EVM Key Forensics tools, source fixtures, probe workflows, and extensive regression tests.
+- Separate `scam_intelligence/` functionality and Solidity fixtures/Foundry tests.
+- GitHub Actions CI and dedicated Foundry runner integration workflows.
 
-## Known gaps
+Presence of these components does not establish that every path is integrated, that every legacy path is gated, or that the product release criteria have passed.
 
-- Legacy tasks without `research_case_id` can bypass the Research Case gate.
-- Case identity is not yet guaranteed across every executor record, experiment dossier, and exported evidence manifest.
-- The independent human source-review record is a procedure/template, not proof that independent review has occurred.
-- The Profanity benchmark is not a historical runtime reproduction.
-- The SSV investigation has no confirmed eligible vulnerability; bounty hunting is paused while the product is completed.
-- Main-branch CI status must be checked explicitly; an empty status response is not a passing result.
-- Research Case must be mandatory at all security-research entrypoints and execution boundaries.
-- Evidence replay must be validated from pinned inputs in a clean environment before calling a case independently reproducible.
+## Product and release gaps
 
-## Open pull requests and consolidation
+- `docs/PRODUCT-READINESS.md` remains the release gate; its checklist is not satisfied merely because individual components or tests exist.
+- README and architecture documentation explicitly state that legacy/unbound task paths and end-to-end case/evidence propagation still require validation.
+- Profanity work is a synthetic/source-evidence track, not historical runtime reproduction and not evidence about individual wallets.
+- Independent human source review is not established by the existence of a procedure or template.
+- The main-branch CI failure observed on 2026-11-21 and again on PR #212 is caused before tests run: `web3==7.6.0` conflicts with `slither-analyzer==0.11.6`, which requires `web3>=7.10,<8`. The dependency pin is being corrected in the current change; the resulting CI run must be checked before calling main green.
+- Commercial product-market fit, revenue, and willingness to pay remain unvalidated hypotheses.
 
-At the last repository review on 2026-10-15, the following PRs were open and must be reviewed against current `main` before merging:
+## Open pull requests and consolidation state (2026-11-26)
 
-- [#33 — Document independent human review gate for EVM source evidence](https://github.com/rudimentall1/AegisForge/pull/33)
-- [#34 — Add regression tests for EVM forensics evidence boundaries](https://github.com/rudimentall1/AegisForge/pull/34)
-- [#35 — Add negative controls to EVM source-classification benchmark](https://github.com/rudimentall1/AegisForge/pull/35)
-- [#37 — Add regression tests for EVM source-body extraction](https://github.com/rudimentall1/AegisForge/pull/37)
-- [#38 — Add adversarial negative controls for source classification](https://github.com/rudimentall1/AegisForge/pull/38)
-- [#39 — Align benchmark with explicit negative source context](https://github.com/rudimentall1/AegisForge/pull/39)
-- [#40 — Add pinned source excerpt integrity records](https://github.com/rudimentall1/AegisForge/pull/40)
+The open PR inventory contains multiple independent and stacked tracks. A branch being mergeable, or its description reporting a green run, is not sufficient for merging.
 
-PRs #35, #38, and #39 overlap in source classification and negative controls. Reconcile them into one implementation path. PRs #33 and #34 provide review-gate documentation and evidence-boundary regression tests; check for overlap with the newer evidence tooling. PR #40 adds source-coordinate integrity records and must be checked for schema compatibility with the existing evidence manifest.
+### Stacked on-chain research track
 
-Branch existence or PR mergeability alone does not mean a change is validated. Inspect diffs, run tests against current main, and merge only after conflicts/duplication are resolved. Check CI status explicitly for the current base/head commits.
+The dependency chain is:
 
-Other branches also exist for Research Case scope enforcement, executor identity, signed intents, technical evidence gates, recovery, discovery pagination, and query focus. Inspect them for useful non-duplicated work only after the immediate PR consolidation and Research Case binding requirements are addressed.
+`#196 (main) → #207 (feat/first-foundry-exploit-benchmark) → #208 (feat/onchain-contract-intake) → #210 (fix/onchain-security-checker-offline) → #211 (feat/onchain-bytecode-verification)`.
+
+- #196 adds a large task-bound local-experiment/evidence package implementation (59 files, approximately 13.2k additions). It is a prerequisite branch for #207, not an isolated small patch.
+- #207 adds case-bound Foundry execution/evidence (30 files, approximately 3.9k additions). Its PR body says its checks had not executed at the time recorded.
+- #208 adds on-chain source intake and structural research (21 files, approximately 3.5k additions). Its recorded CI attempts failed before a runner executed tests.
+- #210 fixes and tests the on-chain worker pipeline (10 files). Its reported test results must be verified against the exact current head and its full dependency chain.
+- #211 adds compiler/runtime equivalence, append-only on-chain verification, admission, round storage, and Firecracker host preflight (32 files, approximately 4.1k additions). Its PR body records green runs on earlier heads, not automatically on the current combined candidate.
+- Do not merge a child before its base. Review the combined diff against current `main`, rerun CI on the exact resulting head, and resolve security-boundary findings before advancing the chain.
+
+### Separate deployment-discovery track
+
+- #205 is based on the non-default `master` branch, not `main`; #206 is stacked on #205. These changes include deployment discovery, RPC monitoring, Slither analysis, RPC gateway, fork snapshots, and synthetic Anvil tests. They must not be merged by changing their base blindly. First reconcile branch ancestry, product scope, secrets/authorization boundaries, and overlap with the #208–#211 intake path.
+- #197 is an SSV bounty-hunt result. SSV hunting is paused by product decision; do not merge or resume execution solely because a PR exists.
+
+### Other open main-targeted work
+
+Open PRs #138, #153, #156, #169, #175, #189–#196, and #72 cover case/round identity, diagnostics, provenance, local experiment evidence, and agent-role contracts. They are not automatically approved. Compare each against current `main`; later case-round and evidence changes may overlap or supersede earlier branches. Merge only a minimal, tested, non-duplicated sequence.
+
+### Current scaffold PR
+
+- #212 adds the requested `my-project/` bootstrap. Its first CI run failed at dependency installation before any test step; it does not yet provide product behavior.
+- The scaffold is not the AegisForge product runtime and must not duplicate the existing Python agents, queue, Research Case, sandbox, or evidence pipeline.
 
 ## Priority order
 
-1. Consolidate and validate the open PRs against current main; remove duplicated or superseded work.
-2. Close the EVM Key Forensics end-to-end workflow: pinned public source → structured hypothesis → bounded synthetic/local experiment → validator → portable evidence bundle.
-3. Enforce case identity at every relevant entrypoint and actual execution boundary; legacy tasks must not bypass the research gate.
-4. Propagate case ID, pinned target revision, and scope digest through experiment records, evidence ledger, and exported manifests.
-5. Verify tamper rejection and clean-runner replay; make CI and the release checklist the acceptance gate.
-6. Update user-facing setup instructions and ship a reproducible sample case. Do not add integrations, agent specializations, or hosted features until this works.
+1. Restore deterministic dependency installation and verify CI on the exact candidate commit.
+2. Audit and consolidate the stacked PRs against current `main`; do not merge large unverified branches wholesale.
+3. Close the EVM Key Forensics workflow defined in `docs/PRODUCT-READINESS.md`: pinned public source → structured hypothesis → bounded experiment → independent validator → portable evidence bundle.
+4. Enforce case identity at every relevant entrypoint and actual execution boundary; close legacy bypasses.
+5. Propagate case ID, pinned target revision, and scope digest through experiment records, evidence ledger, and exported manifests.
+6. Verify tamper rejection and clean-runner replay; make CI and the release checklist the acceptance gate.
+7. Validate repeated use and willingness to pay before adding hosted SaaS, billing, more agents, or extra product tracks.
 
 ## SSV research boundary
 
-SSV bounty hunting is paused by product decision. The reviewed source and scope notes remain research history, not an active execution queue. Do not start new SSV hunts or spend product-completion time on bounty hypotheses unless the user explicitly reopens that track. No eligible SSV vulnerability has been established.
+SSV bounty hunting is paused. Existing source and scope notes are research history, not an active execution queue. Do not start new SSV hunts unless the user explicitly reopens that track. No eligible SSV vulnerability is established by the current product record.
 
 ## Product and commercial hypothesis
 
 The first plausible users are independent smart-contract security researchers and small audit teams that repeatedly build PoCs and evidence packages. The value hypothesis is reducing time to a reviewer-ready, reproducible finding and helping distinguish a real exploit from a plausible false lead.
 
-Potential later models: individual paid tooling, team subscriptions for collaboration/review/private artifacts, and enterprise deployment. Do not build billing or a broad SaaS control plane before interviews validate workflow pain, alternatives, budget owner, and willingness to pay.
+Potential later models include individual paid tooling, team subscriptions for collaboration/review/private artifacts, and enterprise deployment. Do not build billing or a broad SaaS control plane before interviews validate workflow pain, alternatives, budget owner, and willingness to pay.
 
 ## Success criteria
 
@@ -90,14 +105,13 @@ Potential later models: individual paid tooling, team subscriptions for collabor
 - A real researcher or audit team returns to the workflow.
 - Time-to-reproduce and review effort improve measurably.
 
-The long-term moat is not the number of agents. It is the evidence model, reliable verification, accumulated reproducible research cases, and integration into security teams' workflows.
+The long-term asset is the evidence model, reliable verification, accumulated reproducible research cases, and integration into security teams' workflows — not the number of agents.
 
-## Source of truth and linked implementation docs
+## Source of truth
 
 - [Architecture](ARCHITECTURE.md)
 - [Legacy agent plan status](LEGACY-AGENT-PLAN-STATUS.md)
 - [EVM Key Forensics](EVM-KEY-FORENSICS.md)
 - [Product Readiness Gate](PRODUCT-READINESS.md)
 - [Source provenance notes](evm-key-forensics-source-provenance.md)
-- [SSV Network Bug Bounty](https://immunefi.com/bug-bounty/ssvnetwork/information/)
-- [SSV Network scope](https://immunefi.com/bug-bounty/ssvnetwork/scope/)
+- [Session checkpoint](SESSION-CHECKPOINT.md)

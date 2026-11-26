@@ -4,6 +4,16 @@ These rules are mandatory for every person or agent changing this directory. The
 
 ## Before starting work
 
+The following rules are mandatory and apply to every task:
+
+- Before starting work, study the project documentation and repository structure relevant to the task.
+- After significant changes, update the applicable documentation and project context.
+- Never record unconfirmed assumptions as facts; label uncertainty and verify where possible.
+- Before finishing, check that documentation is accurate and current against the final code, tests, configuration, and observed results.
+- Commit documentation changes together with their corresponding code and tests.
+
+Use this concrete reading sequence:
+
 1. Read the repository-root `AGENTS.md`, this file, `PROJECT_CONTEXT.md`, `TASKS.md`, and `DECISIONS.md`.
 2. Read the parent `README.md`, `docs/MASTER_CONTEXT.md`, and relevant sections of `docs/ARCHITECTURE.md` and `docs/PRODUCT-READINESS.md`.
 3. Inspect the current repository and subproject structure, recent commits, relevant implementation, configuration, and tests before editing.

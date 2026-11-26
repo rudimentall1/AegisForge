@@ -41,7 +41,7 @@ Presence of these components does not establish that every path is integrated, t
 - README and architecture documentation explicitly state that legacy/unbound task paths and end-to-end case/evidence propagation still require validation.
 - Profanity work is a synthetic/source-evidence track, not historical runtime reproduction and not evidence about individual wallets.
 - Independent human source review is not established by the existence of a procedure or template.
-- Main dependency resolution was repaired in squash merge `9e136d2e10765ade28d43bd30e985e2aff62ea4d`: `web3==7.10.0` now satisfies `slither-analyzer==0.11.6` (`web3>=7.10,<8`). Exact PR head `ca91cb7bd6fd4a2cd78a4660fcfad3c0aec16c7a` passed Python/EVM CI (1,631 passed, 30 subtests, 3 warnings) and Node.js 24 syntax/tests (run `45771098259`). The post-merge main CI run is tracked separately.
+- Main dependency resolution was repaired in squash merge `9e136d2e10765ade28d43bd30e985e2aff62ea4d`: `web3==7.10.0` now satisfies `slither-analyzer==0.11.6` (`web3>=7.10,<8`). Exact PR head `ca91cb7bd6fd4a2cd78a4660fcfad3c0aec16c7a` passed Python/EVM CI (1,631 passed, 30 subtests, 3 warnings) and Node.js 24 syntax/tests (run `45771098259`). The post-merge main CI run `45771315581` passed on merge commit `9e136d2e10765ade28d43bd30e985e2aff62ea4d` (1,631 passed, 30 subtests, 3 warnings; Node.js 24 job passed).
 - Commercial product-market fit, revenue, and willingness to pay remain unvalidated hypotheses.
 
 

@@ -12,10 +12,10 @@ This ledger describes only work inside the isolated `my-project/` scaffold. Keep
 
 ## Verification — pending
 
-- [ ] Run `npm test` in a real Node.js environment and record the exact result.
-- [ ] Run `npm run check` in a real Node.js environment and record the exact result.
+- [x] Run `npm test` in Node.js 24 CI — run `45770823759` passed.
+- [x] Run `npm run check` in Node.js 24 CI — run `45770823759` passed.
 - [x] Add a separate CI job for the scaffold on Node.js 24.
-- [ ] Observe a passing Node 24 syntax-check and test job on the final candidate commit.
+- [x] Observe passing Node 24 syntax-check and test jobs on candidate commit `4bd34c0790835ca0d4829e8b07888459e47da438`; later changes to the scaffold were documentation-only.
 
 ## Product definition — intentionally blocked
 

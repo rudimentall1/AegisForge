@@ -132,3 +132,11 @@ Only PR #212 is intended for merge in this checkpoint, after its latest-head che
 5. Keep the release checklist honest; do not label AegisForge production-ready until its end-to-end evidence workflow passes.
 
 No server was modified, no live-chain transaction was performed, and no wallet/private-key material was used.
+
+
+## Post-merge update — 2026-11-26
+
+- PR #212 was squash-merged into `main` as `9e136d2e10765ade28d43bd30e985e2aff62ea4d`.
+- Exact PR head `ca91cb7bd6fd4a2cd78a4660fcfad3c0aec16c7a` passed Python/EVM CI (1,631 passed, 30 subtests, 3 warnings) and the Node.js 24 scaffold job.
+- The merge unexpectedly triggered the Foundry integration workflow because its `push.paths` still included its own workflow file. The workflow itself has been corrected in follow-up PR #213 to remove that self-trigger. No real Anvil/Foundry integration pass is claimed.
+- Main now contains the requested scaffold, repository working rules, dependency correction, worker cleanup, and audit checkpoint. The remaining product blockers in section 7 are unchanged.

@@ -25,7 +25,7 @@ npm run check
 - `npm test` runs the built-in Node.js test runner.
 - `npm run check` performs a syntax check on `src/index.js`.
 
-These commands are executed by the root GitHub Actions workflow on Node.js 24. The current candidate's Node job must pass before this scaffold change is merged.
+These commands passed in the root GitHub Actions Node.js 24 job (run `45770823759`, candidate commit `4bd34c0790835ca0d4829e8b07888459e47da438`).
 
 ## Structure
 

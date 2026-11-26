@@ -34,3 +34,11 @@ Record decisions that constrain implementation. Do not convert tentative ideas i
 - **Context:** The requested scaffold uses Node.js built-ins only. It still needs a repeatable syntax and unit-test check without adding runtime dependencies to the Python application.
 - **Decision:** Run `npm run check` and `npm test` in a separate GitHub Actions job using Node.js 24. Keep the package private and dependency-free.
 - **Consequences:** The Node scaffold has a minimal CI contract but remains separate from AegisForge's production Python runtime. A green Node job does not imply a product capability or parent integration.
+
+## ADR-005 — Keep the scaffold inert after server verification
+
+- **Status:** Accepted
+- **Date:** 2026-11-26
+- **Context:** The server has Node.js 24 and can run the existing scaffold checks, but no AegisForge runtime process or approved product integration was observed. The server's existing AegisForge checkout is an older feature branch and contains untracked inspection files.
+- **Decision:** Verify the isolated Node scaffold in a separate clean worktree from current `main`; do not update, reset, or deploy the stale server checkout. Keep `my-project/` dependency-free and disconnected until a distinct product scope and integration contract are approved.
+- **Consequences:** Local scaffold checks can be reported as passed, but they do not establish a production service, parent integration, or AegisForge release readiness.

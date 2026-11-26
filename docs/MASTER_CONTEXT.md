@@ -22,7 +22,7 @@ This is not a claim that the end-to-end workflow is release-ready. The product-r
 
 ## Verified main-branch implementation
 
-The following components are present on the reviewed `main` snapshot (commit `9e136d2e10765ade28d43bd30e985e2aff62ea4d`, 2026-11-26):
+The following components are present on the reviewed `main` snapshot (commit `da91e18a69a1bc455f53b0ea4dc0ea53bb3ce261`, 2026-11-26):
 
 - Python CLI and role-based agent runtime under `aegisforge.py`, `agents/`, and `model_research/`.
 - Task orchestration and task graph under `orchestrator/`, backed by the SQLite queue in `shared/queue.py`.
@@ -49,6 +49,15 @@ Presence of these components does not establish that every path is integrated, t
 - `tests/test_fork_runtime_evidence.py` existed on main without its implementation module. The candidate adds the self-contained read-only observation validator from the fork-runtime work and aligns its fixture with the expected network identity. It does not claim packet-path isolation or secure runtime execution.
 - The Foundry integration workflow previously triggered on generic dependency/runtime-helper edits and failed because the full fork Compose stack was not present on main. The candidate restricts that workflow to the complete fork integration surface and adds manual dispatch; the real Anvil/Foundry integration is not claimed as passed by this change.
 - Documentation was reconciled: the architecture roadmap and legacy agent map now reflect the existing partial Research Case implementation and the paused SSV track.
+
+## Server verification — 2026-11-26
+
+- The connected Linux host `Gensyn2.play2go.cloud` reports Node.js `v24.18.0`, npm `11.16.0`, and system Python `3.10.12`.
+- The host checkout at `/root/AegisForge` remains on older feature branch `feat/persist-local-experiment-evidence-main` at `c69dbcc5142c98d38fcc01ebf721a77ce4e282db`, with untracked `dump.txt` and `tree.txt`; it was deliberately left untouched.
+- A separate clean worktree from current `main` was used for documentation and scaffold checks. In `my-project/`, `npm run check` passed and `npm test` passed (1 test, 0 failures, 0 skipped).
+- No AegisForge, Foundry, Anvil, or Firecracker process was observed during the point-in-time host inspection. No AegisForge service was deployed, started, restarted, or modified.
+- The scaffold remains an isolated Node.js metadata package with no approved product domain or parent-runtime integration. The server checks do not establish production readiness.
+- The server's Git remote uses HTTPS without an available credential helper/token, so `git push` from that host failed with a non-interactive authentication error. The verified documentation update is therefore published through the connected GitHub integration on a dedicated branch/PR, not by claiming that the server push succeeded.
 
 ## Open pull requests and consolidation state (2026-11-26)
 

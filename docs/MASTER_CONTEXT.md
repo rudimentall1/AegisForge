@@ -22,7 +22,7 @@ This is not a claim that the end-to-end workflow is release-ready. The product-r
 
 ## Verified main-branch implementation
 
-The following components are present on the reviewed `main` snapshot (commit `386157479ef35a45e61ffb6d1004cf3da724e368`, 2026-11-26):
+The following components are present on the reviewed `main` snapshot (commit `9e136d2e10765ade28d43bd30e985e2aff62ea4d`, 2026-11-26):
 
 - Python CLI and role-based agent runtime under `aegisforge.py`, `agents/`, and `model_research/`.
 - Task orchestration and task graph under `orchestrator/`, backed by the SQLite queue in `shared/queue.py`.
@@ -41,11 +41,11 @@ Presence of these components does not establish that every path is integrated, t
 - README and architecture documentation explicitly state that legacy/unbound task paths and end-to-end case/evidence propagation still require validation.
 - Profanity work is a synthetic/source-evidence track, not historical runtime reproduction and not evidence about individual wallets.
 - Independent human source review is not established by the existence of a procedure or template.
-- Main CI previously failed during dependency resolution because `web3==7.6.0` conflicted with `slither-analyzer==0.11.6` (`web3>=7.10,<8`). The candidate changes the pin to `web3==7.10.0`. The full Python/EVM suite passed on candidate commit `1d6b0c249dad88e519a5971021d0378ebec79ff2` (1,631 passed, 30 subtests, 3 warnings); the latest docs-only candidate commit is being rechecked before merge.
+- Main dependency resolution was repaired in squash merge `9e136d2e10765ade28d43bd30e985e2aff62ea4d`: `web3==7.10.0` now satisfies `slither-analyzer==0.11.6` (`web3>=7.10,<8`). Exact PR head `ca91cb7bd6fd4a2cd78a4660fcfad3c0aec16c7a` passed Python/EVM CI (1,631 passed, 30 subtests, 3 warnings) and Node.js 24 syntax/tests (run `45771098259`). The post-merge main CI run is tracked separately.
 - Commercial product-market fit, revenue, and willingness to pay remain unvalidated hypotheses.
 
 
-- The current candidate removes stale top-level Worker imports that referenced nonexistent `validator.py`/`notify.py`, removes the obsolete OpenRouter/Telegram/host-side Foundry/Arbitrum fallback path, and adds regression coverage. The obsolete root manual scripts `test_bounty_local.py` and `test_live_openrouter.py` were removed because they depended on that retired path and were collected as broken tests.
+- The merged main commit removes stale top-level Worker imports that referenced nonexistent `validator.py`/`notify.py`, removes the obsolete OpenRouter/Telegram/host-side Foundry/Arbitrum fallback path, and adds regression coverage. The obsolete root manual scripts `test_bounty_local.py` and `test_live_openrouter.py` were removed because they depended on that retired path and were collected as broken tests.
 - `tests/test_fork_runtime_evidence.py` existed on main without its implementation module. The candidate adds the self-contained read-only observation validator from the fork-runtime work and aligns its fixture with the expected network identity. It does not claim packet-path isolation or secure runtime execution.
 - The Foundry integration workflow previously triggered on generic dependency/runtime-helper edits and failed because the full fork Compose stack was not present on main. The candidate restricts that workflow to the complete fork integration surface and adds manual dispatch; the real Anvil/Foundry integration is not claimed as passed by this change.
 - Documentation was reconciled: the architecture roadmap and legacy agent map now reflect the existing partial Research Case implementation and the paused SSV track.

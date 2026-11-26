@@ -275,3 +275,23 @@ jobs:
         with:
           name: aegisforge-pytest-failure
           path: pytest.log
+  my-project-node:
+    name: my-project Node scaffold
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Check syntax
+        run: npm --prefix my-project run check
+
+      - name: Run tests
+        run: npm --prefix my-project test
+

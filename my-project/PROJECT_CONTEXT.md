@@ -33,7 +33,7 @@ These are repository-structure observations, not a claim that the full product w
 - `src/index.js` exports static scaffold metadata only.
 - `tests/index.test.js` checks that metadata export.
 - The root GitHub Actions workflow now runs this package's syntax check and tests on Node.js 24.
-- The Node test and syntax commands have not yet been observed passing in CI for the current candidate.
+- The Node 24 syntax and test commands passed in GitHub Actions run `45770823759` on candidate commit `4bd34c0790835ca0d4829e8b07888459e47da438`; subsequent changes to this package have been documentation-only.
 - Node.js 24 is the selected CI major version; no other Node versions are currently supported.
 
 ## Integration boundary
@@ -63,8 +63,8 @@ my-project/
 - [x] Mandatory working rules exist at repository root and in this directory.
 - [x] Minimal private Node ESM package exists without third-party dependencies.
 - [x] Source entrypoint and native Node test are present.
-- [ ] Run `npm test` in a real Node runtime.
-- [ ] Run `npm run check` in a real Node runtime.
+- [x] Run `npm test` in Node.js 24 CI (run `45770823759`).
+- [x] Run `npm run check` in Node.js 24 CI (run `45770823759`).
 - [x] Select Node.js 24 as the CI runtime baseline.
 - [ ] Define the product problem, domain ownership, API, and acceptance criteria.
 - [ ] Decide whether integration is justified; do not assume that it is.

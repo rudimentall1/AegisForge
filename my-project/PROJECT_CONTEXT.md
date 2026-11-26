@@ -32,9 +32,9 @@ These are repository-structure observations, not a claim that the full product w
 - `package.json` is private and contains only `test` and `check` scripts.
 - `src/index.js` exports static scaffold metadata only.
 - `tests/index.test.js` checks that metadata export.
-- No parent CI job currently runs this Node package.
-- The Node test and syntax commands have not yet been executed in a Node runtime in this task.
-- No Node LTS version policy has been selected or pinned.
+- The root GitHub Actions workflow now runs this package's syntax check and tests on Node.js 24.
+- The Node test and syntax commands have not yet been observed passing in CI for the current candidate.
+- Node.js 24 is the selected CI major version; no other Node versions are currently supported.
 
 ## Integration boundary
 
@@ -65,7 +65,7 @@ my-project/
 - [x] Source entrypoint and native Node test are present.
 - [ ] Run `npm test` in a real Node runtime.
 - [ ] Run `npm run check` in a real Node runtime.
-- [ ] Select a supported Node LTS version before runtime-dependent implementation.
+- [x] Select Node.js 24 as the CI runtime baseline.
 - [ ] Define the product problem, domain ownership, API, and acceptance criteria.
 - [ ] Decide whether integration is justified; do not assume that it is.
 

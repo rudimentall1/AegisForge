@@ -1,0 +1,11 @@
+{
+  "name": "@aegisforge/my-project",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated subproject scaffold for AegisForge",
+  "scripts": {
+    "check": "node --check src/index.js",
+    "test": "node --test"
+  }
+}

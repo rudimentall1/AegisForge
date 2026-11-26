@@ -25,7 +25,7 @@ npm run check
 - `npm test` runs the built-in Node.js test runner.
 - `npm run check` performs a syntax check on `src/index.js`.
 
-These commands passed in the root GitHub Actions Node.js 24 job (run `45770823759`, candidate commit `4bd34c0790835ca0d4829e8b07888459e47da438`).
+These commands passed in the root GitHub Actions Node.js 24 job (run `45770823759`, candidate commit `4bd34c0790835ca0d4829e8b07888459e47da438`) and again in post-merge main CI run `45771692353` (2026-11-26). They were also run locally on Gensyn2 with Node.js `v24.18.0` on 2026-11-26: syntax check passed and the test runner reported 1 passed, 0 failed, 0 skipped.
 
 ## Structure
 

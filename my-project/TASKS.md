@@ -14,7 +14,8 @@ This ledger describes only work inside the isolated `my-project/` scaffold. Keep
 
 - [ ] Run `npm test` in a real Node.js environment and record the exact result.
 - [ ] Run `npm run check` in a real Node.js environment and record the exact result.
-- [ ] Decide whether this package merits its own CI job after its purpose and supported Node LTS version are approved.
+- [x] Add a separate CI job for the scaffold on Node.js 24.
+- [ ] Observe a passing Node 24 syntax-check and test job on the final candidate commit.
 
 ## Product definition — intentionally blocked
 

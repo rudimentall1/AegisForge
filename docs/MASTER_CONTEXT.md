@@ -41,8 +41,14 @@ Presence of these components does not establish that every path is integrated, t
 - README and architecture documentation explicitly state that legacy/unbound task paths and end-to-end case/evidence propagation still require validation.
 - Profanity work is a synthetic/source-evidence track, not historical runtime reproduction and not evidence about individual wallets.
 - Independent human source review is not established by the existence of a procedure or template.
-- The main-branch CI failure observed on 2026-11-21 and again on PR #212 is caused before tests run: `web3==7.6.0` conflicts with `slither-analyzer==0.11.6`, which requires `web3>=7.10,<8`. The dependency pin is being corrected in the current change; the resulting CI run must be checked before calling main green.
+- Main CI previously failed during dependency resolution because `web3==7.6.0` conflicted with `slither-analyzer==0.11.6` (`web3>=7.10,<8`). The candidate changes the pin to `web3==7.10.0`. The full Python/EVM suite passed on candidate commit `1d6b0c249dad88e519a5971021d0378ebec79ff2` (1,631 passed, 30 subtests, 3 warnings); the latest docs-only candidate commit is being rechecked before merge.
 - Commercial product-market fit, revenue, and willingness to pay remain unvalidated hypotheses.
+
+
+- The current candidate removes stale top-level Worker imports that referenced nonexistent `validator.py`/`notify.py`, removes the obsolete OpenRouter/Telegram/host-side Foundry/Arbitrum fallback path, and adds regression coverage. The obsolete root manual scripts `test_bounty_local.py` and `test_live_openrouter.py` were removed because they depended on that retired path and were collected as broken tests.
+- `tests/test_fork_runtime_evidence.py` existed on main without its implementation module. The candidate adds the self-contained read-only observation validator from the fork-runtime work and aligns its fixture with the expected network identity. It does not claim packet-path isolation or secure runtime execution.
+- The Foundry integration workflow previously triggered on generic dependency/runtime-helper edits and failed because the full fork Compose stack was not present on main. The candidate restricts that workflow to the complete fork integration surface and adds manual dispatch; the real Anvil/Foundry integration is not claimed as passed by this change.
+- Documentation was reconciled: the architecture roadmap and legacy agent map now reflect the existing partial Research Case implementation and the paused SSV track.
 
 ## Open pull requests and consolidation state (2026-11-26)
 
@@ -72,7 +78,7 @@ Open PRs #138, #153, #156, #169, #175, #189–#196, and #72 cover case/round ide
 
 ### Current scaffold PR
 
-- #212 adds the requested `my-project/` bootstrap. Its first CI run failed at dependency installation before any test step; it does not yet provide product behavior.
+- #212 now contains the requested `my-project/` scaffold, root/subproject working rules, audited documentation, dependency correction, Worker legacy-path cleanup, and missing runtime-observation helper/test. The Python suite passed on commit `1d6b0c2`; Node.js 24 checks passed on commits `78362a0` and `4bd34c0`. Final exact-head CI is required before merge. The scaffold itself remains non-product code.
 - The scaffold is not the AegisForge product runtime and must not duplicate the existing Python agents, queue, Research Case, sandbox, or evidence pipeline.
 
 ## Priority order

@@ -25,7 +25,7 @@ npm run check
 - `npm test` runs the built-in Node.js test runner.
 - `npm run check` performs a syntax check on `src/index.js`.
 
-These commands are declared but have not yet been run in a Node runtime. The parent Python CI does not currently execute this package.
+These commands are executed by the root GitHub Actions workflow on Node.js 24. The current candidate's Node job must pass before this scaffold change is merged.
 
 ## Structure
 

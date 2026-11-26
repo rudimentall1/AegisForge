@@ -25,3 +25,12 @@ Record decisions that constrain implementation. Do not convert tentative ideas i
 - **Context:** The repository audit found existing parent components that overlap with likely security-research and agent-platform responsibilities.
 - **Decision:** Do not assign `my-project/` ownership of EVM Key Forensics, on-chain discovery, worker orchestration, evidence storage, or verification until a distinct unmet need and explicit integration contract are approved.
 - **Consequences:** No production feature work or parent integration should begin based only on the directory name or scaffold structure.
+
+
+## ADR-004 — Verify the isolated scaffold on Node.js 24
+
+- **Status:** Accepted
+- **Date:** 2026-11-26
+- **Context:** The requested scaffold uses Node.js built-ins only. It still needs a repeatable syntax and unit-test check without adding runtime dependencies to the Python application.
+- **Decision:** Run `npm run check` and `npm test` in a separate GitHub Actions job using Node.js 24. Keep the package private and dependency-free.
+- **Consequences:** The Node scaffold has a minimal CI contract but remains separate from AegisForge's production Python runtime. A green Node job does not imply a product capability or parent integration.

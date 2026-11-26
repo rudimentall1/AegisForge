@@ -291,7 +291,7 @@ A tool error, missing dependency, timeout, skipped test, or failed environment s
 | Orchestration | `orchestrator/master.py` | Bounded task graph with case/scope enforcement |
 | Agents | Multiple role modules under `agents/` | Clear role contracts; suggestions separated from verified results |
 | Queue and persistence | Shared queue and SQLite-oriented workflow | Versioned case/evidence schema and migrations |
-| EVM forensics | EVM Key Forensics tools/docs and probe workflow; SSV Network is the first active bounty target | End-to-end authorized reproduction pipeline with case-bound experiments and independently reproducible evidence |
+| EVM forensics | EVM Key Forensics tools/docs and probe workflow; historical EVM key-generation forensics is the active proving track; SSV bounty hunting is paused | End-to-end authorized reproduction pipeline with case-bound experiments and independently reproducible evidence |
 | Evidence | Evidence ledger and artifact/attestation docs | Portable schema-versioned bundle with explicit verification levels |
 | Independent verification | Verifier and CI checks exist in part | Clean-runner replay and end-to-end acceptance tests |
 | Scope/policy gate | Initial `ResearchCase` contract; SQLite case registry; case-bound queue tasks; worker validation and case-linked evidence observations on `feat/research-case-scope-gate`. Legacy tasks can still bypass case binding. | Required before every research experiment, with the case identity carried through executor records and exported evidence |
@@ -306,7 +306,7 @@ This map is deliberately conservative. Before claiming a target row is implement
 - Review and verify the initial case schema, queue binding, worker gate, and case-linked evidence migration.
 - Make case binding mandatory at research entrypoints and execution boundaries, including legacy paths that currently accept unbound tasks.
 - Carry case ID, pinned target commit, and scope digest into experiment records and exported evidence manifests.
-- Make one authorized SSV investigation reproducible end to end, including counter-tests, impact analysis, and explicit negative/inconclusive outcomes.
+- Make the EVM Key Forensics sample case reproducible end to end, including counter-tests, independent validation, and explicit negative/inconclusive outcomes. Do not resume SSV bounty hunting without an explicit product decision.
 - Verify an evidence bundle on a clean runner and document one complete case study, whether it confirms or rejects a hypothesis.
 
 ### Phase 2 — Reusable EVM research workbench
@@ -352,11 +352,11 @@ AegisForge is making progress when:
 
 The long-term moat is not the number of agents. It is the quality of the evidence model, reliable verification, accumulated reproducible research cases, and integration into security teams' workflows.
 
-## 10. Current SSV case boundary
+## 10. SSV research boundary
 
-The SSV Network Immunefi program is the first active research target. Each hypothesis must reference the exact scope and source revision used. Differences between a tagged release and a moving branch are leads only. Do not submit a report unless an authorized, reproducible path demonstrates in-scope security impact.
+SSV Network bounty hunting is paused by product decision. Existing source and scope notes are retained as research history, not an active execution queue. Do not start new SSV hunts or merge SSV-specific work as a delivery priority unless the user explicitly reopens that track.
 
-The current investigation of operator migration/effective-balance accounting has not established a confirmed exploit path. Preserve that status until a test proves otherwise.
+The previously reviewed operator-migration/effective-balance hypothesis remains unconfirmed. No eligible SSV vulnerability is established by the current product record.
 
 ## 11. Architecture decisions to keep explicit
 

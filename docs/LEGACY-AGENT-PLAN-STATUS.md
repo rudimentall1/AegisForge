@@ -5,9 +5,9 @@
 
 ## Executive finding
 
-The original idea is still visible in AegisForge, but it has evolved into a more general agent orchestration and evidence system. Several agent roles and verification mechanisms exist. The original diagram is **not yet implemented end-to-end**: the clearest gap is a first-class research case that binds target identity, authorization/scope, pinned source revision, hypothesis, experiment, and evidence across the whole task lifecycle.
+The original idea is still visible in AegisForge, but it has evolved into a general agent orchestration and evidence system. A first-class Research Case contract, SQLite registry, case-linked queue tasks, worker binding checks, and case-linked evidence observations now exist on `main`. The control plane is **partially implemented, not universal**: selected forensic roles require a case, while legacy/generic paths and downstream experiment/export records still need end-to-end enforcement and verification.
 
-Do not add more agent roles before closing that control-plane gap.
+Do not add more agent roles before closing the remaining case-to-experiment-to-evidence gap.
 
 ## Mapping: old plan to current repository
 
@@ -23,7 +23,7 @@ Do not add more agent roles before closing that control-plane gap.
 | Executor | `agents/worker.py`, `shared/execution_gate.py`, capability policy/grants, executor registry and outcome verifiers | Present as a controlled execution path. Keep execution permissions narrower than research permissions. |
 | Controller / verification | `agents/validator/agent.py`, deterministic tests, artifact verifiers, source-pin checks and CI workflows | Partial. Several checks exist, but the validator still must not be treated as an oracle; evidence-origin independence and historical reproduction can correctly remain inconclusive. |
 | Evidence / report | `shared/evidence_ledger.py`, `shared/evidence_manifest.py`, `shared/experiment_dossier.py`, `shared/proof_bundle.py`, EVM Key Forensics tools and workflows | Substantial foundation. Hashes, manifests and CI establish only the properties their checks actually verify. They do not alone prove exploitability or source-to-binary provenance. |
-| Case and scope gate | Architecture specifies it, but no single first-class case/scope object was identified in the CLI/queue entry path reviewed. | Highest-priority gap. A task can be queued by role and description without a mandatory, structured case that carries scope and immutable target identity through all stages. |
+| Case and scope gate | `shared/research_case.py`, `shared/queue.py`, `agents/worker.py`, `aegisforge.py`, and `shared/evidence_ledger.py` implement a case contract, registry, selected role checks, task binding, and case-linked observations. | Partial. `CASE_REQUIRED_ROLES` currently covers `source_researcher`, `crypto_analyst`, and `lab_runner`; other legacy/generic paths can still accept unbound tasks. Downstream experiment and portable-evidence identity still needs end-to-end proof. |
 
 ## Four-role LLM loop: recommended interpretation
 
@@ -38,9 +38,9 @@ The controller should combine LLM critique with deterministic gates. An LLM's ag
 
 ## Recommended build order
 
-### P0 — Research Case and Scope Gate
+### P0 — Complete Research Case and Scope Gate
 
-Introduce a structured case contract that binds:
+The structured case contract already exists. Complete enforcement and propagation so it binds:
 - case ID and lifecycle status;
 - target repository, immutable commit/tag and relevant contracts;
 - authorization/scope URL plus a recorded scope snapshot or digest and review date;
@@ -48,7 +48,7 @@ Introduce a structured case contract that binds:
 - permitted execution mode and explicit prohibited actions;
 - task IDs, experiment records, evidence manifest and final decision.
 
-Every security-research task should carry a case ID. Missing scope or unpinned target must block execution rather than silently fall back to a general task.
+Every security-research task should carry a case ID. The current required-role set is narrow; review every entrypoint and execution boundary so missing scope or an unpinned target cannot silently fall back to a general task.
 
 ### P1 — Verification contract
 
@@ -64,7 +64,7 @@ Split Solidity/DeFi/NFT agents only when benchmark results show that specialized
 
 ## Current proving ground
 
-Keep the immediate research target as SSV Network Bug Bounty. The observed operator-migration/effective-balance difference remains a lead, not a confirmed vulnerability. The next research action must be a reproducible, scope-eligible test of a specific asset-impact path or an explicit rejection of the hypothesis.
+The immediate product proving ground is EVM Key Forensics and its public-source/synthetic benchmark workflow. The SSV Network bounty-hunting track is paused by product decision; its operator-migration/effective-balance notes remain historical research, not an active queue. Do not resume SSV work without explicit approval.
 
 ## Acceptance criteria for P0
 

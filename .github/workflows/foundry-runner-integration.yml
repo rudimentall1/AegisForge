@@ -1,6 +1,7 @@
 name: Foundry runner integration
 
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - main
@@ -13,13 +14,10 @@ on:
       - "agents/security_checker/fork_runtime_orchestrator.py"
       - "agents/security_checker/fork_compose_validator.py"
       - "agents/security_checker/fork_compose_resolver.py"
-      - "agents/security_checker/fork_runtime_evidence.py"
-      - "tests/test_fork_runtime_evidence.py"
       - "tests/test_fork_compose_resolver.py"
       - "tests/test_fork_execution_plan.py"
       - "tests/test_fork_runtime_orchestrator.py"
       - "tests/test_fork_compose_validator.py"
-      - "requirements.txt"
       - "shared/sandbox.py"
       - "tests/test_foundry_dynamic_runner_integration.py"
       - "tests/test_anvil_fork_runner_integration.py"
@@ -29,7 +27,6 @@ on:
       - "tests/test_anvil_fork_compose_runtime.py"
       - "tests/fixtures/anvil-fork-compose-runtime.override.yaml"
       - "deploy/anvil-fork/**"
-      - ".github/workflows/foundry-runner-integration.yml"
   push:
     branches:
       - main
@@ -38,12 +35,10 @@ on:
     paths:
       - "agents/security_checker/fork_compose_validator.py"
       - "agents/security_checker/fork_compose_resolver.py"
-      - "agents/security_checker/fork_runtime_evidence.py"
       - "agents/security_checker/fork_runtime_orchestrator.py"
       - "tests/test_fork_compose_validator.py"
       - "tests/test_fork_compose_resolver.py"
       - "tests/test_fork_runtime_orchestrator.py"
-      - "requirements.txt"
       - "agents/security_checker/foundry_runner.py"
       - "shared/sandbox.py"
       - "tests/test_foundry_dynamic_runner_integration.py"

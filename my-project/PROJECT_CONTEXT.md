@@ -32,7 +32,7 @@ These are repository-structure observations, not a claim that the full product w
 - `package.json` is private and contains only `test` and `check` scripts.
 - `src/index.js` exports static scaffold metadata only.
 - `tests/index.test.js` checks that metadata export.
-- The root GitHub Actions workflow now runs this package's syntax check and tests on Node.js 24.
+- The root GitHub Actions workflow runs this package's syntax check and tests on Node.js 24.
 - The Node 24 syntax and test commands passed in GitHub Actions run `45770823759` on candidate commit `4bd34c0790835ca0d4829e8b07888459e47da438`; subsequent changes to this package have been documentation-only.
 - Node.js 24 is the selected CI major version; no other Node versions are currently supported.
 
@@ -57,14 +57,25 @@ my-project/
     └── index.test.js
 ```
 
+## Server inspection — 2026-11-26
+
+- The connected Linux host `Gensyn2.play2go.cloud` reports Node.js `v24.18.0`, npm `11.16.0`, and system Python `3.10.12`.
+- The host checkout at `/root/AegisForge` is on `feat/persist-local-experiment-evidence-main` at `c69dbcc5142c98d38fcc01ebf721a77ce4e282db`, not on current `main`. It has two untracked inspection files (`dump.txt` and `tree.txt`). These files and the checkout were left untouched.
+- A separate clean worktree was created from fetched `origin/main` at `da91e18a69a1bc455f53b0ea4dc0ea53bb3ce261` for this documentation update.
+- No AegisForge, Foundry, Anvil, or Firecracker process was observed on the host during inspection. This is a point-in-time process observation, not proof that no scheduled or remote execution exists.
+- The isolated scaffold was checked on the host: `npm run check` passed; `npm test` passed (1 test, 0 failures, 0 skipped).
+- No AegisForge service was deployed, started, restarted, or modified during this inspection.
+
 ## Verified status
 
 - [x] Requested directory and documentation scaffold exists on this PR branch.
 - [x] Mandatory working rules exist at repository root and in this directory.
 - [x] Minimal private Node ESM package exists without third-party dependencies.
 - [x] Source entrypoint and native Node test are present.
-- [x] Run `npm test` in Node.js 24 CI (run `45770823759`).
-- [x] Run `npm run check` in Node.js 24 CI (run `45770823759`).
+- [x] Run `npm test` in Node.js 24 CI (historical scaffold run `45770823759`; current parent main CI `45771692353` also passed).
+- [x] Run `npm run check` in Node.js 24 CI (historical scaffold run `45770823759`; current parent main CI `45771692353` also passed).
+- [x] Run `npm run check` on Gensyn2 host with Node.js `v24.18.0` (2026-11-26).
+- [x] Run `npm test` on Gensyn2 host (1 passed, 0 failed, 0 skipped; 2026-11-26).
 - [x] Select Node.js 24 as the CI runtime baseline.
 - [ ] Define the product problem, domain ownership, API, and acceptance criteria.
 - [ ] Decide whether integration is justified; do not assume that it is.

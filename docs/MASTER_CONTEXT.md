@@ -60,16 +60,16 @@ The dependency chain is:
 
 `#196 (main) → #207 (feat/first-foundry-exploit-benchmark) → #208 (feat/onchain-contract-intake) → #210 (fix/onchain-security-checker-offline) → #211 (feat/onchain-bytecode-verification)`.
 
-- #196 adds a large task-bound local-experiment/evidence package implementation (59 files, approximately 13.2k additions). It is a prerequisite branch for #207, not an isolated small patch.
-- #207 adds case-bound Foundry execution/evidence (30 files, approximately 3.9k additions). Its PR body says its checks had not executed at the time recorded.
-- #208 adds on-chain source intake and structural research (21 files, approximately 3.5k additions). Its recorded CI attempts failed before a runner executed tests.
-- #210 fixes and tests the on-chain worker pipeline (10 files). Its reported test results must be verified against the exact current head and its full dependency chain.
-- #211 adds compiler/runtime equivalence, append-only on-chain verification, admission, round storage, and Firecracker host preflight (32 files, approximately 4.1k additions). Its PR body records green runs on earlier heads, not automatically on the current combined candidate.
+- #196's PR description proposes a large task-bound local-experiment/evidence package (59 files, approximately 13.2k additions). Its implementation has not been fully source-reviewed here. It is a prerequisite branch for #207, not an isolated small patch.
+- #207's PR description proposes case-bound Foundry execution/evidence (30 files, approximately 3.9k additions). Its PR body says its checks had not executed at the time recorded.
+- #208's PR description proposes on-chain source intake and structural research (21 files, approximately 3.5k additions). Its recorded CI attempts failed before a runner executed tests.
+- #210's PR description claims fixes and tests for the on-chain worker pipeline (10 files). Its reported test results must be verified against the exact current head and its full dependency chain.
+- #211's PR description proposes compiler/runtime equivalence, append-only on-chain verification, admission, round storage, and Firecracker host preflight (32 files, approximately 4.1k additions). Its PR body records green runs on earlier heads, not automatically on the current combined candidate.
 - Do not merge a child before its base. Review the combined diff against current `main`, rerun CI on the exact resulting head, and resolve security-boundary findings before advancing the chain.
 
 ### Separate deployment-discovery track
 
-- #205 is based on the non-default `master` branch, not `main`; #206 is stacked on #205. These changes include deployment discovery, RPC monitoring, Slither analysis, RPC gateway, fork snapshots, and synthetic Anvil tests. They must not be merged by changing their base blindly. First reconcile branch ancestry, product scope, secrets/authorization boundaries, and overlap with the #208–#211 intake path.
+- #205 is based on the non-default `master` branch, not `main`; #206 is stacked on #205. Their PR descriptions propose deployment discovery, RPC monitoring, Slither analysis, RPC gateway, fork snapshots, and synthetic Anvil tests. They must not be merged by changing their base blindly. First reconcile branch ancestry, product scope, secrets/authorization boundaries, and overlap with the #208–#211 intake path.
 - #197 is an SSV bounty-hunt result. SSV hunting is paused by product decision; do not merge or resume execution solely because a PR exists.
 
 ### Other open main-targeted work

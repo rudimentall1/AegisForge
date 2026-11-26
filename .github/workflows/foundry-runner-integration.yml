@@ -49,7 +49,6 @@ on:
       - "tests/test_anvil_fork_compose_runtime.py"
       - "tests/fixtures/anvil-fork-compose-runtime.override.yaml"
       - "deploy/anvil-fork/**"
-      - ".github/workflows/foundry-runner-integration.yml"
 
 permissions:
   contents: read
